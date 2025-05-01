@@ -1,0 +1,6 @@
+@MedRecPro_HostAddress = http://localhost:5093
+
+GET {{MedRecPro_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
