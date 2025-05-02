@@ -1,0 +1,1008 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document xmlns="urn:hl7-org:v3"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="urn:hl7-org:v3 SPL.xsd">
+  <!-- Header populated from Document table -->
+  <id root="{DocumentGUID}" extension="{VersionNumber}"/>
+  <code code="{DocumentCode}" codeSystem="{DocumentCodeSystem}" displayName="{DocumentDisplayName}"/>
+  <title>{Title}</title>
+  <effectiveTime value="{EffectiveTime}"/>
+  <!-- Authors/Organizations -->
+  <author>
+    <time value="{AuthorTime}"/>
+    <assignedEntity>
+      <id extension="{OrganizationID}"/>
+      <representedOrganization>
+        <name>{OrganizationName}</name>
+      </representedOrganization>
+    </assignedEntity>
+  </author>
+  <component>
+    <structuredBody>
+      <!-- Template Sections mapped to database tables -->
+      <section id="Document">
+        <title>Document</title>
+        <text>
+          <content>DocumentID: {DocumentID}</content>
+          <content>DocumentGUID: {DocumentGUID}</content>
+          <content>DocumentCode: {DocumentCode}</content>
+          <content>DocumentCodeSystem: {DocumentCodeSystem}</content>
+          <content>DocumentDisplayName: {DocumentDisplayName}</content>
+          <content>Title: {Title}</content>
+          <content>EffectiveTime: {EffectiveTime}</content>
+          <content>SetGUID: {SetGUID}</content>
+          <content>VersionNumber: {VersionNumber}</content>
+          <content>SubmissionFileName: {SubmissionFileName}</content>
+        </text>
+      </section>
+      <section id="Organization">
+        <title>Organization</title>
+        <text>
+          <content>OrganizationID: {OrganizationID}</content>
+          <content>OrganizationName: {OrganizationName}</content>
+          <content>DUNSNumber: {DUNSNumber}</content>
+          <content>FEINumber: {FEINumber}</content>
+          <content>IsConfidential: {IsConfidential}</content>
+        </text>
+      </section>
+      <section id="Address">
+        <title>Address</title>
+        <text>
+          <content>AddressID: {AddressID}</content>
+          <content>StreetAddressLine1: {StreetAddressLine1}</content>
+          <content>StreetAddressLine2: {StreetAddressLine2}</content>
+          <content>City: {City}</content>
+          <content>StateProvince: {StateProvince}</content>
+          <content>PostalCode: {PostalCode}</content>
+          <content>CountryCode: {CountryCode}</content>
+          <content>CountryName: {CountryName}</content>
+        </text>
+      </section>
+      <section id="Telecom">
+        <title>Telecom</title>
+        <text>
+          <content>TelecomID: {TelecomID}</content>
+          <content>TelecomType: {TelecomType}</content>
+          <content>TelecomValue: {TelecomValue}</content>
+        </text>
+      </section>
+      <section id="ContactPerson">
+        <title>ContactPerson</title>
+        <text>
+          <content>ContactPersonID: {ContactPersonID}</content>
+          <content>ContactPersonName: {ContactPersonName}</content>
+        </text>
+      </section>
+      <section id="ContactParty">
+        <title>ContactParty</title>
+        <text>
+          <content>ContactPartyID: {ContactPartyID}</content>
+          <content>OrganizationID: {OrganizationID}</content>
+          <content>AddressID: {AddressID}</content>
+          <content>ContactPersonID: {ContactPersonID}</content>
+        </text>
+      </section>
+      <section id="ContactPartyTelecom">
+        <title>ContactPartyTelecom</title>
+        <text>
+          <content>ContactPartyTelecomID: {ContactPartyTelecomID}</content>
+          <content>ContactPartyID: {ContactPartyID}</content>
+          <content>TelecomID: {TelecomID}</content>
+        </text>
+      </section>
+      <section id="OrganizationTelecom">
+        <title>OrganizationTelecom</title>
+        <text>
+          <content>OrganizationTelecomID: {OrganizationTelecomID}</content>
+          <content>OrganizationID: {OrganizationID}</content>
+          <content>TelecomID: {TelecomID}</content>
+        </text>
+      </section>
+      <section id="DocumentAuthor">
+        <title>DocumentAuthor</title>
+        <text>
+          <content>DocumentAuthorID: {DocumentAuthorID}</content>
+          <content>DocumentID: {DocumentID}</content>
+          <content>OrganizationID: {OrganizationID}</content>
+          <content>AuthorType: {AuthorType}</content>
+        </text>
+      </section>
+      <section id="RelatedDocument">
+        <title>RelatedDocument</title>
+        <text>
+          <content>RelatedDocumentID: {RelatedDocumentID}</content>
+          <content>SourceDocumentID: {SourceDocumentID}</content>
+          <content>RelationshipTypeCode: {RelationshipTypeCode}</content>
+          <content>ReferencedSetGUID: {ReferencedSetGUID}</content>
+          <content>ReferencedDocumentGUID: {ReferencedDocumentGUID}</content>
+          <content>ReferencedVersionNumber: {ReferencedVersionNumber}</content>
+          <content>ReferencedDocumentCode: {ReferencedDocumentCode}</content>
+          <content>ReferencedDocumentCodeSystem: {ReferencedDocumentCodeSystem}</content>
+          <content>ReferencedDocumentDisplayName: {ReferencedDocumentDisplayName}</content>
+        </text>
+      </section>
+      <section id="DocumentRelationship">
+        <title>DocumentRelationship</title>
+        <text>
+          <content>DocumentRelationshipID: {DocumentRelationshipID}</content>
+          <content>DocumentID: {DocumentID}</content>
+          <content>ParentOrganizationID: {ParentOrganizationID}</content>
+          <content>ChildOrganizationID: {ChildOrganizationID}</content>
+          <content>RelationshipType: {RelationshipType}</content>
+          <content>RelationshipLevel: {RelationshipLevel}</content>
+        </text>
+      </section>
+      <section id="StructuredBody">
+        <title>StructuredBody</title>
+        <text>
+          <content>StructuredBodyID: {StructuredBodyID}</content>
+          <content>DocumentID: {DocumentID}</content>
+        </text>
+      </section>
+      <section id="Section">
+        <title>Section</title>
+        <text>
+          <content>SectionID: {SectionID}</content>
+          <content>StructuredBodyID: {StructuredBodyID}</content>
+          <content>SectionGUID: {SectionGUID}</content>
+          <content>SectionCode: {SectionCode}</content>
+          <content>SectionCodeSystem: {SectionCodeSystem}</content>
+          <content>SectionDisplayName: {SectionDisplayName}</content>
+          <content>Title: {Title}</content>
+          <content>EffectiveTime: {EffectiveTime}</content>
+        </text>
+      </section>
+      <section id="SectionHierarchy">
+        <title>SectionHierarchy</title>
+        <text>
+          <content>SectionHierarchyID: {SectionHierarchyID}</content>
+          <content>ParentSectionID: {ParentSectionID}</content>
+          <content>ChildSectionID: {ChildSectionID}</content>
+          <content>SequenceNumber: {SequenceNumber}</content>
+        </text>
+      </section>
+      <section id="SectionTextContent">
+        <title>SectionTextContent</title>
+        <text>
+          <content>SectionTextContentID: {SectionTextContentID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>ContentType: {ContentType}</content>
+          <content>SequenceNumber: {SequenceNumber}</content>
+          <content>ContentText: {ContentText}</content>
+        </text>
+      </section>
+      <section id="TextList">
+        <title>TextList</title>
+        <text>
+          <content>TextListID: {TextListID}</content>
+          <content>SectionTextContentID: {SectionTextContentID}</content>
+          <content>ListType: {ListType}</content>
+          <content>StyleCode: {StyleCode}</content>
+        </text>
+      </section>
+      <section id="TextListItem">
+        <title>TextListItem</title>
+        <text>
+          <content>TextListItemID: {TextListItemID}</content>
+          <content>TextListID: {TextListID}</content>
+          <content>SequenceNumber: {SequenceNumber}</content>
+          <content>ItemCaption: {ItemCaption}</content>
+          <content>ItemText: {ItemText}</content>
+        </text>
+      </section>
+      <section id="TextTable">
+        <title>TextTable</title>
+        <text>
+          <content>TextTableID: {TextTableID}</content>
+          <content>SectionTextContentID: {SectionTextContentID}</content>
+          <content>Width: {Width}</content>
+          <content>HasHeader: {HasHeader}</content>
+          <content>HasFooter: {HasFooter}</content>
+        </text>
+      </section>
+      <section id="TextTableRow">
+        <title>TextTableRow</title>
+        <text>
+          <content>TextTableRowID: {TextTableRowID}</content>
+          <content>TextTableID: {TextTableID}</content>
+          <content>RowGroupType: {RowGroupType}</content>
+          <content>SequenceNumber: {SequenceNumber}</content>
+          <content>StyleCode: {StyleCode}</content>
+        </text>
+      </section>
+      <section id="TextTableCell">
+        <title>TextTableCell</title>
+        <text>
+          <content>TextTableCellID: {TextTableCellID}</content>
+          <content>TextTableRowID: {TextTableRowID}</content>
+          <content>CellType: {CellType}</content>
+          <content>SequenceNumber: {SequenceNumber}</content>
+          <content>CellText: {CellText}</content>
+          <content>RowSpan: {RowSpan}</content>
+          <content>ColSpan: {ColSpan}</content>
+          <content>StyleCode: {StyleCode}</content>
+          <content>Align: {Align}</content>
+          <content>VAlign: {VAlign}</content>
+        </text>
+      </section>
+      <section id="ObservationMedia">
+        <title>ObservationMedia</title>
+        <text>
+          <content>ObservationMediaID: {ObservationMediaID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>MediaID: {MediaID}</content>
+          <content>DescriptionText: {DescriptionText}</content>
+          <content>MediaType: {MediaType}</content>
+          <content>FileName: {FileName}</content>
+        </text>
+      </section>
+      <section id="RenderedMedia">
+        <title>RenderedMedia</title>
+        <text>
+          <content>RenderedMediaID: {RenderedMediaID}</content>
+          <content>SectionTextContentID: {SectionTextContentID}</content>
+          <content>ObservationMediaID: {ObservationMediaID}</content>
+          <content>SequenceInContent: {SequenceInContent}</content>
+          <content>IsInline: {IsInline}</content>
+        </text>
+      </section>
+      <section id="SectionExcerptHighlight">
+        <title>SectionExcerptHighlight</title>
+        <text>
+          <content>SectionExcerptHighlightID: {SectionExcerptHighlightID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>HighlightText: {HighlightText}</content>
+        </text>
+      </section>
+      <section id="Product">
+        <title>Product</title>
+        <text>
+          <content>ProductID: {ProductID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>ProductName: {ProductName}</content>
+          <content>ProductSuffix: {ProductSuffix}</content>
+          <content>FormCode: {FormCode}</content>
+          <content>FormCodeSystem: {FormCodeSystem}</content>
+          <content>FormDisplayName: {FormDisplayName}</content>
+          <content>DescriptionText: {DescriptionText}</content>
+        </text>
+      </section>
+      <section id="ProductIdentifier">
+        <title>ProductIdentifier</title>
+        <text>
+          <content>ProductIdentifierID: {ProductIdentifierID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>IdentifierValue: {IdentifierValue}</content>
+          <content>IdentifierSystemOID: {IdentifierSystemOID}</content>
+          <content>IdentifierType: {IdentifierType}</content>
+        </text>
+      </section>
+      <section id="GenericMedicine">
+        <title>GenericMedicine</title>
+        <text>
+          <content>GenericMedicineID: {GenericMedicineID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>GenericName: {GenericName}</content>
+          <content>PhoneticName: {PhoneticName}</content>
+        </text>
+      </section>
+      <section id="SpecializedKind">
+        <title>SpecializedKind</title>
+        <text>
+          <content>SpecializedKindID: {SpecializedKindID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>KindCode: {KindCode}</content>
+          <content>KindCodeSystem: {KindCodeSystem}</content>
+          <content>KindDisplayName: {KindDisplayName}</content>
+        </text>
+      </section>
+      <section id="EquivalentEntity">
+        <title>EquivalentEntity</title>
+        <text>
+          <content>EquivalentEntityID: {EquivalentEntityID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>EquivalenceCode: {EquivalenceCode}</content>
+          <content>EquivalenceCodeSystem: {EquivalenceCodeSystem}</content>
+          <content>DefiningMaterialKindCode: {DefiningMaterialKindCode}</content>
+          <content>DefiningMaterialKindSystem: {DefiningMaterialKindSystem}</content>
+        </text>
+      </section>
+      <section id="AdditionalIdentifier">
+        <title>AdditionalIdentifier</title>
+        <text>
+          <content>AdditionalIdentifierID: {AdditionalIdentifierID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>IdentifierTypeCode: {IdentifierTypeCode}</content>
+          <content>IdentifierTypeCodeSystem: {IdentifierTypeCodeSystem}</content>
+          <content>IdentifierTypeDisplayName: {IdentifierTypeDisplayName}</content>
+          <content>IdentifierValue: {IdentifierValue}</content>
+          <content>IdentifierRootOID: {IdentifierRootOID}</content>
+        </text>
+      </section>
+      <section id="IngredientSubstance">
+        <title>IngredientSubstance</title>
+        <text>
+          <content>IngredientSubstanceID: {IngredientSubstanceID}</content>
+          <content>UNII: {UNII}</content>
+          <content>SubstanceName: {SubstanceName}</content>
+        </text>
+      </section>
+      <section id="ActiveMoiety">
+        <title>ActiveMoiety</title>
+        <text>
+          <content>ActiveMoietyID: {ActiveMoietyID}</content>
+          <content>IngredientSubstanceID: {IngredientSubstanceID}</content>
+          <content>MoietyUNII: {MoietyUNII}</content>
+          <content>MoietyName: {MoietyName}</content>
+        </text>
+      </section>
+      <section id="ReferenceSubstance">
+        <title>ReferenceSubstance</title>
+        <text>
+          <content>ReferenceSubstanceID: {ReferenceSubstanceID}</content>
+          <content>IngredientSubstanceID: {IngredientSubstanceID}</content>
+          <content>RefSubstanceUNII: {RefSubstanceUNII}</content>
+          <content>RefSubstanceName: {RefSubstanceName}</content>
+        </text>
+      </section>
+      <section id="Ingredient">
+        <title>Ingredient</title>
+        <text>
+          <content>IngredientID: {IngredientID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>IngredientSubstanceID: {IngredientSubstanceID}</content>
+          <content>ClassCode: {ClassCode}</content>
+          <content>QuantityNumerator: {QuantityNumerator}</content>
+          <content>QuantityNumeratorUnit: {QuantityNumeratorUnit}</content>
+          <content>QuantityDenominator: {QuantityDenominator}</content>
+          <content>QuantityDenominatorUnit: {QuantityDenominatorUnit}</content>
+          <content>ReferenceSubstanceID: {ReferenceSubstanceID}</content>
+          <content>IsConfidential: {IsConfidential}</content>
+          <content>SequenceNumber: {SequenceNumber}</content>
+        </text>
+      </section>
+      <section id="IngredientSourceProduct">
+        <title>IngredientSourceProduct</title>
+        <text>
+          <content>IngredientSourceProductID: {IngredientSourceProductID}</content>
+          <content>IngredientID: {IngredientID}</content>
+          <content>SourceProductNDC: {SourceProductNDC}</content>
+          <content>SourceProductNDCSysten: {SourceProductNDCSysten}</content>
+        </text>
+      </section>
+      <section id="PackagingLevel">
+        <title>PackagingLevel</title>
+        <text>
+          <content>PackagingLevelID: {PackagingLevelID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>PartProductID: {PartProductID}</content>
+          <content>QuantityNumerator: {QuantityNumerator}</content>
+          <content>QuantityNumeratorUnit: {QuantityNumeratorUnit}</content>
+          <content>PackageFormCode: {PackageFormCode}</content>
+          <content>PackageFormCodeSystem: {PackageFormCodeSystem}</content>
+          <content>PackageFormDisplayName: {PackageFormDisplayName}</content>
+        </text>
+      </section>
+      <section id="PackageIdentifier">
+        <title>PackageIdentifier</title>
+        <text>
+          <content>PackageIdentifierID: {PackageIdentifierID}</content>
+          <content>PackagingLevelID: {PackagingLevelID}</content>
+          <content>IdentifierValue: {IdentifierValue}</content>
+          <content>IdentifierSystemOID: {IdentifierSystemOID}</content>
+          <content>IdentifierType: {IdentifierType}</content>
+        </text>
+      </section>
+      <section id="PackagingHierarchy">
+        <title>PackagingHierarchy</title>
+        <text>
+          <content>PackagingHierarchyID: {PackagingHierarchyID}</content>
+          <content>OuterPackagingLevelID: {OuterPackagingLevelID}</content>
+          <content>InnerPackagingLevelID: {InnerPackagingLevelID}</content>
+          <content>SequenceNumber: {SequenceNumber}</content>
+        </text>
+      </section>
+      <section id="MarketingCategory">
+        <title>MarketingCategory</title>
+        <text>
+          <content>MarketingCategoryID: {MarketingCategoryID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>CategoryCode: {CategoryCode}</content>
+          <content>CategoryCodeSystem: {CategoryCodeSystem}</content>
+          <content>CategoryDisplayName: {CategoryDisplayName}</content>
+          <content>ApplicationOrMonographIDValue: {ApplicationOrMonographIDValue}</content>
+          <content>ApplicationOrMonographIDOID: {ApplicationOrMonographIDOID}</content>
+          <content>ApprovalDate: {ApprovalDate}</content>
+          <content>TerritoryCode: {TerritoryCode}</content>
+        </text>
+      </section>
+      <section id="MarketingStatus">
+        <title>MarketingStatus</title>
+        <text>
+          <content>MarketingStatusID: {MarketingStatusID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>PackagingLevelID: {PackagingLevelID}</content>
+          <content>MarketingActCode: {MarketingActCode}</content>
+          <content>MarketingActCodeSystem: {MarketingActCodeSystem}</content>
+          <content>StatusCode: {StatusCode}</content>
+          <content>EffectiveStartDate: {EffectiveStartDate}</content>
+          <content>EffectiveEndDate: {EffectiveEndDate}</content>
+        </text>
+      </section>
+      <section id="Characteristic">
+        <title>Characteristic</title>
+        <text>
+          <content>CharacteristicID: {CharacteristicID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>PackagingLevelID: {PackagingLevelID}</content>
+          <content>CharacteristicCode: {CharacteristicCode}</content>
+          <content>CharacteristicCodeSystem: {CharacteristicCodeSystem}</content>
+          <content>ValueType: {ValueType}</content>
+          <content>ValuePQ_Value: {ValuePQ_Value}</content>
+          <content>ValuePQ_Unit: {ValuePQ_Unit}</content>
+          <content>ValueINT: {ValueINT}</content>
+          <content>ValueCV_Code: {ValueCV_Code}</content>
+          <content>ValueCV_CodeSystem: {ValueCV_CodeSystem}</content>
+          <content>ValueCV_DisplayName: {ValueCV_DisplayName}</content>
+          <content>ValueST: {ValueST}</content>
+          <content>ValueBL: {ValueBL}</content>
+          <content>ValueIVLPQ_LowValue: {ValueIVLPQ_LowValue}</content>
+          <content>ValueIVLPQ_LowUnit: {ValueIVLPQ_LowUnit}</content>
+          <content>ValueIVLPQ_HighValue: {ValueIVLPQ_HighValue}</content>
+          <content>ValueIVLPQ_HighUnit: {ValueIVLPQ_HighUnit}</content>
+          <content>ValueED_MediaType: {ValueED_MediaType}</content>
+          <content>ValueED_FileName: {ValueED_FileName}</content>
+          <content>ValueNullFlavor: {ValueNullFlavor}</content>
+        </text>
+      </section>
+      <section id="ProductPart">
+        <title>ProductPart</title>
+        <text>
+          <content>ProductPartID: {ProductPartID}</content>
+          <content>KitProductID: {KitProductID}</content>
+          <content>PartProductID: {PartProductID}</content>
+          <content>PartQuantityNumerator: {PartQuantityNumerator}</content>
+          <content>PartQuantityNumeratorUnit: {PartQuantityNumeratorUnit}</content>
+        </text>
+      </section>
+      <section id="PartOfAssembly">
+        <title>PartOfAssembly</title>
+        <text>
+          <content>PartOfAssemblyID: {PartOfAssemblyID}</content>
+          <content>PrimaryProductID: {PrimaryProductID}</content>
+          <content>AccessoryProductID: {AccessoryProductID}</content>
+        </text>
+      </section>
+      <section id="Policy">
+        <title>Policy</title>
+        <text>
+          <content>PolicyID: {PolicyID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>PolicyClassCode: {PolicyClassCode}</content>
+          <content>PolicyCode: {PolicyCode}</content>
+          <content>PolicyCodeSystem: {PolicyCodeSystem}</content>
+          <content>PolicyDisplayName: {PolicyDisplayName}</content>
+        </text>
+      </section>
+      <section id="ProductRouteOfAdministration">
+        <title>ProductRouteOfAdministration</title>
+        <text>
+          <content>ProductRouteOfAdministrationID: {ProductRouteOfAdministrationID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>RouteCode: {RouteCode}</content>
+          <content>RouteCodeSystem: {RouteCodeSystem}</content>
+          <content>RouteDisplayName: {RouteDisplayName}</content>
+          <content>RouteNullFlavor: {RouteNullFlavor}</content>
+        </text>
+      </section>
+      <section id="ProductWebLink">
+        <title>ProductWebLink</title>
+        <text>
+          <content>ProductWebLinkID: {ProductWebLinkID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>WebURL: {WebURL}</content>
+        </text>
+      </section>
+      <section id="OrganizationIdentifier">
+        <title>OrganizationIdentifier</title>
+        <text>
+          <content>OrganizationIdentifierID: {OrganizationIdentifierID}</content>
+          <content>OrganizationID: {OrganizationID}</content>
+          <content>IdentifierValue: {IdentifierValue}</content>
+          <content>IdentifierSystemOID: {IdentifierSystemOID}</content>
+          <content>IdentifierType: {IdentifierType}</content>
+        </text>
+      </section>
+      <section id="BusinessOperation">
+        <title>BusinessOperation</title>
+        <text>
+          <content>BusinessOperationID: {BusinessOperationID}</content>
+          <content>DocumentRelationshipID: {DocumentRelationshipID}</content>
+          <content>OperationCode: {OperationCode}</content>
+          <content>OperationCodeSystem: {OperationCodeSystem}</content>
+          <content>OperationDisplayName: {OperationDisplayName}</content>
+        </text>
+      </section>
+      <section id="BusinessOperationQualifier">
+        <title>BusinessOperationQualifier</title>
+        <text>
+          <content>BusinessOperationQualifierID: {BusinessOperationQualifierID}</content>
+          <content>BusinessOperationID: {BusinessOperationID}</content>
+          <content>QualifierCode: {QualifierCode}</content>
+          <content>QualifierCodeSystem: {QualifierCodeSystem}</content>
+          <content>QualifierDisplayName: {QualifierDisplayName}</content>
+        </text>
+      </section>
+      <section id="BusinessOperationProductLink">
+        <title>BusinessOperationProductLink</title>
+        <text>
+          <content>BusinessOperationProductLinkID: {BusinessOperationProductLinkID}</content>
+          <content>BusinessOperationID: {BusinessOperationID}</content>
+          <content>ProductID: {ProductID}</content>
+        </text>
+      </section>
+      <section id="LegalAuthenticator">
+        <title>LegalAuthenticator</title>
+        <text>
+          <content>LegalAuthenticatorID: {LegalAuthenticatorID}</content>
+          <content>DocumentID: {DocumentID}</content>
+          <content>NoteText: {NoteText}</content>
+          <content>TimeValue: {TimeValue}</content>
+          <content>SignatureText: {SignatureText}</content>
+          <content>AssignedPersonName: {AssignedPersonName}</content>
+          <content>,SignerOrganizationID: {,SignerOrganizationID}</content>
+        </text>
+      </section>
+      <section id="IdentifiedSubstance">
+        <title>IdentifiedSubstance</title>
+        <text>
+          <content>IdentifiedSubstanceID: {IdentifiedSubstanceID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>SubjectType: {SubjectType}</content>
+          <content>SubstanceIdentifierValue: {SubstanceIdentifierValue}</content>
+          <content>SubstanceIdentifierSystemOID: {SubstanceIdentifierSystemOID}</content>
+          <content>IsDefinition: {IsDefinition}</content>
+        </text>
+      </section>
+      <section id="PharmacologicClass">
+        <title>PharmacologicClass</title>
+        <text>
+          <content>PharmacologicClassID: {PharmacologicClassID}</content>
+          <content>IdentifiedSubstanceID: {IdentifiedSubstanceID}</content>
+          <content>ClassCode: {ClassCode}</content>
+          <content>ClassCodeSystem: {ClassCodeSystem}</content>
+          <content>ClassDisplayName: {ClassDisplayName}</content>
+        </text>
+      </section>
+      <section id="PharmacologicClassName">
+        <title>PharmacologicClassName</title>
+        <text>
+          <content>PharmClassNameID: {PharmClassNameID}</content>
+          <content>PharmacologicClassID: {PharmacologicClassID}</content>
+          <content>NameValue: {NameValue}</content>
+          <content>NameUse: {NameUse}</content>
+        </text>
+      </section>
+      <section id="PharmacologicClassLink">
+        <title>PharmacologicClassLink</title>
+        <text>
+          <content>PharmClassLinkID: {PharmClassLinkID}</content>
+          <content>ActiveMoietySubstanceID: {ActiveMoietySubstanceID}</content>
+          <content>PharmacologicClassID: {PharmacologicClassID}</content>
+        </text>
+      </section>
+      <section id="PharmacologicClassHierarchy">
+        <title>PharmacologicClassHierarchy</title>
+        <text>
+          <content>PharmClassHierarchyID: {PharmClassHierarchyID}</content>
+          <content>ChildPharmacologicClassID: {ChildPharmacologicClassID}</content>
+          <content>ParentPharmacologicClassID: {ParentPharmacologicClassID}</content>
+        </text>
+      </section>
+      <section id="BillingUnitIndex">
+        <title>BillingUnitIndex</title>
+        <text>
+          <content>BillingUnitIndexID: {BillingUnitIndexID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>PackageNDCValue: {PackageNDCValue}</content>
+          <content>PackageNDCSystemOID: {PackageNDCSystemOID}</content>
+          <content>BillingUnitCode: {BillingUnitCode}</content>
+          <content>BillingUnitCodeSystemOID: {BillingUnitCodeSystemOID}</content>
+        </text>
+      </section>
+      <section id="ProductConcept">
+        <title>ProductConcept</title>
+        <text>
+          <content>ProductConceptID: {ProductConceptID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>ConceptCode: {ConceptCode}</content>
+          <content>ConceptCodeSystem: {ConceptCodeSystem}</content>
+          <content>ConceptType: {ConceptType}</content>
+          <content>FormCode: {FormCode}</content>
+          <content>FormCodeSystem: {FormCodeSystem}</content>
+          <content>FormDisplayName: {FormDisplayName}</content>
+        </text>
+      </section>
+      <section id="ProductConceptEquivalence">
+        <title>ProductConceptEquivalence</title>
+        <text>
+          <content>ProductConceptEquivalenceID: {ProductConceptEquivalenceID}</content>
+          <content>ApplicationProductConceptID: {ApplicationProductConceptID}</content>
+          <content>AbstractProductConceptID: {AbstractProductConceptID}</content>
+          <content>EquivalenceCode: {EquivalenceCode}</content>
+          <content>EquivalenceCodeSystem: {EquivalenceCodeSystem}</content>
+        </text>
+      </section>
+      <section id="LotIdentifier">
+        <title>LotIdentifier</title>
+        <text>
+          <content>LotIdentifierID: {LotIdentifierID}</content>
+          <content>LotNumber: {LotNumber}</content>
+          <content>LotRootOID: {LotRootOID}</content>
+        </text>
+      </section>
+      <section id="ProductInstance">
+        <title>ProductInstance</title>
+        <text>
+          <content>ProductInstanceID: {ProductInstanceID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>InstanceType: {InstanceType}</content>
+          <content>LotIdentifierID: {LotIdentifierID}</content>
+          <content>ExpirationDate: {ExpirationDate}</content>
+        </text>
+      </section>
+      <section id="DosingSpecification">
+        <title>DosingSpecification</title>
+        <text>
+          <content>DosingSpecificationID: {DosingSpecificationID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>RouteCode: {RouteCode}</content>
+          <content>RouteCodeSystem: {RouteCodeSystem}</content>
+          <content>RouteDisplayName: {RouteDisplayName}</content>
+          <content>DoseQuantityValue: {DoseQuantityValue}</content>
+          <content>DoseQuantityUnit: {DoseQuantityUnit}</content>
+        </text>
+      </section>
+      <section id="IngredientInstance">
+        <title>IngredientInstance</title>
+        <text>
+          <content>IngredientInstanceID: {IngredientInstanceID}</content>
+          <content>FillLotInstanceID: {FillLotInstanceID}</content>
+          <content>IngredientSubstanceID: {IngredientSubstanceID}</content>
+          <content>LotIdentifierID: {LotIdentifierID}</content>
+          <content>ManufacturerOrganizationID: {ManufacturerOrganizationID}</content>
+        </text>
+      </section>
+      <section id="LotHierarchy">
+        <title>LotHierarchy</title>
+        <text>
+          <content>LotHierarchyID: {LotHierarchyID}</content>
+          <content>ParentInstanceID: {ParentInstanceID}</content>
+          <content>ChildInstanceID: {ChildInstanceID}</content>
+        </text>
+      </section>
+      <section id="ProductEvent">
+        <title>ProductEvent</title>
+        <text>
+          <content>ProductEventID: {ProductEventID}</content>
+          <content>PackagingLevelID: {PackagingLevelID}</content>
+          <content>EventCode: {EventCode}</content>
+          <content>EventCodeSystem: {EventCodeSystem}</content>
+          <content>EventDisplayName: {EventDisplayName}</content>
+          <content>QuantityValue: {QuantityValue}</content>
+          <content>QuantityUnit: {QuantityUnit}</content>
+          <content>EffectiveTimeLow: {EffectiveTimeLow}</content>
+        </text>
+      </section>
+      <section id="NamedEntity">
+        <title>NamedEntity</title>
+        <text>
+          <content>NamedEntityID: {NamedEntityID}</content>
+          <content>OrganizationID: {OrganizationID}</content>
+          <content>EntityTypeCode: {EntityTypeCode}</content>
+          <content>EntityTypeCodeSystem: {EntityTypeCodeSystem}</content>
+          <content>EntityTypeDisplayName: {EntityTypeDisplayName}</content>
+          <content>EntityName: {EntityName}</content>
+          <content>EntitySuffix: {EntitySuffix}</content>
+        </text>
+      </section>
+      <section id="TerritorialAuthority">
+        <title>TerritorialAuthority</title>
+        <text>
+          <content>TerritorialAuthorityID: {TerritorialAuthorityID}</content>
+          <content>TerritoryCode: {TerritoryCode}</content>
+          <content>TerritoryCodeSystem: {TerritoryCodeSystem}</content>
+          <content>GoverningAgencyOrgID: {GoverningAgencyOrgID}</content>
+        </text>
+      </section>
+      <section id="License">
+        <title>License</title>
+        <text>
+          <content>LicenseID: {LicenseID}</content>
+          <content>BusinessOperationID: {BusinessOperationID}</content>
+          <content>LicenseNumber: {LicenseNumber}</content>
+          <content>LicenseRootOID: {LicenseRootOID}</content>
+          <content>LicenseTypeCode: {LicenseTypeCode}</content>
+          <content>LicenseTypeCodeSystem: {LicenseTypeCodeSystem}</content>
+          <content>LicenseTypeDisplayName: {LicenseTypeDisplayName}</content>
+          <content>StatusCode: {StatusCode}</content>
+          <content>ExpirationDate: {ExpirationDate}</content>
+          <content>TerritorialAuthorityID: {TerritorialAuthorityID}</content>
+        </text>
+      </section>
+      <section id="AttachedDocument">
+        <title>AttachedDocument</title>
+        <text>
+          <content>AttachedDocumentID: {AttachedDocumentID}</content>
+          <content>ParentEntityType: {ParentEntityType}</content>
+          <content>ParentEntityID: {ParentEntityID}</content>
+          <content>MediaType: {MediaType}</content>
+          <content>FileName: {FileName}</content>
+        </text>
+      </section>
+      <section id="DisciplinaryAction">
+        <title>DisciplinaryAction</title>
+        <text>
+          <content>DisciplinaryActionID: {DisciplinaryActionID}</content>
+          <content>LicenseID: {LicenseID}</content>
+          <content>ActionCode: {ActionCode}</content>
+          <content>ActionCodeSystem: {ActionCodeSystem}</content>
+          <content>ActionDisplayName: {ActionDisplayName}</content>
+          <content>EffectiveTime: {EffectiveTime}</content>
+          <content>ActionText: {ActionText}</content>
+        </text>
+      </section>
+      <section id="SubstanceSpecification">
+        <title>SubstanceSpecification</title>
+        <text>
+          <content>SubstanceSpecificationID: {SubstanceSpecificationID}</content>
+          <content>IdentifiedSubstanceID: {IdentifiedSubstanceID}</content>
+          <content>SpecCode: {SpecCode}</content>
+          <content>SpecCodeSystem: {SpecCodeSystem}</content>
+          <content>EnforcementMethodCode: {EnforcementMethodCode}</content>
+          <content>EnforcementMethodCodeSystem: {EnforcementMethodCodeSystem}</content>
+          <content>EnforcementMethodDisplayName: {EnforcementMethodDisplayName}</content>
+        </text>
+      </section>
+      <section id="Analyte">
+        <title>Analyte</title>
+        <text>
+          <content>AnalyteID: {AnalyteID}</content>
+          <content>SubstanceSpecificationID: {SubstanceSpecificationID}</content>
+          <content>AnalyteSubstanceID: {AnalyteSubstanceID}</content>
+        </text>
+      </section>
+      <section id="Commodity">
+        <title>Commodity</title>
+        <text>
+          <content>CommodityID: {CommodityID}</content>
+          <content>CommodityCode: {CommodityCode}</content>
+          <content>CommodityCodeSystem: {CommodityCodeSystem}</content>
+          <content>CommodityDisplayName: {CommodityDisplayName}</content>
+          <content>CommodityName: {CommodityName}</content>
+        </text>
+      </section>
+      <section id="ApplicationType">
+        <title>ApplicationType</title>
+        <text>
+          <content>ApplicationTypeID: {ApplicationTypeID}</content>
+          <content>AppTypeCode: {AppTypeCode}</content>
+          <content>AppTypeCodeSystem: {AppTypeCodeSystem}</content>
+          <content>AppTypeDisplayName: {AppTypeDisplayName}</content>
+        </text>
+      </section>
+      <section id="ObservationCriterion">
+        <title>ObservationCriterion</title>
+        <text>
+          <content>ObservationCriterionID: {ObservationCriterionID}</content>
+          <content>SubstanceSpecificationID: {SubstanceSpecificationID}</content>
+          <content>ToleranceHighValue: {ToleranceHighValue}</content>
+          <content>ToleranceHighUnit: {ToleranceHighUnit}</content>
+          <content>CommodityID: {CommodityID}</content>
+          <content>ApplicationTypeID: {ApplicationTypeID}</content>
+          <content>ExpirationDate: {ExpirationDate}</content>
+          <content>TextNote: {TextNote}</content>
+        </text>
+      </section>
+      <section id="SpecifiedSubstance">
+        <title>SpecifiedSubstance</title>
+        <text>
+          <content>SpecifiedSubstanceID: {SpecifiedSubstanceID}</content>
+          <content>IngredientID: {IngredientID}</content>
+          <content>SubstanceCode: {SubstanceCode}</content>
+          <content>SubstanceCodeSystem: {SubstanceCodeSystem}</content>
+          <content>SubstanceDisplayName: {SubstanceDisplayName}</content>
+        </text>
+      </section>
+      <section id="WarningLetterProductInfo">
+        <title>WarningLetterProductInfo</title>
+        <text>
+          <content>WarningLetterProductInfoID: {WarningLetterProductInfoID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>ProductName: {ProductName}</content>
+          <content>GenericName: {GenericName}</content>
+          <content>FormCode: {FormCode}</content>
+          <content>FormCodeSystem: {FormCodeSystem}</content>
+          <content>FormDisplayName: {FormDisplayName}</content>
+          <content>StrengthText: {StrengthText}</content>
+          <content>ItemCodesText: {ItemCodesText}</content>
+        </text>
+      </section>
+      <section id="WarningLetterDate">
+        <title>WarningLetterDate</title>
+        <text>
+          <content>WarningLetterDateID: {WarningLetterDateID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>AlertIssueDate: {AlertIssueDate}</content>
+          <content>ResolutionDate: {ResolutionDate}</content>
+        </text>
+      </section>
+      <section id="Holder">
+        <title>Holder</title>
+        <text>
+          <content>HolderID: {HolderID}</content>
+          <content>MarketingCategoryID: {MarketingCategoryID}</content>
+          <content>HolderOrganizationID: {HolderOrganizationID}</content>
+        </text>
+      </section>
+      <section id="Protocol">
+        <title>Protocol</title>
+        <text>
+          <content>ProtocolID: {ProtocolID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>ProtocolCode: {ProtocolCode}</content>
+          <content>ProtocolCodeSystem: {ProtocolCodeSystem}</content>
+          <content>ProtocolDisplayName: {ProtocolDisplayName}</content>
+        </text>
+      </section>
+      <section id="Stakeholder">
+        <title>Stakeholder</title>
+        <text>
+          <content>StakeholderID: {StakeholderID}</content>
+          <content>StakeholderCode: {StakeholderCode}</content>
+          <content>StakeholderCodeSystem: {StakeholderCodeSystem}</content>
+          <content>StakeholderDisplayName: {StakeholderDisplayName}</content>
+        </text>
+      </section>
+      <section id="REMSMaterial">
+        <title>REMSMaterial</title>
+        <text>
+          <content>REMSMaterialID: {REMSMaterialID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>MaterialDocumentGUID: {MaterialDocumentGUID}</content>
+          <content>Title: {Title}</content>
+          <content>TitleReference: {TitleReference}</content>
+          <content>AttachedDocumentID: {AttachedDocumentID}</content>
+        </text>
+      </section>
+      <section id="Requirement">
+        <title>Requirement</title>
+        <text>
+          <content>RequirementID: {RequirementID}</content>
+          <content>ProtocolID: {ProtocolID}</content>
+          <content>RequirementSequenceNumber: {RequirementSequenceNumber}</content>
+          <content>IsMonitoringObservation: {IsMonitoringObservation}</content>
+          <content>PauseQuantityValue: {PauseQuantityValue}</content>
+          <content>PauseQuantityUnit: {PauseQuantityUnit}</content>
+          <content>RequirementCode: {RequirementCode}</content>
+          <content>RequirementCodeSystem: {RequirementCodeSystem}</content>
+          <content>RequirementDisplayName: {RequirementDisplayName}</content>
+          <content>OriginalTextReference: {OriginalTextReference}</content>
+          <content>PeriodValue: {PeriodValue}</content>
+          <content>PeriodUnit: {PeriodUnit}</content>
+          <content>StakeholderID: {StakeholderID}</content>
+          <content>REMSMaterialID: {REMSMaterialID}</content>
+        </text>
+      </section>
+      <section id="REMSApproval">
+        <title>REMSApproval</title>
+        <text>
+          <content>REMSApprovalID: {REMSApprovalID}</content>
+          <content>ProtocolID: {ProtocolID}</content>
+          <content>ApprovalCode: {ApprovalCode}</content>
+          <content>ApprovalCodeSystem: {ApprovalCodeSystem}</content>
+          <content>ApprovalDisplayName: {ApprovalDisplayName}</content>
+          <content>ApprovalDate: {ApprovalDate}</content>
+          <content>TerritoryCode: {TerritoryCode}</content>
+        </text>
+      </section>
+      <section id="REMSElectronicResource">
+        <title>REMSElectronicResource</title>
+        <text>
+          <content>REMSElectronicResourceID: {REMSElectronicResourceID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>ResourceDocumentGUID: {ResourceDocumentGUID}</content>
+          <content>Title: {Title}</content>
+          <content>TitleReference: {TitleReference}</content>
+          <content>ResourceReferenceValue: {ResourceReferenceValue}</content>
+        </text>
+      </section>
+      <section id="CertificationProductLink">
+        <title>CertificationProductLink</title>
+        <text>
+          <content>CertificationProductLinkID: {CertificationProductLinkID}</content>
+          <content>DocumentRelationshipID: {DocumentRelationshipID}</content>
+          <content>ProductIdentifierID: {ProductIdentifierID}</content>
+        </text>
+      </section>
+      <section id="ComplianceAction">
+        <title>ComplianceAction</title>
+        <text>
+          <content>ComplianceActionID: {ComplianceActionID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>PackageIdentifierID: {PackageIdentifierID}</content>
+          <content>DocumentRelationshipID: {DocumentRelationshipID}</content>
+          <content>ActionCode: {ActionCode}</content>
+          <content>ActionCodeSystem: {ActionCodeSystem}</content>
+          <content>ActionDisplayName: {ActionDisplayName}</content>
+          <content>EffectiveTimeLow: {EffectiveTimeLow}</content>
+          <content>EffectiveTimeHigh: {EffectiveTimeHigh}</content>
+          <content>(PackageIdentifierID: {(PackageIdentifierID}</content>
+          <content>OR: {OR}</content>
+          <content>(PackageIdentifierID: {(PackageIdentifierID}</content>
+          <content>): {)}</content>
+        </text>
+      </section>
+      <section id="InteractionIssue">
+        <title>InteractionIssue</title>
+        <text>
+          <content>InteractionIssueID: {InteractionIssueID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>InteractionCode: {InteractionCode}</content>
+          <content>InteractionCodeSystem: {InteractionCodeSystem}</content>
+          <content>InteractionDisplayName: {InteractionDisplayName}</content>
+        </text>
+      </section>
+      <section id="ContributingFactor">
+        <title>ContributingFactor</title>
+        <text>
+          <content>ContributingFactorID: {ContributingFactorID}</content>
+          <content>InteractionIssueID: {InteractionIssueID}</content>
+          <content>FactorSubstanceID: {FactorSubstanceID}</content>
+        </text>
+      </section>
+      <section id="InteractionConsequence">
+        <title>InteractionConsequence</title>
+        <text>
+          <content>InteractionConsequenceID: {InteractionConsequenceID}</content>
+          <content>InteractionIssueID: {InteractionIssueID}</content>
+          <content>ConsequenceTypeCode: {ConsequenceTypeCode}</content>
+          <content>ConsequenceTypeCodeSystem: {ConsequenceTypeCodeSystem}</content>
+          <content>ConsequenceTypeDisplayName: {ConsequenceTypeDisplayName}</content>
+          <content>ConsequenceValueCode: {ConsequenceValueCode}</content>
+          <content>ConsequenceValueCodeSystem: {ConsequenceValueCodeSystem}</content>
+          <content>ConsequenceValueDisplayName: {ConsequenceValueDisplayName}</content>
+        </text>
+      </section>
+      <section id="NCTLink">
+        <title>NCTLink</title>
+        <text>
+          <content>NCTLinkID: {NCTLinkID}</content>
+          <content>SectionID: {SectionID}</content>
+          <content>NCTNumber: {NCTNumber}</content>
+          <content>NCTRootOID: {NCTRootOID}</content>
+        </text>
+      </section>
+      <section id="FacilityProductLink">
+        <title>FacilityProductLink</title>
+        <text>
+          <content>FacilityProductLinkID: {FacilityProductLinkID}</content>
+          <content>DocumentRelationshipID: {DocumentRelationshipID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>ProductIdentifierID: {ProductIdentifierID}</content>
+          <content>ProductName: {ProductName}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>): {)}</content>
+        </text>
+      </section>
+      <section id="ResponsiblePersonLink">
+        <title>ResponsiblePersonLink</title>
+        <text>
+          <content>ResponsiblePersonLinkID: {ResponsiblePersonLinkID}</content>
+          <content>ProductID: {ProductID}</content>
+          <content>ResponsiblePersonOrgID: {ResponsiblePersonOrgID}</content>
+        </text>
+      </section>
+    </structuredBody>
+  </component>
+</document>

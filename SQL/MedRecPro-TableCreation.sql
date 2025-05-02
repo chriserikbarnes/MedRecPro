@@ -1,5 +1,4 @@
-﻿USE [medredpro-label-dev]
-
+﻿
 -- SQL Server Script for SPL Database based on ICH7 SPL Implementation Guide (December 2023)
 -- Target Version: SQL Server 2016
 -- Schema: dbo
@@ -15,7 +14,7 @@ GO
 
 -- ============================================================================
 -- Table: Document
--- Purpose: Stores the main metadata for each SPL document version. Based on Section 2.1.3[cite: 56].
+-- Purpose: Stores the main metadata for each SPL document version. Based on Section 2.1.3.
 -- ============================================================================
 IF OBJECT_ID('dbo.Document', 'U') IS NOT NULL
     DROP TABLE dbo.Document;
@@ -23,15 +22,15 @@ GO
 
 CREATE TABLE dbo.Document (
     DocumentID INT IDENTITY(1,1) PRIMARY KEY,
-    DocumentGUID UNIQUEIDENTIFIER NOT NULL, -- Corresponds to <id root> [cite: 58]
-    DocumentCode VARCHAR(50) NOT NULL,      -- Corresponds to <code> code [cite: 59]
-    DocumentCodeSystem VARCHAR(100) NOT NULL, -- Corresponds to <code> codeSystem [cite: 59]
-    DocumentDisplayName VARCHAR(255) NOT NULL, -- Corresponds to <code> displayName [cite: 59]
-    Title NVARCHAR(MAX) NULL,                 -- Corresponds to <title> [cite: 60]
-    EffectiveTime DATETIME2(0) NOT NULL,      -- Corresponds to <effectiveTime value> [cite: 62]
-    SetGUID UNIQUEIDENTIFIER NOT NULL,        -- Corresponds to <setId root> [cite: 63]
-    VersionNumber INT NOT NULL,               -- Corresponds to <versionNumber value> [cite: 65]
-    SubmissionFileName VARCHAR(255) NULL      -- Added for tracking the source XML file name [cite: 54]
+    DocumentGUID UNIQUEIDENTIFIER NOT NULL, -- Corresponds to <id root> 
+    DocumentCode VARCHAR(50) NOT NULL,      -- Corresponds to <code> code 
+    DocumentCodeSystem VARCHAR(100) NOT NULL, -- Corresponds to <code> codeSystem 
+    DocumentDisplayName VARCHAR(255) NOT NULL, -- Corresponds to <code> displayName 
+    Title NVARCHAR(MAX) NULL,                 -- Corresponds to <title> 
+    EffectiveTime DATETIME2(0) NOT NULL,      -- Corresponds to <effectiveTime value> 
+    SetGUID UNIQUEIDENTIFIER NOT NULL,        -- Corresponds to <setId root> 
+    VersionNumber INT NOT NULL,               -- Corresponds to <versionNumber value> 
+    SubmissionFileName VARCHAR(255) NULL      -- Added for tracking the source XML file name 
 );
 GO
 
@@ -88,7 +87,7 @@ GO
 
 -- ============================================================================
 -- Table: Organization
--- Purpose: Stores information about organizations (e.g., labelers, registrants, establishments). Based on Section 2.1.4[cite: 73], 2.1.5[cite: 75].
+-- Purpose: Stores information about organizations (e.g., labelers, registrants, establishments). Based on Section 2.1.4, 2.1.5.
 -- ============================================================================
 IF OBJECT_ID('dbo.Organization', 'U') IS NOT NULL
     DROP TABLE dbo.Organization;
@@ -96,9 +95,9 @@ GO
 
 CREATE TABLE dbo.Organization (
     OrganizationID INT IDENTITY(1,1) PRIMARY KEY,
-    OrganizationName VARCHAR(500) NULL, -- Corresponds to <name> [cite: 78]
-    DUNSNumber VARCHAR(9) NULL,        -- Corresponds to <id extension> where root is DUNS OID [cite: 76]
-    FEINumber VARCHAR(10) NULL,        -- Corresponds to <id extension> where root is FEI OID [cite: 75]
+    OrganizationName VARCHAR(500) NULL, -- Corresponds to <name> 
+    DUNSNumber VARCHAR(9) NULL,        -- Corresponds to <id extension> where root is DUNS OID 
+    FEINumber VARCHAR(10) NULL,        -- Corresponds to <id extension> where root is FEI OID 
     IsConfidential BIT NOT NULL DEFAULT 0 -- Corresponds to <confidentialityCode> [cite: 49, 608]
 );
 GO
@@ -126,13 +125,13 @@ GO
 -- IsConfidential
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Flag indicating if the organization information is confidential (<confidentialityCode code="B">).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'Organization', @level2type=N'COLUMN',@level2name=N'IsConfidential';
 GO
-EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 11, Para 2.1.1.10, 2.1.1.11; Page 77 [cite: 608]' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'Organization', @level2type=N'COLUMN',@level2name=N'IsConfidential';
+EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 11, Para 2.1.1.10, 2.1.1.11; Page 77 ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'Organization', @level2type=N'COLUMN',@level2name=N'IsConfidential';
 GO
 
 
 -- ============================================================================
 -- Table: Address
--- Purpose: Stores address information for organizations or contact parties. Based on Section 2.1.6[cite: 80].
+-- Purpose: Stores address information for organizations or contact parties. Based on Section 2.1.6.
 -- ============================================================================
 IF OBJECT_ID('dbo.Address', 'U') IS NOT NULL
     DROP TABLE dbo.Address;
@@ -140,13 +139,13 @@ GO
 
 CREATE TABLE dbo.Address (
     AddressID INT IDENTITY(1,1) PRIMARY KEY,
-    StreetAddressLine1 VARCHAR(500) NOT NULL, -- Corresponds to <streetAddressLine> [cite: 80]
-    StreetAddressLine2 VARCHAR(500) NULL,    -- Corresponds to optional second <streetAddressLine> [cite: 80]
-    City VARCHAR(100) NOT NULL,              -- Corresponds to <city> [cite: 80]
-    StateProvince VARCHAR(100) NULL,          -- Corresponds to <state>, required for USA [cite: 80]
-    PostalCode VARCHAR(20) NULL,             -- Corresponds to <postalCode>, required for USA [cite: 80]
-    CountryCode CHAR(3) NOT NULL,            -- Corresponds to <country code> (ISO 3-letter) [cite: 81]
-    CountryName VARCHAR(100) NOT NULL        -- Corresponds to <country> name [cite: 82]
+    StreetAddressLine1 VARCHAR(500) NOT NULL, -- Corresponds to <streetAddressLine> 
+    StreetAddressLine2 VARCHAR(500) NULL,    -- Corresponds to optional second <streetAddressLine> 
+    City VARCHAR(100) NOT NULL,              -- Corresponds to <city> 
+    StateProvince VARCHAR(100) NULL,          -- Corresponds to <state>, required for USA 
+    PostalCode VARCHAR(20) NULL,             -- Corresponds to <postalCode>, required for USA 
+    CountryCode CHAR(3) NOT NULL,            -- Corresponds to <country code> (ISO 3-letter) 
+    CountryName VARCHAR(100) NOT NULL        -- Corresponds to <country> name 
 );
 GO
 
@@ -193,7 +192,7 @@ GO
 
 -- ============================================================================
 -- Table: Telecom
--- Purpose: Stores telecommunication details (phone, email, fax) for organizations or contact parties. Based on Section 2.1.7[cite: 85].
+-- Purpose: Stores telecommunication details (phone, email, fax) for organizations or contact parties. Based on Section 2.1.7.
 -- Note: Storing different types in one table for simplicity, linked via junction tables later.
 -- ============================================================================
 IF OBJECT_ID('dbo.Telecom', 'U') IS NOT NULL
@@ -225,7 +224,7 @@ GO
 
 -- ============================================================================
 -- Table: ContactPerson
--- Purpose: Stores contact person details. Based on Section 2.1.8[cite: 102].
+-- Purpose: Stores contact person details. Based on Section 2.1.8.
 -- ============================================================================
 IF OBJECT_ID('dbo.ContactPerson', 'U') IS NOT NULL
     DROP TABLE dbo.ContactPerson;
@@ -233,7 +232,7 @@ GO
 
 CREATE TABLE dbo.ContactPerson (
     ContactPersonID INT IDENTITY(1,1) PRIMARY KEY,
-    ContactPersonName VARCHAR(500) NOT NULL -- Corresponds to <contactPerson><name> [cite: 102]
+    ContactPersonName VARCHAR(500) NOT NULL -- Corresponds to <contactPerson><name> 
 );
 GO
 
@@ -251,7 +250,7 @@ GO
 
 -- ============================================================================
 -- Table: ContactParty
--- Purpose: Represents the <contactParty> element, linking Organization, Address, Telecom, and ContactPerson. Based on Section 2.1.8[cite: 102].
+-- Purpose: Represents the <contactParty> element, linking Organization, Address, Telecom, and ContactPerson. Based on Section 2.1.8.
 -- ============================================================================
 IF OBJECT_ID('dbo.ContactParty', 'U') IS NOT NULL
     DROP TABLE dbo.ContactParty;
@@ -260,8 +259,8 @@ GO
 CREATE TABLE dbo.ContactParty (
     ContactPartyID INT IDENTITY(1,1) PRIMARY KEY,
     OrganizationID INT NULL,       -- Link to the Organization this contact party belongs to
-    AddressID INT NULL,          -- Link to the Address table [cite: 103]
-    ContactPersonID INT NULL     -- Link to the ContactPerson table [cite: 105]
+    AddressID INT NULL,          -- Link to the Address table 
+    ContactPersonID INT NULL     -- Link to the ContactPerson table 
     -- Telecom links will be in a junction table: ContactPartyTelecom
 );
 GO
@@ -274,7 +273,7 @@ GO
 -- OrganizationID
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Foreign key linking to the Organization this contact party belongs to.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ContactParty', @level2type=N'COLUMN',@level2name=N'OrganizationID';
 GO
-EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 17 [cite: 87]' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ContactParty', @level2type=N'COLUMN',@level2name=N'OrganizationID';
+EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 17 ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ContactParty', @level2type=N'COLUMN',@level2name=N'OrganizationID';
 GO
 -- AddressID
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Foreign key linking to the Address for this contact party.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ContactParty', @level2type=N'COLUMN',@level2name=N'AddressID';
@@ -303,14 +302,14 @@ CREATE TABLE dbo.ContactPartyTelecom (
 GO
 
 -- Add Comments and Extended Properties for ContactPartyTelecom table
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Junction table to link ContactParty with multiple Telecom entries (typically tel and mailto [cite: 104]).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ContactPartyTelecom';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Junction table to link ContactParty with multiple Telecom entries (typically tel and mailto ).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ContactPartyTelecom';
 GO
 EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 19, Para 2.1.8.2' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ContactPartyTelecom';
 GO
 
 -- ============================================================================
 -- Table: OrganizationTelecom
--- Purpose: Junction table to link Organizations directly with Telecom entries (e.g., US Agent [cite: 90]).
+-- Purpose: Junction table to link Organizations directly with Telecom entries (e.g., US Agent ).
 -- ============================================================================
 IF OBJECT_ID('dbo.OrganizationTelecom', 'U') IS NOT NULL
     DROP TABLE dbo.OrganizationTelecom;
@@ -326,13 +325,13 @@ GO
 -- Add Comments and Extended Properties for OrganizationTelecom table
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Junction table to link Organizations directly with Telecom entries (e.g., for US Agents or facility phones without a full ContactParty).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'OrganizationTelecom';
 GO
-EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 17 [cite: 90]' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'OrganizationTelecom';
+EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 17 ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'OrganizationTelecom';
 GO
 
 
 -- ============================================================================
 -- Table: DocumentAuthor
--- Purpose: Links Documents to Authoring Organizations (typically the Labeler). Based on Section 2.1.4[cite: 73].
+-- Purpose: Links Documents to Authoring Organizations (typically the Labeler). Based on Section 2.1.4.
 -- ============================================================================
 IF OBJECT_ID('dbo.DocumentAuthor', 'U') IS NOT NULL
     DROP TABLE dbo.DocumentAuthor;
@@ -341,7 +340,7 @@ GO
 CREATE TABLE dbo.DocumentAuthor (
     DocumentAuthorID INT IDENTITY(1,1) PRIMARY KEY,
     DocumentID INT NOT NULL,     -- FK to Document
-    OrganizationID INT NOT NULL, -- FK to Organization (the authoring org, e.g., Labeler [cite: 786])
+    OrganizationID INT NOT NULL, -- FK to Organization (the authoring org, e.g., Labeler )
     AuthorType VARCHAR(50) NOT NULL DEFAULT 'Labeler' -- e.g., 'Labeler', 'FDA', 'NCPDP' [cite: 786, 946, 995]
 );
 GO
@@ -351,12 +350,12 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Links Document
 GO
 EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 14' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'DocumentAuthor';
 GO
-EXEC sys.sp_addextendedproperty @name=N'AuthorType', @value=N'Identifies the type or role of the author, e.g., Labeler (4.1.2 [cite: 785]), FDA (8.1.2[cite: 945], 15.1.2[cite: 1030], 20.1.2[cite: 1295], 21.1.2[cite: 1330], 30.1.2[cite: 1553], 31.1.2[cite: 1580], 32.1.2[cite: 1607], 33.1.2 [cite: 1643]), NCPDP (12.1.2 [cite: 995]).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'DocumentAuthor', @level2type=N'COLUMN',@level2name=N'AuthorType';
+EXEC sys.sp_addextendedproperty @name=N'AuthorType', @value=N'Identifies the type or role of the author, e.g., Labeler (4.1.2 ), FDA (8.1.2, 15.1.2, 20.1.2, 21.1.2, 30.1.2, 31.1.2, 32.1.2, 33.1.2 ), NCPDP (12.1.2 ).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'DocumentAuthor', @level2type=N'COLUMN',@level2name=N'AuthorType';
 GO
 
 -- ============================================================================
 -- Table: RelatedDocument
--- Purpose: Stores references to other documents (e.g., Core Document, Predecessor, Reference Labeling). Based on Section 2.1.10[cite: 110], 2.1.11[cite: 118], 15.1.3[cite: 1031], 20.1.3[cite: 1298], 21.1.3[cite: 1332], 23.1.3[cite: 1363], 30.1.3[cite: 1556], 31.1.5[cite: 1599], 32.1.3[cite: 1608], 33.1.3[cite: 1644].
+-- Purpose: Stores references to other documents (e.g., Core Document, Predecessor, Reference Labeling). Based on Section 2.1.10, 2.1.11, 15.1.3, 20.1.3, 21.1.3, 23.1.3, 30.1.3, 31.1.5, 32.1.3, 33.1.3.
 -- ============================================================================
 IF OBJECT_ID('dbo.RelatedDocument', 'U') IS NOT NULL
     DROP TABLE dbo.RelatedDocument;
@@ -367,28 +366,28 @@ CREATE TABLE dbo.RelatedDocument (
     SourceDocumentID INT NOT NULL,           -- FK to Document (The document containing the reference)
     RelationshipTypeCode VARCHAR(10) NOT NULL, -- e.g., 'APND', 'RPLC', 'DRIV', 'XCRPT', 'SUBJ' [cite: 111, 122, 1032, 1299, 1333, 1365, 1557, 1601, 1609, 1645]
     ReferencedSetGUID UNIQUEIDENTIFIER NOT NULL, -- Corresponds to <setId root> of the referenced document [cite: 112, 121, 1032, 1299, 1333, 1366, 1558, 1602, 1609, 1645]
-    ReferencedDocumentGUID UNIQUEIDENTIFIER NULL, -- Corresponds to <id root> of the referenced document (used in RPLC) [cite: 121]
+    ReferencedDocumentGUID UNIQUEIDENTIFIER NULL, -- Corresponds to <id root> of the referenced document (used in RPLC) 
     ReferencedVersionNumber INT NULL,          -- Corresponds to <versionNumber value> of the referenced document [cite: 114, 121]
-    ReferencedDocumentCode VARCHAR(50) NULL,   -- Corresponds to <code> code of the referenced document (used in RPLC) [cite: 121]
-    ReferencedDocumentCodeSystem VARCHAR(100) NULL, -- Corresponds to <code> codeSystem of the referenced document (used in RPLC) [cite: 121]
-    ReferencedDocumentDisplayName VARCHAR(255) NULL -- Corresponds to <code> displayName of the referenced document (used in RPLC) [cite: 121]
+    ReferencedDocumentCode VARCHAR(50) NULL,   -- Corresponds to <code> code of the referenced document (used in RPLC) 
+    ReferencedDocumentCodeSystem VARCHAR(100) NULL, -- Corresponds to <code> codeSystem of the referenced document (used in RPLC) 
+    ReferencedDocumentDisplayName VARCHAR(255) NULL -- Corresponds to <code> displayName of the referenced document (used in RPLC) 
 );
 GO
 
 -- Add Comments and Extended Properties for RelatedDocument table
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Stores references to other documents (e.g., Core Document[cite: 110], Predecessor[cite: 118], Reference Labeling[cite: 1031, 1298, 1332, 1608, 1644], Subject [cite: 1363, 1556, 1599]). Based on Sections 2.1.10, 2.1.11, 15.1.3, 20.1.3, 21.1.3, 23.1.3, 30.1.3, 31.1.5, 32.1.3, 33.1.3.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Stores references to other documents (e.g., Core Document, Predecessor, Reference Labeling[cite: 1031, 1298, 1332, 1608, 1644], Subject [cite: 1363, 1556, 1599]). Based on Sections 2.1.10, 2.1.11, 15.1.3, 20.1.3, 21.1.3, 23.1.3, 30.1.3, 31.1.5, 32.1.3, 33.1.3.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument';
 GO
 EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 20, 21, 154, 193, 199, 205, 235, 242, 245, 250' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument';
 GO
 -- RelationshipTypeCode
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Code indicating the type of relationship (e.g., APND for core doc, RPLC for predecessor, DRIV for reference labeling, SUBJ for subject, XCRPT for excerpt).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'RelationshipTypeCode';
 GO
-EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 20[cite: 111], Page 21[cite: 122], Page 154[cite: 1032], Page 193[cite: 1299], Page 199[cite: 1333], Page 205[cite: 1365], Page 236[cite: 1557], Page 242[cite: 1601], Page 245[cite: 1609], Page 250 [cite: 1645]' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'RelationshipTypeCode';
+EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 20, Page 21, Page 154, Page 193, Page 199, Page 205, Page 236, Page 242, Page 245, Page 250 ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'RelationshipTypeCode';
 GO
 -- ReferencedSetGUID
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Set GUID of the related/referenced document (<setId root>).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedSetGUID';
 GO
-EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 20[cite: 112], Page 21[cite: 121], Page 154[cite: 1032], Page 193[cite: 1299], Page 199[cite: 1333], Page 205[cite: 1366], Page 236[cite: 1558], Page 242[cite: 1602], Page 245[cite: 1609], Page 250 [cite: 1645]' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedSetGUID';
+EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 20, Page 21, Page 154, Page 193, Page 199, Page 205, Page 236, Page 242, Page 245, Page 250 ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedSetGUID';
 GO
 -- ReferencedDocumentGUID
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Document GUID of the related/referenced document (<id root>), used for RPLC relationship.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedDocumentGUID';
@@ -398,17 +397,17 @@ GO
 -- ReferencedVersionNumber
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Version number of the related/referenced document (<versionNumber value>).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedVersionNumber';
 GO
-EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 20[cite: 114], Page 21 [cite: 121]' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedVersionNumber';
+EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 20, Page 21 ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedVersionNumber';
 GO
 -- ReferencedDocumentCode, ReferencedDocumentCodeSystem, ReferencedDocumentDisplayName
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Document type code, system, and display name of the related/referenced document (<code>), used for RPLC relationship.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedDocumentCode';
 GO
-EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 21 [cite: 121]' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedDocumentCode';
+EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 21 ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'RelatedDocument', @level2type=N'COLUMN',@level2name=N'ReferencedDocumentCode';
 GO
 
 -- ============================================================================
 -- Table: DocumentRelationship
--- Purpose: Defines relationships between organizations within a document header (e.g., Labeler -> Registrant -> Establishment). Based on Section 2.1.4[cite: 73], 4.1.2[cite: 785], 4.1.3[cite: 788], 4.1.4[cite: 791], 5.1.3[cite: 863], 6.1.2[cite: 898], 6.1.3[cite: 904], 13.1.2[cite: 1007], 13.1.3[cite: 1012], 18.1.2[cite: 1181], 18.1.3[cite: 1186], 35.1.4[cite: 1680], 36.1.3[cite: 1721], 36.1.5[cite: 1729].
+-- Purpose: Defines relationships between organizations within a document header (e.g., Labeler -> Registrant -> Establishment). Based on Section 2.1.4, 4.1.2, 4.1.3, 4.1.4, 5.1.3, 6.1.2, 6.1.3, 13.1.2, 13.1.3, 18.1.2, 18.1.3, 35.1.4, 36.1.3, 36.1.5.
 -- ============================================================================
 IF OBJECT_ID('dbo.DocumentRelationship', 'U') IS NOT NULL
     DROP TABLE dbo.DocumentRelationship;
@@ -427,9 +426,9 @@ GO
 -- Add Comments and Extended Properties for DocumentRelationship table
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'Defines hierarchical relationships between organizations within a document header (e.g., Labeler -> Registrant -> Establishment).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'DocumentRelationship';
 GO
-EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 14 [cite: 73]' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'DocumentRelationship';
+EXEC sys.sp_addextendedproperty @name=N'SPL_Reference', @value=N'Page 14 ' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'DocumentRelationship';
 GO
-EXEC sys.sp_addextendedproperty @name=N'RelationshipType', @value=N'Describes the specific relationship, e.g., LabelerToRegistrant (4.1.3 [cite: 788]), RegistrantToEstablishment (4.1.4 [cite: 791]), EstablishmentToUSagent (6.1.4 [cite: 914]), EstablishmentToImporter (6.1.5 [cite: 918]), LabelerToDetails (5.1.3 [cite: 863]), FacilityToParentCompany (35.1.6 [cite: 1695]), LabelerToParentCompany (36.1.2.5 [cite: 1719]).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'DocumentRelationship', @level2type=N'COLUMN',@level2name=N'RelationshipType';
+EXEC sys.sp_addextendedproperty @name=N'RelationshipType', @value=N'Describes the specific relationship, e.g., LabelerToRegistrant (4.1.3 ), RegistrantToEstablishment (4.1.4 ), EstablishmentToUSagent (6.1.4 ), EstablishmentToImporter (6.1.5 ), LabelerToDetails (5.1.3 ), FacilityToParentCompany (35.1.6 ), LabelerToParentCompany (36.1.2.5 ).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'DocumentRelationship', @level2type=N'COLUMN',@level2name=N'RelationshipType';
 GO
 
 PRINT 'Chunk 1 complete.';
