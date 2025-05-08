@@ -7,16 +7,33 @@ using Microsoft.AspNetCore.Mvc.Infrastructure;  // For IActionContextAccessor
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Routing;  // For service registration extensions
+
+using Google.Apis.Auth.AspNetCore3;
 using MedRecPro.Helpers;
+using Microsoft.AspNetCore.Authentication.Cookies;
+
+string? connectionString, googleClientId, googleClientSecret;
 
 var builder = WebApplication.CreateBuilder(args);
+var configuration = builder.Configuration;
 
 // Access the connection string
-var connectionString = builder.Configuration.GetSection("Dev:DB:Connection");
+connectionString = builder.Configuration.GetSection("Dev:DB:Connection")?.Value;
+
 Console.WriteLine($"Connection String: {connectionString}");
 
+googleClientId = builder.Configuration
+    .GetSection("Authentication:Google:ClientId")
+    ?.Value
+    ?.ToString();
+
+googleClientSecret = builder.Configuration
+    .GetSection("Authentication:Google:ClientSecret")
+    ?.Value
+    ?.ToString();
+
 // Bind AppSettings from configuration to services
-builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSettings"));  // Bind appSettings section to AppSettings class
+builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSettings"));  
 
 // Register AppSettings as a transient service in the dependency injection container
 builder.Services.AddTransient<AppSettings>();
@@ -29,8 +46,34 @@ builder.Services.AddUserLogger();  // Add custom user logging service
 
 // Add services to the container.
 builder.Services.AddControllers();
+
 builder.Services.AddEndpointsApiExplorer();
 
+builder.Services
+    .AddAuthentication(o =>
+    {
+        // This forces challenge results to be handled by Google OpenID Handler, so there's no
+        // need to add an AccountController that emits challenges for Login.
+        o.DefaultChallengeScheme = GoogleOpenIdConnectDefaults.AuthenticationScheme;
+
+        // This forces forbid results to be handled by Google OpenID Handler, which checks if
+        // extra scopes are required and does automatic incremental auth.
+        o.DefaultForbidScheme = GoogleOpenIdConnectDefaults.AuthenticationScheme;
+
+        // Default scheme that will handle everything else.
+        // Once a user is authenticated, the OAuth2 token info is stored in cookies.
+        o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    })
+    .AddCookie()
+    .AddGoogleOpenIdConnect(options =>
+    {
+        options.ClientId = googleClientId;
+
+        options.ClientSecret = googleClientSecret;
+
+    });
+
+#region swagger documentation
 builder.Services.AddSwaggerGen(options =>
 {
 
@@ -100,6 +143,8 @@ When you need to ensure fresh data from the database, use the `/REST/API/Utility
     });
 });
 
+#endregion
+
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
@@ -107,6 +152,7 @@ var app = builder.Build();
 
 app.UseRouting();
 app.UseHttpsRedirection();
+app.UseAuthentication();
 app.UseAuthorization();
 
 
