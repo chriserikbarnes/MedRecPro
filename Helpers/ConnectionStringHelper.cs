@@ -64,7 +64,7 @@ namespace MedRecPro.Helpers
 
                 #region cached connection string
                 key += name;
-                key = key.GetHashString();
+                key = key.GetSHA1HashString();
 
                 ret = PerformanceHelper.GetCache<string>(key);
 

@@ -43,8 +43,9 @@ namespace MedRecPro.Controllers
         [HttpGet("login/{provider}")]
         public IActionResult LoginExternalProvider(string provider)
         {
+            var swaggerPath = "/swagger/index.html"; // Path to Swagger UI (adjust as needed)
             // Request a redirect to the external login provider
-            var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Auth", new { ReturnUrl = "/" });
+            var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Auth", new { ReturnUrl = swaggerPath });
             var properties = _signInManager.ConfigureExternalAuthenticationProperties(provider, redirectUrl);
             return Challenge(properties, provider);
         }
@@ -55,7 +56,8 @@ namespace MedRecPro.Controllers
         [HttpGet("external-logincallback")]
         public async Task<IActionResult> ExternalLoginCallback(string? returnUrl = null, string? remoteError = null)
         {
-            returnUrl ??= Url.Content("~/"); // Default redirect to Swagger UI root
+            returnUrl ??= Url.Content("~/swagger/"); // Default redirect to Swagger UI root
+
             if (remoteError != null)
             {
                 // Handle error from external provider

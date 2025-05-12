@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Principal;
+using Newtonsoft.Json;
 
 
 namespace MedRecPro.Helpers
@@ -21,8 +22,6 @@ namespace MedRecPro.Helpers
     public static class Util
     {
         private static readonly object lockObj = new object();
-
-
 
         // Replaces CallContext usage with AsyncLocal.
         private static readonly AsyncLocal<string> _userName = new AsyncLocal<string>();
@@ -730,7 +729,7 @@ namespace MedRecPro.Helpers
         /// <returns></returns>
         /// <seealso cref="GetListHashString{T}(IEnumerable{T})"/>
         /// <seealso cref="TextUtil.ToCommaString{T}(T)"/>
-        public static string GetHashString<T>(this T obj, bool recursion = false)
+        public static string GetSHA1HashString<T>(this T obj, bool recursion = false)
         {
             #region implementation
             string ret = null;
@@ -767,7 +766,7 @@ namespace MedRecPro.Helpers
                         //the object wasn't a list
                         if (string.IsNullOrEmpty(ret) && !recursion)
                         {
-                            ret = GetHashString(obj.ToCommaString(), true);
+                            ret = GetSHA1HashString(obj.ToCommaString(), true);
                         }
                     }
                 }
@@ -783,46 +782,206 @@ namespace MedRecPro.Helpers
 
         /******************************************************/
         /// <summary>
-        /// Takes an IEnumerable and returns a string representation
-        /// of the SHA1 Hash
+        /// Computes a hash string for an object using SHA256.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="obj"></param>
-        /// <returns></returns>
-        /// <seealso cref="TextUtil.ListToCommaString{T}(IEnumerable{T})"/>
-        public static string GetListHashString<T>(this IEnumerable<T> obj)
+        /// <typeparam name="T">The type of the object.</typeparam>
+        /// <param name="obj">The object to hash.</param>
+        /// <param name="recursion">Internal flag to indicate recursive call, typically for handling non-string, non-list objects.</param>
+        /// <returns>A SHA256 hash string, or null if the object is null or an error occurs.</returns>
+        /// <remarks>
+        /// This method handles various object types differently:
+        /// - For strings: Directly computes the SHA256 hash
+        /// - For collections: Converts to a string representation and then hashes
+        /// - For other objects: Attempts to convert to a string representation before hashing
+        /// 
+        /// The recursion parameter prevents infinite loops when processing complex object graphs.
+        /// </remarks>
+        /// <example>
+        /// string hash = "Hello, World!".GetHashString();
+        /// // Returns a SHA256 hash of the string "Hello, World!"
+        /// 
+        /// List&lt;int&gt; numbers = new List&lt;int&gt; { 1, 2, 3 };
+        /// string listHash = numbers.GetHashString();
+        /// // Returns a hash of the string representation of the list
+        /// </example>
+        public static string? GetSHA256HashString<T>(this T obj, bool recursion = false)
         {
             #region implementation
-            string ret = null;
-            string txt = null;
-            HashAlgorithm alg = SHA1.Create();
-            StringBuilder sb = new StringBuilder();
-            ConcurrentBag<string> objVals = new ConcurrentBag<string>();
-
-            try
+            string? ret = null;
+            string? txt = null;
+            // Use SHA256 for a stronger hash
+            using (SHA256 alg = SHA256.Create())
             {
-                //convert list to comma delimited string
-                txt = obj.ListToCommaString();
+                StringBuilder sb = new StringBuilder();
 
-                //get the hash code
-                if (!string.IsNullOrEmpty(txt))
+                try
                 {
-                    byte[] hash = alg?.ComputeHash(Encoding.UTF8?.GetBytes(txt));
-
-                    foreach (byte b in hash)
+                    if (obj != null)
                     {
-                        sb?.Append(b.ToString("X2"));
-                    }
+                        //when the object is a string
+                        if (obj is string stringObj)
+                        {
+                            txt = stringObj;
 
-                    ret = sb?.ToString();
+                            //get the hash code
+                            byte[] hash = alg.ComputeHash(Encoding.UTF8.GetBytes(txt));
+
+                            //build hash from each byte
+                            foreach (byte b in hash)
+                            {
+                                sb.Append(b.ToString("X2")); // Use Append directly
+                            }
+                            ret = sb.ToString();
+                        }
+                        //this object is NOT a string
+                        else if (obj is System.Collections.IEnumerable enumerableObj && !(obj is string)) // Check if it's IEnumerable but not a string
+                        {
+
+                            if (!recursion) // Prevent infinite recursion if ToCommaString calls GetHashString
+                            {
+                                // Convert the enumerable to a canonical string representation for hashing
+                                // This relies on a consistent ToCommaString or similar serialization for the enumerable.
+                                // For complex scenarios, you might want a dedicated list hashing strategy.
+                                var listAsString = convertEnumerableToString(enumerableObj);
+                                ret = GetSHA256HashString(listAsString, true); // Recursive call with the string representation
+                            }
+                            else
+                            {
+                                // If already in recursion (e.g. called from the fallback), convert to basic string and hash.
+                                txt = Convert.ToString(obj); // Fallback to simple ToString
+
+                                if (!string.IsNullOrEmpty(txt))
+                                {
+                                    byte[] hash = alg.ComputeHash(Encoding.UTF8.GetBytes(txt));
+                                    foreach (byte b in hash) { sb.Append(b.ToString("X2")); }
+                                    ret = sb.ToString();
+                                }
+                            }
+                        }
+                        // For other object types (not string, not IEnumerable)
+                        else
+                        {
+                            // The object wasn't a string or a recognized IEnumerable.
+                            // Fallback to converting the object to a string and hashing that.                          
+                            if (!recursion) // Prevent infinite recursion if ToCommaString calls GetHashString
+                            {
+                                string objectAsText = convertToTextRepresentation(obj);
+                                ret = GetSHA256HashString(objectAsText, true);
+                            }
+                            else
+                            {
+                                // If already in recursion (e.g. ToCommaString itself resulted in an object that came back here),
+                                // this indicates a complex object structure or a loop.
+                                // Fallback to a simple string representation to avoid stack overflow.
+                                txt = Convert.ToString(obj); // Basic ToString()
+
+                                if (!string.IsNullOrEmpty(txt))
+                                {
+                                    byte[] hash = alg.ComputeHash(Encoding.UTF8.GetBytes(txt));
+                                    foreach (byte b in hash) { sb.Append(b.ToString("X2")); }
+                                    ret = sb.ToString();
+                                }
+                            }
+                        }
+                    }
                 }
-            }
-            catch (Exception e)
-            {
-                ErrorHelper.AddErrorMsg("Util.GetListHashString: " + e);
-            }
+                catch (Exception e)
+                {
+                    // ErrorHelper.AddErrorMsg("Util.GetHashString: " + e.ToString()); // Log the full exception
+                    Console.WriteLine("Util.GetHashString: " + e.ToString());
+                }
+            } // `alg` is disposed here
 
             return ret;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Helper method for converting an IEnumerable to a string representation for hashing.
+        /// </summary>
+        /// <param name="enumerable">The enumerable collection to convert.</param>
+        /// <returns>A string representation of the collection in the format [item1,item2,...].</returns>
+        /// <remarks>
+        /// Creates a canonical string representation of the collection contents.
+        /// For complex collections, consider implementing a more robust serialization strategy.
+        /// </remarks>
+        private static string convertEnumerableToString(System.Collections.IEnumerable enumerable)
+        {
+            #region implementation
+            if (enumerable == null) return "";
+            StringBuilder sb = new StringBuilder();
+            sb.Append("["); // Open bracket for collection
+            bool first = true;
+            foreach (var item in enumerable)
+            {
+                if (!first) sb.Append(","); // Add comma separator between items                                         
+                sb.Append(item?.ToString() ?? "null"); // Append item string or "null" if item is null
+                first = false;
+            }
+            sb.Append("]"); // Close bracket for collection
+            return sb.ToString();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Helper method for converting a generic object to a string representation for hashing.
+        /// </summary>
+        /// <typeparam name="T">The type of the object.</typeparam>
+        /// <param name="obj">The object to convert to a string.</param>
+        /// <returns>A string representation of the object.</returns>
+        /// <remarks>
+        /// This method is meant to be a placeholder for a more robust serialization approach.
+        /// In a production environment, consider using JSON serialization or a custom ToCommaString() extension method.
+        /// </remarks>
+        private static string convertToTextRepresentation<T>(T obj)
+        {
+
+            #region implementation
+            if (obj == null) return "";
+            return JsonConvert.SerializeObject(obj); // Fallback to ToString()
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Computes a hash string for a collection of elements using SHA256.
+        /// </summary>
+        /// <typeparam name="TElement">The type of elements in the collection.</typeparam>
+        /// <param name="list">The collection to hash.</param>
+        /// <returns>A SHA256 hash string of the collection, or null if the collection is null.</returns>
+        /// <remarks>
+        /// This method creates a combined hash by concatenating the hash strings of individual elements.
+        /// Empty collections are handled by returning the hash of an empty string.
+        /// </remarks>
+        /// <example>
+        /// List&lt;string&gt; names = new List&lt;string&gt; { "Alice", "Bob", "Charlie" };
+        /// string hash = names.GetListHashString();
+        /// // Returns a hash that represents the entire collection
+        /// </example>
+        public static string? GetListHashString<TElement>(this IEnumerable<TElement> list)
+        {
+
+            #region implementation
+            if (list == null) return null; // Return null for null collections
+
+            // Concatenate hashes of individual elements or their string representations
+            StringBuilder combinedContent = new StringBuilder();
+            foreach (var item in list)
+            {
+               
+                combinedContent.Append(item.GetSHA256HashString(true) ?? "null"); // Append hash of item or "null"
+            }
+
+            if (combinedContent.Length == 0)
+            {
+                // Decide how to hash an empty list (e.g., hash of empty string or a specific constant)
+                return "".GetSHA256HashString(true); // Hash of an empty string
+            }
+
+            // Hash the combined content
+            return combinedContent.ToString().GetSHA256HashString(true);
             #endregion
         }
 
@@ -838,8 +997,8 @@ namespace MedRecPro.Helpers
         {
             #region implementation
             //this was made longer than needed for debugging
-            string c = GetHashString(a);
-            string d = GetHashString(b);
+            string c = GetSHA1HashString(a);
+            string d = GetSHA1HashString(b);
 
             bool ret = c.Equals(d);
 

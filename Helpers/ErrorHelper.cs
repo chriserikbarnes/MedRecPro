@@ -35,7 +35,7 @@ namespace MedRecPro.Helpers
 
             try
             {
-                key = string.Concat("Error",Util.GetUserName() ??  System.Environment.UserName).GetHashString();
+                key = string.Concat("Error",Util.GetUserName() ??  System.Environment.UserName).GetSHA1HashString();
 
                 try
                 {
@@ -130,7 +130,7 @@ namespace MedRecPro.Helpers
                     return null;
                 }
 
-                key = string.Concat("Error", userName).GetHashString();
+                key = string.Concat("Error", userName).GetSHA1HashString();
 
                 errorMsg = (ErrorMsg)PerformanceHelper.GetCache(key);
             }
@@ -155,7 +155,7 @@ namespace MedRecPro.Helpers
 
             try
             {
-                key = string.Concat("Error",Util.GetUserName() ??  System.Environment.UserName).GetHashString();
+                key = string.Concat("Error",Util.GetUserName() ??  System.Environment.UserName).GetSHA1HashString();
 
                 errorMsg = (ErrorMsg)PerformanceHelper.GetCache(key);
             }

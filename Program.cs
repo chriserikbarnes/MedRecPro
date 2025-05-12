@@ -1,112 +1,103 @@
-using System.Reflection;  // Import System.Reflection to enable accessing metadata about assemblies.
-using Microsoft.OpenApi.Models;  // Import OpenAPI models for Swagger/OpenAPI configuration.
-using Microsoft.EntityFrameworkCore;  // Import Entity Framework Core for database context and migrations.
-
-using Microsoft.AspNetCore.Mvc;  // For IUrlHelper and IUrlHelperFactory
-using Microsoft.AspNetCore.Mvc.Infrastructure;  // For IActionContextAccessor
+using System.Reflection;
+using Microsoft.OpenApi.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc.Routing;  // For service registration extensions
-
+using Microsoft.AspNetCore.Mvc.Routing;
 using Google.Apis.Auth.AspNetCore3;
-using MedRecPro.Helpers;
+using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
 using Microsoft.AspNetCore.Authentication.Cookies;
-using MedRecPro.Data;
+using MedRecPro.Data; // Namespace for ApplicationDbContext
 using Microsoft.AspNetCore.Identity;
+using MedRecPro.Models; // Namespace for User model (if needed directly)
+using System.Security.Cryptography;
+using MedRecPro.DataAccess;
+using Microsoft.AspNet.Identity; // For HashAlgorithmName if needed elsewhere
 
 string? connectionString, googleClientId, googleClientSecret;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var configuration = builder.Configuration;
+var configuration = builder.Configuration; // Get configuration
 
 // Access the connection string
-connectionString = builder.Configuration.GetSection("Dev:DB:Connection")?.Value;
+connectionString = builder.Configuration.GetConnectionString("DefaultConnection") // Recommend using GetConnectionString
+                   ?? builder.Configuration.GetSection("Dev:DB:Connection")?.Value; // Fallback if needed
+
+if (string.IsNullOrEmpty(connectionString))
+{
+    throw new InvalidOperationException("Database connection string is not configured.");
+}
+
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(connectionString)); // Or UseSqlServer
+    options.UseSqlServer(connectionString));
 
-googleClientId = builder.Configuration
-    .GetSection("Authentication:Google:ClientId")
-    ?.Value
-    ?.ToString();
+googleClientId = builder.Configuration["Authentication:Google:ClientId"]; // Simplified access
+googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]; // Simplified access
 
-googleClientSecret = builder.Configuration
-    .GetSection("Authentication:Google:ClientSecret")
-    ?.Value
-    ?.ToString();
-
-// Bind AppSettings from configuration to services
+// Bind AppSettings (if used)
 builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSettings"));
 
-// Register AppSettings as a transient service in the dependency injection container
-builder.Services.AddTransient<AppSettings>();
-
-// Register IHttpContextAccessor for accessing the HTTP context in services
+// No need to register AppSettings itself unless used directly as a service
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddUserLogger(); // Assuming this is your custom logger setup
 
-// Logging Configuration
-builder.Services.AddUserLogger();  // Add custom user logging service
+// Register StringCipher for DI
+// Transient is usually suitable for stateless utility classes like this.
+builder.Services.AddTransient<StringCipher>();
+
+// Register other services that might use User, IConfiguration, StringCipher
+// Example: builder.Services.AddScoped<IUserService, UserService>();
 
 builder.Services.AddEndpointsApiExplorer();
 
+// --- Identity ---
 builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>
 {
-    // Configure Identity options if needed (e.g., password requirements)
-    options.SignIn.RequireConfirmedAccount = false; // Keep false for easier external login testing
+    options.SignIn.RequireConfirmedAccount = false;
 })
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
+// --- Custom Services ---
+builder.Services.AddScoped<IUserDataAccess, UserDataAccess>();
+builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
+
+// --- Authentication ---
 builder.Services.AddAuthentication(options =>
-    {
-        // Use cookie authentication as the default scheme for the browser/Swagger UI
-    options.DefaultScheme = IdentityConstants.ApplicationScheme; // Cookie Authentication
-    options.DefaultChallengeScheme = IdentityConstants.ApplicationScheme; // Challenge with cookie auth
-    })
+{
+    options.DefaultScheme = IdentityConstants.ApplicationScheme;
+    options.DefaultChallengeScheme = IdentityConstants.ApplicationScheme;
+})
     .AddCookie(options =>
     {
-        options.LoginPath = "/api/auth/login"; // Redirect here if unauthorized (won't work directly for API, but useful for reference)
+        options.LoginPath = "/api/auth/login";
         options.AccessDeniedPath = "/api/auth/accessdenied";
         options.ExpireTimeSpan = TimeSpan.FromMinutes(60);
         options.SlidingExpiration = true;
-        options.Cookie.SameSite = SameSiteMode.None;
+        // Configure SameSite and SecurePolicy based on requirements
+        options.Cookie.SameSite = SameSiteMode.Lax; // Lax is often safer than None unless cross-site needed
         options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // Requires HTTPS
 
-         //Prevent automatic redirects for API calls expecting 401/403
         options.Events = new CookieAuthenticationEvents
         {
-            OnRedirectToLogin = ctx =>
-            {
-                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                return Task.CompletedTask;
-            },
-            OnRedirectToAccessDenied = ctx =>
-            {
-                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-                return Task.CompletedTask;
-            }
+            OnRedirectToLogin = ctx => { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; },
+            OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; }
         };
     })
     .AddGoogle(options =>
     {
-        // This is application client id for google
         options.ClientId = googleClientId ?? throw new InvalidOperationException("Google ClientId not configured.");
-        // This is the secret used to validate the token
         options.ClientSecret = googleClientSecret ?? throw new InvalidOperationException("Google ClientSecret not configured.");
-        // Request email and profile info
         options.Scope.Add("profile");
         options.Scope.Add("email");
-        // Store tokens for potential later use (optional)
         options.SaveTokens = true;
-
     });
 
-
-// --- Authorization ---
-builder.Services.AddAuthorization(); // Add authorization services
-
-// --- API Controllers ---
+builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 
 #region swagger documentation
@@ -227,21 +218,37 @@ When you need to ensure fresh data from the database, use the `/REST/API/Utility
 
 #endregion
 
-builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
 
-app.UseRouting();
-app.UseHttpsRedirection();
-app.UseAuthentication();
-app.UseAuthorization();
+// ---Middleware Pipeline-- -
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage(); // More detailed errors in dev
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "MedRecPro API V1");
+        c.RoutePrefix = "swagger"; 
+        // Removed OAuth Client ID/App Name - handled by flows/redirects usually
+    });
+}
+else
+{
+    app.UseExceptionHandler("/Error"); // Use a proper error handling page/endpoint
+    app.UseHsts(); // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
+}
 
+app.UseHttpsRedirection(); // Redirect HTTP to HTTPS
 
-// Configure Swagger middleware for API documentation and OAuth2 authentication
-app.UseSwagger();  // Enable Swagger middleware
-app.UseSwaggerUI();
+app.UseRouting(); // Marks the position in the middleware pipeline where routing decisions are made
 
-app.MapControllers();
+// Authentication & Authorization must come after UseRouting and before UseEndpoints
+app.UseAuthentication(); // Attempts to authenticate the user before they access secure resources.
+app.UseAuthorization(); // Authorizes a user to access secure resources.
+
+app.MapControllers(); // Maps attribute-routed controllers
+
 app.Run();
-

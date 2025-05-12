@@ -71,7 +71,7 @@ namespace MedRecPro.Helpers
         public static string? GetTokenCacheKey(string? userName, string? tokenType)
         {
             if (!string.IsNullOrEmpty(userName) && !string.IsNullOrEmpty(tokenType))
-                return @$"GetOrSetCacheToken{tokenType}{userName?.ToLower()}".GetHashString();
+                return @$"GetOrSetCacheToken{tokenType}{userName?.ToLower()}".GetSHA1HashString();
             else return null;
         }
 

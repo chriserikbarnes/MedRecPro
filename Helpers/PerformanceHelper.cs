@@ -14,7 +14,7 @@ namespace MedRecPro.Helpers
     internal class PerformanceProperty
     {
         #region properties
-        public string ExpirationKey { get; private set; } = ("QDOC_PerformanceHelperExpiration").GetHashString();
+        public string ExpirationKey { get; private set; } = ("QDOC_PerformanceHelperExpiration").GetSHA1HashString();
 
         #endregion
 
@@ -179,7 +179,7 @@ namespace MedRecPro.Helpers
                 DateTimeOffset? logTimer = null;
 
                 // Generate the logging key (hashed per user).
-                string logTimerKey = $"SetCache{Util.GetLoginName("PerformanceHelper.SetCache")}".GetHashString();
+                string logTimerKey = $"SetCache{Util.GetLoginName("PerformanceHelper.SetCache")}".GetSHA1HashString();
 
                 //when the timer cache is null or stale
                 //this gets switched to true
@@ -288,7 +288,7 @@ namespace MedRecPro.Helpers
             //key and the cache has its count
             //sampled every 3 minutes for each user
             string logTimerKey = string.Concat("SetCache", Util.GetLoginName("PerformanceHelper.SetCache"))
-                .GetHashString();
+                .GetSHA1HashString();
 
             //clock for logging the cache count
             DateTimeOffset logTimer;
@@ -510,7 +510,7 @@ namespace MedRecPro.Helpers
 
             // Generate the logging key using the provided key.
             // If key is null, create a default key by combining "SetCache" with the current user's login name and hashing it.
-            string logTimerKey = key ?? $"SetCache{Util.GetLoginName("PerformanceHelper.SetCache")}".GetHashString();
+            string logTimerKey = key ?? $"SetCache{Util.GetLoginName("PerformanceHelper.SetCache")}".GetSHA1HashString();
 
             // Check if the timer is expired.
             // A null cache entry indicates an expired timer.
