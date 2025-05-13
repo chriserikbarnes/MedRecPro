@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authentication;
+﻿using MedRecPro.Models;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -11,210 +12,408 @@ namespace MedRecPro.Controllers
     [ApiController]
     public class AuthController : ControllerBase
     {
-        private readonly SignInManager<IdentityUser> _signInManager;
-        private readonly UserManager<IdentityUser> _userManager;
+        #region Fields
+        private readonly SignInManager<User> _signInManager;
+        private readonly UserManager<User> _userManager;
+        #endregion
 
-        public AuthController(SignInManager<IdentityUser> signInManager, UserManager<IdentityUser> userManager)
+        #region Constructor
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AuthController"/> class.
+        /// </summary>
+        /// <param name="signInManager">The ASP.NET Core Identity sign-in manager.</param>
+        /// <param name="userManager">The ASP.NET Core Identity user manager.</param>
+        public AuthController(SignInManager<User> signInManager, UserManager<User> userManager)
         {
+            #region implementation
             _signInManager = signInManager;
             _userManager = userManager;
+            #endregion
         }
+        #endregion
 
-        // This endpoint is targeted by Swagger UI's AuthorizationUrl
-        // It doesn't actually *do* anything, Swagger just needs a valid relative URL
-        // The actual login initiation happens via the provider-specific endpoints below.
+        #region Swagger Authentication Endpoints
+        /**************************************************************/
+        /// <summary>
+        /// Placeholder endpoint for Swagger UI's OAuth2 authorization URL.
+        /// </summary>
+        /// <returns>An OK result with instructions for initiating login.</returns>
+        /// <remarks>
+        /// This endpoint doesn't perform any authentication but serves as a valid
+        /// relative URL for Swagger's AuthorizationUrl configuration. The actual
+        /// login initiation happens via the provider-specific endpoints.
+        /// </remarks>
         [HttpGet("external-login")]
         public IActionResult ExternalLoginSwagger()
         {
-            // This is just a placeholder for Swagger's AuthorizationUrl.
-            // It might return a simple message or documentation hint.
+            #region implementation
+            // This is just a placeholder for Swagger's AuthorizationUrl
             return Ok("Initiate login via /api/auth/login/{provider}");
+            #endregion
         }
 
-        // Placeholder for Swagger's TokenUrl (not used in cookie flow)
+        /**************************************************************/
+        /// <summary>
+        /// Placeholder endpoint for Swagger UI's OAuth2 token URL.
+        /// </summary>
+        /// <returns>A BadRequest result explaining this endpoint is not used.</returns>
+        /// <remarks>
+        /// This endpoint serves as a placeholder for Swagger's TokenUrl configuration.
+        /// In a cookie-based authentication flow, a separate token endpoint is not needed.
+        /// </remarks>
         [HttpPost("token-placeholder")]
         public IActionResult TokenPlaceholder()
         {
+            #region implementation
             return BadRequest("Token endpoint not applicable for cookie-based external provider flow.");
+            #endregion
         }
+        #endregion
 
-        // Endpoint to initiate the external login flow for a specific provider
-        // e.g., GET /api/auth/login/Google
+        #region External Authentication
+        /**************************************************************/
+        /// <summary>
+        /// Initiates the external login flow for a specific authentication provider.
+        /// </summary>
+        /// <param name="provider">The name of the authentication provider (e.g., Google).</param>
+        /// <returns>A Challenge result that redirects to the external provider.</returns>
+        /// <remarks>
+        /// This endpoint configures the authentication properties, including the callback URL,
+        /// and issues a challenge to the specified external provider. The user will be redirected
+        /// to the provider's login page.
+        /// </remarks>
+        /// <example>
+        /// GET /api/auth/login/Google
+        /// </example>
         [HttpGet("login/{provider}")]
         public IActionResult LoginExternalProvider(string provider)
         {
-            var swaggerPath = "/swagger/index.html"; // Path to Swagger UI (adjust as needed)
-            // Request a redirect to the external login provider
+            #region implementation
+            // Path to Swagger UI (adjust as needed)
+            var swaggerPath = "/swagger/index.html"; 
+            
+            // Configure the redirect URL for after successful external authentication
             var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Auth", new { ReturnUrl = swaggerPath });
+            
+            // Configure the external authentication properties
             var properties = _signInManager.ConfigureExternalAuthenticationProperties(provider, redirectUrl);
+            
+            // Challenge the specified provider, which will redirect to the provider's login page
             return Challenge(properties, provider);
+            #endregion
         }
 
-        // Callback endpoint automatically hit by the external provider after successful login
-        // Path matches Redirect URI configured with providers (e.g., /signin-google handled by middleware)
-        // This action is invoked *after* the external cookie is processed by the middleware.
+        /**************************************************************/
+        /// <summary>
+        /// Handles the callback from external authentication providers after login attempt.
+        /// </summary>
+        /// <param name="returnUrl">The URL to redirect to after successful login.</param>
+        /// <param name="remoteError">Error information from the external provider, if any.</param>
+        /// <returns>A redirect to either the return URL or an error page.</returns>
+        /// <remarks>
+        /// This endpoint is automatically called by the external provider after the user 
+        /// completes the authentication process. It handles various scenarios:
+        /// 1. Authentication failure (redirects to LoginFailure)
+        /// 2. Successful login for existing user (redirects to returnUrl)
+        /// 3. Successful login for new user (creates account, links provider, then redirects)
+        /// 4. Account lockout (redirects to Lockout)
+        /// </remarks>
         [HttpGet("external-logincallback")]
         public async Task<IActionResult> ExternalLoginCallback(string? returnUrl = null, string? remoteError = null)
         {
-            returnUrl ??= Url.Content("~/swagger/"); // Default redirect to Swagger UI root
+            #region implementation
+            // Default to Swagger UI if no return URL is provided
+            returnUrl ??= Url.Content("~/swagger/");
 
+            // Handle authentication error from the provider
             if (remoteError != null)
             {
-                // Handle error from external provider
-                return RedirectToAction(nameof(LoginFailure)); // Or return an error view/message
-            }
-
-            // Get information about the user from the external provider
-            var info = await _signInManager.GetExternalLoginInfoAsync();
-            if (info == null)
-            {
-                // Handle case where external login info is not available
                 return RedirectToAction(nameof(LoginFailure));
             }
 
-            // Sign in the user with this external login provider if they already have a login.
-            var result = await _signInManager.ExternalLoginSignInAsync(info.LoginProvider, info.ProviderKey, isPersistent: false, bypassTwoFactor: true);
+            // Get the login info from the external provider
+            var info = await _signInManager.GetExternalLoginInfoAsync();
+            if (info == null)
+            {
+                // No login info available - likely the user cancelled the login
+                return RedirectToAction(nameof(LoginFailure));
+            }
+
+            // Attempt to sign in with the external provider
+            var result = await _signInManager.ExternalLoginSignInAsync(
+                info.LoginProvider, 
+                info.ProviderKey, 
+                isPersistent: false, 
+                bypassTwoFactor: true);
 
             if (result.Succeeded)
             {
-                // User already linked and signed in
-                // Update any stored tokens if needed (info.AuthenticationTokens)
+                // User already has an account linked to this provider
+                // Update any authentication tokens
                 await UpdateExternalAuthenticationTokensAsync(info);
-                return LocalRedirect(returnUrl); // Redirect back to Swagger UI or original location
+                
+                // Redirect to the original return URL
+                return LocalRedirect(returnUrl);
             }
+            
             if (result.IsLockedOut)
             {
+                // User account is locked out
                 return RedirectToAction(nameof(Lockout));
             }
             else
             {
-                // --- If the user does not have an account, create one ---
+                // User does not have an account or it's not linked to this provider
+                // Extract user information from the claims
                 var email = info.Principal.FindFirstValue(ClaimTypes.Email);
-                var name = info.Principal.FindFirstValue(ClaimTypes.Name) ?? // Use Name claim if available
-                           info.Principal.FindFirstValue(ClaimTypes.GivenName) ?? // Fallback to GivenName
-                           email?.Split('@')[0]; // Fallback to part of email
+                var name = info.Principal.FindFirstValue(ClaimTypes.Name) ??
+                           info.Principal.FindFirstValue(ClaimTypes.GivenName) ??
+                           email?.Split('@')[0]; // Fallback to username from email
 
+                // Ensure we have the necessary user info
                 if (email == null || name == null)
                 {
-                    // Cannot create user without essential info
-                    // Maybe redirect to a page asking for more details
                     Console.WriteLine("External login failed: Email or Name claim not found.");
+                    
+                    // Log available claims for debugging
                     foreach (var claim in info.Principal.Claims)
                     {
                         Console.WriteLine($"Claim Type: {claim.Type}, Value: {claim.Value}");
                     }
-                    // For Apple, ensure 'email' and 'name' scopes were requested and 'sub' is mapped
-                    if (info.LoginProvider == "Apple")
-                    {
-                        Console.WriteLine("Ensure Apple service is configured to return email/name and scopes requested.");
-                    }
-                    return RedirectToAction(nameof(LoginFailure), new { Message = "Required user information (email, name) not provided by external login." });
+                    
+                    // Return with error message
+                    return RedirectToAction(
+                        nameof(LoginFailure), 
+                        new { Message = "Required user information (email, name) not provided by external login." });
                 }
 
+                // Check if user already exists with this email
                 var user = await _userManager.FindByEmailAsync(email);
                 IdentityResult identityResult;
 
                 if (user == null)
                 {
                     // Create a new user account
-                    user = new IdentityUser { UserName = email, Email = email, EmailConfirmed = true }; // Auto-confirm external logins
+                    user = new User
+                    {
+                        UserName = email,                      // Standard Identity property
+                        Email = email,                         // Standard Identity property
+                        PrimaryEmail = email,                  // Custom property
+                        EmailConfirmed = true,                 // Auto-confirm for external logins
+                        DisplayName = name,                    // Custom property
+                        CanonicalUsername = email.ToLowerInvariant(),
+                        Timezone = "UTC",                      // Default timezone
+                        Locale = "en-US",                      // Default locale
+                        CreatedAt = DateTime.UtcNow,
+                        SecurityStamp = Guid.NewGuid().ToString()
+                    };
+                    
+                    // Create the user in the database
                     identityResult = await _userManager.CreateAsync(user);
                 }
                 else
                 {
-                    // User exists, link the external login
-                    identityResult = IdentityResult.Success; // User already exists, just need to add login
+                    // User exists, just need to link the external login
+                    identityResult = IdentityResult.Success;
                 }
-
 
                 if (identityResult.Succeeded)
                 {
                     // Add the external login to the user
                     identityResult = await _userManager.AddLoginAsync(user, info);
+                    
                     if (identityResult.Succeeded)
                     {
-                        // Sign in the newly created/linked user
+                        // Sign in the user
                         await _signInManager.SignInAsync(user, isPersistent: false);
-                        await UpdateExternalAuthenticationTokensAsync(info); // Store tokens
+                        
+                        // Update authentication tokens
+                        await UpdateExternalAuthenticationTokensAsync(info);
+                        
+                        // Redirect to the original return URL
                         return LocalRedirect(returnUrl);
                     }
                 }
 
-                // If creation or adding login failed, handle errors
-                // Add errors to ModelState or log them
+                // If we get here, either creating the user or linking the external login failed
                 foreach (var error in identityResult.Errors)
                 {
                     Console.WriteLine($"Error creating/linking user: {error.Description}");
                 }
+                
                 return RedirectToAction(nameof(LoginFailure));
             }
+            #endregion
         }
 
-        // Helper to store external authentication tokens if SaveTokens = true
+        /**************************************************************/
+        /// <summary>
+        /// Stores external authentication tokens for the user.
+        /// </summary>
+        /// <param name="info">The external login information containing authentication tokens.</param>
+        /// <remarks>
+        /// This method saves tokens provided by the external authentication provider
+        /// (like access tokens, refresh tokens, etc.) to the user's authentication data.
+        /// These tokens can be used later to access the provider's APIs on behalf of the user.
+        /// </remarks>
         private async Task UpdateExternalAuthenticationTokensAsync(ExternalLoginInfo info)
         {
+            #region implementation
+            // Only proceed if there are tokens to store
             if (info.AuthenticationTokens != null && info.AuthenticationTokens.Any())
             {
+                // Find the user by their external login info
                 var user = await _userManager.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
+                
                 if (user != null)
                 {
+                    // Store each authentication token for the user
                     foreach (var token in info.AuthenticationTokens)
                     {
-                        // Store AccessToken, RefreshToken, IdToken etc. as needed
-                        await _userManager.SetAuthenticationTokenAsync(user, info.LoginProvider, token.Name, token.Value);
+                        await _userManager.SetAuthenticationTokenAsync(
+                            user, 
+                            info.LoginProvider, 
+                            token.Name, 
+                            token.Value);
                     }
                 }
             }
+            #endregion
         }
+        #endregion
 
-
+        #region Error Handling
+        /**************************************************************/
+        /// <summary>
+        /// Handles failed login attempts.
+        /// </summary>
+        /// <param name="message">Optional error message explaining the reason for the failure.</param>
+        /// <returns>A BadRequest result with the error message.</returns>
+        /// <remarks>
+        /// This endpoint provides a standardized way to handle and report various
+        /// login failure scenarios, such as missing claims, authentication errors, etc.
+        /// </remarks>
         [HttpGet("loginfailure")]
         public IActionResult LoginFailure(string? message = null)
         {
-            // Return an error response
+            #region implementation
             return BadRequest($"External login failed. {message ?? string.Empty}");
+            #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Handles requests for locked-out user accounts.
+        /// </summary>
+        /// <returns>A Forbidden status code with a lockout message.</returns>
+        /// <remarks>
+        /// This endpoint is called when a user attempts to log in but their account is locked out,
+        /// typically due to too many failed login attempts or administrative action.
+        /// </remarks>
         [HttpGet("lockout")]
         public IActionResult Lockout()
         {
-            // Return a specific error response for lockout
+            #region implementation
             return StatusCode(StatusCodes.Status403Forbidden, "User account locked out.");
+            #endregion
         }
+        #endregion
 
-        // Endpoint to get current user info (requires authentication)
+        #region User Management
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves information about the currently authenticated user.
+        /// </summary>
+        /// <returns>
+        /// An OK result with the user's ID, name, and claims if authenticated;
+        /// otherwise, an Unauthorized result.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint requires the user to be authenticated. It returns basic
+        /// information about the current user, including all claims associated with
+        /// their identity.
+        /// </remarks>
         [HttpGet("user")]
         [Authorize] // Requires the user to be logged in (via cookie)
         public IActionResult GetUser()
         {
+            #region implementation
             if (User.Identity?.IsAuthenticated == true)
             {
+                // Extract claims to return in the response
                 var claims = User.Claims.Select(c => new { c.Type, c.Value });
-                return Ok(new { UserId = User.FindFirstValue(ClaimTypes.NameIdentifier), Name = User.Identity.Name, Claims = claims });
+                
+                // Return user information
+                return Ok(new { 
+                    UserId = User.FindFirstValue(ClaimTypes.NameIdentifier), 
+                    Name = User.Identity.Name, 
+                    Claims = claims 
+                });
             }
-            return Unauthorized(); // Should not happen if [Authorize] is effective
+            
+            // This should not happen if [Authorize] is working correctly
+            return Unauthorized();
+            #endregion
         }
 
-        // Endpoint to log out
+        /**************************************************************/
+        /// <summary>
+        /// Logs out the current user.
+        /// </summary>
+        /// <returns>An OK result confirming successful logout.</returns>
+        /// <remarks>
+        /// This endpoint signs the user out by clearing the authentication cookie.
+        /// Only authenticated users can access this endpoint.
+        /// </remarks>
         [HttpPost("logout")]
         [Authorize] // Only logged-in users can log out
         public async Task<IActionResult> Logout()
         {
-            await _signInManager.SignOutAsync(); // Clears the authentication cookie
+            #region implementation
+            // Sign out using the Identity SignInManager
+            await _signInManager.SignOutAsync();
+            
+            // Return confirmation message
             return Ok(new { Message = "Logged out successfully." });
+            #endregion
         }
+        #endregion
 
-        // Placeholder endpoints for cookie authentication events (if needed, usually not called directly)
+        #region Authentication Redirects
+        /**************************************************************/
+        /// <summary>
+        /// Handles redirect requests for login operations.
+        /// </summary>
+        /// <returns>An Unauthorized result with instructions for initiating login.</returns>
+        /// <remarks>
+        /// This endpoint is a fallback for handling redirect operations during the
+        /// cookie authentication flow. It's usually not called directly by clients.
+        /// </remarks>
         [HttpGet("login")]
         public IActionResult HandleLoginRedirect()
         {
+            #region implementation
             return Unauthorized("Authentication required. Please initiate login via /api/auth/login/{provider}.");
+            #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Handles requests redirected due to insufficient permissions.
+        /// </summary>
+        /// <returns>A Forbid result with an access denied message.</returns>
+        /// <remarks>
+        /// This endpoint is called when a user is authenticated but lacks the
+        /// necessary authorization to access a protected resource.
+        /// </remarks>
         [HttpGet("accessdenied")]
         public IActionResult HandleAccessDenied()
         {
+            #region implementation
             return Forbid("Access Denied.");
+            #endregion
         }
+        #endregion
     }
 }

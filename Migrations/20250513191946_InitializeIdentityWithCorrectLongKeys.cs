@@ -3,10 +3,10 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace MedRecPro.Data.Migrations
+namespace MedRecPro.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialIdentitySchema : Migration
+    public partial class InitializeIdentityWithCorrectLongKeys : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -15,7 +15,8 @@ namespace MedRecPro.Data.Migrations
                 name: "AspNetRoles",
                 columns: table => new
                 {
-                    Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
                     Name = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     NormalizedName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     ConcurrencyStamp = table.Column<string>(type: "nvarchar(max)", nullable: true)
@@ -29,7 +30,37 @@ namespace MedRecPro.Data.Migrations
                 name: "AspNetUsers",
                 columns: table => new
                 {
-                    Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    CanonicalUsername = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    DisplayName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    PrimaryEmail = table.Column<string>(type: "nvarchar(320)", maxLength: 320, nullable: false),
+                    MfaEnabled = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
+                    PasswordChangedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    FailedLoginCount = table.Column<int>(type: "int", nullable: false, defaultValue: 0),
+                    LockoutUntil = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    MfaSecret = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    UserRole = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false, defaultValue: "User"),
+                    UserPermissions = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Timezone = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false, defaultValue: "UTC"),
+                    Locale = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false, defaultValue: "en-US"),
+                    NotificationSettings = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    UiTheme = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: true),
+                    TosVersionAccepted = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: true),
+                    TosAcceptedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    TosMarketingOptIn = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
+                    TosEmailNotification = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
+                    UserFollowing = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "SYSUTCDATETIME()"),
+                    CreatedByID = table.Column<long>(type: "bigint", nullable: true),
+                    UpdatedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    UpdatedBy = table.Column<long>(type: "bigint", nullable: true),
+                    DeletedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    SuspendedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    SuspensionReason = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
+                    LastLoginAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LastActivityAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LastIpAddress = table.Column<string>(type: "nvarchar(45)", maxLength: 45, nullable: true),
                     UserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     NormalizedUserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     Email = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
@@ -56,7 +87,7 @@ namespace MedRecPro.Data.Migrations
                 {
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
-                    RoleId = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    RoleId = table.Column<long>(type: "bigint", nullable: false),
                     ClaimType = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     ClaimValue = table.Column<string>(type: "nvarchar(max)", nullable: true)
                 },
@@ -77,7 +108,7 @@ namespace MedRecPro.Data.Migrations
                 {
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
-                    UserId = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    UserId = table.Column<long>(type: "bigint", nullable: false),
                     ClaimType = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     ClaimValue = table.Column<string>(type: "nvarchar(max)", nullable: true)
                 },
@@ -99,7 +130,7 @@ namespace MedRecPro.Data.Migrations
                     LoginProvider = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     ProviderKey = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     ProviderDisplayName = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    UserId = table.Column<string>(type: "nvarchar(450)", nullable: false)
+                    UserId = table.Column<long>(type: "bigint", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -116,8 +147,8 @@ namespace MedRecPro.Data.Migrations
                 name: "AspNetUserRoles",
                 columns: table => new
                 {
-                    UserId = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    RoleId = table.Column<string>(type: "nvarchar(450)", nullable: false)
+                    UserId = table.Column<long>(type: "bigint", nullable: false),
+                    RoleId = table.Column<long>(type: "bigint", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -140,7 +171,7 @@ namespace MedRecPro.Data.Migrations
                 name: "AspNetUserTokens",
                 columns: table => new
                 {
-                    UserId = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    UserId = table.Column<long>(type: "bigint", nullable: false),
                     LoginProvider = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     Name = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     Value = table.Column<string>(type: "nvarchar(max)", nullable: true)
@@ -189,11 +220,30 @@ namespace MedRecPro.Data.Migrations
                 column: "NormalizedEmail");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Users_LastActivityAt",
+                table: "AspNetUsers",
+                column: "LastActivityAt");
+
+            migrationBuilder.CreateIndex(
                 name: "UserNameIndex",
                 table: "AspNetUsers",
                 column: "NormalizedUserName",
                 unique: true,
                 filter: "[NormalizedUserName] IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "UX_Users_CanonicalUsername_Active",
+                table: "AspNetUsers",
+                column: "CanonicalUsername",
+                unique: true,
+                filter: "[DeletedAt] IS NULL AND [CanonicalUsername] IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "UX_Users_PrimaryEmail_Active",
+                table: "AspNetUsers",
+                column: "PrimaryEmail",
+                unique: true,
+                filter: "[DeletedAt] IS NULL");
         }
 
         /// <inheritdoc />

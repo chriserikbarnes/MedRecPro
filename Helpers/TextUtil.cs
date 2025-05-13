@@ -306,6 +306,25 @@ namespace MedRecPro.Helpers
         #endregion
 
         /******************************************************/
+        /// <summary>
+        /// Decrypts a string of text with a symmetric key.
+        /// </summary>  
+        public static string? Decrypt(this string text, string key)
+        {
+            #region implementation
+            try
+            {
+                return new StringCipher().Decrypt(text, key);
+            }
+            catch (Exception e)
+            {
+                ErrorHelper.AddErrorMsg($"TextUtil.Decrypt: {e.Message}");
+                return null;
+            }
+            #endregion
+        }
+
+        /******************************************************/
         public static bool IsValidEmail(string email)
         {
             #region implementation

@@ -1,109 +1,159 @@
-using System.Reflection;
+
 using Microsoft.OpenApi.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Infrastructure;
-using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc.Routing;
-using Google.Apis.Auth.AspNetCore3;
 using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
 using Microsoft.AspNetCore.Authentication.Cookies;
 using MedRecPro.Data; // Namespace for ApplicationDbContext
 using Microsoft.AspNetCore.Identity;
-using MedRecPro.Models; // Namespace for User model (if needed directly)
+using MedRecPro.Models; // Namespace for User model
 using System.Security.Cryptography;
 using MedRecPro.DataAccess;
-using Microsoft.AspNet.Identity; // For HashAlgorithmName if needed elsewhere
+using MedRecPro.Security; // Namespace for BasicAuthenticationHandler
+using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
+using Microsoft.AspNet.Identity;
+using System.Reflection;
+
 
 string? connectionString, googleClientId, googleClientSecret;
 
 var builder = WebApplication.CreateBuilder(args);
-
-var configuration = builder.Configuration; // Get configuration
+var configuration = builder.Configuration;
 
 // Access the connection string
-connectionString = builder.Configuration.GetConnectionString("DefaultConnection") // Recommend using GetConnectionString
-                   ?? builder.Configuration.GetSection("Dev:DB:Connection")?.Value; // Fallback if needed
+connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+                   ?? builder.Configuration.GetSection("Dev:DB:Connection")?.Value;
 
 if (string.IsNullOrEmpty(connectionString))
 {
     throw new InvalidOperationException("Database connection string is not configured.");
 }
 
-
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
-googleClientId = builder.Configuration["Authentication:Google:ClientId"]; // Simplified access
-googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]; // Simplified access
+googleClientId = builder.Configuration["Authentication:Google:ClientId"];
+googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"];
 
-// Bind AppSettings (if used)
 builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSettings"));
 
-// No need to register AppSettings itself unless used directly as a service
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddUserLogger(); // Assuming this is your custom logger setup
+builder.Services.AddUserLogger(); // Assuming this is your custom service
 
-// Register StringCipher for DI
-// Transient is usually suitable for stateless utility classes like this.
 builder.Services.AddTransient<StringCipher>();
-
-// Register other services that might use User, IConfiguration, StringCipher
-// Example: builder.Services.AddScoped<IUserService, UserService>();
 
 builder.Services.AddEndpointsApiExplorer();
 
-// --- Identity ---
-builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>
+// --- ASP.NET Core Identity ---
+// This registers UserManager, SignInManager, RoleManager, IPasswordHasher,
+// and also calls services.AddAuthentication().AddIdentityCookies() internally,
+// which sets up schemes like IdentityConstants.ApplicationScheme.
+builder.Services.AddIdentity<User, IdentityRole<long>>(options =>
 {
     options.SignIn.RequireConfirmedAccount = false;
+    options.User.RequireUniqueEmail = true;
+    options.Password.RequireDigit = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireNonAlphanumeric = true;
+    options.Password.RequiredLength = 8;
+    // ApplicationCookie will be configured further below using ConfigureApplicationCookie
+    // or by chaining AddCookie if preferred, but AddIdentity sets it up initially.
 })
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
-// --- Custom Services ---
-builder.Services.AddScoped<IUserDataAccess, UserDataAccess>();
-builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
+// --- Authentication Configuration ---
+// AddIdentity has already called AddAuthentication() and added cookie schemes.
+// Now we retrieve the builder to add other schemes and further configure cookies.
+// Or, you can use services.ConfigureApplicationCookie for cookie specific settings.
 
-// --- Authentication ---
+// Option 1: Chaining from services.AddAuthentication() (cleaner if AddIdentity didn't already call it, but it does)
+// builder.Services.AddAuthentication(options => { ... }).AddCookie().AddGoogle()...
+
+// Option 2: Configuring cookies specifically and adding other schemes
+// This approach is often clearer when working with AddIdentity.
+
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    // These settings configure the IdentityConstants.ApplicationScheme cookie
+    options.LoginPath = "/api/auth/login";
+    options.AccessDeniedPath = "/api/auth/accessdenied";
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(60);
+    options.SlidingExpiration = true;
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+
+    options.Events = new CookieAuthenticationEvents
+    {
+        OnRedirectToLogin = ctx => { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; },
+        OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; }
+    };
+});
+
+// Now, add other authentication schemes like Google and your custom BasicAuthentication.
+// We need to get an AuthenticationBuilder instance. Since AddIdentity calls AddAuthentication,
+// we can call it again but mainly to get the builder for chaining.
+// Alternatively, configure schemes one by one if AddAuthentication() is problematic.
+// Let's try to get the builder and add schemes:
 builder.Services.AddAuthentication(options =>
 {
+    // Set default schemes if not already adequately set by AddIdentity
+    // AddIdentity usually sets DefaultScheme to IdentityConstants.ApplicationScheme
     options.DefaultScheme = IdentityConstants.ApplicationScheme;
-    options.DefaultChallengeScheme = IdentityConstants.ApplicationScheme;
+    options.DefaultChallengeScheme = IdentityConstants.ApplicationScheme; // Can be overridden by specific challenges
+    options.DefaultSignInScheme = IdentityConstants.ExternalScheme; // For external logins
 })
-    .AddCookie(options =>
-    {
-        options.LoginPath = "/api/auth/login";
-        options.AccessDeniedPath = "/api/auth/accessdenied";
-        options.ExpireTimeSpan = TimeSpan.FromMinutes(60);
-        options.SlidingExpiration = true;
-        // Configure SameSite and SecurePolicy based on requirements
-        options.Cookie.SameSite = SameSiteMode.Lax; // Lax is often safer than None unless cross-site needed
-        options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // Requires HTTPS
-
-        options.Events = new CookieAuthenticationEvents
-        {
-            OnRedirectToLogin = ctx => { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; },
-            OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; }
-        };
-    })
+    .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("BasicAuthentication", o => { /* Configure Basic Auth if needed */ })
     .AddGoogle(options =>
     {
-        options.ClientId = googleClientId ?? throw new InvalidOperationException("Google ClientId not configured.");
-        options.ClientSecret = googleClientSecret ?? throw new InvalidOperationException("Google ClientSecret not configured.");
+        if (string.IsNullOrWhiteSpace(googleClientId) || string.IsNullOrWhiteSpace(googleClientSecret))
+        {
+            Console.WriteLine("Google ClientId or ClientSecret not configured. Google authentication will be disabled.");
+            return;
+        }
+        options.ClientId = googleClientId;
+        options.ClientSecret = googleClientSecret;
         options.Scope.Add("profile");
         options.Scope.Add("email");
         options.SaveTokens = true;
     });
 
-builder.Services.AddAuthorization();
+
+// Register our custom IPasswordHasher for MedRecPro.Models.User.
+// AddIdentity<User,...> already registers IPasswordHasher<User>.
+// This line is only needed if your PasswordHasher<User> is a *different* implementation
+// than the one Identity would register by default for your User type.
+// If it's just using the standard Identity password hashing algorithm, this is redundant.
+// Assuming MedRecPro.Models.PasswordHasher<User> is your specific implementation.
+builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
+
+
+// --- Custom Services ---
+builder.Services.AddScoped<UserDataAccess>();
+
+
+// --- Authorization ---
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("BasicAuthPolicy", new AuthorizationPolicyBuilder()
+        .AddAuthenticationSchemes("BasicAuthentication") // Ensure this matches the scheme name above
+        .RequireAuthenticatedUser()
+        .Build());
+
+    // Example: Default policy requiring any authenticated user
+    // options.DefaultPolicy = new AuthorizationPolicyBuilder()
+    //    .RequireAuthenticatedUser()
+    //    .Build();
+});
+
 builder.Services.AddControllers();
 
-#region swagger documentation
+#region Swagger Documentation
 builder.Services.AddSwaggerGen(options =>
 {
-
 #if DEBUG || DEV
     var environment = "Dev";
     var serverName = "Localhost";
@@ -113,7 +163,6 @@ builder.Services.AddSwaggerGen(options =>
     var serverName = "ProdHost";
 #endif
 
-    // Configure Swagger for development environment
     options.SwaggerDoc("v1", new OpenApiInfo
     {
         Version = "v1",
@@ -169,33 +218,15 @@ Retrieving data from cache is significantly faster than querying the database di
 When you need to ensure fresh data from the database, use the `/REST/API/Utility/ClearManagedCache` endpoint to clear the managed cache before making your request."
     });
 
-
-    // Define the OAuth2 scheme used for initiating the login flow via API endpoints
-    // This doesn't directly talk to Google/MS/Apple from Swagger UI, but tells Swagger
-    // how to trigger the API's login endpoints.
-    options.AddSecurityDefinition("oauth2", new OpenApiSecurityScheme
+    options.AddSecurityDefinition("BasicAuthentication", new OpenApiSecurityScheme
     {
-        Type = SecuritySchemeType.OAuth2,
-        Flows = new OpenApiOAuthFlows
-        {
-            // We use Authorization Code flow triggered by our API endpoints
-            AuthorizationCode = new OpenApiOAuthFlow
-            {
-                // These URLs point to OUR API which will then handle the external redirect
-                // Adjust paths based on your AuthController implementation below
-                AuthorizationUrl = new Uri("/api/auth/external-login", UriKind.Relative),
-                TokenUrl = new Uri("/api/auth/token-placeholder", UriKind.Relative), // Placeholder - token handled by cookie/callback
-                Scopes = new Dictionary<string, string>
-                {
-                    // Define scopes if needed for your API, not directly for external providers here
-                    { "api.read", "Read access to the API" }
-                }
-            }
-        },
-        Description = "OAuth2 Authentication using external providers (Google, Microsoft, Apple)"
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "Basic",
+        In = ParameterLocation.Header,
+        Description = "Basic Authorization header using the Basic scheme. Example: \"Authorization: Basic {base64(email:password)}\""
     });
 
-    // Apply the security definition globally to all endpoints that require authorization
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
@@ -204,51 +235,48 @@ When you need to ensure fresh data from the database, use the `/REST/API/Utility
                 Reference = new OpenApiReference
                 {
                     Type = ReferenceType.SecurityScheme,
-                    Id = "oauth2" // Must match the name defined in AddSecurityDefinition
-                },
-                Scheme = "oauth2",
-                Name = "oauth2",
-                In = ParameterLocation.Header
+                    Id = "BasicAuthentication"
+                }
             },
-            new List<string>() // List of required scopes (can be empty if not enforcing specific scopes here)
-            // Example: new List<string> { "api.read" }
+            Array.Empty<string>()
         }
     });
+    // Set the comments path for the Swagger JSON and UI.
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath)) // Check if the file exists before trying to include it
+    {
+        options.IncludeXmlComments(xmlPath);
+    }
 });
-
 #endregion
-
 
 var app = builder.Build();
 
-
-// ---Middleware Pipeline-- -
-// Configure the HTTP request pipeline.
+// ---Middleware Pipeline---
 if (app.Environment.IsDevelopment())
 {
-    app.UseDeveloperExceptionPage(); // More detailed errors in dev
+    app.UseDeveloperExceptionPage();
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "MedRecPro API V1");
-        c.RoutePrefix = "swagger"; 
-        // Removed OAuth Client ID/App Name - handled by flows/redirects usually
+        c.RoutePrefix = "swagger"; // Access Swagger UI at /swagger
     });
 }
 else
 {
-    app.UseExceptionHandler("/Error"); // Use a proper error handling page/endpoint
-    app.UseHsts(); // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
+    app.UseExceptionHandler("/Error"); // You'll need an Error handling page/endpoint
+    app.UseHsts();
 }
 
-app.UseHttpsRedirection(); // Redirect HTTP to HTTPS
-
-app.UseRouting(); // Marks the position in the middleware pipeline where routing decisions are made
+app.UseHttpsRedirection();
+app.UseRouting();
 
 // Authentication & Authorization must come after UseRouting and before UseEndpoints
-app.UseAuthentication(); // Attempts to authenticate the user before they access secure resources.
-app.UseAuthorization(); // Authorizes a user to access secure resources.
+app.UseAuthentication(); // Enables authentication capabilities
+app.UseAuthorization();  // Enables authorization capabilities
 
-app.MapControllers(); // Maps attribute-routed controllers
+app.MapControllers();
 
 app.Run();
