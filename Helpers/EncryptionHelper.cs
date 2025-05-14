@@ -130,43 +130,28 @@ namespace MedRecPro.Helpers
         /// https://stackoverflow.com/questions/10168240/encrypting-decrypting-a-string-in-c-sharp/10177020#10177020
         /// https://stackoverflow.com/questions/939040/when-will-c-sharp-aes-algorithm-be-fips-compliant
         /// </remarks>
-        internal string Decrypt(string cipherText, string passPhrase)
+        protected internal string Decrypt(string cipherText, string passPhrase)
         {
             #region implementation
             // Get the complete stream of bytes that represent:
-            // [Salt Length Bytes (4)] + [IV Length Bytes (4)] + [Salt] + [IV] + [Cipher] - Adjusted approach needed if lengths variable
-            // OR Assuming fixed keysize for Salt/IV:
-            // [16 bytes of Salt] + [16 bytes of IV] + [n bytes of CipherText] (based on Keysize = 128)
-
+            // [32 bytes of Salt] + [32 bytes of IV] + [n bytes of CipherText]
             var cipherTextBytesWithSaltAndIv = Convert.FromBase64String(cipherText);
-
-            // Verify minimum length
-            if (cipherTextBytesWithSaltAndIv.Length < (Keysize / 8) * 2)
-            {
-                throw new FormatException("Cipher text is too short to contain salt and IV.");
-            }
-
-            // Get the saltbytes by extracting the first Keysize/8 bytes.
+            // Get the saltbytes by extracting the first 32 bytes from the supplied cipherText bytes.
             var saltStringBytes = cipherTextBytesWithSaltAndIv.Take(Keysize / 8).ToArray();
-
-            // Get the IV bytes by extracting the next Keysize/8 bytes.
+            // Get the IV bytes by extracting the next 32 bytes from the supplied cipherText bytes.
             var ivStringBytes = cipherTextBytesWithSaltAndIv.Skip(Keysize / 8).Take(Keysize / 8).ToArray();
+            // Get the actual cipher text bytes by removing the first 64 bytes from the cipherText string.
+            var cipherTextBytes = cipherTextBytesWithSaltAndIv.Skip((Keysize / 8) * 2).Take(cipherTextBytesWithSaltAndIv.Length - ((Keysize / 8) * 2)).ToArray();
 
-            // Get the actual cipher text bytes by removing the first (Keysize/8 * 2) bytes.
-            var cipherTextBytes = cipherTextBytesWithSaltAndIv.Skip((Keysize / 8) * 2).ToArray();
-
-            using (var password = new Rfc2898DeriveBytes(passPhrase, saltStringBytes, DerivationIterations, HashAlgorithmName.SHA256)) // Specify HashAlgorithm
+            using (var password = new Rfc2898DeriveBytes(passPhrase, saltStringBytes, DerivationIterations))
             {
                 string text;
                 var keyBytes = password.GetBytes(Keysize / 8);
-                // Use AesGcm or AesCbc based on what Encrypt uses. Assuming AesCbc here.
-                using (var symmetricKey = Aes.Create()) // Use Aes.Create() for default provider
+                using (var symmetricKey = new AesCryptoServiceProvider())
                 {
-                    symmetricKey.KeySize = Keysize; // Ensure keysize is set
-                    symmetricKey.BlockSize = 128; // AES block size is always 128
+                    symmetricKey.BlockSize = 128;
                     symmetricKey.Mode = CipherMode.CBC;
                     symmetricKey.Padding = PaddingMode.PKCS7;
-
                     using (var decryptor = symmetricKey.CreateDecryptor(keyBytes, ivStringBytes))
                     {
                         using (var memoryStream = new MemoryStream(cipherTextBytes))
@@ -180,13 +165,12 @@ namespace MedRecPro.Helpers
                                 }
                                 catch (System.Security.Cryptography.CryptographicException e)
                                 {
-                                    // Use a proper logging mechanism instead of ErrorHelper if it's not available/standard
-                                    // Console.WriteLine($"Decryption Error: {e.Message}"); // Example basic logging
-                                    // Consider injecting ILogger here if making StringCipher a service
 
-                                    // Throw a more specific exception or handle as appropriate
-                                    throw new CryptographicException("Decryption failed. The data may be corrupt or the key incorrect.", e);
+                                    ErrorHelper.AddErrorMsg("StringCipher.Decrypt: " + e.Message);
+                                    text = "Can't decode because the secret was wrong";
+                                    throw new Exception(text);
                                 }
+
                                 return text;
                             }
                         }

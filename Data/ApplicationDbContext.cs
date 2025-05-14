@@ -38,11 +38,6 @@ namespace MedRecPro.Data
         {
             base.OnModelCreating(builder); // This is crucial for Identity tables to be configured.
 
-            // Configure your MedRecPro.Models.User entity
-            // Most Identity-related configurations (like PK name 'Id', table names 'AspNetUsers', etc.)
-            // are handled by base.OnModelCreating(builder).
-            // You only need to configure your *custom* properties here if they need special mapping.
-
             builder.Entity<User>(entity =>
             {
                 // The table name by default will be "AspNetUsers" if not changed.

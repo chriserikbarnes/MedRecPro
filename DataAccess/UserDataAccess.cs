@@ -373,7 +373,20 @@ namespace MedRecPro.DataAccess
                 if (emailExists)
                 {
                     _logger.LogWarning("Attempt to create user with existing email: {Email}", user.PrimaryEmail);
-                    return "Duplicate";
+
+                    var existingUser = await GetByEmailAsync(user.PrimaryEmail);
+
+                    // user record may have been added by third party sign-on and no password was added
+                    // this updates the record to include the password
+                    if (existingUser != null) {
+
+                        var encryptedId = StringCipher.Encrypt(existingUser.Id.ToString(), getPkSecret());
+
+                        await UpdateAsync(user, encryptedId);
+
+                        return encryptedId;
+                    }
+                    else return "Duplicate";
                 }
 
                 _dbContext.AppUsers.Add(user);
@@ -511,7 +524,7 @@ namespace MedRecPro.DataAccess
         {
             if (user == null) throw new ArgumentNullException(nameof(user));
 
-            if (!tryDecryptId(user.EncryptedUserId, $"{nameof(user)}.{nameof(user.EncryptedUserId)}", out long userIdToUpdate))
+            if (!tryDecryptId(encryptedUpdaterUserId ?? user.EncryptedUserId, $"{nameof(user)}.{nameof(user.EncryptedUserId)}", out long userIdToUpdate))
             {
                 _logger.LogWarning("UpdateAsync: User to update has invalid or missing EncryptedUserId.");
                 return false;
@@ -525,7 +538,7 @@ namespace MedRecPro.DataAccess
             try
             {
                 var existingUser = await _dbContext.AppUsers
-                    .SingleOrDefaultAsync(u => u.UserID == userIdToUpdate && u.DeletedAt == null);
+                    .SingleOrDefaultAsync(u => u.Id == userIdToUpdate && u.DeletedAt == null);
 
                 if (existingUser == null)
                 {
@@ -537,8 +550,8 @@ namespace MedRecPro.DataAccess
                 user.UserID = existingUser.UserID; // Ensure UserID is correct
                 user.CreatedAt = existingUser.CreatedAt;
                 user.CreatedByID = existingUser.CreatedByID;
-                user.PasswordHash = existingUser.PasswordHash; // Password changes via RotatePasswordAsync
-                user.SecurityStamp = existingUser.SecurityStamp; // SecurityStamp changes via RotatePasswordAsync
+                user.PasswordHash = existingUser.PasswordHash ?? user.PasswordHash; // Password changes via RotatePasswordAsync
+                user.SecurityStamp = existingUser.SecurityStamp ?? user.SecurityStamp; // SecurityStamp changes via RotatePasswordAsync
                 // etc. for fields not typically part of a general update DTO
 
                 // Update audit fields from parameters/current state
