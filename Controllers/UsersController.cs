@@ -665,13 +665,13 @@ namespace MedRecPro.Controllers
 
             // IMPORTANT: Get the authenticated updater's ID from claims.
             // This could be the user themselves or an admin.
-            // var encryptedUpdaterUserIdFromAuth = User.Claims.FirstOrDefault(c => c.Type == "EncryptedUserId")?.Value;
+            var encryptedUpdaterUserIdFromAuth = User.Claims.FirstOrDefault(c => c.Type == "EncryptedUserId")?.Value;
             // For demonstration:
-            string encryptedUpdaterUserIdFromAuth = "CURRENT_USER_OR_ADMIN_ENCRYPTED_ID_PLACEHOLDER"; // Replace with actual logic
+           // string encryptedUpdaterUserIdFromAuth = "CURRENT_USER_OR_ADMIN_ENCRYPTED_ID_PLACEHOLDER"; // Replace with actual logic
 
             // Authorization: Check if encryptedUpdaterUserIdFromAuth is the same as EncryptedTargetUserId (self-change)
             // OR if encryptedUpdaterUserIdFromAuth belongs to an admin.
-            // E.g., if (encryptedUpdaterUserIdFromAuth != rotatePasswordRequest.EncryptedTargetUserId && !User.IsInRole("Admin")) 
+           //if (encryptedUpdaterUserIdFromAuth != rotatePasswordRequest.EncryptedTargetUserId && !User.IsInRole("Admin")) 
             //          return Unauthorized("Not authorized to change this user's password.");
 
 
