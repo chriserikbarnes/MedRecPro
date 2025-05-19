@@ -33,6 +33,169 @@ namespace MedRecPro.Controllers
         }
         #endregion
 
+        #region Private Methods
+        private async Task<IActionResult> handleLinkedExternalUser(
+      User user, ExternalLoginInfo info, string returnUrl, CancellationToken cancellationToken)
+        {
+            // Ensure UserName is present for Identity operations
+            if (string.IsNullOrEmpty(user.UserName))
+            {
+                var emailClaimValue = getEmailClaim(info);
+                if (!string.IsNullOrEmpty(emailClaimValue))
+                {
+                    user.UserName = emailClaimValue;
+                    if (string.IsNullOrEmpty(user.Email))
+                    {
+                        user.Email = emailClaimValue;
+                    }
+                    var updateResult = await _userManager.UpdateAsync(user);
+                    if (!updateResult.Succeeded)
+                    {
+                        string updateErrors = string.Join(", ", updateResult.Errors.Select(e => e.Description));
+                        return RedirectToAction(nameof(LoginFailure), new { Message = $"Error updating user with missing username: {updateErrors}" });
+                    }
+                }
+                else
+                {
+                    return RedirectToAction(nameof(LoginFailure), new { Message = "Could not determine username for existing linked account as email claim was missing from provider." });
+                }
+            }
+
+            // Attempt external login sign-in now that username is populated
+            var signInResult = await _signInManager.ExternalLoginSignInAsync(
+                info.LoginProvider, info.ProviderKey, isPersistent: false, bypassTwoFactor: true);
+
+            if (signInResult.Succeeded)
+            {
+                await UpdateExternalAuthenticationTokensAsync(info); // Custom: persists tokens if needed
+                return LocalRedirect(returnUrl);
+            }
+            else if (signInResult.IsLockedOut)
+            {
+                return RedirectToAction(nameof(Lockout));
+            }
+            else
+            {
+                return RedirectToAction(nameof(LoginFailure), new { Message = "External login failed after attempting to update user information. Please try again or contact support." });
+            }
+        }
+
+        private async Task<IActionResult> handleUnlinkedExternalUser(
+            ExternalLoginInfo info, string returnUrl, CancellationToken cancellationToken)
+        {
+            IdentityResult identityResult;
+            User user;
+
+            string email = getEmailClaim(info);
+            string name = getNameClaim(info, email);
+
+            if (string.IsNullOrEmpty(email))
+            {
+                // Claims missing email: log and fail
+                return RedirectToAction(nameof(LoginFailure), new { Message = "Required user information (email) not provided by external login." });
+            }
+
+            // Try to find an existing user by email
+            var existingUserByEmail = await _userManager.FindByEmailAsync(email);
+
+           
+            if (existingUserByEmail == null)
+            {
+                // New user creation
+                user = createUserForExternalLogin(email, name);
+                identityResult = await _userManager.CreateAsync(user);
+            }
+            else
+            {
+                user = existingUserByEmail;
+                bool needsUpdate = false;
+                if (string.IsNullOrEmpty(user.UserName))
+                {
+                    user.UserName = email;
+                    needsUpdate = true;
+                }
+                if (user.DisplayName != name)
+                {
+                    user.DisplayName = name;
+                    needsUpdate = true;
+                }
+                identityResult = needsUpdate ? await _userManager.UpdateAsync(user) : IdentityResult.Success;
+            }
+
+            if (identityResult.Succeeded)
+            {
+                // Link external login to user and sign in
+                identityResult = await _userManager.AddLoginAsync(user, info);
+                if (identityResult.Succeeded)
+                {
+                    await _signInManager.SignInAsync(user, isPersistent: false, info.LoginProvider);
+                    await UpdateExternalAuthenticationTokensAsync(info);
+                    return LocalRedirect(returnUrl);
+                }
+            }
+
+            string errors = identityResult.Errors != null
+                ? string.Join(", ", identityResult.Errors.Select(e => e.Description))
+                : "Unknown error during external login processing.";
+
+            return RedirectToAction(nameof(LoginFailure), new { Message = $"Error processing external login: {errors}" });
+        }
+
+        private string getEmailClaim(ExternalLoginInfo info)
+        {
+            // Try to retrieve the email claim using various keys
+            var email = info.Principal.FindFirstValue(ClaimTypes.Email)
+                ?? info.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress");
+            return email ?? string.Empty;
+        }
+
+        private string getNameClaim(ExternalLoginInfo info, string email)
+        {
+            // Retrieve name from claims, or fallback to email prefix
+            var name = info.Principal.FindFirstValue(ClaimTypes.Name)
+                ?? info.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")
+                ?? info.Principal.FindFirstValue(ClaimTypes.GivenName)
+                ?? info.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname");
+            if (string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(email))
+            {
+                var idx = email.IndexOf('@');
+                name = idx > 0 ? email.Substring(0, idx) : email;
+            }
+            return name ?? string.Empty;
+        }
+
+        private User createUserForExternalLogin(string email, string name)
+        {
+            // Create a user object populated with info from external login
+            var lcEmail = email.ToLowerInvariant();
+            return new User
+            {
+                UserName = lcEmail,
+                Email = lcEmail,
+                PrimaryEmail = lcEmail,
+                EmailConfirmed = true,
+                DisplayName = name,
+                CanonicalUsername = lcEmail,
+                Timezone = "UTC",
+                Locale = "en-US",
+                CreatedAt = DateTime.UtcNow,
+                SecurityStamp = Guid.NewGuid().ToString()
+            };
+        }
+
+#if DEBUG
+        private void logExternalClaims(ExternalLoginInfo info)
+        {
+            // Log all external claims for debugging
+            System.Diagnostics.Debug.WriteLine("External Login Claims:");
+            foreach (var claim in info.Principal.Claims)
+            {
+                System.Diagnostics.Debug.WriteLine($"Claim Type: {claim.Type}, Value: {claim.Value}");
+            }
+        }
+#endif
+        #endregion
+
         #region Swagger Authentication Endpoints
         /**************************************************************/
         /// <summary>
@@ -120,13 +283,16 @@ namespace MedRecPro.Controllers
         /// 4. Account lockout (redirects to Lockout)
         /// </remarks>
         [HttpGet("external-logincallback")]
-        public async Task<IActionResult> ExternalLoginCallback(string? returnUrl = null, string? remoteError = null)
+        public async Task<IActionResult> ExternalLoginCallback(
+            string? returnUrl = null, string? remoteError = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            returnUrl ??= Url.Content("~/swagger/"); // Or your desired default redirect
+            #region implementation
 
+            returnUrl = returnUrl ?? Url.Content("~/swagger/");
+
+            // Handle errors from remote authentication provider
             if (remoteError != null)
             {
-                // Log remoteError if desired
                 return RedirectToAction(nameof(LoginFailure), new { Message = $"Error from external provider: {remoteError}" });
             }
 
@@ -137,172 +303,21 @@ namespace MedRecPro.Controllers
             }
 
 #if DEBUG
-            // Temp logging:
-            System.Diagnostics.Debug.WriteLine("External Login Claims:");
-            foreach (var claim in info.Principal.Claims)
-            {
-                System.Diagnostics.Debug.WriteLine($"Claim Type: {claim.Type}, Value: {claim.Value}");
-            }
-            // End temp logging
+            logExternalClaims(info);
 #endif
 
-            // Attempt to retrieve the user associated with this external login
+            // Try to find a user linked to this external login
             var user = await _userManager.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
-
             if (user != null)
             {
-                // User is linked to this external login.
-                // Check if UserName is null or empty and populate it if necessary.
-                if (string.IsNullOrEmpty(user.UserName))
-                {
-                    var emailClaimValue = info.Principal.FindFirstValue(ClaimTypes.Email)
-                                          ?? info.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress");
-
-                    if (!string.IsNullOrEmpty(emailClaimValue))
-                    {
-                        user.UserName = emailClaimValue;
-                        // Optionally, if user.Email is also empty, populate it too
-                        if (string.IsNullOrEmpty(user.Email))
-                        {
-                            user.Email = emailClaimValue;
-                        }
-                        // EF Core Identity's UserManager should handle normalization on UpdateAsync
-                        var updateResult = await _userManager.UpdateAsync(user);
-                        if (!updateResult.Succeeded)
-                        {
-                            // Log errors from updateResult.Errors
-                            string updateErrors = string.Join(", ", updateResult.Errors.Select(e => e.Description));
-                            return RedirectToAction(nameof(LoginFailure), new { Message = $"Error updating user with missing username: {updateErrors}" });
-                        }
-                        // UserName is now populated for this existing user.
-                    }
-                    else
-                    {
-                        // This is an edge case: external provider didn't return email,
-                        // and existing linked user has no username.
-                        // Log this situation.
-                        return RedirectToAction(nameof(LoginFailure), new { Message = "Could not determine username for existing linked account as email claim was missing from provider." });
-                    }
-                }
-
-                // Now, UserName should be populated. Attempt to sign in this user.
-                // ExternalLoginSignInAsync will internally call FindByLoginAsync again,
-                // then proceed to create claims. Since we've updated the user, this should now work.
-                var signInResult = await _signInManager.ExternalLoginSignInAsync(info.LoginProvider, info.ProviderKey, isPersistent: false, bypassTwoFactor: true);
-
-                if (signInResult.Succeeded)
-                {
-                    await UpdateExternalAuthenticationTokensAsync(info); // Your existing method
-                    return LocalRedirect(returnUrl);
-                }
-                else if (signInResult.IsLockedOut)
-                {
-                    return RedirectToAction(nameof(Lockout));
-                }
-                // Potentially handle other SignInResult states like RequiresTwoFactor, IsNotAllowed
-                else
-                {
-                    // If sign-in still failed after the UserName fix, there might be other issues.
-                    return RedirectToAction(nameof(LoginFailure), new { Message = "External login failed after attempting to update user information. Please try again or contact support." });
-                }
+                // Existing user linked to this login
+                return await handleLinkedExternalUser(user, info, returnUrl, cancellationToken);
             }
-            else
-            {
-                // User not found by FindByLoginAsync - this is a new external login for the system.
-                // Proceed with your existing logic to find user by email or create a new user.
-                var email = info.Principal.FindFirstValue(ClaimTypes.Email)
-                              ?? info.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress");
 
-                // It's crucial to get the name for DisplayName as well
-                var name = info.Principal.FindFirstValue(ClaimTypes.Name)
-                           ?? info.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name");
-                if (string.IsNullOrEmpty(name))
-                {
-                    name = info.Principal.FindFirstValue(ClaimTypes.GivenName)
-                           ?? info.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname");
-                }
+            // No user by login, check for email and create/link if needed
+            return await handleUnlinkedExternalUser(info, returnUrl, cancellationToken);
 
-
-                if (string.IsNullOrEmpty(email))
-                {
-                    // Log available claims from info.Principal.Claims for debugging
-                    return RedirectToAction(nameof(LoginFailure), new { Message = "Required user information (email) not provided by external login." });
-                }
-
-                // Fallback for name if still not found (as in your original code)
-                if (string.IsNullOrEmpty(name)) name = email.Split('@')[0];
-
-                var existingUserByEmail = await _userManager.FindByEmailAsync(email);
-                IdentityResult identityResult;
-
-                if (existingUserByEmail == null)
-                {
-                    var lcEmail = email.ToLowerInvariant();
-
-                    // Create a new user account
-                    user = new User // Re-assign the 'user' variable
-                    {
-                        UserName = lcEmail, // Crucial: ensure UserName is set
-                        Email = lcEmail,
-                        PrimaryEmail = lcEmail, 
-                        EmailConfirmed = true, // Standard practice for external logins
-                        DisplayName = name,
-
-                        // Populate other required custom fields from your User model
-                        CanonicalUsername = email.ToLowerInvariant(),
-                        Timezone = "UTC", // Sensible default
-                        Locale = "en-US", // Sensible default
-                        CreatedAt = DateTime.UtcNow,
-                        SecurityStamp = Guid.NewGuid().ToString() // Important for Identity
-                    };
-
-
-                    identityResult = await _userManager.CreateAsync(user);
-                }
-                else
-                {
-                    // User already exists with this email. Use this user.
-                    user = existingUserByEmail;
-
-                    // Ensure UserName is populated if it was null for this user found by email
-                    bool needsUpdate = false;
-                    if (string.IsNullOrEmpty(user.UserName))
-                    {
-                        user.UserName = email;
-                        needsUpdate = true;
-                    }
-                    // Optionally update other details like DisplayName if desired from latest provider info
-                    if (user.DisplayName != name) { user.DisplayName = name; needsUpdate = true; }
-
-                    if (needsUpdate)
-                    {
-                        identityResult = await _userManager.UpdateAsync(user);
-                    }
-                    else
-                    {
-                        identityResult = IdentityResult.Success; // No update needed, proceed to link
-                    }
-                }
-
-                if (identityResult.Succeeded)
-                {
-                    // Link the external login to the user (either newly created or existing user found by email)
-                    identityResult = await _userManager.AddLoginAsync(user, info);
-                    if (identityResult.Succeeded)
-                    {
-                        // Sign in the user
-                        await _signInManager.SignInAsync(user, isPersistent: false, info.LoginProvider);
-                        await UpdateExternalAuthenticationTokensAsync(info); // Your existing method
-                        return LocalRedirect(returnUrl);
-                    }
-                }
-
-                // If any step failed (user creation, user update, adding login)
-                string errors = string.Join(", ", identityResult.Errors.Select(e => e.Description));
-
-                // Log these errors server-side for better diagnostics
-                return RedirectToAction(nameof(LoginFailure), new { Message = $"Error processing external login: {errors}" });
-            }
+            #endregion
         }
 
         /**************************************************************/
