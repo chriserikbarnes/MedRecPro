@@ -20,6 +20,9 @@ string? connectionString, googleClientId, googleClientSecret;
 var builder = WebApplication.CreateBuilder(args);
 var configuration = builder.Configuration;
 
+// Set the static configuration for User class immediately
+User.SetConfiguration(configuration);
+
 // Access the connection string
 connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
                    ?? builder.Configuration.GetSection("Dev:DB:Connection")?.Value;

@@ -424,11 +424,11 @@ namespace MedRecPro.DataAccess
             try
             {
                 var user = await _dbContext.AppUsers
-                    .SingleOrDefaultAsync(u => u.UserID == userId && u.DeletedAt == null);
+                    .SingleOrDefaultAsync(u => u.Id == userId && u.DeletedAt == null);
 
                 if (user != null)
                 {
-                    user.SetUserIdInternal(user.UserID);
+                    user.SetUserIdInternal(user.Id);
                     user.EncryptedUserId = StringCipher.Encrypt(user.UserID.ToString(), getPkSecret()); // Ensure outgoing DTO has it
                 }
                 return user;

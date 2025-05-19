@@ -1,6 +1,7 @@
 ﻿
 using System.Text;
 using System.Security.Cryptography;
+using System.Web;
 
 namespace MedRecPro.Helpers
 {
@@ -110,7 +111,8 @@ namespace MedRecPro.Helpers
                                 memoryStream.Close();
                                 cryptoStream.Close();
 
-                                return Convert.ToBase64String(cipherTextBytes);
+                                // URL-encode the resulting string to make it safe for transport
+                                return TextUtil.ToUrlSafeBase64StringManual(cipherTextBytes);
                             }
                         }
                     }
@@ -135,7 +137,7 @@ namespace MedRecPro.Helpers
             #region implementation
             // Get the complete stream of bytes that represent:
             // [32 bytes of Salt] + [32 bytes of IV] + [n bytes of CipherText]
-            var cipherTextBytesWithSaltAndIv = Convert.FromBase64String(cipherText);
+            var cipherTextBytesWithSaltAndIv = TextUtil.FromUrlSafeBase64StringManual(cipherText);
             // Get the saltbytes by extracting the first 32 bytes from the supplied cipherText bytes.
             var saltStringBytes = cipherTextBytesWithSaltAndIv.Take(Keysize / 8).ToArray();
             // Get the IV bytes by extracting the next 32 bytes from the supplied cipherText bytes.

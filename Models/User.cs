@@ -127,6 +127,10 @@ namespace MedRecPro.Models // Or your preferred namespace
         [JsonProperty("tosEmailNotification")]
         public bool TosEmailNotification { get; set; } // Default might be false
 
+        #endregion
+
+        #endregion
+
         /// <summary>  
         /// Converts the current <see cref="NewUser"/> instance to a <see cref="User"/> instance.  
         /// </summary>  
@@ -176,7 +180,7 @@ namespace MedRecPro.Models // Or your preferred namespace
 
             return user;
         }
-        #endregion
+
     }
     #endregion
 
@@ -242,6 +246,7 @@ namespace MedRecPro.Models // Or your preferred namespace
         /// Database Primary Key. Mapped by EF Core from the 'Id' property inherited from IdentityUser<long>.
         /// This UserID property is for convenience and maps to the inherited 'Id'.
         /// </summary>
+        [JsonIgnore]
         [NotMapped] // This is just a getter for the inherited Id.
         public long UserID
         {
@@ -466,7 +471,257 @@ namespace MedRecPro.Models // Or your preferred namespace
         [NotMapped]
         internal string? Password { get; set; } // For password hashing, if needed
 
-        #endregion
     }
+
     #endregion
+
+    #region User Data Transfer Class
+    /// <summary>
+    /// Data Transfer Object for user information.
+    /// Contains a subset of user properties for client-facing operations.
+    /// </summary>
+    public class UserDto
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UserDto"/> class.
+        /// </summary>
+        public UserDto() {; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UserDto"/> class from a <see cref="User"/> entity.
+        /// </summary>
+        /// <param name="user">The user entity to map from.</param>
+        public UserDto(User user)
+        {
+            CanonicalUsername = user.CanonicalUsername;
+            DisplayName = user.DisplayName;
+            PrimaryEmail = user.PrimaryEmail;
+            MfaEnabled = user.MfaEnabled; // This is your custom MfaEnabled
+            PasswordChangedAt = user.PasswordChangedAt;
+            FailedLoginCount = user.FailedLoginCount; // Custom or user.AccessFailedCount
+            LockoutUntil = user.LockoutUntil;         // Custom or user.LockoutEnd
+            UserRole = user.UserRole;
+            UserPermissions = user.UserPermissions;
+            Timezone = user.Timezone;
+            Locale = user.Locale;
+            NotificationSettings = user.NotificationSettings;
+            UiTheme = user.UiTheme;
+            TosVersionAccepted = user.TosVersionAccepted;
+            TosAcceptedAt = user.TosAcceptedAt;
+            TosMarketingOptIn = user.TosMarketingOptIn;
+            TosEmailNotification = user.TosEmailNotification;
+            UserFollowing = user.UserFollowing;
+            CreatedAt = user.CreatedAt;
+            CreatedByID = user.CreatedByID;
+            UpdatedAt = user.UpdatedAt;
+            UpdatedBy = user.UpdatedBy;
+            DeletedAt = user.DeletedAt;
+            SuspendedAt = user.SuspendedAt;
+            SuspensionReason = user.SuspensionReason;
+            LastLoginAt = user.LastLoginAt;
+            LastActivityAt = user.LastActivityAt;
+            LastIpAddress = user.LastIpAddress;
+            EncryptedUserId = user.EncryptedUserId;
+            UserName = user.UserName;
+            Email = user.Email;
+            EmailConfirmed = user.EmailConfirmed;
+            PhoneNumber = user.PhoneNumber;
+            PhoneNumberConfirmed = user.PhoneNumberConfirmed;
+            TwoFactorEnabled = user.TwoFactorEnabled;
+            LockoutEnd = user.LockoutEnd;
+            AccessFailedCount = user.AccessFailedCount;
+        }
+
+        #region Properties
+        /// <summary>
+        /// Gets or sets the canonical username, typically a lowercase or otherwise normalized version of the username.
+        /// </summary>
+        public string? CanonicalUsername { get; set; }
+
+        /// <summary>
+        /// Gets or sets the display name for the user.
+        /// </summary>
+        public string? DisplayName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the primary email address of the user. This property is required.
+        /// </summary>
+        public string PrimaryEmail { get; set; } = null!;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether Multi-Factor Authentication (MFA) is enabled for the user.
+        /// This is a custom MfaEnabled flag.
+        /// </summary>
+        public bool MfaEnabled { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time when the user's password was last changed.
+        /// </summary>
+        public DateTime? PasswordChangedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number of failed login attempts.
+        /// This can be a custom count or map to IdentityUser's AccessFailedCount.
+        /// </summary>
+        public int FailedLoginCount { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time until which the user's account is locked out.
+        /// This can be a custom field or map to IdentityUser's LockoutEnd.
+        /// </summary>
+        public DateTime? LockoutUntil { get; set; }
+
+        /// <summary>
+        /// Gets or sets the role assigned to the user. Defaults to "User".
+        /// </summary>
+        public string UserRole { get; set; } = "User";
+
+        /// <summary>
+        /// Gets or sets a string (e.g., JSON) representing specific permissions assigned to the user.
+        /// </summary>
+        public string? UserPermissions { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's preferred timezone. Defaults to "UTC".
+        /// </summary>
+        public string Timezone { get; set; } = "UTC";
+
+        /// <summary>
+        /// Gets or sets the user's preferred locale. Defaults to "en-US".
+        /// </summary>
+        public string Locale { get; set; } = "en-US";
+
+        /// <summary>
+        /// Gets or sets a string (e.g., JSON) representing the user's notification settings.
+        /// </summary>
+        public string? NotificationSettings { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's preferred UI theme.
+        /// </summary>
+        public string? UiTheme { get; set; }
+
+        /// <summary>
+        /// Gets or sets the version of the Terms of Service accepted by the user.
+        /// </summary>
+        public string? TosVersionAccepted { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time when the user accepted the Terms of Service.
+        /// </summary>
+        public DateTime? TosAcceptedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the user opted in for marketing communications.
+        /// </summary>
+        public bool TosMarketingOptIn { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the user agreed to receive email notifications related to Terms of Service.
+        /// </summary>
+        public bool TosEmailNotification { get; set; }
+
+        /// <summary>
+        /// Gets or sets a string (e.g., JSON) representing entities or users that this user is following.
+        /// </summary>
+        public string? UserFollowing { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time when the user account was created.
+        /// </summary>
+        public DateTime CreatedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the ID of the user or system process that created this user record.
+        /// </summary>
+        public long? CreatedByID { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time when the user account was last updated.
+        /// </summary>
+        public DateTime? UpdatedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the ID of the user or system process that last updated this user record.
+        /// </summary>
+        public long? UpdatedBy { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time when the user account was soft-deleted.
+        /// </summary>
+        public DateTime? DeletedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time when the user account was suspended.
+        /// </summary>
+        public DateTime? SuspendedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the reason for the user's suspension.
+        /// </summary>
+        public string? SuspensionReason { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time of the user's last login.
+        /// </summary>
+        public DateTime? LastLoginAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time of the user's last activity.
+        /// </summary>
+        public DateTime? LastActivityAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the last IP address recorded for the user.
+        /// </summary>
+        public string? LastIpAddress { get; set; }
+
+        /// <summary>
+        /// Gets or sets the encrypted user ID.
+        /// </summary>
+        public string? EncryptedUserId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the username (typically from ASP.NET Identity).
+        /// </summary>
+        public string? UserName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the email address (typically from ASP.NET Identity).
+        /// </summary>
+        public string? Email { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the email address has been confirmed (typically from ASP.NET Identity).
+        /// </summary>
+        public bool EmailConfirmed { get; set; }
+
+        /// <summary>
+        /// Gets or sets the phone number (typically from ASP.NET Identity).
+        /// </summary>
+        public string? PhoneNumber { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the phone number has been confirmed (typically from ASP.NET Identity).
+        /// </summary>
+        public bool PhoneNumberConfirmed { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether two-factor authentication is enabled for the user (from ASP.NET IdentityUser).
+        /// </summary>
+        public bool TwoFactorEnabled { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time, including offset, until which the user is locked out (from ASP.NET IdentityUser).
+        /// </summary>
+        public DateTimeOffset? LockoutEnd { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number of failed access attempts for the current user (from ASP.NET IdentityUser).
+        /// </summary>
+        public int AccessFailedCount { get; set; }
+        #endregion
+    } 
+    #endregion
+
 }

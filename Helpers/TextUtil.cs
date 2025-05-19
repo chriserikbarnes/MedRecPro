@@ -307,6 +307,34 @@ namespace MedRecPro.Helpers
 
         /******************************************************/
         /// <summary>
+        /// Removes characters that get url encoded
+        public static string ToUrlSafeBase64StringManual(byte[] inputBytes)
+        {
+            string base64 = Convert.ToBase64String(inputBytes);
+            // Replace URL-unsafe characters and remove padding
+            return base64.Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        }
+
+        /******************************************************/
+        /// <summary>
+        /// Converts a URL-safe Base64 string back to a byte array.
+        /// </summary>
+        /// <param name="urlSafeBase64String"></param>
+        /// <returns></returns>
+        public static byte[] FromUrlSafeBase64StringManual(string urlSafeBase64String)
+        {
+            string base64 = urlSafeBase64String.Replace('-', '+').Replace('_', '/');
+            // Add padding back if it was removed
+            switch (base64.Length % 4)
+            {
+                case 2: base64 += "=="; break;
+                case 3: base64 += "="; break;
+            }
+            return Convert.FromBase64String(base64);
+        }
+
+        /******************************************************/
+        /// <summary>
         /// Decrypts a string of text with a symmetric key.
         /// </summary>  
         public static string? Decrypt(this string text, string key)

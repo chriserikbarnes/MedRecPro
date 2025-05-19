@@ -68,7 +68,7 @@ namespace MedRecPro.Controllers
         /// <response code="404">If the user with the specified ID is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet("{encryptedUserId}")]
-        [ProducesResponseType(typeof(User), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -91,9 +91,9 @@ namespace MedRecPro.Controllers
                     return NotFound($"User with ID '{encryptedUserId}' not found.");
                 }
 
-                // The user object returned by GetByIdAsync should already have EncryptedUserId populated.
-                // No need to re-encrypt here if UserDataAccess handles it.
-                return Ok(user);
+                var dto = new UserDto(user);
+
+                return Ok(dto);
             }
             catch (FormatException ex) // Catch specific format errors (e.g. from base64 decoding if StringCipher throws it)
             {
