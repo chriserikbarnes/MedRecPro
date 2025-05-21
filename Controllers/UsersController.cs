@@ -20,6 +20,7 @@ namespace MedRecPro.Controllers
         private readonly StringCipher _stringCipher;
         private readonly IConfiguration _configuration;
         private readonly UserDataAccess _userDataAccess; // Added UserDataAccess
+        private readonly ILogger<UsersController> _logger; // Added for logging
         private readonly string _pkSecret;
 
         /**************************************************************/
@@ -29,11 +30,12 @@ namespace MedRecPro.Controllers
         /// <param name="stringCipher">The string cipher utility.</param>
         /// <param name="configuration">The application configuration.</param>
         /// <param name="userDataAccess">The data access layer for users.</param>
+        /// <param name="logger">Logger for logging information and errors.</param>
         /// <remarks>
         /// Dependencies are injected via the constructor.
         /// The PKSecret for encryption is retrieved from configuration.
         /// </remarks>
-        public UsersController(StringCipher stringCipher, IConfiguration configuration, UserDataAccess userDataAccess)
+        public UsersController(StringCipher stringCipher, IConfiguration configuration, UserDataAccess userDataAccess, ILogger<UsersController> logger)
         {
             #region implementation
             _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
@@ -45,6 +47,8 @@ namespace MedRecPro.Controllers
             {
                 throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' cannot be empty.");
             }
+
+            _logger = logger;
             #endregion
         }
 
@@ -460,36 +464,69 @@ namespace MedRecPro.Controllers
         /// <response code="204">User deleted successfully.</response>
         /// <response code="400">If the encryptedUserId is invalid.</response>
         /// <response code="401">If the user is not authorized to delete this account.</response>
+        /// <response code ="403">If the user is not authorized to delete this account (e.g., not an admin or self).</response>
         /// <response code="404">If the user to delete is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpDelete("{encryptedUserId}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteUser(string encryptedUserId)
         {
             #region implementation
+
+            #region Validation and Authorizations
+
             if (string.IsNullOrWhiteSpace(encryptedUserId))
             {
                 return BadRequest("Encrypted User ID cannot be empty.");
             }
 
+            // Find the user to delete
+            User? targetUser = await _userDataAccess.GetByIdAsync(encryptedUserId);
+
+            // Check if the user exists
+            if (targetUser == null)
+            {
+                return NotFound($"User with ID '{encryptedUserId}' not found.");
+            }
+
             // IMPORTANT: Get the authenticated deleter's ID from claims.
-            // This is a placeholder. Admins or users deleting their own accounts.
-            // var encryptedDeleterUserIdFromAuth = User.Claims.FirstOrDefault(c => c.Type == "EncryptedUserId")?.Value;
-            // For example, if an admin is deleting:
-            // string encryptedDeleterUserIdFromAuth = "ENCRYPTED_ADMIN_USER_ID_FROM_CLAIMS";
-            // If allowing self-deletion (careful with this):
-            string encryptedDeleterUserIdFromAuth = encryptedUserId; // Placeholder: Assumes self-deletion or admin with this ID
+            /*** 
+             * TODO: need to get user from claims email address
+             * or add encryptedUserId to claims
+             * ***/
+            string? encryptedDeleterUserIdFromAuth = User.Claims.FirstOrDefault(c => c.Type == "EncryptedUserId")?.Value ?? null;
 
             if (string.IsNullOrWhiteSpace(encryptedDeleterUserIdFromAuth))
             {
-                // This check might be different based on policy (e.g. admin must be present)
+                // This check might be different based on
+                // policy (e.g. admin must be present)
                 return Unauthorized("Unable to determine deleter user ID from authentication context.");
             }
 
+            // Authenticated user from claims
+            User? claimsUser = await _userDataAccess.GetByIdAsync(encryptedDeleterUserIdFromAuth);
+
+            // This should not happen, but if it does, return unauthorized.
+            if (claimsUser == null)
+            {
+                return Unauthorized("Unable to identify the acting user.");
+            }
+
+            // Authorization Check: Deleter must be an Admin/UserAdmin OR be the target user.
+            bool isAuthorized = claimsUser.IsUserAdmin() || (claimsUser.Id == targetUser.Id);
+
+            if (!isAuthorized)
+            {
+                // Caller cannot delete this user.
+                return Forbid("You are not authorized to delete this user.");
+            }
+
+            #endregion
 
             try
             {
@@ -497,12 +534,9 @@ namespace MedRecPro.Controllers
 
                 if (!success)
                 {
-                    // DeleteAsync logs specifics. Could be not found or other issue.
-                    // Check if user exists first for a better 404.
-                    var userExists = await _userDataAccess.GetByIdAsync(encryptedUserId); // Checks if user *was* there
-                    if (userExists == null) return NotFound($"User with ID '{encryptedUserId}' not found for deletion.");
-
-                    return BadRequest("Failed to delete user. The user may not exist or an error occurred.");
+                    // Failed to delete user.
+                    _logger.LogWarning($"Failed to delete user with ID '{encryptedUserId}'.");
+                    return BadRequest("Failed to delete user. The user may no longer exist or an error occurred.");
                 }
 
                 return NoContent(); // Standard for successful DELETE.
@@ -667,11 +701,11 @@ namespace MedRecPro.Controllers
             // This could be the user themselves or an admin.
             var encryptedUpdaterUserIdFromAuth = User.Claims.FirstOrDefault(c => c.Type == "EncryptedUserId")?.Value;
             // For demonstration:
-           // string encryptedUpdaterUserIdFromAuth = "CURRENT_USER_OR_ADMIN_ENCRYPTED_ID_PLACEHOLDER"; // Replace with actual logic
+            // string encryptedUpdaterUserIdFromAuth = "CURRENT_USER_OR_ADMIN_ENCRYPTED_ID_PLACEHOLDER"; // Replace with actual logic
 
             // Authorization: Check if encryptedUpdaterUserIdFromAuth is the same as EncryptedTargetUserId (self-change)
             // OR if encryptedUpdaterUserIdFromAuth belongs to an admin.
-           //if (encryptedUpdaterUserIdFromAuth != rotatePasswordRequest.EncryptedTargetUserId && !User.IsInRole("Admin")) 
+            //if (encryptedUpdaterUserIdFromAuth != rotatePasswordRequest.EncryptedTargetUserId && !User.IsInRole("Admin")) 
             //          return Unauthorized("Not authorized to change this user's password.");
 
 

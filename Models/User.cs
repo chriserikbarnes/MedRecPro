@@ -194,6 +194,7 @@ namespace MedRecPro.Models // Or your preferred namespace
         private static string? _pkSecret;
         private static readonly object _secretLock = new object();
         private static IConfiguration? _configuration; // Static configuration instance
+
         #endregion
 
         /// <summary>
@@ -204,38 +205,6 @@ namespace MedRecPro.Models // Or your preferred namespace
             // SecurityStamp is inherited from IdentityUser and is a string.
             // It will be initialized by Identity services or can be set:
             this.SecurityStamp = Guid.NewGuid().ToString();
-        }
-
-        /// <summary>
-        /// Sets the configuration source for retrieving the encryption secret (if EncryptedUserId is used).
-        /// </summary>
-        public static void SetConfiguration(IConfiguration configuration)
-        {
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-        }
-
-        private static string getPkSecret()
-        {
-            if (_pkSecret == null)
-            {
-                lock (_secretLock)
-                {
-                    if (_pkSecret == null)
-                    {
-                        if (_configuration == null)
-                        {
-                            throw new InvalidOperationException("IConfiguration has not been set for the User class. Call User.SetConfiguration() first for EncryptedUserId feature.");
-                        }
-                        string? secret = _configuration["Security:DB:PKSecret"];
-                        if (string.IsNullOrWhiteSpace(secret))
-                        {
-                            throw new InvalidOperationException("Required configuration key 'Security:DB:PKSecret' is missing or empty for EncryptedUserId feature.");
-                        }
-                        _pkSecret = secret;
-                    }
-                }
-            }
-            return _pkSecret;
         }
 
         #region Custom Properties (Not in IdentityUser by default)
@@ -421,7 +390,69 @@ namespace MedRecPro.Models // Or your preferred namespace
         /// IP address recorded at last login/activity.
         /// </summary>
         public string? LastIpAddress { get; set; }
+
+        /// <summary>
+        /// Internal method to set the UserID (which is 'Id').
+        /// This is primarily for UserDataAccess to set the ID after retrieval if necessary,
+        /// though EF Core typically handles PK hydration.
+        /// </summary>
+        internal void SetUserIdInternal(long userId)
+        {
+            this.Id = userId;
+        }
+
+        [JsonIgnore]
+        [NotMapped]
+        internal long UserIdInternal => this.Id;
+
+        [JsonIgnore]
+        [NotMapped]
+        internal string? Password { get; set; } // For password hashing, if needed
         #endregion
+
+        /// <summary>
+        /// Sets the configuration source for retrieving the encryption secret (if EncryptedUserId is used).
+        /// </summary>
+        public static void SetConfiguration(IConfiguration configuration)
+        {
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        }
+
+        private static string getPkSecret()
+        {
+            if (_pkSecret == null)
+            {
+                lock (_secretLock)
+                {
+                    if (_pkSecret == null)
+                    {
+                        if (_configuration == null)
+                        {
+                            throw new InvalidOperationException("IConfiguration has not been set for the User class. Call User.SetConfiguration() first for EncryptedUserId feature.");
+                        }
+                        string? secret = _configuration["Security:DB:PKSecret"];
+                        if (string.IsNullOrWhiteSpace(secret))
+                        {
+                            throw new InvalidOperationException("Required configuration key 'Security:DB:PKSecret' is missing or empty for EncryptedUserId feature.");
+                        }
+                        _pkSecret = secret;
+                    }
+                }
+            }
+            return _pkSecret;
+        }
+
+        public bool IsUserAdmin()
+        {
+            // Check for null role to avoid NullReferenceException
+            if(string.IsNullOrEmpty(this.UserRole))
+            {
+                return false;
+            }
+
+            return this.UserRole.Equals(MedRecPro.Models.UserRole.Admin, StringComparison.OrdinalIgnoreCase)
+            || this.UserRole.Equals(MedRecPro.Models.UserRole.UserAdmin, StringComparison.OrdinalIgnoreCase);
+        }
 
         #region Encrypted User ID (Custom Property, separate from IdentityUser.Id)
         /// <summary>
@@ -453,23 +484,7 @@ namespace MedRecPro.Models // Or your preferred namespace
         }
         #endregion
 
-        /// <summary>
-        /// Internal method to set the UserID (which is 'Id').
-        /// This is primarily for UserDataAccess to set the ID after retrieval if necessary,
-        /// though EF Core typically handles PK hydration.
-        /// </summary>
-        internal void SetUserIdInternal(long userId)
-        {
-            this.Id = userId;
-        }
 
-        [JsonIgnore]
-        [NotMapped]
-        internal long UserIdInternal => this.Id;
-
-        [JsonIgnore]
-        [NotMapped]
-        internal string? Password { get; set; } // For password hashing, if needed
 
     }
 
@@ -514,7 +529,6 @@ namespace MedRecPro.Models // Or your preferred namespace
             CreatedAt = user.CreatedAt;
             CreatedByID = user.CreatedByID;
             UpdatedAt = user.UpdatedAt;
-            UpdatedBy = user.UpdatedBy;
             DeletedAt = user.DeletedAt;
             SuspendedAt = user.SuspendedAt;
             SuspensionReason = user.SuspensionReason;
@@ -642,11 +656,6 @@ namespace MedRecPro.Models // Or your preferred namespace
         public DateTime? UpdatedAt { get; set; }
 
         /// <summary>
-        /// Gets or sets the ID of the user or system process that last updated this user record.
-        /// </summary>
-        public long? UpdatedBy { get; set; }
-
-        /// <summary>
         /// Gets or sets the date and time when the user account was soft-deleted.
         /// </summary>
         public DateTime? DeletedAt { get; set; }
@@ -721,7 +730,7 @@ namespace MedRecPro.Models // Or your preferred namespace
         /// </summary>
         public int AccessFailedCount { get; set; }
         #endregion
-    } 
+    }
     #endregion
 
 }
