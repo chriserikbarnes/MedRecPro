@@ -1,7 +1,9 @@
 ﻿
-using System.Text;
+using System;
+using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
-using System.Web;
+using System.Text;
 
 namespace MedRecPro.Helpers
 {
@@ -14,53 +16,45 @@ namespace MedRecPro.Helpers
     {
 
         #region FIPS compliance info
-        /* NOTE:
-        * 
-        * C# Under Windows has basically 3 encryption providers that "support" 
-        * AES: RijndaelManaged, AesManaged, AesCryptoServiceProvider.
-        * 
-        * RijndaelManaged implements the full Rijnadael Algorithm (All Options) 
-        * and so it is a super-set of AES capabilities; however, it is not 
-        * certified FIPS compliant (because it is capable of doing things not in 
-        * the FIPS-approved AES specification, like having block size other than 128 bits)
-        * 
-        * AesManaged is nothing more than a decorator/wrapper over RijndaelManaged that 
-        * restrict it to a block-size of 128 bits, but, because RijndaelManaged is 
-        * not FIPS approved, neither is AesManaged
-        * 
-        * AesCryptoServiceProvider is a C# wrapper over the C-library on Windows 
-        * for AES that IS FIPS approved; however, in CFB Mode, it only supports 
-        * 8|16|24|32|40|48|56|64 bits for the FeedbackSize (I can find no documentation 
-        * that says that FIPS is restricted thusly, so, it's questionable how 
-        * AesCryptoServiceProvider passsed the FIPS certification 
-        * 
-        * If FIPS mode is turned on on Windows, then RijndaelManaged (and thereby AesManaged) 
-        * will throw and exception saying they are not FIPS compliant when you attempt to 
-        * instantiate them.
-        * 
-        * Some things require AES-128 with CFB of 128-bits FeedbackSize (e.g. SNMPv3 AES according the the RFC).
-        * 
-        * So, if you are in an environment where the following is true:
-        * 
-        *      You need AES-128 with CFB-128 (SNMPv3 for example)
-        *      You need to do the Crypto from C# without using Non-Microsoft Libs
-        *      You need to have FIPS mode turned on on the OS (Gov't requirements for example)
-        * 
-        * Then, your ONLY option is to use RijndaelManaged AND use 
-        * the "<configuration> <runtime> <enforceFIPSPolicy enabled="false"/> <runtime> </configuration>" 
-        * in the Application.exe.config to turn-off FIPS forced compliance for that particular application.
-        * 
-        * https://stackoverflow.com/questions/939040/when-will-c-sharp-aes-algorithm-be-fips-compliant
-        */
+        /* NOTE for .NET Core & .NET 5+:
+         * 
+         * Modern .NET (Core and .NET 5+) simplifies FIPS compliance.
+         * Using `Aes.Create()` will generally provide a FIPS-compliant AES implementation 
+         * if the underlying OS is configured for FIPS mode (e.g., AesCng on Windows).
+         * The concerns with RijndaelManaged, AesManaged, and specific limitations of 
+         * AesCryptoServiceProvider are largely historical when using `Aes.Create()`.
+         * 
+         * The original code used CBC mode, which is maintained for compatibility.
+         * For new applications, consider AEAD modes like AES-GCM (System.Security.Cryptography.AesGcm)
+         * for enhanced security (authenticated encryption).
+         */
         #endregion
 
-        #region vars/properties
-        // This constant is used to determine the keysize of the encryption algorithm in bits.
-        // We divide this by 8 within the code below to get the equivalent number of bytes.
-        private const int Keysize = 128;
+        #region Constants
+        // AES key size in bits.
+        private const int KeySizeBits = 128;
+        // AES key size in bytes.
+        private const int KeySizeBytes = KeySizeBits / 8; // 16 bytes
 
-        // This constant determines the number of iterations for the password bytes generation function.
+        // AES block size is fixed at 128 bits for System.Security.Cryptography.Aes implementations.
+        // IV size should match the block size.
+        private const int BlockSizeBytes = 128 / 8; // 16 bytes
+
+        // Salt size for PBKDF2. 16 bytes (128 bits) is a common choice.
+        private const int SaltSizeBytes = 16;
+
+        // Iteration count for PBKDF2.
+        // WARNING: 1000 is low by modern standards. OWASP recommends 600,000 for PBKDF2-HMAC-SHA256.
+        // Increasing this significantly improves security against passphrase brute-forcing
+        // but also significantly decreases performance. Maintained at 1000 for compatibility
+        // with the original code's performance characteristics, but consider increasing for new uses.
         private const int DerivationIterations = 1000;
+
+        // Hash algorithm for PBKDF2.
+        // The original code implicitly used SHA1. SHA256 is more secure.
+        // IMPORTANT: Changing this makes the derived key different.
+        // If decrypting data from the old system, you MUST use HashAlgorithmName.SHA1.
+        private static readonly HashAlgorithmName Pbkdf2HashAlgorithm = HashAlgorithmName.SHA256;
         #endregion
 
         /******************************************************/
@@ -72,49 +66,45 @@ namespace MedRecPro.Helpers
         /// <returns></returns>
         /// <remarks>According to online sources, FIPS compliance requires
         /// a 128 bit block size. 
-        /// 
-        /// https://stackoverflow.com/questions/10168240/encrypting-decrypting-a-string-in-c-sharp/10177020#10177020
-        /// https://stackoverflow.com/questions/939040/when-will-c-sharp-aes-algorithm-be-fips-compliant
         /// </remarks>
         public static string Encrypt(string plainText, string passPhrase)
         {
             #region implementation
-            // Salt and IV is randomly generated each time, but is preprended to encrypted cipher text
-            // so that the same Salt and IV values can be used when decrypting.  
-            var saltStringBytes = Generate128BitsOfRandomEntropy();
-            var ivStringBytes = Generate128BitsOfRandomEntropy();
-            var plainTextBytes = Encoding.UTF8.GetBytes(plainText);
-            using (var password = new Rfc2898DeriveBytes(passPhrase, saltStringBytes, DerivationIterations))
+            ArgumentNullException.ThrowIfNull(plainText);
+            ArgumentNullException.ThrowIfNull(passPhrase);
+
+            byte[] saltBytes = GenerateRandomBytes(SaltSizeBytes);
+            byte[] ivBytes = GenerateRandomBytes(BlockSizeBytes);
+            byte[] plainTextBytes = Encoding.UTF8.GetBytes(plainText);
+
+            using (var password = new Rfc2898DeriveBytes(passPhrase, saltBytes, DerivationIterations, Pbkdf2HashAlgorithm))
             {
-                var keyBytes = password.GetBytes(Keysize / 8);
-                using (var symmetricKey = new AesCryptoServiceProvider())
+                byte[] keyBytes = password.GetBytes(KeySizeBytes);
+
+                using (var aes = Aes.Create()) // Uses modern Aes.Create()
                 {
-                    symmetricKey.BlockSize = 128;
-                    symmetricKey.Mode = CipherMode.CBC;
-                    symmetricKey.Padding = PaddingMode.PKCS7;
-                    using (var encryptor = symmetricKey.CreateEncryptor(keyBytes, ivStringBytes))
+                    aes.Key = keyBytes;
+                    aes.IV = ivBytes;
+                    aes.Mode = CipherMode.CBC;
+                    aes.Padding = PaddingMode.PKCS7;
+                    // aes.BlockSize is implicitly 128 for Aes.Create()
+
+                    using (var encryptor = aes.CreateEncryptor())
+                    using (var memoryStream = new MemoryStream())
                     {
-                        using (var memoryStream = new MemoryStream())
+                        // Write Salt and IV to the beginning of the stream
+                        memoryStream.Write(saltBytes, 0, saltBytes.Length);
+                        memoryStream.Write(ivBytes, 0, ivBytes.Length);
+
+                        using (var cryptoStream = new CryptoStream(memoryStream, encryptor, CryptoStreamMode.Write, leaveOpen: true))
                         {
-                            using (var cryptoStream = new CryptoStream(memoryStream, encryptor, CryptoStreamMode.Write))
-                            {
-                                cryptoStream.Write(plainTextBytes, 0, plainTextBytes.Length);
-                                cryptoStream.FlushFinalBlock();
-
-                                // Create the final bytes as a concatenation of the random 
-                                //salt bytes, the random iv bytes and the cipher bytes.
-                                var cipherTextBytes = saltStringBytes;
-
-                                cipherTextBytes = cipherTextBytes.Concat(ivStringBytes).ToArray();
-                                cipherTextBytes = cipherTextBytes.Concat(memoryStream.ToArray()).ToArray();
-
-                                memoryStream.Close();
-                                cryptoStream.Close();
-
-                                // URL-encode the resulting string to make it safe for transport
-                                return TextUtil.ToUrlSafeBase64StringManual(cipherTextBytes);
-                            }
+                            cryptoStream.Write(plainTextBytes, 0, plainTextBytes.Length);
+                            cryptoStream.FlushFinalBlock(); // Ensure all data is written
                         }
+                        // No explicit cryptoStream.Close() needed due to using block
+
+                        byte[] cipherTextBytesWithSaltAndIv = memoryStream.ToArray();
+                        return TextUtil.ToUrlSafeBase64StringManual(cipherTextBytesWithSaltAndIv);
                     }
                 }
             }
@@ -125,56 +115,61 @@ namespace MedRecPro.Helpers
         /// <summary>
         /// Returns a clear text result from the passed encrypted string.
         /// </summary>
-        /// <param name="cipherText"></param>
+        /// <param name="cipherTextWithSaltAndIvBase64"></param>
         /// <param name="passPhrase"></param>
         /// <returns></returns>
-        /// <remarks>
-        /// https://stackoverflow.com/questions/10168240/encrypting-decrypting-a-string-in-c-sharp/10177020#10177020
-        /// https://stackoverflow.com/questions/939040/when-will-c-sharp-aes-algorithm-be-fips-compliant
-        /// </remarks>
-        protected internal string Decrypt(string cipherText, string passPhrase)
+        protected internal string Decrypt(string cipherTextWithSaltAndIvBase64, string passPhrase)
         {
             #region implementation
-            // Get the complete stream of bytes that represent:
-            // [32 bytes of Salt] + [32 bytes of IV] + [n bytes of CipherText]
-            var cipherTextBytesWithSaltAndIv = TextUtil.FromUrlSafeBase64StringManual(cipherText);
-            // Get the saltbytes by extracting the first 32 bytes from the supplied cipherText bytes.
-            var saltStringBytes = cipherTextBytesWithSaltAndIv.Take(Keysize / 8).ToArray();
-            // Get the IV bytes by extracting the next 32 bytes from the supplied cipherText bytes.
-            var ivStringBytes = cipherTextBytesWithSaltAndIv.Skip(Keysize / 8).Take(Keysize / 8).ToArray();
-            // Get the actual cipher text bytes by removing the first 64 bytes from the cipherText string.
-            var cipherTextBytes = cipherTextBytesWithSaltAndIv.Skip((Keysize / 8) * 2).Take(cipherTextBytesWithSaltAndIv.Length - ((Keysize / 8) * 2)).ToArray();
+            ArgumentNullException.ThrowIfNull(cipherTextWithSaltAndIvBase64);
+            ArgumentNullException.ThrowIfNull(passPhrase);
 
-            using (var password = new Rfc2898DeriveBytes(passPhrase, saltStringBytes, DerivationIterations))
+            byte[] cipherTextBytesWithSaltAndIv = TextUtil.FromUrlSafeBase64StringManual(cipherTextWithSaltAndIvBase64);
+
+            // Performance: Use ReadOnlySpan to avoid allocations for slicing until necessary.
+            ReadOnlySpan<byte> fullCipherSpan = cipherTextBytesWithSaltAndIv;
+
+            if (fullCipherSpan.Length < SaltSizeBytes + BlockSizeBytes)
             {
-                string text;
-                var keyBytes = password.GetBytes(Keysize / 8);
-                using (var symmetricKey = new AesCryptoServiceProvider())
+                throw new CryptographicException("Ciphertext is too short to contain salt, IV, and data.");
+            }
+
+            // Extract salt and IV
+            // ToArray() is necessary here because Rfc2898DeriveBytes and aes.IV expect byte[]
+            byte[] saltBytes = fullCipherSpan.Slice(0, SaltSizeBytes).ToArray();
+            byte[] ivBytes = fullCipherSpan.Slice(SaltSizeBytes, BlockSizeBytes).ToArray();
+            ReadOnlySpan<byte> actualCipherTextBytes = fullCipherSpan.Slice(SaltSizeBytes + BlockSizeBytes);
+
+            using (var password = new Rfc2898DeriveBytes(passPhrase, saltBytes, DerivationIterations, Pbkdf2HashAlgorithm))
+            {
+                byte[] keyBytes = password.GetBytes(KeySizeBytes);
+
+                using (var aes = Aes.Create())
                 {
-                    symmetricKey.BlockSize = 128;
-                    symmetricKey.Mode = CipherMode.CBC;
-                    symmetricKey.Padding = PaddingMode.PKCS7;
-                    using (var decryptor = symmetricKey.CreateDecryptor(keyBytes, ivStringBytes))
+                    aes.Key = keyBytes;
+                    aes.IV = ivBytes;
+                    aes.Mode = CipherMode.CBC;
+                    aes.Padding = PaddingMode.PKCS7;
+
+                    using (var decryptor = aes.CreateDecryptor())
+                    // Pass actualCipherTextBytes.ToArray() to MemoryStream
+                    using (var memoryStream = new MemoryStream(actualCipherTextBytes.ToArray()))
+                    using (var cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read))
+                    using (var streamReader = new StreamReader(cryptoStream, Encoding.UTF8))
                     {
-                        using (var memoryStream = new MemoryStream(cipherTextBytes))
+                        try
                         {
-                            using (var cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read))
-                            using (var streamReader = new StreamReader(cryptoStream, Encoding.UTF8))
-                            {
-                                try
-                                {
-                                    text = streamReader.ReadToEnd();
-                                }
-                                catch (System.Security.Cryptography.CryptographicException e)
-                                {
-
-                                    ErrorHelper.AddErrorMsg("StringCipher.Decrypt: " + e.Message);
-                                    text = "Can't decode because the secret was wrong";
-                                    throw new Exception(text);
-                                }
-
-                                return text;
-                            }
+                            return streamReader.ReadToEnd();
+                        }
+                        catch (CryptographicException ex)
+                        {
+                            // Log the error if needed, but prefer letting the specific exception propagate
+                            // or wrap it in a custom, more informative exception.
+                            // ErrorHelper.AddErrorMsg("StringCipher.Decrypt: " + ex.Message);
+                            // The original code threw a generic new Exception(), which is generally not good.
+                            // Throwing the original CryptographicException is better.
+                            // It often indicates an incorrect passphrase or corrupted data.
+                            throw new CryptographicException("Decryption failed. This could be due to an incorrect passphrase or corrupted data.", ex);
                         }
                     }
                 }
@@ -188,12 +183,11 @@ namespace MedRecPro.Helpers
         /// </summary>
         /// <returns></returns>
         /// <remarks>
-        /// https://stackoverflow.com/questions/10168240/encrypting-decrypting-a-string-in-c-sharp/10177020#10177020
-        /// https://stackoverflow.com/questions/939040/when-will-c-sharp-aes-algorithm-be-fips-compliant
+        ///         * This method is deprecated and should not be used in new code.
         /// </remarks>
-        private static byte[] Generate128BitsOfRandomEntropy()
+        private static byte[] Generate128BitsOfRandomEntropy_depricated()
         {
-            #region implementation
+            #region implementation (original code)
             var randomBytes = new byte[16]; // 16 Bytes will give us 128 bits.
             using (var rngCsp = new RNGCryptoServiceProvider())
             {
@@ -201,6 +195,16 @@ namespace MedRecPro.Helpers
                 rngCsp.GetBytes(randomBytes);
             }
             return randomBytes;
+            #endregion
+        }
+
+        /******************************************************/
+        private static byte[] GenerateRandomBytes(int numberOfBytes)
+        {
+            #region implementation
+            byte[] randomBytes = new byte[numberOfBytes];
+            RandomNumberGenerator.Fill(randomBytes); // secure random bytes
+            return randomBytes; 
             #endregion
         }
     }

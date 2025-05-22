@@ -477,6 +477,7 @@ namespace MedRecPro.Controllers
         public async Task<IActionResult> DeleteUser(string encryptedUserId)
         {
             #region implementation
+            long id = 0;
 
             #region Validation and Authorizations
 
@@ -495,21 +496,23 @@ namespace MedRecPro.Controllers
             }
 
             // IMPORTANT: Get the authenticated deleter's ID from claims.
-            /*** 
-             * TODO: need to get user from claims email address
-             * or add encryptedUserId to claims
-             * ***/
-            string? encryptedDeleterUserIdFromAuth = User.Claims.FirstOrDefault(c => c.Type == "EncryptedUserId")?.Value ?? null;
+            Int64.TryParse(User.Claims.FirstOrDefault(c => c.Type
+                .Contains ("NameIdentifier", StringComparison.OrdinalIgnoreCase))
+                ?.Value ?? null, out id);
 
-            if (string.IsNullOrWhiteSpace(encryptedDeleterUserIdFromAuth))
+            if (id <= 0)
             {
                 // This check might be different based on
                 // policy (e.g. admin must be present)
                 return Unauthorized("Unable to determine deleter user ID from authentication context.");
             }
 
+            // Encrypt to for the call to get the user from the db
+            string encryptedDeleterUserIdFromAuth = StringCipher.Encrypt(id.ToString(), _pkSecret);
+
             // Authenticated user from claims
-            User? claimsUser = await _userDataAccess.GetByIdAsync(encryptedDeleterUserIdFromAuth);
+            User? claimsUser = await _userDataAccess
+                .GetByIdAsync(encryptedDeleterUserIdFromAuth);
 
             // This should not happen, but if it does, return unauthorized.
             if (claimsUser == null)

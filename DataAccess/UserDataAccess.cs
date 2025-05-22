@@ -408,6 +408,7 @@ namespace MedRecPro.DataAccess
         #endregion
 
         #region Read
+       
         /**************************************************************/
         /// <summary>
         /// Retrieves a user by their encrypted unique identifier.
@@ -785,7 +786,7 @@ namespace MedRecPro.DataAccess
             try
             {
                 var user = await _dbContext.AppUsers
-                    .SingleOrDefaultAsync(u => u.UserID == targetUserId && u.DeletedAt == null);
+                    .SingleOrDefaultAsync(u => u.Id == targetUserId && u.DeletedAt == null);
 
                 if (user == null)
                 {
