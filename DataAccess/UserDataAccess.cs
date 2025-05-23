@@ -289,7 +289,7 @@ namespace MedRecPro.DataAccess
                     // Ensure EncryptedUserId is populated for UpdateLastLoginAsync
                     if (string.IsNullOrWhiteSpace(user.EncryptedUserId))
                     {
-                        user.EncryptedUserId = StringCipher.Encrypt(user.UserID.ToString(), getPkSecret());
+                        user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
                     }
                     await UpdateLastLoginAsync(user.EncryptedUserId, DateTime.UtcNow, null /* IP address */);
                 }
@@ -392,7 +392,7 @@ namespace MedRecPro.DataAccess
                 _dbContext.AppUsers.Add(user);
                 await _dbContext.SaveChangesAsync();
 
-                return StringCipher.Encrypt(user.UserID.ToString(), getPkSecret());
+                return StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
             }
             catch (DbUpdateException ex)
             {
@@ -430,7 +430,7 @@ namespace MedRecPro.DataAccess
                 if (user != null)
                 {
                     user.SetUserIdInternal(user.Id);
-                    user.EncryptedUserId = StringCipher.Encrypt(user.UserID.ToString(), getPkSecret()); // Ensure outgoing DTO has it
+                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret()); // Ensure outgoing DTO has it
                 }
                 return user;
             }
@@ -459,8 +459,8 @@ namespace MedRecPro.DataAccess
 
                 if (user != null)
                 {
-                    user.SetUserIdInternal(user.UserID);
-                    user.EncryptedUserId = StringCipher.Encrypt(user.UserID.ToString(), getPkSecret());
+                    user.SetUserIdInternal(user.Id);
+                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
                 }
                 return user;
             }
@@ -493,15 +493,15 @@ namespace MedRecPro.DataAccess
                 }
 
                 var users = await query
-                    .OrderBy(u => u.UserID)
+                    .OrderBy(u => u.Id)
                     .Skip(skip)
                     .Take(take)
                     .ToListAsync();
 
                 foreach (var user in users)
                 {
-                    user.SetUserIdInternal(user.UserID);
-                    user.EncryptedUserId = StringCipher.Encrypt(user.UserID.ToString(), getPkSecret());
+                    user.SetUserIdInternal(user.Id);
+                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
                 }
                 return users;
             }
@@ -548,7 +548,7 @@ namespace MedRecPro.DataAccess
                 }
 
                 // Preserve critical fields from existingUser if not meant to be updated by 'user' DTO
-                user.UserID = existingUser.UserID; // Ensure UserID is correct
+                user.Id = existingUser.Id; // Ensure UserID is correct
                 user.CreatedAt = existingUser.CreatedAt;
                 user.CreatedByID = existingUser.CreatedByID;
                 user.PasswordHash = existingUser.PasswordHash ?? user.PasswordHash; // Password changes via RotatePasswordAsync
@@ -615,7 +615,7 @@ namespace MedRecPro.DataAccess
             try
             {
                 var user = await _dbContext.AppUsers
-                    .SingleOrDefaultAsync(u => u.UserID == userIdToUpdate && u.DeletedAt == null);
+                    .SingleOrDefaultAsync(u => u.Id == userIdToUpdate && u.DeletedAt == null);
 
                 if (user == null)
                 {
@@ -677,7 +677,7 @@ namespace MedRecPro.DataAccess
             {
                 // targetUserId is the decrypted long ID of the target user
                 var user = await _dbContext.AppUsers
-                    .SingleOrDefaultAsync(u => u.UserID == targetUserId); // Can update deleted users
+                    .SingleOrDefaultAsync(u => u.Id == targetUserId); // Can update deleted users
 
                 if (user == null)
                 {
@@ -735,7 +735,7 @@ namespace MedRecPro.DataAccess
             try
             {
                 var user = await _dbContext.AppUsers
-                    .SingleOrDefaultAsync(u => u.UserID == targetUserId && u.DeletedAt == null);
+                    .SingleOrDefaultAsync(u => u.Id == targetUserId && u.DeletedAt == null);
 
                 if (user == null)
                 {
@@ -826,7 +826,7 @@ namespace MedRecPro.DataAccess
             try
             {
                 var user = await _dbContext.AppUsers
-                    .SingleOrDefaultAsync(u => u.UserID == userId); // Find user even if deleted for login tracking? Or add u.DeletedAt == null
+                    .SingleOrDefaultAsync(u => u.Id == userId); // Find user even if deleted for login tracking? Or add u.DeletedAt == null
 
                 if (user == null)
                 {

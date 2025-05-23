@@ -212,19 +212,6 @@ namespace MedRecPro.Models // Or your preferred namespace
         private string? _encryptedUserId = null; // Backing field for EncryptedUserId property
 
         /// <summary>
-        /// Database Primary Key. Mapped by EF Core from the 'Id' property inherited from IdentityUser<long>.
-        /// This UserID property is for convenience and maps to the inherited 'Id'.
-        /// </summary>
-        [JsonIgnore]
-        [NotMapped] // This is just a getter for the inherited Id.
-        public long UserID
-        {
-            get => this.Id;
-            set => this.Id = value;
-        }
-
-
-        /// <summary>
         /// Case‑folded username for unique checks. May be derived or provided.
         /// IdentityUser has UserName and NormalizedUserName. This can be an additional field if semantics differ.
         /// </summary>

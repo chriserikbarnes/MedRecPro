@@ -19,20 +19,31 @@ namespace MedRecPro.Security
     public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
     {
         private readonly UserDataAccess _userDataAccess;
+        private readonly IConfiguration _configuration; // To get PkSecret for UpdateLastLoginAsync
+        private readonly string _pkSecret; // To get PkSecret for UpdateLastLoginAsync
+
         // private readonly IConfiguration _configuration; // To get PkSecret for UpdateLastLoginAsync
 
         public BasicAuthenticationHandler(
             IOptionsMonitor<AuthenticationSchemeOptions> options,
             ILoggerFactory logger,
             UrlEncoder encoder,
-            ISystemClock clock,
-            UserDataAccess userDataAccess
-            // IConfiguration configuration // Inject IConfiguration
-            )
-            : base(options, logger, encoder, clock)
+            UserDataAccess userDataAccess,
+            IConfiguration configuration // Inject IConfiguration
+            ) : base(options, logger, encoder)
         {
             _userDataAccess = userDataAccess ?? throw new ArgumentNullException(nameof(userDataAccess));
-            // _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+
+            _pkSecret = _configuration["Security:DB:PKSecret"] ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing.");
+
+            // Check if PKSecret is empty or null
+            if (string.IsNullOrWhiteSpace(_pkSecret))
+            {
+                throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' cannot be empty.");
+            }
+
         }
 
         protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -87,12 +98,13 @@ namespace MedRecPro.Security
                     // The current UserDataAccess.UpdateLastLoginAsync expects an encryptedUserId.
 
                     var claims = new[] {
-                        new Claim(ClaimTypes.NameIdentifier, user.UserID.ToString()),
+                        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                         new Claim(ClaimTypes.Name, user.PrimaryEmail), // Using email as Name claim
                         new Claim(ClaimTypes.Email, user.PrimaryEmail),
                         // Add other claims as needed, e.g., roles
                         new Claim(ClaimTypes.Role, user.UserRole ?? "User"), // Add user role
-                        new Claim("EncryptedUserId", user.EncryptedUserId) // Custom claim for encrypted ID if needed elsewhere
+                        new Claim("EncryptedUserId", user.EncryptedUserId 
+                            ?? StringCipher.Encrypt(user.Id.ToString(), _pkSecret)) // Custom claim for encrypted ID if needed elsewhere
                     };
                     var identity = new ClaimsIdentity(claims, Scheme.Name);
                     var principal = new ClaimsPrincipal(identity);

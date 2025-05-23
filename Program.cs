@@ -36,11 +36,13 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
 googleClientId = builder.Configuration["Authentication:Google:ClientId"];
+
 googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"];
 
 builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSettings"));
 
 builder.Services.AddHttpContextAccessor();
+
 builder.Services.AddUserLogger(); // Assuming this is your custom service
 
 builder.Services.AddTransient<StringCipher>();
