@@ -1,6 +1,6 @@
 # MedRecPro
 
-MedRecPro is a comprehensive medical records management system built with ASP.NET Core, providing secure access to health data through a RESTful API.
+MedRecPro is a structured product label management system built with ASP.NET Core, providing secure access to data through a RESTful API.
 
 ## Features
 
