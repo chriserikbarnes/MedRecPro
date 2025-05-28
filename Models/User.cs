@@ -480,20 +480,20 @@ namespace MedRecPro.Models // Or your preferred namespace
     #region User Data Transfer Class
     /// <summary>
     /// Data Transfer Object for user information.
-    /// Contains a subset of user properties for client-facing operations.
+    /// Contains a subset of user properties for admin-facing operations.
     /// </summary>
-    public class UserDto
+    public class UserManagementDto
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="UserDto"/> class.
+        /// Initializes a new instance of the <see cref="UserManagementDto"/> class.
         /// </summary>
-        public UserDto() {; }
+        public UserManagementDto() {; }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="UserDto"/> class from a <see cref="User"/> entity.
+        /// Initializes a new instance of the <see cref="UserManagementDto"/> class from a <see cref="User"/> entity.
         /// </summary>
         /// <param name="user">The user entity to map from.</param>
-        public UserDto(User user)
+        public UserManagementDto(User user)
         {
             CanonicalUsername = user.CanonicalUsername;
             DisplayName = user.DisplayName;
@@ -716,6 +716,151 @@ namespace MedRecPro.Models // Or your preferred namespace
         /// Gets or sets the number of failed access attempts for the current user (from ASP.NET IdentityUser).
         /// </summary>
         public int AccessFailedCount { get; set; }
+        #endregion
+    }
+
+    /// <summary>
+    /// Data Transfer Object for user information.
+    /// Contains a subset of user properties for user-facing operations.
+    /// </summary>
+    public class UserFacingDto
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UserManagementDto"/> class.
+        /// </summary>
+        public UserFacingDto() {; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UserManagementDto"/> class from a <see cref="User"/> entity.
+        /// </summary>
+        /// <param name="user">The user entity to map from.</param>
+        public UserFacingDto(User user)
+        {
+            CanonicalUsername = user.CanonicalUsername;
+            DisplayName = user.DisplayName;
+            PrimaryEmail = user.PrimaryEmail;
+            MfaEnabled = user.MfaEnabled; // This is your custom MfaEnabled        
+            UserPermissions = user.UserPermissions;
+            Timezone = user.Timezone;
+            Locale = user.Locale;
+            NotificationSettings = user.NotificationSettings;
+            UiTheme = user.UiTheme;          
+            UserFollowing = user.UserFollowing;
+            CreatedAt = user.CreatedAt;          
+            UpdatedAt = user.UpdatedAt;       
+            SuspendedAt = user.SuspendedAt;
+            LastLoginAt = user.LastLoginAt;
+            LastActivityAt = user.LastActivityAt;
+            EncryptedUserId = user.EncryptedUserId;
+            UserName = user.UserName;
+            Email = user.Email;
+            PhoneNumber = user.PhoneNumber;
+            TwoFactorEnabled = user.TwoFactorEnabled;
+        }
+
+        #region Properties
+        /// <summary>
+        /// Gets or sets the canonical username, typically a lowercase or otherwise normalized version of the username.
+        /// </summary>
+        public string? CanonicalUsername { get; set; }
+
+        /// <summary>
+        /// Gets or sets the display name for the user.
+        /// </summary>
+        public string? DisplayName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the primary email address of the user. This property is required.
+        /// </summary>
+        public string PrimaryEmail { get; set; } = null!;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether Multi-Factor Authentication (MFA) is enabled for the user.
+        /// This is a custom MfaEnabled flag.
+        /// </summary>
+        public bool MfaEnabled { get; set; }
+
+
+        /// <summary>
+        /// Gets or sets a string (e.g., JSON) representing specific permissions assigned to the user.
+        /// </summary>
+        public string? UserPermissions { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's preferred timezone. Defaults to "UTC".
+        /// </summary>
+        public string Timezone { get; set; } = "UTC";
+
+        /// <summary>
+        /// Gets or sets the user's preferred locale. Defaults to "en-US".
+        /// </summary>
+        public string Locale { get; set; } = "en-US";
+
+        /// <summary>
+        /// Gets or sets a string (e.g., JSON) representing the user's notification settings.
+        /// </summary>
+        public string? NotificationSettings { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's preferred UI theme.
+        /// </summary>
+        public string? UiTheme { get; set; }
+
+        /// <summary>
+        /// Gets or sets a string (e.g., JSON) representing entities or users that this user is following.
+        /// </summary>
+        public string? UserFollowing { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time when the user account was created.
+        /// </summary>
+        public DateTime CreatedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time when the user account was last updated.
+        /// </summary>
+        public DateTime? UpdatedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time when the user account was suspended.
+        /// </summary>
+        public DateTime? SuspendedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time of the user's last login.
+        /// </summary>
+        public DateTime? LastLoginAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the date and time of the user's last activity.
+        /// </summary>
+        public DateTime? LastActivityAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the encrypted user ID.
+        /// </summary>
+        public string? EncryptedUserId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the username (typically from ASP.NET Identity).
+        /// </summary>
+        public string? UserName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the email address (typically from ASP.NET Identity).
+        /// </summary>
+        public string? Email { get; set; }
+
+        /// <summary>
+        /// Gets or sets the phone number (typically from ASP.NET Identity).
+        /// </summary>
+        public string? PhoneNumber { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether two-factor authentication is enabled for the user (from ASP.NET IdentityUser).
+        /// </summary>
+        public bool TwoFactorEnabled { get; set; }
+
         #endregion
     }
     #endregion

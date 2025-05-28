@@ -45,7 +45,7 @@ MedRecPro is a structured product label management system built with ASP.NET Cor
 The database includes tables for:
 
 - Users and authentication
-- Medical documents and metadata
+- Label documents and metadata
 - Organizations and contacts
 - Document sections and content
 - Relationships between entities

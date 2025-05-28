@@ -8,7 +8,12 @@ using System; // Added for ArgumentNullException, DateTime, etc.
 using System.Threading.Tasks; // Added for Task
 using System.Collections.Generic; // Added for IEnumerable
 using Microsoft.AspNetCore.Http;
-using System.ComponentModel.DataAnnotations; // Added for StatusCodes
+using System.ComponentModel.DataAnnotations;
+using Windows.Security.Cryptography.Core;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity; // Added for StatusCodes
 
 
 namespace MedRecPro.Controllers
@@ -55,6 +60,110 @@ namespace MedRecPro.Controllers
         // Private helper method (example, if needed for getting current user ID)
         // Ensure it follows naming convention: private string getAuthenticatedUserId() { ... }
 
+        #region Private
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the encrypted user ID from the claims of the authenticated user.
+        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="UnauthorizedAccessException"></exception>
+        private string? getEncryptedIdFromClaim()
+        {
+            string? ret = null;
+
+            // Encrypt to for the call to get the user from the db           
+            string encryptedAuthUserId;
+
+            try
+            {
+                long id = 0;
+
+                // IMPORTANT: Get the authenticated ID from claims.
+                var idClaim = User.Claims.FirstOrDefault(c => c.Type
+                    .Contains("NameIdentifier", StringComparison.OrdinalIgnoreCase))
+                    ?.Value;
+
+                if (string.IsNullOrEmpty(idClaim) || !Int64.TryParse(idClaim, out id) || id <= 0)
+                {                   
+                    throw new UnauthorizedAccessException("Unable to determine user ID from authentication context.");
+                }
+
+                try
+                {
+                    encryptedAuthUserId = StringCipher.Encrypt(id.ToString(), _pkSecret);
+
+                    ret = encryptedAuthUserId;
+                }
+                catch (Exception ex) // Catch potential encryption errors
+                {
+                    _logger.LogError(ex, "Encryption failed for user ID.");
+                    throw;
+                }
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Failed to get encrypted id from claims");
+                throw;
+            }
+
+            return ret;
+        }
+
+        /**************************************************************/
+        [ProducesResponseType(StatusCodes.Status200OK)]        
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)] // 
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        private async Task<ActionResult> hasUserAdminStatus()
+        {
+  
+            string? encryptedAuthUserId = null;
+
+            // IMPORTANT: Get the authenticated ID from claims.
+            try
+            {
+                encryptedAuthUserId = getEncryptedIdFromClaim();
+            }
+            catch (UnauthorizedAccessException) 
+            {
+                return Unauthorized("Unable to determine user ID from authentication context.");
+            }
+            catch (Exception e)
+            {
+                return Problem($"{e.Message}");
+            }
+
+            if (string.IsNullOrEmpty(encryptedAuthUserId))
+            {
+                return Unauthorized("Unable to acquire encrypted ID.");
+            }
+
+            // Authenticated user from claims
+            User? claimsUser = await _userDataAccess
+                .GetByIdAsync(encryptedAuthUserId);
+
+            // This should not happen, but if it does, return unauthorized.
+            if (claimsUser == null)
+            {
+                // User ID from claim was valid but user not found in DB.
+                // Could be 401 (token valid, user doesn't exist) or 403 (user exists but shouldn't be here)                
+                return Unauthorized("Unable to identify the acting user from the provided token.");
+            }
+
+            // Authorization Check: user must be an Admin/UserAdmin
+            bool isAuthorized = claimsUser.IsUserAdmin();
+
+            if (!isAuthorized)
+            {
+                // Caller cannot perform function.
+                return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized.");
+            }
+
+            return Ok(); // Return OK if the user is an admin or authorized
+        }
+        #endregion
+
         #region User Retrieval
 
         /**************************************************************/
@@ -72,7 +181,7 @@ namespace MedRecPro.Controllers
         /// <response code="404">If the user with the specified ID is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet("{encryptedUserId}")]
-        [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(UserManagementDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -95,7 +204,7 @@ namespace MedRecPro.Controllers
                     return NotFound($"User with ID '{encryptedUserId}' not found.");
                 }
 
-                var dto = new UserDto(user);
+                var dto = new UserManagementDto(user);
 
                 return Ok(dto);
             }
@@ -133,22 +242,47 @@ namespace MedRecPro.Controllers
         /// <response code="200">Returns a list of users.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet]
-        [ProducesResponseType(typeof(IEnumerable<User>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(IEnumerable<UserManagementDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetAllUsers([FromQuery] bool includeDeleted = false, [FromQuery] int skip = 0, [FromQuery] int take = 100)
         {
             #region implementation
+            List<UserManagementDto> userDtos = new List<UserManagementDto>(take);
+
             try
             {
+                var adminCheck = await hasUserAdminStatus();
+
+                if (adminCheck is not OkResult)
+                {
+                    return adminCheck; // Return if the user is not an admin
+                }
+
                 // UserDataAccess.GetAllAsync handles fetching and pagination.
                 // It also ensures EncryptedUserId is populated for each user.
                 var users = await _userDataAccess.GetAllAsync(includeDeleted, skip, take);
-                return Ok(users);
+
+                if (users == null || users.Count() == 0)
+                {
+                    return Ok(userDtos); // Return empty list if no users found
+                }
+                else
+                {
+                    // Convert User to UserDto for response
+                    userDtos = users.Select(u => new UserManagementDto(u)).ToList();
+                }
+
+                return Ok(userDtos);
             }
             catch (Exception ex)
             {
                 // Log ex
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while retrieving users.");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while retrieving users. {ex.Message}");
             }
             #endregion
         }
@@ -167,7 +301,7 @@ namespace MedRecPro.Controllers
         /// <response code="404">If the user with the specified email is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet("byemail")]
-        [ProducesResponseType(typeof(User), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(UserManagementDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -181,18 +315,96 @@ namespace MedRecPro.Controllers
 
             try
             {
+                var adminCheck = await hasUserAdminStatus();
+
+                if (adminCheck is not OkResult)
+                {
+                    return adminCheck; // Return if the user is not an admin
+                }
+
                 var user = await _userDataAccess.GetByEmailAsync(email);
+
                 if (user == null)
                 {
                     return NotFound($"User with email '{email}' not found.");
                 }
+
+                var dto = new UserManagementDto(user);
+
                 // UserDataAccess populates EncryptedUserId
-                return Ok(user);
+                return Ok(dto);
             }
             catch (Exception ex)
             {
                 // Log ex
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing your request.");
+                _logger.LogError(ex, "An error occurred while retrieving user by email.");
+
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request. {ex.Message}");
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves a user by their authentication claim.
+        /// </summary>
+        /// <returns>The user object if found; otherwise, a NotFound response.</returns>
+        /// <remarks>
+        /// Example: `GET /api/users/me`
+        /// </remarks>
+        /// <response code="200">Returns the requested user.</response>
+        /// <response code="404">If the user with the specified email is not found.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        [HttpGet("me")]
+        [ProducesResponseType(typeof(UserFacingDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetMe()
+        {
+            #region implementation
+           
+            try
+            {
+                string? encryptedAuthUserId = null;
+
+                // IMPORTANT: Get the authenticated ID from claims.
+                try
+                {
+                    encryptedAuthUserId = getEncryptedIdFromClaim();
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return Unauthorized("Unable to determine user ID from authentication context.");
+                }
+                catch (Exception e)
+                {
+                    return Problem($"{e.Message}");
+                }
+
+                if (string.IsNullOrEmpty(encryptedAuthUserId))
+                {
+                    return Unauthorized("Unable to acquire encrypted ID.");
+                }
+
+                var user = await _userDataAccess.GetByIdAsync(encryptedAuthUserId);
+
+                if (user == null)
+                {
+                    return NotFound($"User not found.");
+                }
+
+                var dto = new UserFacingDto(user);
+
+                // UserDataAccess populates EncryptedUserId
+                return Ok(dto);
+            }
+            catch (Exception ex)
+            {
+                // Log ex
+                _logger.LogError(ex, "An error occurred while retrieving user.");
+
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request. {ex.Message}");
             }
             #endregion
         }
@@ -255,10 +467,7 @@ namespace MedRecPro.Controllers
                     return BadRequest($"A user with email '{signUpRequest.Email}' already exists.");
                 }
 
-                // User created successfully. Return 201 Created with the encrypted ID.
-                // Optionally, return the full user object by fetching it:
-                // var newUser = await _userDataAccess.GetByIdAsync(encryptedUserId);
-                // return CreatedAtAction(nameof(GetUser), new { encryptedUserId = encryptedUserId }, newUser);
+                // User created successfully. Return 201 Created with the encrypted ID.                
                 return CreatedAtAction(nameof(GetUser), new { encryptedUserId = encryptedUserId }, new { encryptedUserId = encryptedUserId });
 
             }
@@ -306,7 +515,7 @@ namespace MedRecPro.Controllers
         /// <response code="401">Authentication failed (e.g., invalid credentials, account locked).</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpPost("authenticate")]
-        [ProducesResponseType(typeof(User), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(UserFacingDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -328,9 +537,36 @@ namespace MedRecPro.Controllers
                     return Unauthorized("Authentication failed. Invalid email or password, or account locked.");
                 }
 
-                // UserDataAccess.AuthenticateAsync populates EncryptedUserId and updates last login.
-                // In a real app, generate and return a JWT token here.
-                return Ok(user);
+                // User authenticated successfully, now create claims and sign in.
+                var claims = new List<Claim>
+                {
+                    // THIS IS THE CRUCIAL CLAIM for getEncryptedIdFromClaim()
+                    // It uses the UNENCRYPTED user.Id
+                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+
+                    // You can add other claims as needed:
+                    new Claim(ClaimTypes.Email, user.Email ?? loginRequest.Email ?? string.Empty),
+                    new Claim(ClaimTypes.Name, user.UserName ?? loginRequest.Email ?? string.Empty),
+                    new Claim(ClaimTypes.Role, user.UserRole)                  
+                };
+
+                // Create the identity and principal
+                var claimsIdentity = new ClaimsIdentity(
+                    claims, IdentityConstants.ApplicationScheme);
+
+                var authProperties = new AuthenticationProperties
+                {
+                    ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(60) // Example expiration
+                };
+
+                // Sign in the user
+                await HttpContext.SignInAsync(
+                    IdentityConstants.ApplicationScheme, 
+                    new ClaimsPrincipal(claimsIdentity),
+                    authProperties);
+
+                // return user data
+                return Ok(new UserFacingDto(user));
             }
             catch (Exception ex)
             {
@@ -477,7 +713,8 @@ namespace MedRecPro.Controllers
         public async Task<IActionResult> DeleteUser(string encryptedUserId)
         {
             #region implementation
-            long id = 0;
+
+            string? encryptedDeleterUserIdFromAuth = null;
 
             #region Validation and Authorizations
 
@@ -495,20 +732,24 @@ namespace MedRecPro.Controllers
                 return NotFound($"User with ID '{encryptedUserId}' not found.");
             }
 
-            // IMPORTANT: Get the authenticated deleter's ID from claims.
-            Int64.TryParse(User.Claims.FirstOrDefault(c => c.Type
-                .Contains ("NameIdentifier", StringComparison.OrdinalIgnoreCase))
-                ?.Value ?? null, out id);
-
-            if (id <= 0)
+            // IMPORTANT: Get the authenticated ID from claims.
+            try
             {
-                // This check might be different based on
-                // policy (e.g. admin must be present)
-                return Unauthorized("Unable to determine deleter user ID from authentication context.");
+                encryptedDeleterUserIdFromAuth = getEncryptedIdFromClaim();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Unauthorized("Unable to determine user ID from authentication context.");
+            }
+            catch (Exception e)
+            {
+                return Problem($"{e.Message}");
             }
 
-            // Encrypt to for the call to get the user from the db
-            string encryptedDeleterUserIdFromAuth = StringCipher.Encrypt(id.ToString(), _pkSecret);
+            if (string.IsNullOrEmpty(encryptedDeleterUserIdFromAuth))
+            {
+                return Unauthorized("Unable to acquire encrypted ID.");
+            }
 
             // Authenticated user from claims
             User? claimsUser = await _userDataAccess
@@ -526,7 +767,7 @@ namespace MedRecPro.Controllers
             if (!isAuthorized)
             {
                 // Caller cannot delete this user.
-                return Forbid("You are not authorized to delete this user.");
+                StatusCode(StatusCodes.Status403Forbidden, "You are not authorized.");
             }
 
             #endregion
