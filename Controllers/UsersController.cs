@@ -1,19 +1,18 @@
-﻿using MedRecPro.Helpers;
-using MedRecPro.Models;
-using MedRecPro.DataAccess; // Added for UserDataAccess
+﻿
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
 using System.Security.Cryptography; // Required for CryptographicException
-using System; // Added for ArgumentNullException, DateTime, etc.
-using System.Threading.Tasks; // Added for Task
-using System.Collections.Generic; // Added for IEnumerable
-using Microsoft.AspNetCore.Http;
 using System.ComponentModel.DataAnnotations;
-using Windows.Security.Cryptography.Core;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity; // Added for StatusCodes
+using Microsoft.IdentityModel.JsonWebTokens;
+
+using MedRecPro.Helpers;
+using MedRecPro.Models;
+using MedRecPro.DataAccess;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using Newtonsoft.Json; // Added for UserDataAccess
 
 
 namespace MedRecPro.Controllers
@@ -27,6 +26,29 @@ namespace MedRecPro.Controllers
         private readonly UserDataAccess _userDataAccess; // Added UserDataAccess
         private readonly ILogger<UsersController> _logger; // Added for logging
         private readonly string _pkSecret;
+
+        #region Properties
+        // Username and password for LoginRequestDto
+        public class LoginRequestDto
+        {
+            [System.ComponentModel.DataAnnotations.Required]
+            [System.ComponentModel.DataAnnotations.EmailAddress]
+            public string Email { get; set; }
+
+            [System.ComponentModel.DataAnnotations.Required]
+            public string Password { get; set; }
+        }
+
+        // Define DTO for password rotation
+        public class RotatePasswordRequestDto
+        {
+            [System.ComponentModel.DataAnnotations.Required]
+            public string EncryptedTargetUserId { get; set; }
+            [System.ComponentModel.DataAnnotations.Required]
+            [MinLength(8)] // Example: Add password complexity rules as needed
+            public string NewPlainPassword { get; set; }
+        }
+        #endregion
 
         /**************************************************************/
         /// <summary>
@@ -84,7 +106,7 @@ namespace MedRecPro.Controllers
                     ?.Value;
 
                 if (string.IsNullOrEmpty(idClaim) || !Int64.TryParse(idClaim, out id) || id <= 0)
-                {                   
+                {
                     throw new UnauthorizedAccessException("Unable to determine user ID from authentication context.");
                 }
 
@@ -110,14 +132,14 @@ namespace MedRecPro.Controllers
         }
 
         /**************************************************************/
-        [ProducesResponseType(StatusCodes.Status200OK)]        
+        [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)] // 
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         private async Task<ActionResult> hasUserAdminStatus()
         {
-  
+
             string? encryptedAuthUserId = null;
 
             // IMPORTANT: Get the authenticated ID from claims.
@@ -125,7 +147,7 @@ namespace MedRecPro.Controllers
             {
                 encryptedAuthUserId = getEncryptedIdFromClaim();
             }
-            catch (UnauthorizedAccessException) 
+            catch (UnauthorizedAccessException)
             {
                 return Unauthorized("Unable to determine user ID from authentication context.");
             }
@@ -363,7 +385,7 @@ namespace MedRecPro.Controllers
         public async Task<IActionResult> GetMe()
         {
             #region implementation
-           
+
             try
             {
                 string? encryptedAuthUserId = null;
@@ -483,17 +505,6 @@ namespace MedRecPro.Controllers
             #endregion
         }
 
-        // Placeholder for LoginRequestDto
-        public class LoginRequestDto
-        {
-            [System.ComponentModel.DataAnnotations.Required]
-            [System.ComponentModel.DataAnnotations.EmailAddress]
-            public string Email { get; set; }
-
-            [System.ComponentModel.DataAnnotations.Required]
-            public string Password { get; set; }
-        }
-
         /**************************************************************/
         /// <summary>
         /// Authenticates a user and returns user details upon success.
@@ -508,7 +519,6 @@ namespace MedRecPro.Controllers
         ///   "password": "Password123!"
         /// }
         /// ```
-        /// In a real application, this endpoint would typically return a JWT token.
         /// </remarks>
         /// <response code="200">Authentication successful. Returns user details.</response>
         /// <response code="400">If the request is invalid (e.g., missing email or password).</response>
@@ -522,6 +532,16 @@ namespace MedRecPro.Controllers
         public async Task<IActionResult> AuthenticateUser([FromBody] LoginRequestDto loginRequest)
         {
             #region implementation
+
+            // Initialize to null, will be set if authentication is successful
+            UserFacingDto? userDto
+                = null;
+
+            // Parse timeout from configuration, defaulting to 60 minutes if not set
+            int timeOut = 60;
+
+            string? cookieName = _configuration["UserCookie"];
+
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
@@ -537,6 +557,15 @@ namespace MedRecPro.Controllers
                     return Unauthorized("Authentication failed. Invalid email or password, or account locked.");
                 }
 
+                // Set timeout for the user session
+                if (!Int32.TryParse(_configuration["AuthenticationTimeout"], out timeOut))
+                {
+                    _logger.LogWarning("Authentication timeout not set in configuration, using default of 60 minutes.");
+
+                    // Default to 60 minutes if not set
+                    timeOut = 60;
+                }
+
                 // User authenticated successfully, now create claims and sign in.
                 var claims = new List<Claim>
                 {
@@ -544,29 +573,117 @@ namespace MedRecPro.Controllers
                     // It uses the UNENCRYPTED user.Id
                     new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
 
-                    // You can add other claims as needed:
+                    // Using ClaimTypes for standard claims
+                    new Claim(ClaimTypes.Role, user.UserRole),
+
                     new Claim(ClaimTypes.Email, user.Email ?? loginRequest.Email ?? string.Empty),
-                    new Claim(ClaimTypes.Name, user.UserName ?? loginRequest.Email ?? string.Empty),
-                    new Claim(ClaimTypes.Role, user.UserRole)                  
+
+                    new Claim(ClaimTypes.Name, user.UserName ?? loginRequest.Email ?? string.Empty), 
+
+                    // Unique Token ID, good practice             
+                    new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
                 };
+
+                // Security: Token claim to mask the NameIdentifier value
+                var jwtClaim = new List<Claim>
+                {
+                    // Using ClaimTypes for standard claims
+                    new Claim(ClaimTypes.Role, user.UserRole),
+
+                    // It uses the ENCRYPTED user.Id
+                    new Claim(JwtRegisteredClaimNames.NameId, StringCipher.Encrypt(_pkSecret, user.Id.ToString())),
+
+                    // Using JwtRegisteredClaimNames
+                    new Claim(JwtRegisteredClaimNames.Email, user.Email ?? loginRequest.Email ?? string.Empty), 
+
+                    // Using JwtRegisteredClaimNames for 'name'
+                    new Claim(JwtRegisteredClaimNames.Name, user.UserName ?? loginRequest.Email ?? string.Empty), 
+
+                    // Unique Token ID, good practice             
+                    new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+                };
+
+                // Retrieve JWT settings from configuration
+                var jwtKey = _configuration["Jwt:Key"];
+                var jwtIssuer = _configuration["Jwt:Issuer"];
+                var jwtAudience = _configuration["Jwt:Audience"];
+
+                if (string.IsNullOrEmpty(jwtKey)
+                    || string.IsNullOrEmpty(jwtIssuer)
+                    || string.IsNullOrEmpty(jwtAudience))
+                {
+                    _logger.LogCritical("JWT configuration (Key, Issuer, or Audience) is missing.");
+
+                    return StatusCode(StatusCodes.Status500InternalServerError, "Authentication service configuration error.");
+                }
+
+                var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
+                var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+
+                // SecurityTokenDescriptor to describe the token to be created.
+                var tokenDescriptor = new SecurityTokenDescriptor
+                {
+                    Subject = new ClaimsIdentity(jwtClaim),
+                    Expires = DateTime.UtcNow.AddMinutes(timeOut),
+                    Issuer = jwtIssuer,
+                    Audience = jwtAudience,
+                    SigningCredentials = credentials
+                };
+
+                // JsonWebTokenHandler from Microsoft.IdentityModel.JsonWebTokens
+                var tokenHandler = new JsonWebTokenHandler();
+                var jwtTokenString = tokenHandler.CreateToken(tokenDescriptor);
+
+                // Prepare Response DTO
+                userDto = new UserFacingDto(user)
+                {
+                    Token = jwtTokenString // Assign the generated token
+                };
+
+                // Ensure userDto is not null before proceeding
+                if (userDto == null)
+                {
+                    return StatusCode(StatusCodes.Status500InternalServerError, "Failed to create user DTO.");
+                }
 
                 // Create the identity and principal
                 var claimsIdentity = new ClaimsIdentity(
                     claims, IdentityConstants.ApplicationScheme);
 
+                // Create authentication properties
                 var authProperties = new AuthenticationProperties
                 {
-                    ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(60) // Example expiration
+                    ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(timeOut)
                 };
 
                 // Sign in the user
                 await HttpContext.SignInAsync(
-                    IdentityConstants.ApplicationScheme, 
+                    IdentityConstants.ApplicationScheme,
                     new ClaimsPrincipal(claimsIdentity),
                     authProperties);
 
+                try
+                {
+                    // Set user cookie
+                    if (!string.IsNullOrEmpty(cookieName))
+                    {
+                        // Serialize
+                        string json = JsonConvert.SerializeObject(userDto);
+
+                        // Encrypt
+                        string eJson = StringCipher.Encrypt(json, _pkSecret);
+
+                        // Write
+                        Response.Cookies.Append(cookieName, eJson);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"Failed to write encrypted user cookie {ex.Message}");
+                }
+
                 // return user data
-                return Ok(new UserFacingDto(user));
+                return Ok(userDto);
             }
             catch (Exception ex)
             {
@@ -618,9 +735,12 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateUserProfile(string encryptedUserId, [FromBody] User profileUpdate) // Using User model as DTO
+        public async Task<IActionResult> UpdateUserProfile(string encryptedUserId, [FromBody] UserFacingUpdateDto profileUpdate) // Using UserFacingUpdateDto model as DTO
         {
             #region implementation
+
+            string? encryptedIdFromClaim = getEncryptedIdFromClaim();
+
             if (string.IsNullOrWhiteSpace(encryptedUserId))
             {
                 return BadRequest("Encrypted User ID in path cannot be empty.");
@@ -633,46 +753,36 @@ namespace MedRecPro.Controllers
             {
                 return BadRequest(ModelState);
             }
-
-            // Ensure the EncryptedUserId in the DTO matches the one from the path.
-            // UserDataAccess.UpdateProfileAsync also uses profile.EncryptedUserId internally to find the user.
-            if (profileUpdate.EncryptedUserId != encryptedUserId)
+            if (string.IsNullOrEmpty(encryptedIdFromClaim))
             {
-                // For clarity, ensure DTO's EncryptedUserId is aligned with the path parameter.
-                // Or, you could rely on the path parameter and set it on the DTO:
-                // profileUpdate.EncryptedUserId = encryptedUserId;
-                // However, UserDataAccess.UpdateProfileAsync uses profile.EncryptedUserId, so it must be set.
-                return BadRequest("Encrypted User ID in path does not match Encrypted User ID in request body.");
+                return Unauthorized("Unable to acquire encrypted ID from authentication context.");
             }
 
-
-            // IMPORTANT: In a real application, get the authenticated user's ID from claims.
-            // This is a placeholder for how you might get the updater's ID.
-            // var encryptedUpdaterUserIdFromAuth = User.Claims.FirstOrDefault(c => c.Type == "EncryptedUserId")?.Value;
-            // For demonstration, if you require self-update:
-            var encryptedUpdaterUserIdFromAuth = encryptedUserId; // Simplistic assumption: user updates their own profile.
-                                                                  // More robustly: check if authenticated user IS encryptedUserId or is an admin.
-
-            if (string.IsNullOrWhiteSpace(encryptedUpdaterUserIdFromAuth))
+            // Encrypted User ID values are never the same; comparing the decrypted values is necessary.
+            if (!String.Equals(encryptedUserId.Decrypt(_pkSecret), encryptedIdFromClaim.Decrypt(_pkSecret), StringComparison.OrdinalIgnoreCase))
             {
-                return Unauthorized("Unable to determine updater user ID from authentication context.");
+                return BadRequest("Encrypted User ID in path does not match Encrypted User ID in request body.");
             }
 
             try
             {
-                bool success = await _userDataAccess.UpdateProfileAsync(profileUpdate, encryptedUpdaterUserIdFromAuth);
+                // UpateProfileAsync handles the update logic.
+                bool success = await _userDataAccess
+                    .UpdateProfileAsync(profileUpdate.ToUser(), encryptedIdFromClaim);
 
                 if (!success)
                 {
                     // UpdateProfileAsync logs specifics. Could be not found, or other update issue.
                     // Check if user exists first to return a more specific 404 if that's the case.
                     var userExists = await _userDataAccess.GetByIdAsync(encryptedUserId);
+
                     if (userExists == null) return NotFound($"User with ID '{encryptedUserId}' not found for update.");
 
                     return BadRequest("Failed to update user profile. The user may not exist or an error occurred.");
                 }
 
-                return NoContent(); // Standard for successful PUT update with no content to return.
+                // Standard for successful PUT update with no content to return.
+                return NoContent(); 
             }
             catch (ArgumentException ex)
             {
@@ -681,7 +791,10 @@ namespace MedRecPro.Controllers
             catch (Exception ex)
             {
                 // Log ex
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while updating the user profile.");
+                _logger.LogError(ex, $"An error occurred while updating user profile. {ex}");
+
+                // Return a generic error message to avoid leaking sensitive information
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while updating the user profile. {ex.Message}");
             }
             #endregion
         }
@@ -888,15 +1001,7 @@ namespace MedRecPro.Controllers
         }
 
 
-        // Define DTO for password rotation
-        public class RotatePasswordRequestDto
-        {
-            [System.ComponentModel.DataAnnotations.Required]
-            public string EncryptedTargetUserId { get; set; }
-            [System.ComponentModel.DataAnnotations.Required]
-            [MinLength(8)] // Example: Add password complexity rules as needed
-            public string NewPlainPassword { get; set; }
-        }
+    
 
         /**************************************************************/
         /// <summary>

@@ -7,11 +7,9 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using MedRecPro.Data; // Namespace for ApplicationDbContext
 using Microsoft.AspNetCore.Identity;
 using MedRecPro.Models; // Namespace for User model
-using System.Security.Cryptography;
 using MedRecPro.DataAccess;
 using MedRecPro.Security; // Namespace for BasicAuthenticationHandler
 using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
-using Microsoft.AspNet.Identity;
 using System.Reflection;
 
 

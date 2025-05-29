@@ -1,12 +1,12 @@
-﻿using System;
+﻿
 using System.ComponentModel.DataAnnotations.Schema;
 using Newtonsoft.Json;
 using MedRecPro.Helpers;
 using System.ComponentModel;
 using Microsoft.AspNetCore.Identity; // For IdentityUser<TKey>
-using Microsoft.Extensions.Configuration; // For IConfiguration
 
-namespace MedRecPro.Models // Or your preferred namespace
+
+namespace MedRecPro.Models
 {
     #region NewUser Class
     /// <summary>
@@ -190,7 +190,7 @@ namespace MedRecPro.Models // Or your preferred namespace
     /// </summary>
     public class User : IdentityUser<long> // Inherit from IdentityUser<long>
     {
-        #region Private Fields for PK Secret (if still used for EncryptedUserId property)
+        #region Private Fields for PK Secret (for EncryptedUserId property)
         private static string? _pkSecret;
         private static readonly object _secretLock = new object();
         private static IConfiguration? _configuration; // Static configuration instance
@@ -456,8 +456,15 @@ namespace MedRecPro.Models // Or your preferred namespace
                 if (this.Id > 0) // Use 'this.Id' which is the PK from IdentityUser<long>
                 {
                     string secret = getPkSecret();
-                    return _encryptedUserId ?? StringCipher.Encrypt(this.Id.ToString(), secret);
+                    return StringCipher.Encrypt(this.Id.ToString(), secret);
                 }
+
+                if(!string.IsNullOrEmpty(_encryptedUserId))
+                {
+                    // If the ID is not set but we have an encrypted value, return it.
+                    return _encryptedUserId;
+                }
+
                 return string.Empty;
             }
             set
@@ -466,7 +473,6 @@ namespace MedRecPro.Models // Or your preferred namespace
                 {
                     _encryptedUserId = value;
                 }
-                // else { _userId = 0; } // If you had a backing field
             }
         }
         #endregion
@@ -498,7 +504,7 @@ namespace MedRecPro.Models // Or your preferred namespace
             CanonicalUsername = user.CanonicalUsername;
             DisplayName = user.DisplayName;
             PrimaryEmail = user.PrimaryEmail;
-            MfaEnabled = user.MfaEnabled; // This is your custom MfaEnabled
+            MfaEnabled = user.MfaEnabled; // custom MfaEnabled
             PasswordChangedAt = user.PasswordChangedAt;
             FailedLoginCount = user.FailedLoginCount; // Custom or user.AccessFailedCount
             LockoutUntil = user.LockoutUntil;         // Custom or user.LockoutEnd
@@ -721,7 +727,8 @@ namespace MedRecPro.Models // Or your preferred namespace
 
     /// <summary>
     /// Data Transfer Object for user information.
-    /// Contains a subset of user properties for user-facing operations.
+    /// Contains a subset of user properties for 
+    /// user-facing read operations.
     /// </summary>
     public class UserFacingDto
     {
@@ -756,6 +763,12 @@ namespace MedRecPro.Models // Or your preferred namespace
             Email = user.Email;
             PhoneNumber = user.PhoneNumber;
             TwoFactorEnabled = user.TwoFactorEnabled;
+        }
+
+        // Constructor that also takes the token
+        public UserFacingDto(User user, string token) : this(user)
+        {
+            Token = token;
         }
 
         #region Properties
@@ -861,6 +874,141 @@ namespace MedRecPro.Models // Or your preferred namespace
         /// </summary>
         public bool TwoFactorEnabled { get; set; }
 
+        /// <summary>
+        /// Gets or sets JWT token for the user, if applicable.
+        /// </summary>
+        public string Token { get; set; }
+
+        #endregion
+    }
+
+    // <summary>
+    /// Data Transfer Object for user information.
+    /// Contains a subset of user properties for 
+    /// user-facing read operations.
+    /// </summary>
+    public class UserFacingUpdateDto
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UserManagementDto"/> class.
+        /// </summary>
+        public UserFacingUpdateDto() { ; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UserManagementDto"/> class from a <see cref="User"/> entity.
+        /// </summary>
+        /// <param name="user">The user entity to map from.</param>
+        public UserFacingUpdateDto(User user)
+        {
+            DisplayName = user.DisplayName;
+            PrimaryEmail = user.PrimaryEmail;
+            MfaEnabled = user.MfaEnabled; // custom MfaEnabled        
+            Timezone = user.Timezone;
+            Locale = user.Locale;
+            NotificationSettings = user.NotificationSettings;
+            UiTheme = user.UiTheme;
+            UserFollowing = user.UserFollowing;
+            UserName = user.UserName;
+            Email = user.Email;
+            PhoneNumber = user.PhoneNumber;
+            TwoFactorEnabled = user.TwoFactorEnabled;
+            EncryptedUserId = user.EncryptedUserId;
+        }
+
+        #region Properties
+        /// <summary>
+        /// Gets or sets the encrypted user ID.
+        /// </summary>
+        public string? EncryptedUserId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the display name for the user.
+        /// </summary>
+        public string? DisplayName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the primary email address of the user. This property is required.
+        /// </summary>
+        public string PrimaryEmail { get; set; } = null!;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether Multi-Factor Authentication (MFA) is enabled for the user.
+        /// This is a custom MfaEnabled flag.
+        /// </summary>
+        public bool MfaEnabled { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's preferred timezone. Defaults to "UTC".
+        /// </summary>
+        public string Timezone { get; set; } = "UTC";
+
+        /// <summary>
+        /// Gets or sets the user's preferred locale. Defaults to "en-US".
+        /// </summary>
+        public string Locale { get; set; } = "en-US";
+
+        /// <summary>
+        /// Gets or sets a string (e.g., JSON) representing the user's notification settings.
+        /// </summary>
+        public string? NotificationSettings { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's preferred UI theme.
+        /// </summary>
+        public string? UiTheme { get; set; }
+
+        /// <summary>
+        /// Gets or sets a string (e.g., JSON) representing entities or users that this user is following.
+        /// </summary>
+        public string? UserFollowing { get; set; }
+
+        /// <summary>
+        /// Gets or sets the username (typically from ASP.NET Identity).
+        /// </summary>
+        public string? UserName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the email address (typically from ASP.NET Identity).
+        /// </summary>
+        public string? Email { get; set; }
+
+        /// <summary>
+        /// Gets or sets the phone number (typically from ASP.NET Identity).
+        /// </summary>
+        public string? PhoneNumber { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether two-factor authentication is enabled for the user (from ASP.NET IdentityUser).
+        /// </summary>
+        public bool TwoFactorEnabled { get; set; }
+
+        #endregion
+
+        #region Methods
+        /**************************************************************/
+        /// <summary>
+        /// Converts the current <see cref="UserFacingUpdateDto"/> instance to a <see cref="User"/> instance.
+        /// </summary>
+        /// <returns></returns>
+        public User ToUser()
+        {
+            return new User
+            {
+                DisplayName = this.DisplayName,
+                PrimaryEmail = this.PrimaryEmail,
+                MfaEnabled = this.MfaEnabled,
+                Timezone = this.Timezone,
+                Locale = this.Locale,
+                NotificationSettings = this.NotificationSettings,
+                UiTheme = this.UiTheme,
+                UserFollowing = this.UserFollowing,
+                UserName = this.UserName,
+                Email = this.Email,
+                PhoneNumber = this.PhoneNumber,
+                TwoFactorEnabled = this.TwoFactorEnabled,
+                EncryptedUserId = this.EncryptedUserId ?? string.Empty
+            };
+        }
         #endregion
     }
     #endregion
