@@ -65,6 +65,7 @@ namespace MedRecPro.Security
             try
             {
                 var authHeader = AuthenticationHeaderValue.Parse(Request.Headers["Authorization"]);
+
                 if (authHeader.Scheme.Equals("Basic", StringComparison.OrdinalIgnoreCase) && authHeader.Parameter != null)
                 {
                     var credentialBytes = Convert.FromBase64String(authHeader.Parameter);
@@ -78,32 +79,32 @@ namespace MedRecPro.Security
                     if (user == null)
                     {
                         Logger.LogWarning("Invalid email or password for email: {Email}", email);
+
                         // It's important to return Fail to trigger Challenge.
                         // Returning NoResult() might bypass challenge and lead to an infinite loop if this is the default scheme.
                         return AuthenticateResult.Fail("Invalid email or password.");
                     }
 
-                    // Optionally, update last login information
-                    // Need to handle PkSecret retrieval if StringCipher is used directly here
-                    // string pkSecret = _configuration.GetSection("Security:DB:PKSecret").Value;
-                    // if (string.IsNullOrWhiteSpace(pkSecret)) {
-                    //     Logger.LogError("PKSecret not configured, cannot update last login for basic auth.");
-                    // } else {
-                    //    string encryptedUserId = StringCipher.Encrypt(user.UserID.ToString(), pkSecret);
-                    //    await _userDataAccess.UpdateLastLoginAsync(encryptedUserId, DateTime.UtcNow, Context.Connection.RemoteIpAddress?.ToString());
-                    // }
-                    // For simplicity, UpdateLastLoginAsync could be called within UserDataAccess.AuthenticateAsync if preferred,
-                    // or the IP address could be passed to UserDataAccess.AuthenticateAsync.
-                    // For now, let's assume UpdateLastLoginAsync is handled or will be added carefully.
-                    // The current UserDataAccess.UpdateLastLoginAsync expects an encryptedUserId.
-
+                    // Update last login information
+                    if (string.IsNullOrWhiteSpace(_pkSecret))
+                    {
+                        Logger.LogError("PKSecret not configured, cannot update last login for basic auth.");
+                    }
+                    else
+                    {
+                        string encryptedUserId = StringCipher.Encrypt(user.Id.ToString(), _pkSecret);
+                        await _userDataAccess.UpdateLastLoginAsync(encryptedUserId, 
+                            loginTime:DateTime.UtcNow, 
+                            ipAddress:Context.Connection.RemoteIpAddress?.ToString());
+                    }
+                   
                     var claims = new[] {
                         new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                         new Claim(ClaimTypes.Name, user.PrimaryEmail), // Using email as Name claim
                         new Claim(ClaimTypes.Email, user.PrimaryEmail),
                         // Add other claims as needed, e.g., roles
                         new Claim(ClaimTypes.Role, user.UserRole ?? "User"), // Add user role
-                        new Claim("EncryptedUserId", user.EncryptedUserId 
+                        new Claim("EncryptedUserId", user.EncryptedUserId
                             ?? StringCipher.Encrypt(user.Id.ToString(), _pkSecret)) // Custom claim for encrypted ID if needed elsewhere
                     };
                     var identity = new ClaimsIdentity(claims, Scheme.Name);

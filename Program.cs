@@ -11,6 +11,7 @@ using MedRecPro.DataAccess;
 using MedRecPro.Security; // Namespace for BasicAuthenticationHandler
 using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
 using System.Reflection;
+using MedRecPro.Service;
 
 
 string? connectionString, googleClientId, googleClientSecret;
@@ -44,6 +45,8 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddUserLogger(); // Assuming this is your custom service
 
 builder.Services.AddTransient<StringCipher>();
+
+builder.Services.AddScoped<IPermissionService, PermissionService>();
 
 builder.Services.AddEndpointsApiExplorer();
 

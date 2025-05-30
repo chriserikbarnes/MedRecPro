@@ -3,7 +3,8 @@ using System.ComponentModel.DataAnnotations.Schema;
 using Newtonsoft.Json;
 using MedRecPro.Helpers;
 using System.ComponentModel;
-using Microsoft.AspNetCore.Identity; // For IdentityUser<TKey>
+using Microsoft.AspNetCore.Identity;
+using System.ComponentModel.DataAnnotations; // For IdentityUser<TKey>
 
 
 namespace MedRecPro.Models
@@ -483,7 +484,7 @@ namespace MedRecPro.Models
 
     #endregion
 
-    #region User Data Transfer Class
+    #region User Data Transfer Classes
     /// <summary>
     /// Data Transfer Object for user information.
     /// Contains a subset of user properties for admin-facing operations.
@@ -882,7 +883,7 @@ namespace MedRecPro.Models
         #endregion
     }
 
-    // <summary>
+    /// <summary>
     /// Data Transfer Object for user information.
     /// Contains a subset of user properties for 
     /// user-facing read operations.
@@ -1010,6 +1011,122 @@ namespace MedRecPro.Models
             };
         }
         #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Data transfer object for admin-controlled user updates.
+    /// </summary>
+    /// <remarks>
+    /// This class contains fields that only administrators should be able to modify,
+    /// such as user roles, security settings, and account status.
+    /// The EncryptedUserId within this DTO refers to the encrypted ID of the user being modified.
+    /// </remarks>
+    public class AdminUserUpdateDto
+    {
+        /// <summary>
+        /// The encrypted unique identifier of the user to be updated.
+        /// This is used to find the user in the database. The ID is encrypted for security.
+        /// </summary>
+        public string EncryptedUserId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The new role to assign to the user.
+        /// </summary>
+        public string UserRole { get; set; } = "User"; // Default to "User"
+
+        /// <summary>
+        /// The new permissions to assign to the user.
+        /// </summary>
+        public string UserPermissions { get; set; } = string.Empty; // Encrypted JSON string for permissions
+
+        /// <summary>
+        /// The number of failed login attempts for the user.
+        /// </summary>
+        public int FailedLoginCount { get; set; }
+
+        /// <summary>
+        /// The date and time until which the user's account is locked out.
+        /// </summary>
+        public DateTime? LockoutUntil { get; set; }
+
+        /// <summary>
+        /// Indicates whether Multi-Factor Authentication (MFA) is enabled for the user.
+        /// </summary>
+        public bool MfaEnabled { get; set; }
+
+        /// <summary>
+        /// The secret key used for Multi-Factor Authentication (MFA).
+        /// </summary>
+        public string? MfaSecret { get; set; } = null; // This should be encrypted or handled securely
+
+        /// <summary>
+        /// The date and time when the user's account was suspended.
+        /// </summary>
+        public DateTime? SuspendedAt { get; set; }
+
+        /// <summary>
+        /// The reason for the user's account suspension.
+        /// </summary>
+        public string? SuspensionReason { get; set; }
+
+        /// <summary>
+        /// The date and time when the user's account was marked as deleted.
+        /// </summary>
+        public DateTime? DeletedAt { get; set; }
+    }
+
+    /// <summary>
+    /// Represents the request object for user sign-up.
+    /// </summary>
+    public class UserSignUpRequestDto
+    {
+        /// <summary>
+        /// Gets or sets the user's desired username.
+        /// </summary>
+        public string? Username { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's display name.
+        /// </summary>
+        public string? DisplayName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's email address. This field is required.
+        /// </summary>
+        [Required(ErrorMessage = "Email is required.")]
+        [EmailAddress(ErrorMessage = "Invalid email address.")]
+        public string Email { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the user's chosen password. This field is required.
+        /// </summary>
+        [Required(ErrorMessage = "Password is required.")]
+        [MinLength(8, ErrorMessage = "Password must be at least 8 characters long.")]
+        public string Password { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the confirmation of the user's chosen password. This field is required and must match the Password.
+        /// </summary>
+        [Required(ErrorMessage = "Confirm Password is required.")]
+        [Compare("Password", ErrorMessage = "Passwords do not match.")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the user's phone number.
+        /// </summary>
+        [Phone(ErrorMessage = "Invalid phone number.")]
+        public string? PhoneNumber { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's preferred timezone. Defaults to "UTC".
+        /// </summary>
+        public string? Timezone { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user's preferred locale. Defaults to "en-US".
+        /// </summary>
+        public string? Locale { get; set; }
     }
     #endregion
 

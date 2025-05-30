@@ -44,9 +44,14 @@ namespace MedRecPro.Controllers
         {
             [System.ComponentModel.DataAnnotations.Required]
             public string EncryptedTargetUserId { get; set; }
+
             [System.ComponentModel.DataAnnotations.Required]
-            [MinLength(8)] // Example: Add password complexity rules as needed
+            [MinLength(12)]
             public string NewPlainPassword { get; set; }
+
+            [System.ComponentModel.DataAnnotations.Required]
+            [MinLength(12)]
+            public string NewConfirmationPassword { get; set; }
         }
         #endregion
 
@@ -91,6 +96,8 @@ namespace MedRecPro.Controllers
         /// <exception cref="UnauthorizedAccessException"></exception>
         private string? getEncryptedIdFromClaim()
         {
+            #region Implementation
+
             string? ret = null;
 
             // Encrypt to for the call to get the user from the db           
@@ -128,7 +135,9 @@ namespace MedRecPro.Controllers
                 throw;
             }
 
-            return ret;
+            return ret; 
+
+            #endregion
         }
 
         /**************************************************************/
@@ -139,6 +148,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         private async Task<ActionResult> hasUserAdminStatus()
         {
+            #region Implementation
 
             string? encryptedAuthUserId = null;
 
@@ -182,7 +192,8 @@ namespace MedRecPro.Controllers
                 return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized.");
             }
 
-            return Ok(); // Return OK if the user is an admin or authorized
+            return Ok(); // Return OK if the user is an admin or authorized 
+            #endregion
         }
         #endregion
 
@@ -463,7 +474,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(string), StatusCodes.Status201Created)] // Assuming encrypted ID is returned
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> SignUpUser([FromBody] UserDataAccess.UserSignUpRequest signUpRequest)
+        public async Task<IActionResult> SignUpUser([FromBody] UserSignUpRequestDto signUpRequest)
         {
             #region implementation
             if (!ModelState.IsValid)
@@ -600,7 +611,10 @@ namespace MedRecPro.Controllers
                     new Claim(JwtRegisteredClaimNames.Name, user.UserName ?? loginRequest.Email ?? string.Empty), 
 
                     // Unique Token ID, good practice             
-                    new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+                    new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+
+                    // Custom claim for user permissions
+                    new Claim("Permissions", user.UserPermissions ?? string.Empty)
                 };
 
                 // Retrieve JWT settings from configuration
@@ -782,7 +796,7 @@ namespace MedRecPro.Controllers
                 }
 
                 // Standard for successful PUT update with no content to return.
-                return NoContent(); 
+                return NoContent();
             }
             catch (ArgumentException ex)
             {
@@ -906,16 +920,6 @@ namespace MedRecPro.Controllers
             #endregion
         }
 
-
-        // TODO: Implement other endpoints from UserDataAccess as needed:
-        // - UpdateAdminAsync -> PUT /api/users/admin-update (takes AdminUserUpdate DTO)
-        // - RotatePasswordAsync -> POST /api/users/rotate-password (takes targetUserId, newPassword)
-        // - CreateAsync (general purpose create, if different from SignUpAsync)
-
-        // Example of a more general UpdateUser that might use UserDataAccess.UpdateAsync
-        // This would require a DTO that reflects the fields updatable by UpdateAsync
-        // and careful consideration of authorization (who can update what).
-
         /**************************************************************/
         /// <summary>
         /// (Admin) Updates comprehensive details for a specified user.
@@ -950,7 +954,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AdminUpdateUser([FromBody] UserDataAccess.AdminUserUpdate adminUpdateData)
+        public async Task<IActionResult> AdminUpdateUser([FromBody] AdminUserUpdateDto adminUpdateData)
         {
             #region implementation
             if (adminUpdateData == null || string.IsNullOrWhiteSpace(adminUpdateData.EncryptedUserId))
@@ -962,15 +966,18 @@ namespace MedRecPro.Controllers
                 return BadRequest(ModelState);
             }
 
-            // IMPORTANT: Get the authenticated ADMIN user's ID from claims.
-            // This is a critical security step.
-            // var encryptedAdminUpdaterIdFromAuth = User.Claims.FirstOrDefault(c => c.Type == "EncryptedAdminId" && User.IsInRole("Admin"))?.Value;
-            // For demonstration, using a placeholder. THIS IS NOT SECURE FOR PRODUCTION.
-            string encryptedAdminUpdaterIdFromAuth = "ENCRYPTED_ADMIN_ID_PLACEHOLDER"; // Replace with actual claim retrieval and validation.
+            string? encryptedAdminUpdaterIdFromAuth = getEncryptedIdFromClaim();
 
             if (string.IsNullOrWhiteSpace(encryptedAdminUpdaterIdFromAuth))
             {
-                return Unauthorized("Admin privileges required and admin ID not found in authentication context.");
+                return Unauthorized("ID not found in authentication context.");
+            }
+
+            var adminCheck = await hasUserAdminStatus();
+
+            if (adminCheck is not OkResult)
+            {
+                return adminCheck; // Return if the user is not an admin
             }
 
             try
@@ -979,13 +986,14 @@ namespace MedRecPro.Controllers
 
                 if (!success)
                 {
-                    // UserDataAccess.UpdateAdminAsync logs details.
                     // Check if target user exists for a better 404
                     var targetUserExists = await _userDataAccess.GetByIdAsync(adminUpdateData.EncryptedUserId);
+
                     if (targetUserExists == null) return NotFound($"Target user with ID '{adminUpdateData.EncryptedUserId}' not found for admin update.");
 
                     return BadRequest("Failed to perform admin update on user. The user may not exist or an error occurred.");
                 }
+
                 return NoContent();
             }
             catch (ArgumentException ex)
@@ -999,9 +1007,6 @@ namespace MedRecPro.Controllers
             }
             #endregion
         }
-
-
-    
 
         /**************************************************************/
         /// <summary>
@@ -1017,7 +1022,8 @@ namespace MedRecPro.Controllers
         /// ```json
         /// {
         ///   "encryptedTargetUserId": "USER_TO_UPDATE_ENCRYPTED_ID",
-        ///   "newPlainPassword": "NewSecurePassword123!"
+        ///   "newPlainPassword": "NewSecurePassword123!",
+        ///   "newConfirmationPassword": "NewSecurePassword123!"
         /// }
         /// ```
         /// </remarks>
@@ -1035,34 +1041,54 @@ namespace MedRecPro.Controllers
         public async Task<IActionResult> RotatePassword([FromBody] RotatePasswordRequestDto rotatePasswordRequest)
         {
             #region implementation
+
             if (rotatePasswordRequest == null ||
                 string.IsNullOrWhiteSpace(rotatePasswordRequest.EncryptedTargetUserId) ||
-                string.IsNullOrWhiteSpace(rotatePasswordRequest.NewPlainPassword))
+                string.IsNullOrWhiteSpace(rotatePasswordRequest.NewPlainPassword) ||
+                string.IsNullOrWhiteSpace(rotatePasswordRequest.NewConfirmationPassword))
             {
                 return BadRequest("Target user ID and new password are required.");
             }
+
+            if (rotatePasswordRequest.NewPlainPassword != rotatePasswordRequest.NewConfirmationPassword)
+            {
+                return BadRequest("New password and confirmation password do not match.");
+            }
+
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
             // IMPORTANT: Get the authenticated updater's ID from claims.
-            // This could be the user themselves or an admin.
-            var encryptedUpdaterUserIdFromAuth = User.Claims.FirstOrDefault(c => c.Type == "EncryptedUserId")?.Value;
-            // For demonstration:
-            // string encryptedUpdaterUserIdFromAuth = "CURRENT_USER_OR_ADMIN_ENCRYPTED_ID_PLACEHOLDER"; // Replace with actual logic
-
-            // Authorization: Check if encryptedUpdaterUserIdFromAuth is the same as EncryptedTargetUserId (self-change)
-            // OR if encryptedUpdaterUserIdFromAuth belongs to an admin.
-            //if (encryptedUpdaterUserIdFromAuth != rotatePasswordRequest.EncryptedTargetUserId && !User.IsInRole("Admin")) 
-            //          return Unauthorized("Not authorized to change this user's password.");
-
+            var encryptedUpdaterUserIdFromAuth = getEncryptedIdFromClaim();
 
             if (string.IsNullOrWhiteSpace(encryptedUpdaterUserIdFromAuth))
             {
                 return Unauthorized("Unable to determine updater user ID from authentication context for password rotation.");
             }
 
+            // Get the claim user
+            var claimsUser = await _userDataAccess
+                .GetByIdAsync(encryptedUpdaterUserIdFromAuth);
+
+            // This should not happen, but if it does, return unauthorized.
+            if (claimsUser == null)
+            {
+                _logger.LogWarning("Unable to identify the acting user from the provided token.");
+
+                return Unauthorized("Unable to identify the acting user from the provided token.");
+            }
+
+            // Encrypted User ID values are never the same; comparing the decrypted values is necessary.
+            //TODO: update logic
+            if (!String.Equals(rotatePasswordRequest.EncryptedTargetUserId.Decrypt(_pkSecret),
+                    encryptedUpdaterUserIdFromAuth.Decrypt(_pkSecret),
+                    StringComparison.OrdinalIgnoreCase)
+                || claimsUser.IsUserAdmin())
+            {
+                return Unauthorized("Encrypted User ID is not found user or is not an admin.");
+            }
 
             try
             {
@@ -1079,6 +1105,7 @@ namespace MedRecPro.Controllers
 
                     return BadRequest("Failed to rotate password. The user may not exist or an error occurred.");
                 }
+
                 return NoContent();
             }
             catch (ArgumentException ex)

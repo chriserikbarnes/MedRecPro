@@ -5,11 +5,13 @@ using System.Threading.Tasks;
 using MedRecPro.Models;
 using MedRecPro.Data;
 using MedRecPro.Helpers;
+using static MedRecPro.Models.Constant;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel.DataAnnotations;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace MedRecPro.DataAccess
 {
@@ -32,119 +34,6 @@ namespace MedRecPro.DataAccess
         private static string? _pkSecret;
         // Static lock for thread-safe initialization of the secret
         private static readonly object _secretLock = new object();
-
-        #region Classes
-        /**************************************************************/
-        /// <summary>
-        /// Data transfer object for admin-controlled user updates.
-        /// </summary>
-        /// <remarks>
-        /// This class contains fields that only administrators should be able to modify,
-        /// such as user roles, security settings, and account status.
-        /// The EncryptedUserId within this DTO refers to the encrypted ID of the user being modified.
-        /// </remarks>
-        public class AdminUserUpdate
-        {
-            /// <summary>
-            /// The encrypted unique identifier of the user to be updated.
-            /// This is used to find the user in the database. The ID is encrypted for security.
-            /// </summary>
-            public string EncryptedUserId { get; set; } = string.Empty;
-
-            /// <summary>
-            /// The new role to assign to the user.
-            /// </summary>
-            public string UserRole { get; set; }
-
-            /// <summary>
-            /// The number of failed login attempts for the user.
-            /// </summary>
-            public int FailedLoginCount { get; set; }
-
-            /// <summary>
-            /// The date and time until which the user's account is locked out.
-            /// </summary>
-            public DateTime? LockoutUntil { get; set; }
-
-            /// <summary>
-            /// Indicates whether Multi-Factor Authentication (MFA) is enabled for the user.
-            /// </summary>
-            public bool MfaEnabled { get; set; }
-
-            /// <summary>
-            /// The secret key used for Multi-Factor Authentication (MFA).
-            /// </summary>
-            public string MfaSecret { get; set; }
-
-            /// <summary>
-            /// The date and time when the user's account was suspended.
-            /// </summary>
-            public DateTime? SuspendedAt { get; set; }
-
-            /// <summary>
-            /// The reason for the user's account suspension.
-            /// </summary>
-            public string SuspensionReason { get; set; }
-
-            /// <summary>
-            /// The date and time when the user's account was marked as deleted.
-            /// </summary>
-            public DateTime? DeletedAt { get; set; }
-        }
-
-        /// <summary>
-        /// Represents the request object for user sign-up.
-        /// </summary>
-        public class UserSignUpRequest
-        {
-            /// <summary>
-            /// Gets or sets the user's desired username.
-            /// </summary>
-            public string? Username { get; set; }
-
-            /// <summary>
-            /// Gets or sets the user's display name.
-            /// </summary>
-            public string? DisplayName { get; set; }
-
-            /// <summary>
-            /// Gets or sets the user's email address. This field is required.
-            /// </summary>
-            [Required(ErrorMessage = "Email is required.")]
-            [EmailAddress(ErrorMessage = "Invalid email address.")]
-            public string Email { get; set; } = string.Empty;
-
-            /// <summary>
-            /// Gets or sets the user's chosen password. This field is required.
-            /// </summary>
-            [Required(ErrorMessage = "Password is required.")]
-            [MinLength(8, ErrorMessage = "Password must be at least 8 characters long.")]
-            public string Password { get; set; } = string.Empty;
-
-            /// <summary>
-            /// Gets or sets the confirmation of the user's chosen password. This field is required and must match the Password.
-            /// </summary>
-            [Required(ErrorMessage = "Confirm Password is required.")]
-            [Compare("Password", ErrorMessage = "Passwords do not match.")]
-            public string ConfirmPassword { get; set; } = string.Empty;
-
-            /// <summary>
-            /// Gets or sets the user's phone number.
-            /// </summary>
-            [Phone(ErrorMessage = "Invalid phone number.")]
-            public string? PhoneNumber { get; set; }
-
-            /// <summary>
-            /// Gets or sets the user's preferred timezone. Defaults to "UTC".
-            /// </summary>
-            public string? Timezone { get; set; }
-
-            /// <summary>
-            /// Gets or sets the user's preferred locale. Defaults to "en-US".
-            /// </summary>
-            public string? Locale { get; set; }
-        }
-        #endregion
 
         #region Initialization
         /// <summary>
@@ -194,6 +83,7 @@ namespace MedRecPro.DataAccess
             return _pkSecret;
         }
 
+        /**************************************************************/
         /// <summary>
         /// Helper method to decrypt a user ID string.
         /// </summary>
@@ -227,6 +117,7 @@ namespace MedRecPro.DataAccess
                 return false;
             }
         }
+
         #endregion
 
         #region Authentication
@@ -291,6 +182,7 @@ namespace MedRecPro.DataAccess
                     {
                         user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
                     }
+
                     await UpdateLastLoginAsync(user.EncryptedUserId, DateTime.UtcNow, null /* IP address */);
                 }
                 catch (Exception ex)
@@ -304,10 +196,12 @@ namespace MedRecPro.DataAccess
             {
                 // Password does not match. Increment failed login count.
                 user.FailedLoginCount++;
-                // Implement lockout logic if desired (e.g., after X failed attempts)
-                // if (user.FailedLoginCount >= MAX_FAILED_ATTEMPTS) {
-                //    user.LockoutUntil = DateTime.UtcNow.AddMinutes(LOCKOUT_DURATION_MINUTES);
-                // }
+
+                // Lockout (e.g., after X failed attempts)
+                if (user.FailedLoginCount >= MAX_FAILED_ATTEMPTS)
+                {
+                    user.LockoutUntil = DateTime.UtcNow.AddMinutes(LOCKOUT_DURATION_MINUTES);
+                }
                 try
                 {
                     _dbContext.AppUsers.Update(user);
@@ -353,8 +247,7 @@ namespace MedRecPro.DataAccess
                     {
                         user.CreatedByID = creatorId;
                     }
-                    // If decryption fails, warning is logged by TryDecryptId. Decide if creation should proceed.
-                    // Current: proceeds without CreatedByID.
+                    // If decryption fails, warning is logged by TryDecryptId. Proceeds without CreatedByID.
                 }
 
                 user.CanonicalUsername = user.CanonicalUsername?.ToLowerInvariant();
@@ -364,7 +257,7 @@ namespace MedRecPro.DataAccess
                 {
                     user.PasswordHash = _passwordHasher.HashPassword(user, user.Password);
                     user.PasswordChangedAt = user.CreatedAt;
-                    user.Password = null;
+                    user.Password = null; // Clear the plaintext password after hashing
                 }
 
                 bool emailExists = await _dbContext.AppUsers
@@ -378,7 +271,8 @@ namespace MedRecPro.DataAccess
 
                     // user record may have been added by third party sign-on and no password was added
                     // this updates the record to include the password
-                    if (existingUser != null) {
+                    if (existingUser != null)
+                    {
 
                         var encryptedId = StringCipher.Encrypt(existingUser.Id.ToString(), getPkSecret());
 
@@ -408,7 +302,7 @@ namespace MedRecPro.DataAccess
         #endregion
 
         #region Read
-       
+
         /**************************************************************/
         /// <summary>
         /// Retrieves a user by their encrypted unique identifier.
@@ -430,13 +324,14 @@ namespace MedRecPro.DataAccess
                 if (user != null)
                 {
                     user.SetUserIdInternal(user.Id);
+
                     user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret()); // Ensure outgoing DTO has it
                 }
                 return user;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching user by decrypted ID {UserId} (Encrypted: {EncryptedUserId}).", userId, encryptedUserId);
+                _logger.LogError(ex, "Error fetching user by {e}).", ex.Message);
                 throw;
             }
         }
@@ -460,6 +355,7 @@ namespace MedRecPro.DataAccess
                 if (user != null)
                 {
                     user.SetUserIdInternal(user.Id);
+
                     user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
                 }
                 return user;
@@ -543,7 +439,7 @@ namespace MedRecPro.DataAccess
 
                 if (existingUser == null)
                 {
-                    _logger.LogWarning("User with decrypted ID {UserIdToUpdate} not found or deleted, cannot update.", userIdToUpdate);
+                    _logger.LogWarning("User with decrypted ID {UserIdToUpdate} not found or deleted, cannot update.", encryptedUpdaterUserId);
                     return false;
                 }
 
@@ -553,7 +449,6 @@ namespace MedRecPro.DataAccess
                 user.CreatedByID = existingUser.CreatedByID;
                 user.PasswordHash = existingUser.PasswordHash ?? user.PasswordHash; // Password changes via RotatePasswordAsync
                 user.SecurityStamp = existingUser.SecurityStamp ?? user.SecurityStamp; // SecurityStamp changes via RotatePasswordAsync
-                // etc. for fields not typically part of a general update DTO
 
                 // Update audit fields from parameters/current state
                 user.UpdatedAt = DateTime.UtcNow;
@@ -561,26 +456,23 @@ namespace MedRecPro.DataAccess
                 user.CanonicalUsername = user.CanonicalUsername?.ToLowerInvariant();
 
                 _dbContext.Entry(existingUser).CurrentValues.SetValues(user);
-                // If 'user' is a partial DTO, explicitly map fields:
-                // existingUser.DisplayName = user.DisplayName;
-                // existingUser.PhoneNumber = user.PhoneNumber; ...
 
                 await _dbContext.SaveChangesAsync();
                 return true;
             }
             catch (DbUpdateConcurrencyException ex)
             {
-                _logger.LogError(ex, "Concurrency error updating user {UserIdToUpdate}.", userIdToUpdate);
+                _logger.LogError(ex, "Concurrency error updating user {UserIdToUpdate}.", encryptedUpdaterUserId);
                 return false;
             }
             catch (DbUpdateException ex)
             {
-                _logger.LogError(ex, "Database error updating user {UserIdToUpdate}.", userIdToUpdate);
+                _logger.LogError(ex, "Database error updating user {UserIdToUpdate}.", encryptedUpdaterUserId);
                 return false;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating user {UserIdToUpdate}.", userIdToUpdate);
+                _logger.LogError(ex, "Error updating user {UserIdToUpdate}.", encryptedUpdaterUserId);
                 throw;
             }
         }
@@ -608,37 +500,118 @@ namespace MedRecPro.DataAccess
             }
 
             // Security check: Ensure the updater is the user themselves or an authorized admin.
-            // This example assumes self-update or admin has separate authorization.
-            // if (userIdToUpdate != updaterUserId && !IsAdmin(updaterUserId)) return false;
-
+            if (userIdToUpdate != updaterUserId || !profile.IsUserAdmin())
+            {
+                _logger.LogWarning("UpdateProfileAsync: User {UpdaterUserId} is not authorized to update profile for user {UserIdToUpdate}.", encryptedUpdaterUserId, profile.EncryptedUserId);
+                return false;
+            }
 
             try
             {
+                //Get the user from the database using the decrypted user ID
                 var user = await _dbContext.AppUsers
                     .SingleOrDefaultAsync(u => u.Id == userIdToUpdate && u.DeletedAt == null);
 
                 if (user == null)
                 {
-                    _logger.LogWarning("User with decrypted ID {UserIdToUpdate} not found for profile update.", userIdToUpdate);
+                    _logger.LogWarning("User with decrypted ID {UserIdToUpdate} not found for profile update.", profile.EncryptedUserId);
                     return false;
                 }
 
-                user.PhoneNumber = profile.PhoneNumber;
-                user.DisplayName = profile.DisplayName;
-                user.Timezone = profile.Timezone;
-                user.Locale = profile.Locale;
-                user.NotificationSettings = profile.NotificationSettings;
-                user.UiTheme = profile.UiTheme;
+                #region Updated Fields (blank means no change)
 
+                // --- DisplayName (string) ---
+                if (!string.IsNullOrWhiteSpace(profile.DisplayName))
+                {
+                    user.DisplayName = profile.DisplayName;
+                }
+
+                // --- Email (string, normalized) ---
+                if (!string.IsNullOrWhiteSpace(profile.Email))
+                {
+                    user.Email = profile.Email.ToLowerInvariant();
+                }
+
+                // --- EncryptedUserId (string - assuming based on context) ---
+                // If it's not a string but another reference type, use: if (profile.EncryptedUserId != null)
+                if (!string.IsNullOrWhiteSpace(profile.EncryptedUserId))
+                {
+                    user.EncryptedUserId = profile.EncryptedUserId;
+                }
+
+                // --- Locale (string) ---
+                if (!string.IsNullOrWhiteSpace(profile.Locale))
+                {
+                    user.Locale = profile.Locale;
+                }
+
+                // --- MfaEnabled (boolean) ---
+                if (profile.MfaEnabled != user.MfaEnabled)
+                {
+                    user.MfaEnabled = profile.MfaEnabled;
+                }
+
+                // --- NotificationSettings (string) ---
+                if (!string.IsNullOrWhiteSpace(profile.NotificationSettings))
+                {
+                    user.NotificationSettings = profile.NotificationSettings;
+                }
+
+                // --- PhoneNumber (string) ---
+                if (!string.IsNullOrWhiteSpace(profile.PhoneNumber))
+                {
+                    user.PhoneNumber = profile.PhoneNumber;
+                }
+
+                // --- PrimaryEmail (string, normalized) ---
+                if (!string.IsNullOrWhiteSpace(profile.PrimaryEmail))
+                {
+                    user.PrimaryEmail = profile.PrimaryEmail.ToLowerInvariant();
+                }
+
+                // --- Timezone (string) ---
+                if (!string.IsNullOrWhiteSpace(profile.Timezone))
+                {
+                    user.Timezone = profile.Timezone;
+                }
+
+                // --- TwoFactorEnabled (boolean) ---
+                if (profile.TwoFactorEnabled != user.TwoFactorEnabled)
+                {
+                    user.TwoFactorEnabled = profile.TwoFactorEnabled;
+                }
+
+                // --- UiTheme (string) ---
+                if (!string.IsNullOrWhiteSpace(profile.UiTheme))
+                {
+                    user.UiTheme = profile.UiTheme;
+                }
+
+                // --- UserFollowing (string) ---
+                if (!string.IsNullOrWhiteSpace(profile.UserFollowing))
+                {
+                    user.UserFollowing = profile.UserFollowing;
+                }
+
+                // --- UserName (string, normalized) ---
+                if (!string.IsNullOrWhiteSpace(profile.UserName))
+                {
+                    user.UserName = profile.UserName.ToLowerInvariant();
+                }
+
+
+                // These are always updated
                 user.UpdatedAt = DateTime.UtcNow;
                 user.UpdatedBy = updaterUserId;
+
+                #endregion
 
                 await _dbContext.SaveChangesAsync();
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating profile for user (decrypted ID) {UserIdToUpdate}.", userIdToUpdate);
+                _logger.LogError(ex, "Error updating profile for user {e}.", ex.Message);
                 throw;
             }
         }
@@ -650,9 +623,10 @@ namespace MedRecPro.DataAccess
         /// <param name="adminUpdateData">Admin-editable user data. `EncryptedUserId` property within this object identifies the target user.</param>
         /// <param name="encryptedUpdaterAdminId">Encrypted ID of the admin making the update.</param>
         /// <returns>True if the user was found and updated; false otherwise.</returns>
-        public async Task<bool> UpdateAdminAsync(AdminUserUpdate adminUpdateData, string? encryptedUpdaterAdminId)
+        public async Task<bool> UpdateAdminAsync(AdminUserUpdateDto adminUpdateData, string? encryptedUpdaterAdminId)
         {
             if (adminUpdateData == null) throw new ArgumentNullException(nameof(adminUpdateData));
+
             if (string.IsNullOrWhiteSpace(adminUpdateData.EncryptedUserId))
                 throw new ArgumentException("Valid encrypted target user ID is required in adminUpdateData.", nameof(adminUpdateData.EncryptedUserId));
 
@@ -668,10 +642,23 @@ namespace MedRecPro.DataAccess
                 return false;
             }
 
-            // Authorization check: Ensure updaterAdminId corresponds to an actual admin role.
-            // This logic would typically be in a service layer or use ASP.NET Core authorization.
-            // For example: if (!await IsUserAdminAsync(updaterAdminId)) { _logger.LogWarning(...); return false; }
+            // Retrieve the admin user from the database using the decrypted updater ID
+            var admin = await _dbContext.AppUsers
+                    .SingleOrDefaultAsync(u => u.Id == updaterAdminId);
 
+            // Check if the admin user exists
+            if (admin == null)
+            {
+                _logger.LogWarning("UpdateProfileAsync: Admin user with ID {UpdaterUserId} not found.", encryptedUpdaterAdminId);
+                return false;
+            }
+
+            // Security check: Ensure the updater an authorized admin.
+            if (!admin.IsUserAdmin())
+            {
+                _logger.LogWarning("UpdateProfileAsync: User {UpdaterUserId} is not authorized to update profile for user {UserIdToUpdate}.", encryptedUpdaterAdminId, adminUpdateData.EncryptedUserId);
+                return false;
+            }
 
             try
             {
@@ -685,14 +672,59 @@ namespace MedRecPro.DataAccess
                     return false;
                 }
 
-                user.UserRole = adminUpdateData.UserRole;
-                user.FailedLoginCount = adminUpdateData.FailedLoginCount;
-                user.LockoutUntil = adminUpdateData.LockoutUntil;
-                user.MfaEnabled = adminUpdateData.MfaEnabled;
-                user.MfaSecret = adminUpdateData.MfaSecret; // Be cautious with direct secret updates
-                user.SuspendedAt = adminUpdateData.SuspendedAt;
-                user.SuspensionReason = adminUpdateData.SuspensionReason;
-                user.DeletedAt = adminUpdateData.DeletedAt;
+                // --- DeletedAt (DateTime?) ---
+                if (adminUpdateData.DeletedAt.HasValue)
+                {
+                    user.DeletedAt = adminUpdateData.DeletedAt.Value;
+                }
+
+                // --- FailedLoginCount (int?) ---
+                if (adminUpdateData.FailedLoginCount > 0)
+                {
+                    user.FailedLoginCount = adminUpdateData.FailedLoginCount;
+                }
+
+                // --- LockoutUntil (DateTime?) ---
+                if (adminUpdateData.LockoutUntil.HasValue)
+                {
+                    user.LockoutUntil = adminUpdateData.LockoutUntil.Value;
+                }
+
+                // --- MfaEnabled (bool?) ---
+                if (adminUpdateData.MfaEnabled != user.MfaEnabled)
+                {
+                    user.MfaEnabled = adminUpdateData.MfaEnabled;
+                }
+
+                // --- MfaSecret (string) Allows "" to clear the value ---
+                if (adminUpdateData.MfaSecret != null)
+                {
+                    user.MfaSecret = adminUpdateData.MfaSecret;
+                }
+
+                // --- SuspendedAt (DateTime?) ---
+                if (adminUpdateData.SuspendedAt.HasValue)
+                {
+                    user.SuspendedAt = adminUpdateData.SuspendedAt.Value;
+                }
+
+                // --- SuspensionReason (string) allows "" to clear a set value ---
+                if (adminUpdateData.SuspensionReason != null)
+                {
+                    user.SuspensionReason = adminUpdateData.SuspensionReason;
+                }
+
+                // --- UserPermissions (Encrypted JSON string) ---
+                if (!string.IsNullOrWhiteSpace(adminUpdateData.UserPermissions))
+                {
+                    user.UserPermissions = adminUpdateData.UserPermissions;
+                }
+
+                // --- UserRole (string) ---
+                if (!string.IsNullOrWhiteSpace(adminUpdateData.UserRole))
+                {
+                    user.UserRole = adminUpdateData.UserRole;
+                }
 
                 user.UpdatedAt = DateTime.UtcNow;
                 user.UpdatedBy = updaterAdminId;
@@ -702,7 +734,7 @@ namespace MedRecPro.DataAccess
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error performing admin update for target user {TargetUserId}.", targetUserId);
+                _logger.LogError(ex, "Error performing admin update. {e}", ex.Message);
                 throw;
             }
         }
@@ -729,33 +761,51 @@ namespace MedRecPro.DataAccess
                 return false;
             }
 
-            // Authorization: e.g., targetUserId == updaterUserId (self-change) OR IsAdmin(updaterUserId)
-            // if (targetUserId != updaterUserId && !await IsUserAdminAsync(updaterUserId)) { _logger.LogWarning(...); return false; }
+            // Security check: Ensure the updater is the user themselves or an authorized admin.
+            if (updaterUserId <= 0)
+            {
+                _logger.LogWarning("RotatePasswordAsync: Updater user ID is invalid or missing.");
+                return false;
+            }
+
+            // Get the target user from the database using the decrypted target ID
+            var user = await _dbContext.AppUsers
+                   .SingleOrDefaultAsync(u => u.Id == targetUserId && u.DeletedAt == null);
+
+            // Get the updater user from the database using the decrypted updater ID
+            var admin = await _dbContext.AppUsers
+                   .SingleOrDefaultAsync(u => u.Id == updaterUserId && u.DeletedAt == null);
+
+            // Check if the target user and updater user exist
+            if (user == null || admin == null)
+            {
+                _logger.LogWarning("User for password rotation not found or deleted. Decrypted Target ID: {TargetUserId}", encryptedTargetUserId);
+                return false;
+            }
+
+            // Authorization: Check if the updater is an admin or the target user themselves
+            bool canUpdatePassword = admin.IsUserAdmin() || targetUserId == updaterUserId;
 
             try
             {
-                var user = await _dbContext.AppUsers
-                    .SingleOrDefaultAsync(u => u.Id == targetUserId && u.DeletedAt == null);
-
-                if (user == null)
+                if (canUpdatePassword)
                 {
-                    _logger.LogWarning("User for password rotation not found or deleted. Decrypted Target ID: {TargetUserId}", targetUserId);
-                    return false;
+                    user.PasswordHash = _passwordHasher.HashPassword(user, newPlainPassword);
+                    user.PasswordChangedAt = DateTime.UtcNow;
+                    user.SecurityStamp = Guid.NewGuid().ToString();
+
+                    user.UpdatedAt = DateTime.UtcNow;
+                    user.UpdatedBy = updaterUserId;
+
+                    await _dbContext.SaveChangesAsync();
+                    return true;
                 }
 
-                user.PasswordHash = _passwordHasher.HashPassword(user, newPlainPassword);
-                user.PasswordChangedAt = DateTime.UtcNow;
-                user.SecurityStamp = Guid.NewGuid().ToString();
-
-                user.UpdatedAt = DateTime.UtcNow;
-                user.UpdatedBy = updaterUserId;
-
-                await _dbContext.SaveChangesAsync();
-                return true;
+                return false; // Unauthorized to update password
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error rotating password for target user (decrypted ID) {TargetUserId}.", targetUserId);
+                _logger.LogError(ex, "Error rotating password for target user {TargetUserId}.", encryptedTargetUserId);
                 throw;
             }
         }
@@ -779,31 +829,47 @@ namespace MedRecPro.DataAccess
             {
                 return false;
             }
-
-            // Authorization: e.g., IsAdmin(deleterUserId)
-            // if (!await IsUserAdminAsync(deleterUserId)) { _logger.LogWarning(...); return false; }
+            if (targetUserId <= 0 || deleterUserId <= 0)
+            {
+                _logger.LogWarning("DeleteAsync: Invalid user IDs.");
+                return false;
+            }
 
             try
             {
+                // Get the target user from the database using the decrypted target ID
                 var user = await _dbContext.AppUsers
-                    .SingleOrDefaultAsync(u => u.Id == targetUserId && u.DeletedAt == null);
+                       .SingleOrDefaultAsync(u => u.Id == targetUserId && u.DeletedAt == null);
 
-                if (user == null)
+                // Get the updater user from the database using the decrypted updater ID
+                var admin = await _dbContext.AppUsers
+                       .SingleOrDefaultAsync(u => u.Id == deleterUserId && u.DeletedAt == null);
+
+                // Check if the target user and updater user exist
+                if (user == null || admin == null)
                 {
-                    _logger.LogWarning("User for deletion not found or already deleted. Decrypted Target ID: {TargetUserId}", targetUserId);
+                    _logger.LogWarning("User for deletion not found. Decrypted Target ID: {TargetUserId}", encryptedTargetUserId);
                     return false;
                 }
 
-                user.DeletedAt = DateTime.UtcNow;
-                user.UpdatedAt = DateTime.UtcNow;
-                user.UpdatedBy = deleterUserId;
+                // Authorization: Check if the updater is an admin or the target user themselves
+                bool canDelete = admin.IsUserAdmin() || targetUserId == deleterUserId;
 
-                await _dbContext.SaveChangesAsync();
-                return true;
+                if (canDelete)
+                {
+                    user.DeletedAt = DateTime.UtcNow;
+                    user.UpdatedAt = DateTime.UtcNow;
+                    user.UpdatedBy = deleterUserId;
+
+                    await _dbContext.SaveChangesAsync();
+                    return true; 
+                }
+
+                return false; // Unauthorized to delete user
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error soft-deleting user (decrypted ID) {TargetUserId}.", targetUserId);
+                _logger.LogError(ex, "Error soft-deleting user {TargetUserId}.", encryptedTargetUserId);
                 throw;
             }
         }
@@ -830,17 +896,14 @@ namespace MedRecPro.DataAccess
 
                 if (user == null)
                 {
-                    _logger.LogWarning("User for login update not found. Decrypted ID: {UserId}", userId);
+                    _logger.LogWarning("User for login update not found. ID: {UserId}", encryptedUserId);
                     return false;
                 }
 
                 // Business rule: Should a deleted user's login be tracked or prevented?
                 if (user.DeletedAt != null)
                 {
-                    _logger.LogWarning("Attempt to update last login for a deleted user. Decrypted ID: {UserId}", userId);
-                    // Depending on policy, might return false or proceed.
-                    // For basic auth, we might allow it if AuthenticateAsync allows it, then the handler decides.
-                    // However, AuthenticateAsync now blocks deleted users.
+                    _logger.LogWarning("Attempt to update last login for a deleted user. ID: {UserId}", encryptedUserId);
                 }
 
                 user.LastLoginAt = loginTime;
@@ -854,7 +917,7 @@ namespace MedRecPro.DataAccess
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating last login for user (decrypted ID) {UserId}.", userId);
+                _logger.LogError(ex, "Error updating last login for user {UserId}.", encryptedUserId);
                 throw;
             }
         }
@@ -865,7 +928,7 @@ namespace MedRecPro.DataAccess
         /// </summary>
         /// <param name="request">User-provided registration information.</param>
         /// <returns>Encrypted ID of the new user if successful; "Duplicate" if email exists, or null on error.</returns>
-        public async Task<string?> SignUpAsync(UserSignUpRequest request)
+        public async Task<string?> SignUpAsync(UserSignUpRequestDto request)
         {
             if (request == null)
                 throw new ArgumentNullException(nameof(request));
