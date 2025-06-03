@@ -477,9 +477,6 @@ namespace MedRecPro.Models
             }
         }
         #endregion
-
-
-
     }
 
     #endregion

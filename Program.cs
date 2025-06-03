@@ -42,7 +42,7 @@ builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSet
 
 builder.Services.AddHttpContextAccessor();
 
-builder.Services.AddUserLogger(); // Assuming this is your custom service
+builder.Services.AddUserLogger(); // custom service
 
 builder.Services.AddTransient<StringCipher>();
 

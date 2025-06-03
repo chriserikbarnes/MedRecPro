@@ -1,17 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+﻿
 using MedRecPro.Models;
 using MedRecPro.Data;
 using MedRecPro.Helpers;
 using static MedRecPro.Models.Constant;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using System.ComponentModel.DataAnnotations;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+
 
 namespace MedRecPro.DataAccess
 {
@@ -32,8 +26,9 @@ namespace MedRecPro.DataAccess
 
         // Store the encryption secret retrieved from configuration
         private static string? _pkSecret;
-        // Static lock for thread-safe initialization of the secret
-        private static readonly object _secretLock = new object();
+
+        // Static lock for thread-safe
+        private static readonly object _lock = new object();
 
         #region Initialization
         /// <summary>
@@ -64,9 +59,10 @@ namespace MedRecPro.DataAccess
         /// <exception cref="InvalidOperationException">Thrown if configuration is not set or the secret is missing.</exception>
         private string getPkSecret()
         {
+            #region Implementation
             if (_pkSecret == null)
             {
-                lock (_secretLock)
+                lock (_lock)
                 {
                     if (_pkSecret == null)
                     {
@@ -80,7 +76,8 @@ namespace MedRecPro.DataAccess
                     }
                 }
             }
-            return _pkSecret;
+            return _pkSecret; 
+            #endregion
         }
 
         /**************************************************************/
@@ -93,6 +90,7 @@ namespace MedRecPro.DataAccess
         /// <returns>True if decryption and parsing were successful and ID is positive; false otherwise.</returns>
         private bool tryDecryptId(string? encryptedId, string parameterName, out long decryptedId)
         {
+            #region Implementation
             decryptedId = 0;
             if (string.IsNullOrWhiteSpace(encryptedId))
             {
@@ -115,7 +113,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error decrypting {ParameterName}. Encrypted value: {EncryptedValue}", parameterName, encryptedId);
                 return false;
-            }
+            } 
+            #endregion
         }
 
         #endregion
@@ -134,6 +133,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         public async Task<User?> AuthenticateAsync(string email, string password)
         {
+            #region Implementation
             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
             {
                 _logger.LogWarning("AuthenticateAsync: Email or password was null or whitespace.");
@@ -213,7 +213,8 @@ namespace MedRecPro.DataAccess
                 }
                 _logger.LogWarning("AuthenticateAsync: Invalid password for user: {Email}", email);
                 return null; // Password mismatch
-            }
+            } 
+            #endregion
         }
         #endregion
 
@@ -231,6 +232,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         public async Task<string?> CreateAsync(User user, string? encryptedCreatorUserId)
         {
+            #region Implementation
             if (user == null) throw new ArgumentNullException(nameof(user));
             if (string.IsNullOrWhiteSpace(user.PrimaryEmail))
                 throw new ArgumentException("PrimaryEmail is required.", nameof(user.PrimaryEmail));
@@ -297,7 +299,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Unexpected error creating user {Email}.", user.PrimaryEmail);
                 throw;
-            }
+            } 
+            #endregion
         }
         #endregion
 
@@ -311,6 +314,7 @@ namespace MedRecPro.DataAccess
         /// <returns>User object if found and not deleted; null otherwise.</returns>
         public async Task<User?> GetByIdAsync(string? encryptedUserId)
         {
+            #region Implementation
             if (!tryDecryptId(encryptedUserId, nameof(encryptedUserId), out long userId))
             {
                 return null; // Logging handled by TryDecryptId
@@ -333,7 +337,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error fetching user by {e}).", ex.Message);
                 throw;
-            }
+            } 
+            #endregion
         }
 
         /**************************************************************/
@@ -344,6 +349,7 @@ namespace MedRecPro.DataAccess
         /// <returns>User object if found and not deleted; null otherwise.</returns>
         public async Task<User?> GetByEmailAsync(string email)
         {
+            #region Implementation
             if (string.IsNullOrWhiteSpace(email)) return null;
             var normalizedEmail = email.ToLowerInvariant();
 
@@ -364,7 +370,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error fetching user by email {Email}.", email);
                 throw;
-            }
+            } 
+            #endregion
         }
 
         /**************************************************************/
@@ -377,6 +384,7 @@ namespace MedRecPro.DataAccess
         /// <returns>A collection of User objects.</returns>
         public async Task<IEnumerable<User>> GetAllAsync(bool includeDeleted = false, int skip = 0, int take = 100)
         {
+            #region Implementation
             skip = Math.Max(0, skip);
             take = Math.Min(Math.Max(1, take), 1000);
 
@@ -405,7 +413,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error fetching all users.");
                 throw;
-            }
+            } 
+            #endregion
         }
         #endregion
 
@@ -419,6 +428,7 @@ namespace MedRecPro.DataAccess
         /// <returns>True if the user was found and updated; false otherwise.</returns>
         public async Task<bool> UpdateAsync(User user, string? encryptedUpdaterUserId)
         {
+            #region Implementation
             if (user == null) throw new ArgumentNullException(nameof(user));
 
             if (!tryDecryptId(encryptedUpdaterUserId ?? user.EncryptedUserId, $"{nameof(user)}.{nameof(user.EncryptedUserId)}", out long userIdToUpdate))
@@ -474,7 +484,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error updating user {UserIdToUpdate}.", encryptedUpdaterUserId);
                 throw;
-            }
+            } 
+            #endregion
         }
 
         /**************************************************************/
@@ -486,6 +497,7 @@ namespace MedRecPro.DataAccess
         /// <returns>True if the user was found and updated; false otherwise.</returns>
         public async Task<bool> UpdateProfileAsync(User profile, string? encryptedUpdaterUserId)
         {
+            #region Implementation
             if (profile == null) throw new ArgumentNullException(nameof(profile));
 
             if (!tryDecryptId(profile.EncryptedUserId, $"{nameof(profile)}.{nameof(profile.EncryptedUserId)}", out long userIdToUpdate))
@@ -613,7 +625,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error updating profile for user {e}.", ex.Message);
                 throw;
-            }
+            } 
+            #endregion
         }
 
         /**************************************************************/
@@ -625,6 +638,7 @@ namespace MedRecPro.DataAccess
         /// <returns>True if the user was found and updated; false otherwise.</returns>
         public async Task<bool> UpdateAdminAsync(AdminUserUpdateDto adminUpdateData, string? encryptedUpdaterAdminId)
         {
+            #region Implementation
             if (adminUpdateData == null) throw new ArgumentNullException(nameof(adminUpdateData));
 
             if (string.IsNullOrWhiteSpace(adminUpdateData.EncryptedUserId))
@@ -736,7 +750,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error performing admin update. {e}", ex.Message);
                 throw;
-            }
+            } 
+            #endregion
         }
 
         /**************************************************************/
@@ -749,6 +764,7 @@ namespace MedRecPro.DataAccess
         /// <returns>True if the user was found and password updated; false otherwise.</returns>
         public async Task<bool> RotatePasswordAsync(string? encryptedTargetUserId, string newPlainPassword, string? encryptedUpdaterUserId)
         {
+            #region Implementation
             if (string.IsNullOrWhiteSpace(newPlainPassword))
                 throw new ArgumentException("Password cannot be empty.", nameof(newPlainPassword));
 
@@ -807,7 +823,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error rotating password for target user {TargetUserId}.", encryptedTargetUserId);
                 throw;
-            }
+            } 
+            #endregion
         }
         #endregion
 
@@ -821,6 +838,7 @@ namespace MedRecPro.DataAccess
         /// <returns>True if the user was found and soft-deleted; false otherwise.</returns>
         public async Task<bool> DeleteAsync(string? encryptedTargetUserId, string? encryptedDeleterUserId)
         {
+            #region Implementation
             if (!tryDecryptId(encryptedTargetUserId, nameof(encryptedTargetUserId), out long targetUserId))
             {
                 return false;
@@ -862,7 +880,7 @@ namespace MedRecPro.DataAccess
                     user.UpdatedBy = deleterUserId;
 
                     await _dbContext.SaveChangesAsync();
-                    return true; 
+                    return true;
                 }
 
                 return false; // Unauthorized to delete user
@@ -871,7 +889,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error soft-deleting user {TargetUserId}.", encryptedTargetUserId);
                 throw;
-            }
+            } 
+            #endregion
         }
 
         /**************************************************************/
@@ -884,6 +903,7 @@ namespace MedRecPro.DataAccess
         /// <returns>True if the user was found and updated; false otherwise.</returns>
         public async Task<bool> UpdateLastLoginAsync(string? encryptedUserId, DateTime loginTime, string? ipAddress)
         {
+            #region Implementation
             if (!tryDecryptId(encryptedUserId, nameof(encryptedUserId), out long userId))
             {
                 return false;
@@ -919,7 +939,8 @@ namespace MedRecPro.DataAccess
             {
                 _logger.LogError(ex, "Error updating last login for user {UserId}.", encryptedUserId);
                 throw;
-            }
+            } 
+            #endregion
         }
 
         /**************************************************************/
@@ -930,6 +951,7 @@ namespace MedRecPro.DataAccess
         /// <returns>Encrypted ID of the new user if successful; "Duplicate" if email exists, or null on error.</returns>
         public async Task<string?> SignUpAsync(UserSignUpRequestDto request)
         {
+            #region Implementation
             if (request == null)
                 throw new ArgumentNullException(nameof(request));
             if (string.IsNullOrWhiteSpace(request.Email))
@@ -953,7 +975,8 @@ namespace MedRecPro.DataAccess
                 UserRole = "User"
             };
 
-            return await CreateAsync(user, encryptedCreatorUserId: null);
+            return await CreateAsync(user, encryptedCreatorUserId: null); 
+            #endregion
         }
         #endregion
     }

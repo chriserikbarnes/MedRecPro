@@ -544,12 +544,11 @@ namespace MedRecPro.Controllers
         {
             #region implementation
 
+            int timeOut;
+
             // Initialize to null, will be set if authentication is successful
             UserFacingDto? userDto
                 = null;
-
-            // Parse timeout from configuration, defaulting to 60 minutes if not set
-            int timeOut = 60;
 
             string? cookieName = _configuration["UserCookie"];
 
@@ -772,8 +771,10 @@ namespace MedRecPro.Controllers
                 return Unauthorized("Unable to acquire encrypted ID from authentication context.");
             }
 
+            bool isSelf = String.Equals(encryptedUserId.Decrypt(_pkSecret), encryptedIdFromClaim.Decrypt(_pkSecret), StringComparison.Ordinal);
+
             // Encrypted User ID values are never the same; comparing the decrypted values is necessary.
-            if (!String.Equals(encryptedUserId.Decrypt(_pkSecret), encryptedIdFromClaim.Decrypt(_pkSecret), StringComparison.OrdinalIgnoreCase))
+            if (!isSelf)
             {
                 return BadRequest("Encrypted User ID in path does not match Encrypted User ID in request body.");
             }
@@ -1081,32 +1082,36 @@ namespace MedRecPro.Controllers
             }
 
             // Encrypted User ID values are never the same; comparing the decrypted values is necessary.
-            //TODO: update logic
-            if (!String.Equals(rotatePasswordRequest.EncryptedTargetUserId.Decrypt(_pkSecret),
-                    encryptedUpdaterUserIdFromAuth.Decrypt(_pkSecret),
-                    StringComparison.OrdinalIgnoreCase)
-                || claimsUser.IsUserAdmin())
-            {
-                return Unauthorized("Encrypted User ID is not found user or is not an admin.");
-            }
+            bool isSelf = String.Equals(
+                rotatePasswordRequest.EncryptedTargetUserId.Decrypt(_pkSecret),
+                encryptedUpdaterUserIdFromAuth.Decrypt(_pkSecret),
+                StringComparison.Ordinal);
 
             try
             {
-                bool success = await _userDataAccess.RotatePasswordAsync(
-                    rotatePasswordRequest.EncryptedTargetUserId,
-                    rotatePasswordRequest.NewPlainPassword,
-                    encryptedUpdaterUserIdFromAuth);
-
-                if (!success)
+                // Authorization Check: user must be the target user or an Admin/UserAdmin
+                if (isSelf || claimsUser.IsUserAdmin())
                 {
-                    // UserDataAccess.RotatePasswordAsync logs details.
-                    var targetUserExists = await _userDataAccess.GetByIdAsync(rotatePasswordRequest.EncryptedTargetUserId);
-                    if (targetUserExists == null) return NotFound($"Target user with ID '{rotatePasswordRequest.EncryptedTargetUserId}' not found for password rotation.");
+                    bool success = await _userDataAccess.RotatePasswordAsync(
+                                rotatePasswordRequest.EncryptedTargetUserId,
+                                rotatePasswordRequest.NewPlainPassword,
+                                encryptedUpdaterUserIdFromAuth);
 
-                    return BadRequest("Failed to rotate password. The user may not exist or an error occurred.");
+                    if (!success)
+                    {
+                        // UserDataAccess.RotatePasswordAsync logs details.
+                        var targetUserExists = await _userDataAccess.GetByIdAsync(rotatePasswordRequest.EncryptedTargetUserId);
+                        if (targetUserExists == null) return NotFound($"Target user with ID '{rotatePasswordRequest.EncryptedTargetUserId}' not found for password rotation.");
+
+                        return BadRequest("Failed to rotate password. The user may not exist or an error occurred.");
+                    } 
+                }
+                else
+                {
+                    return Unauthorized("You are not authorized to rotate this user's password.");
                 }
 
-                return NoContent();
+                    return NoContent();
             }
             catch (ArgumentException ex)
             {
