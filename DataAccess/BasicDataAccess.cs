@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using MedRecPro.Helpers;
+using MedRecPro.Data;
 
 
 namespace MedRecPro.DataAccess
@@ -16,7 +17,7 @@ namespace MedRecPro.DataAccess
     /// <typeparam name="T">The type of the data model class (e.g., Document, Organization), which must be an EF Core entity.</typeparam>
     public class GenericRepository<T> where T : class
     {
-        private readonly DbContext _context;
+        private readonly ApplicationDbContext _context;
         private readonly DbSet<T> _dbSet;
         private readonly string _tableName; // Retained for informational purposes, EF Core handles mapping
         private readonly string _primaryKeyName;
@@ -33,13 +34,13 @@ namespace MedRecPro.DataAccess
         /// <summary>
         /// Initializes a new instance of the GenericRepository class.
         /// </summary>
-        /// <param name="context">The Entity Framework DbContext instance.</param>
+        /// <param name="context">The Entity Framework ApplicationDbContext instance.</param>
         /// <param name="configuration">Configuration settings for the application, used to retrieve encryption keys.</param>
         /// <param name="logger">Logger instance for logging operations and errors.</param>
         /// <param name="stringCipher">StringCipher instance for encrypting and decrypting sensitive data.</param>
         /// <exception cref="ArgumentNullException">Thrown if context is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the primary key property cannot be found on type T using expected conventions.</exception>
-        public GenericRepository(DbContext context,
+        public GenericRepository(ApplicationDbContext context,
             StringCipher stringCipher,
             ILogger<T> logger,
             IConfiguration configuration)

@@ -13,7 +13,6 @@ using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
 using System.Reflection;
 using MedRecPro.Service;
 
-
 string? connectionString, googleClientId, googleClientSecret;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,14 +41,20 @@ builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSet
 
 builder.Services.AddHttpContextAccessor();
 
+// --- Custom Services ---
+builder.Services.AddScoped<UserDataAccess>();
+
 builder.Services.AddUserLogger(); // custom service
 
 builder.Services.AddTransient<StringCipher>();
 
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 
+builder.Services.AddScoped(typeof(GenericRepository<>), typeof(GenericRepository<>));
+
 builder.Services.AddEndpointsApiExplorer();
 
+#region User and Authentication
 // --- ASP.NET Core Identity ---
 // This registers UserManager, SignInManager, RoleManager, IPasswordHasher,
 // and also calls services.AddAuthentication().AddIdentityCookies() internally,
@@ -125,8 +130,8 @@ builder.Services.AddAuthentication(options =>
         options.Scope.Add("profile");
         options.Scope.Add("email");
         options.SaveTokens = true;
-    });
-
+    }); 
+#endregion
 
 // Register our custom IPasswordHasher for MedRecPro.Models.User.
 // AddIdentity<User,...> already registers IPasswordHasher<User>.
@@ -137,8 +142,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
 
-// --- Custom Services ---
-builder.Services.AddScoped<UserDataAccess>();
+
 
 
 // --- Authorization ---
@@ -174,7 +178,7 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Title = "MedRecPro API",
         Description = $@"
-This API provides a REST interface for the OGD SQL Server {environment} environment ({serverName}).
+This API provides a REST interface for the SQL Server {environment} environment ({serverName}).
 It is designed to manage Structured Product Labeling (SPL) data based on the ICH7 SPL Implementation Guide (December 2023).
 
 ## General Information
@@ -185,34 +189,34 @@ It is designed to manage Structured Product Labeling (SPL) data based on the ICH
 
 ## API Endpoints
 
-### Documents (`/api/Documents`)
+### Labels (`/api/Labels`)
 
-This controller manages `Document` entities, providing CRUD operations based on SPL metadata.
+This controller manages `Label Section` entities, providing CRUD operations based on SPL metadata.
 
-* **`GET /api/Documents`**: Retrieves all Document records.
+* **`GET /api/Labels`**: Retrieves all Label Section records.
     * **Response:** `200 OK` - Returns a list of documents.
-* **`GET /api/Documents/id`**: Retrieves a specific Document record by its primary key (`DocumentID`).
-    * **Parameters:** `id` (integer, path) - The `DocumentID` of the document to retrieve.
+* **`GET /api/Labels/encryptedId`**: Retrieves a specific Label Section record by its primary key (`Object Identifier`).
+    * **Parameters:** `encryptedId` (integer, path) - The `Object Identifier` of the label to retrieve.
     * **Responses:**
-        * `200 OK` - Returns the requested document.
-        * `404 Not Found` - If the document with the specified ID is not found.
-* **`POST /api/Documents`**: Creates a new Document record.
-    * **Request Body:** A `Document` object (defined in `LabelClasses.cs`). `DocumentID` should be omitted or 0 as it is auto-generated.
+        * `200 OK` - Returns the requested label.
+        * `404 Not Found` - If the label with the specified ID is not found.
+* **`POST /api/Labels`**: Creates a new Label Section record.
+    * **Request Body:** A `Label Section` object (defined in `LabelClasses.cs`). `Object Identifier` should be omitted or 0 as it is auto-generated.
     * **Responses:**
-        * `201 Created` - Returns the newly created document, including its assigned `DocumentID`.
-        * `400 Bad Request` - If the input document data is invalid.
-* **`PUT /api/Documents/id`**: Updates an existing Document record.
-    * **Parameters:** `id` (integer, path) - The `DocumentID` of the document to update.
-    * **Request Body:** The updated `Document` object. The `DocumentID` in the body must match the `id` in the route.
+        * `201 Created` - Returns the newly created label, including its assigned `Object Identifier`.
+        * `400 Bad Request` - If the input label data is invalid.
+* **`PUT /api/Labels/encryptedId`**: Updates an existing Label Section record.
+    * **Parameters:** `encryptedId` (integer, path) - The `Object Identifier` of the label to update.
+    * **Request Body:** The updated `Label Section` object. The `Object Identifier` in the body must match the `encryptedId` in the route.
     * **Responses:**
         * `204 No Content` - If the update was successful.
         * `400 Bad Request` - If the ID in the route doesn't match the ID in the body, or if the data is invalid.
-        * `404 Not Found` - If the document with the specified ID is not found.
-* **`DELETE /api/Documents/id;`**: Deletes a Document record by its ID.
-    * **Parameters:** `id` (integer, path) - The `DocumentID` of the document to delete.
+        * `404 Not Found` - If the label with the specified ID is not found.
+* **`DELETE /api/Labels/encryptedId;`**: Deletes a Label Section record by its ID.
+    * **Parameters:** `encryptedId` (integer, path) - The `Object Identifier` of the label to delete.
     * **Responses:**
         * `204 No Content` - If the deletion was successful.
-        * `404 Not Found` - If the document with the specified ID is not found.
+        * `404 Not Found` - If the label with the specified ID is not found.
 
 *(Examples for each endpoint can be found in the XML comments within `LabelController.cs`)*.
 
@@ -284,5 +288,7 @@ app.UseAuthentication(); // Enables authentication capabilities
 app.UseAuthorization();  // Enables authorization capabilities
 
 app.MapControllers();
+
+Util.Initialize(httpContextAccessor: app.Services.GetRequiredService<IHttpContextAccessor>());
 
 app.Run();

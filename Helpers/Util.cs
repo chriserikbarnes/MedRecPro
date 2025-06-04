@@ -32,6 +32,8 @@ namespace MedRecPro.Helpers
         // pass it as a parameter.
         private static IHttpContextAccessor? _httpContextAccessor;
 
+        public static HttpContext? HttpContext => _httpContextAccessor?.HttpContext;
+
         // Initialize this once in your application startup:
         // Util.Initialize(httpContextAccessor);
         public static void Initialize(IHttpContextAccessor httpContextAccessor)
