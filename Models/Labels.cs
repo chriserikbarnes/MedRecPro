@@ -1,9 +1,39 @@
-﻿using System;
+﻿using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.SwaggerGen;
+using System;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Linq;
+using System.Reflection;
 
 namespace MedRecPro.DataModels
 {
+    /*******************************************************************************/
     /// <summary>
-    /// Container for all SPL Label metadata classes.
+    /// Adds nested types of the Label class to the Swagger documentation.
+    /// </summary>
+    public class IncludeLabelNestedTypesDocumentFilter : IDocumentFilter
+    {
+        public void Apply(OpenApiDocument swaggerDoc, DocumentFilterContext context)
+        {
+            var labelBaseType = typeof(Label);
+            var nestedTypes = labelBaseType.GetNestedTypes(BindingFlags.Public);
+
+            foreach (var type in nestedTypes)
+            {
+                // Check if the schema already exists by trying to resolve its reference
+                // If context.SchemaRepository.Schemas does not contain a key that would be generated for 'type',
+                string schemaId = context.SchemaGenerator.GenerateSchema(type, context.SchemaRepository).Reference.Id;
+            }
+
+            // Ensure the Label container class itself is there if needed
+            context.SchemaGenerator.GenerateSchema(labelBaseType, context.SchemaRepository);
+        }
+    }
+
+    /// <summary>
+    /// Container for all SPL Label metadata classes/sections. The nested classes are based on the
+    /// ICH7 SPL (Dec 2023) specification. https://www.fda.gov/media/84201/download?attachment. Most
+    /// labels won't contain every section.
     /// </summary>
     public class Label
     {
@@ -1961,7 +1991,8 @@ namespace MedRecPro.DataModels
             /// <summary>
             /// Primary key for the PharmacologicClassName table.
             /// </summary>
-            public int? PharmClassNameID { get; set; } // Made nullable
+            [Column("PharmClassNameID")]
+            public int? PharmacologicClassNameID { get; set; } // Made nullable
 
             /// <summary>
             /// Foreign key to PharmacologicClass.
@@ -1990,7 +2021,8 @@ namespace MedRecPro.DataModels
             /// <summary>
             /// Primary key for the PharmacologicClassLink table.
             /// </summary>
-            public int? PharmClassLinkID { get; set; } // Made nullable
+            [Column("PharmClassLinkID")]
+            public int? PharmacologicClassLinkID { get; set; } // Made nullable
 
             /// <summary>
             /// Foreign key to IdentifiedSubstance (where SubjectType='ActiveMoiety').
@@ -2014,7 +2046,8 @@ namespace MedRecPro.DataModels
             /// <summary>
             /// Primary key for the PharmacologicClassHierarchy table.
             /// </summary>
-            public int? PharmClassHierarchyID { get; set; } // Made nullable
+            [Column("PharmClassHierarchyID")]
+            public int? PharmacologicClassHierarchyID { get; set; } // Made nullable
 
             /// <summary>
             /// Foreign key to PharmacologicClass (The class being defined).

@@ -432,8 +432,11 @@ namespace MedRecPro.Helpers
                 return null;
             }
 
+            // IMPORTANT CORRECTION: Convert '+' from reflection's FullName to '.' for XML doc format
+            string xmlCompatibleElementFullName = elementFullName.Replace('+', '.');
+
             // Construct full member name for XML lookup, e.g., "T:Namespace.ClassName" or "P:Namespace.ClassName.PropertyName"
-            string fullXmlMemberName = $"{memberNamePrefix}:{elementFullName}";
+            string fullXmlMemberName = $"{memberNamePrefix}:{xmlCompatibleElementFullName}";
 
             try
             {
@@ -532,7 +535,7 @@ namespace MedRecPro.Helpers
             var classDoc = new ClassDocumentation
             {
                 Name = type.Name,
-                FullName = type.FullName, // FullName for nested types is like Namespace.Outer+Inner
+                FullName = type.FullName?.Replace('+', '.'), // FullName for nested types is like Namespace.Outer.Inner
                 Summary = getXmlSummary("T", type.FullName!, type.Assembly, logger)
             };
 
@@ -552,7 +555,7 @@ namespace MedRecPro.Helpers
                 // Create property documentation with all available information
                 classDoc.Properties.Add(new PropertyDocumentation
                 {
-                    Name = prop.Name,
+                    Name = prop.Name.Replace('+', '.'),
                     TypeName = prop.PropertyType.ToString(), // Gives full type name like System.String, System.Nullable`1[[System.Int32...]]
                     IsNullable = isPropertyNullable(prop),
                     Summary = getXmlSummary("P", propertyXmlFullName, type.Assembly, logger)

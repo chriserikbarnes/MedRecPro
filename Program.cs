@@ -12,6 +12,7 @@ using MedRecPro.Security; // Namespace for BasicAuthenticationHandler
 using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
 using System.Reflection;
 using MedRecPro.Service;
+using MedRecPro.DataModels;
 
 string? connectionString, googleClientId, googleClientSecret;
 
@@ -162,7 +163,7 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddControllers();
 
 #region Swagger Documentation
-builder.Services.AddSwaggerGen(options =>
+builder.Services.AddSwaggerGen(c =>
 {
 #if DEBUG || DEV
     var environment = "Dev";
@@ -173,13 +174,15 @@ builder.Services.AddSwaggerGen(options =>
     var serverName = "ProdHost";
 #endif
 
-    options.SwaggerDoc("v1", new OpenApiInfo
+    c.DocumentFilter<IncludeLabelNestedTypesDocumentFilter>();
+
+    c.SwaggerDoc("v1", new OpenApiInfo
     {
         Version = "v1",
         Title = "MedRecPro API",
         Description = $@"
 This API provides a REST interface for the SQL Server {environment} environment ({serverName}).
-It is designed to manage Structured Product Labeling (SPL) data based on the ICH7 SPL Implementation Guide (December 2023).
+It is designed to manage Structured Product Labeling (SPL) data based on the ICH7 SPL Implementation Guide (December 2023) https://www.fda.gov/media/84201/download?attachment.
 
 ## General Information
 
@@ -228,7 +231,7 @@ Retrieving data from cache is significantly faster than querying the database di
 When you need to ensure fresh data from the database, use the `/REST/API/Utility/ClearManagedCache` endpoint to clear the managed cache before making your request."
     });
 
-    options.AddSecurityDefinition("BasicAuthentication", new OpenApiSecurityScheme
+    c.AddSecurityDefinition("BasicAuthentication", new OpenApiSecurityScheme
     {
         Name = "Authorization",
         Type = SecuritySchemeType.Http,
@@ -237,7 +240,7 @@ When you need to ensure fresh data from the database, use the `/REST/API/Utility
         Description = "Basic Authorization header using the Basic scheme. Example: \"Authorization: Basic {base64(email:password)}\""
     });
 
-    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
             new OpenApiSecurityScheme
@@ -252,11 +255,31 @@ When you need to ensure fresh data from the database, use the `/REST/API/Utility
         }
     });
     // Set the comments path for the Swagger JSON and UI.
-    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
-    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-    if (File.Exists(xmlPath)) // Check if the file exists before trying to include it
+    var dataModelsXmlFile = $"{typeof(MedRecPro.DataModels.Label).Assembly.GetName().Name}.xml";
+    var dataModelsXmlPath = Path.Combine(AppContext.BaseDirectory, dataModelsXmlFile);
+    if (File.Exists(dataModelsXmlPath))
     {
-        options.IncludeXmlComments(xmlPath);
+        c.IncludeXmlComments(dataModelsXmlPath);
+
+        // Optional: To include comments from <inheritdoc/> tags
+        c.IncludeXmlComments(dataModelsXmlPath, includeControllerXmlComments: true);
+    }
+    else
+    {
+        // Log a warning if the XML file is missing, as summaries won't appear
+        Console.WriteLine($"Warning: XML documentation file not found for DataModels: {dataModelsXmlPath}");
+    }
+
+    var apiXmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var apiXmlPath = Path.Combine(AppContext.BaseDirectory, apiXmlFile);
+    if (File.Exists(apiXmlPath))
+    {
+        c.IncludeXmlComments(apiXmlPath);
+        c.IncludeXmlComments(apiXmlPath, includeControllerXmlComments: true);
+    }
+    else
+    {
+        Console.WriteLine($"Warning: XML documentation file not found for API: {apiXmlPath}");
     }
 });
 #endregion

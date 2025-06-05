@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore.Metadata;
+using System.Reflection;
+using System.Reflection.Emit;
 
 namespace MedRecPro.Data
 {
@@ -37,6 +39,27 @@ namespace MedRecPro.Data
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder); // This is crucial for Identity tables to be configured.
+
+            // Dynamically discover and register public nested
+            // classes MedRecPro.DataModels.Label as entities.
+            var labelContainerType = typeof(MedRecPro.DataModels.Label);
+
+            // Get public nested types that are classes
+            // and not abstract (suitable for entities)
+            var nestedLabelEntityTypes = labelContainerType?.GetNestedTypes(BindingFlags.Public)
+                ?.Where(t => t.IsClass && !t.IsAbstract);
+
+            // Register each nested entity type with the model builder.
+            if (nestedLabelEntityTypes != null)
+                foreach (var entityType in nestedLabelEntityTypes)
+                {
+                    var entityBuilder = builder.Entity(entityType);
+
+                    // SQL table names are singular (e.g., "Document" table for "Document" class),
+                    // explicitly set the table name to match the class name.
+                    // In some cases the primary keys are resolved with a [Column("fieldId")] attribute,
+                    entityBuilder.ToTable(entityType.Name);
+                }
 
             builder.Entity<User>(entity =>
             {
