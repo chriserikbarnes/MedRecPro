@@ -2,8 +2,11 @@ using Microsoft.AspNetCore.Mvc;
 using System.Reflection;
 
 using MedRecPro.DataModels; // From LabelClasses.cs
-using MedRecPro.DataAccess; // From LabelDataAccess.cs (GenericRepository)
+using MedRecPro.DataAccess; // From LabelDataAccess.cs (Repository)
 using MedRecPro.Helpers;   // From DtoTransformer.cs (DtoTransformer, StringCipher)
+using MedRecPro.Services;
+using MedRecPro.Models;
+using Newtonsoft.Json; // From SplImportService.cs (SplImportService)
 
 namespace MedRecPro.Api.Controllers
 {
@@ -53,6 +56,11 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         private readonly string _pkEncryptionSecret;
 
+        /// <summary>
+        /// Service for importing SPL data from ZIP files containing XML files.
+        /// </summary>
+        private readonly SplImportService _splImportService;
+
         #endregion
 
         /**************************************************************/
@@ -63,13 +71,15 @@ namespace MedRecPro.Api.Controllers
         /// <param name="configuration">Configuration provider for application settings</param>
         /// <param name="logger">Logger instance for this controller</param>
         /// <param name="stringCipher">String cipher utility for encryption operations</param>
+        /// <param name="splImportService">Service for importing zipped SPL files</param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null</exception>
         /// <exception cref="InvalidOperationException">Thrown when PKSecret configuration is missing</exception>
         public LabelController(
             IServiceProvider serviceProvider,
             IConfiguration configuration,
             ILogger<LabelController> logger,
-            StringCipher stringCipher)
+            StringCipher stringCipher,
+            SplImportService splImportService)
         {
             #region implementation
 
@@ -78,6 +88,7 @@ namespace MedRecPro.Api.Controllers
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
+            _splImportService = splImportService ?? throw new ArgumentNullException(nameof(splImportService));
 
             // Retrieve and validate the primary key encryption secret from configuration
             _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
@@ -86,6 +97,7 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
+        #region private methods
         /**************************************************************/
         /// <summary>
         /// Resolves the entity type based on the menu selection parameter using reflection.
@@ -115,10 +127,10 @@ namespace MedRecPro.Api.Controllers
         /// Creates and resolves a generic repository instance for the specified entity type.
         /// </summary>
         /// <param name="entityType">The entity type for which to create a repository</param>
-        /// <returns>An instance of GenericRepository&lt;T&gt; for the specified type</returns>
+        /// <returns>An instance of Repository&lt;T&gt; for the specified type</returns>
         /// <exception cref="InvalidOperationException">Thrown when repository cannot be resolved</exception>
         /// <remarks>
-        /// Uses the service provider to resolve a GenericRepository&lt;T&gt; instance.
+        /// Uses the service provider to resolve a Repository&lt;T&gt; instance.
         /// The repository and its dependencies must be properly registered in DI container.
         /// </remarks>
         private object getRepository(Type entityType)
@@ -126,7 +138,7 @@ namespace MedRecPro.Api.Controllers
             #region implementation
 
             // Create the generic repository type for the specific entity
-            var repoType = typeof(GenericRepository<>).MakeGenericType(entityType);
+            var repoType = typeof(Repository<>).MakeGenericType(entityType);
 
             // Attempt to resolve the repository from the service container
             var repo = _serviceProvider.GetService(repoType);
@@ -155,7 +167,7 @@ namespace MedRecPro.Api.Controllers
         /// 1. {EntityName}ID (e.g., DocumentID)
         /// 2. {EntityName}Id (e.g., DocumentId) 
         /// 3. Id (case-insensitive)
-        /// Does not use EF Core metadata unlike GenericRepository constructor.
+        /// Does not use EF Core metadata unlike Repository constructor.
         /// </remarks>
         private PropertyInfo? getPrimaryKeyProperty(Type entityType)
         {
@@ -180,7 +192,7 @@ namespace MedRecPro.Api.Controllers
 
             // Log warning if no primary key property could be identified
             // Note: This helper does not use EF Core metadata to find PKs if conventions fail,
-            // unlike the GenericRepository's constructor. 
+            // unlike the Repository's constructor. 
             if (pkProperty == null)
             {
                 _logger.LogWarning($"Could not find PK property for type {entityType.Name} using conventions ('{pkNameConvention1}', '{entityType.Name + "Id"}', 'Id').");
@@ -366,7 +378,8 @@ namespace MedRecPro.Api.Controllers
             return entity;
 
             #endregion
-        }
+        } 
+        #endregion
 
         /**************************************************************/
         /// <summary>
@@ -376,9 +389,11 @@ namespace MedRecPro.Api.Controllers
         /// <returns>A sorted list of section names.</returns>
         /// <response code="200">Returns the list of section names.</response>
         /// <response code="500">If an error occurs while generating the menu.</response>
-        /// <example>
+        /// <remarks>
         /// GET /api/Label/SectionMenu
+        ///   
         /// Response (200):
+        /// ```json
         /// [
         ///   "ActiveMoiety",
         ///   "Address",
@@ -386,8 +401,8 @@ namespace MedRecPro.Api.Controllers
         ///   "Organization",
         ///   ...
         /// ]
-        /// </example>
-        /// <remarks>
+        /// ```
+        /// 
         /// Uses DtoTransformer.ToEntityMenu to generate the list of available sections.
         /// Returns an empty list if an error occurs during menu generation.
         /// </remarks>
@@ -427,12 +442,14 @@ namespace MedRecPro.Api.Controllers
         /// <response code="200">Returns the class documentation.</response>
         /// <response code="400">If the menuSelection is invalid or not found.</response>
         /// <response code="500">If an internal server error occurs while retrieving documentation.</response>
-        /// <example>
+        /// <remarks>
         /// GET /api/Label/Document/Documentation
+        ///   
         /// Response (200):
+        /// ```json
         /// {
         ///   "name": "Document",
-        ///   "fullName": "MedRecPro.DataModels.Label+Document",
+        ///   "fullName": "MedRecPro.DataModels.Label.Document",
         ///   "summary": "Stores the main metadata for each SPL document version. Based on Section 2.1.3.",
         ///   "properties": [
         ///     {
@@ -445,18 +462,20 @@ namespace MedRecPro.Api.Controllers
         ///       "name": "DocumentGUID",
         ///       "typeName": "System.Nullable`1[[System.Guid, System.Private.CoreLib, Version=...]]",
         ///       "isNullable": true,
-        ///       "summary": "Globally Unique Identifier for this specific document version ($gt;id root$lt;)."
+        ///       "summary": "Globally Unique Identifier for this specific document version."
         ///     },
         ///     // ... other properties
         ///   ]
         /// }
-        /// </example>
+        /// ```
+        /// </remarks>
         [HttpGet("{menuSelection}/Documentation")]
         [ProducesResponseType(typeof(ClassDocumentation), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult<ClassDocumentation> GetSectionDocumentation(string menuSelection)
         {
+            #region implementation
             var entityType = getEntityType(menuSelection);
             if (entityType == null)
             {
@@ -483,7 +502,8 @@ namespace MedRecPro.Api.Controllers
             {
                 _logger.LogError(ex, "Error occurred while getting documentation for {MenuSelection}", menuSelection);
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while retrieving documentation for {menuSelection}.");
-            }
+            } 
+            #endregion
         }
 
         /**************************************************************/
@@ -496,9 +516,11 @@ namespace MedRecPro.Api.Controllers
         /// <response code="200">Returns the list of records.</response>
         /// <response code="400">If the menuSelection is invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
-        /// <example>
+        /// <remarks>
         /// GET /api/Label/Document
+        ///   
         /// Response (200):
+        /// ```json
         /// [
         ///   {
         ///     "EncryptedDocumentID": "some_encrypted_string_1",
@@ -511,8 +533,8 @@ namespace MedRecPro.Api.Controllers
         ///     // ...
         ///   }
         /// ]
-        /// </example>
-        /// <remarks>
+        /// ```
+        ///  
         /// Uses reflection to invoke ReadAllAsync on the appropriate repository.
         /// All numeric primary keys are replaced with encrypted equivalents for security.
         /// </remarks>
@@ -574,20 +596,23 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If the menuSelection is invalid.</response>
         /// <response code="404">If the record with the specified ID is not found in the section.</response>
         /// <response code="500">If an internal server error occurs.</response>
-        /// <example>
+        /// <remarks>
         /// GET /api/Label/Document/some_encrypted_string
+        ///   
         /// Response (200):
+        /// ```json
         /// {
         ///   "EncryptedDocumentID": "some_encrypted_string",
         ///   "DocumentGUID": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
         ///   "DocumentCode": "34391-9",
         ///   // ... other properties of Label.Document
         /// }
-        /// Response (404): Not Found
-        /// </example>
-        /// <remarks>
-        /// Uses the repository's ReadByIdAsync method which handles encrypted ID decryption internally.
-        /// The returned entity has its numeric primary key replaced with the encrypted equivalent.
+        /// ```
+        ///   
+        /// Response (404): Not Found Uses the repository's ReadByIdAsync 
+        /// method which handles encrypted ID decryption internally.
+        /// The returned entity has its numeric primary key replaced with 
+        /// the encrypted equivalent.
         /// </remarks>
         [HttpGet("{menuSelection}/{encryptedId}")]
         [ProducesResponseType(typeof(Dictionary<string, object?>), StatusCodes.Status200OK)]
@@ -645,27 +670,33 @@ namespace MedRecPro.Api.Controllers
         /// Creates a new record in the specified label section.
         /// </summary>
         /// <param name="menuSelection">The name of the label section (table) where the record will be created (e.g., "Document", "Organization").</param>
-        /// <param name="data">A dictionary representing the record to create. Primary key fields (e.g., "DocumentID") should be omitted or null as they are auto-generated.</param>
+        /// <param name="jsonData">A Json string representing the record to create. Primary key fields (e.g., "DocumentID") should be omitted or null as they are auto-generated.</param>
         /// <returns>The encrypted ID of the newly created record.</returns>
         /// <response code="201">Returns an object containing the encrypted ID of the new record and a Location header pointing to the new resource.</response>
         /// <response code="400">If menuSelection is invalid or input data is invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
-        /// <example>
+        /// <remarks>
         /// POST /api/Label/Document
+        ///   
         /// Request Body:
+        /// ```json
         /// {
-        ///   // "DocumentID": null, (Omit or set to null)
+        ///   "DocumentID": null, (Omit or set to null)
         ///   "DocumentGUID": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
         ///   "DocumentCode": "34391-9",
         ///   // ... other properties of Label.Document
         /// }
+        /// ```
+        ///   
         /// Response (201):
+        ///   
+        /// ```json
         /// {
         ///   "encryptedId": "newly_generated_encrypted_string"
         /// }
+        /// ```
         /// Header: Location: /api/Label/Document/newly_generated_encrypted_string
-        /// </example>
-        /// <remarks>
+        ///   
         /// Primary key fields should be omitted from the request body as they are auto-generated.
         /// The response includes a Location header pointing to the newly created resource.
         /// Uses reflection to invoke CreateAsync on the appropriate repository.
@@ -674,62 +705,172 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<object>> CreateAsync(string menuSelection, [FromBody] Dictionary<string, object?> data)
+        public async Task<ActionResult<object>> CreateAsync(string menuSelection, [FromBody] object? jsonData)
         {
             #region implementation
 
+            string? json;
+
             // Resolve the entity type from the menu selection
             var entityType = getEntityType(menuSelection);
+
             if (entityType == null)
             {
+                _logger.LogWarning("Invalid menu selection received for create: {MenuSelection}", menuSelection);
                 return BadRequest($"Invalid menu selection: {menuSelection}");
             }
 
-            // Validate input data and model state
-            if (data == null || !ModelState.IsValid) // ModelState might not be very effective for Dictionary
+            // Validate that jsonData is not null
+            if (jsonData == null)
             {
-                return BadRequest(ModelState.IsValid ? "Input data is null." : ModelState);
+                _logger.LogWarning("JSON data is null for menu selection: {MenuSelection}", menuSelection);
+                return BadRequest("Request body with JSON data is required.");
+            }
+
+            json = Convert.ToString(jsonData);
+
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                _logger.LogWarning("JSON data is null or whitespace for menu selection: {MenuSelection}", menuSelection);
+                return BadRequest("Request body with JSON data is required.");
+            }
+
+            // ModelState might not have much unless other model binders fail first.
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
             }
 
             try
             {
-                // Deserialize the dictionary data into an entity instance
-                object? entityInstance = deserializeFromDictionary(data, entityType);
-                if (entityInstance == null)
+                object? entityToCreate;
+
+                // Deserialize the JSON string to an object of the resolved entityType
+                try
                 {
-                    return BadRequest("Failed to deserialize input data.");
+                    var settings = new JsonSerializerSettings
+                    {
+                        // JSON has properties not in your C# class and you want to ignore them
+                        MissingMemberHandling = MissingMemberHandling.Ignore,
+
+                        // Ensures that when creating objects they are replaced if present in JSON,
+                        // rather than merged with default/constructed values.
+                        ObjectCreationHandling = ObjectCreationHandling.Replace
+                    };
+
+                    entityToCreate = JsonConvert.DeserializeObject(json, entityType, settings);
+
+                    if (entityToCreate == null)
+                    {
+                        // This can happen if the JSON string is "null" or cannot be deserialized to the target type.
+                        _logger.LogWarning("JSON deserialization resulted in a null object for {EntityType} with data: {JsonData}", entityType.Name, json);
+
+                        return BadRequest($"Invalid JSON data. Deserialization resulted in a null object for {menuSelection}.");
+                    }
+                }
+                catch (JsonException jsonEx) // Catches errors from Newtonsoft.Json
+                {
+                    _logger.LogWarning(jsonEx, "JSON deserialization failed for {EntityType} with data: {JsonData}", entityType.Name, json);
+
+                    return BadRequest($"Invalid JSON format for {menuSelection}. Details: {jsonEx.Message}");
                 }
 
                 // Get the appropriate repository for this entity type
                 var repository = getRepository(entityType);
 
+                if (repository == null)
+                {
+                    _logger.LogError("Could not retrieve repository for entity type {EntityType}", entityType.FullName);
+
+                    return StatusCode(StatusCodes.Status500InternalServerError, $"Internal configuration error for section {menuSelection}.");
+                }
+
                 // Use reflection to invoke CreateAsync method on the repository
                 var createMethod = repository.GetType().GetMethod("CreateAsync", new[] { entityType });
-                if (createMethod == null) throw new MissingMethodException($"CreateAsync not found on repository for {entityType.Name}");
+
+                if (createMethod == null)
+                {
+                    _logger.LogError("CreateAsync method not found on repository for {EntityType}", entityType.Name);
+
+                    // This is a server configuration issue, so throw to be caught by the generic error handlers below.
+                    throw new MissingMethodException($"CreateAsync not found on repository for {entityType.Name}");
+                }
 
                 // Execute the async creation and get the encrypted ID of the new record
-                var task = (Task<string?>)createMethod.Invoke(repository, new object[] { entityInstance })!;
+                var task = (Task<string?>)createMethod.Invoke(repository, new object[] { entityToCreate })!;
+
+                // Await the task to complete the creation operation
                 string? newEncryptedId = await task;
 
                 // Validate that we received an encrypted ID for the new record
                 if (string.IsNullOrWhiteSpace(newEncryptedId))
                 {
-                    _logger.LogError($"CreateAsync for {menuSelection} did not return an encrypted ID.");
+                    _logger.LogError("CreateAsync for {MenuSelection} (EntityType: {EntityType}) did not return an encrypted ID. Input JSON: {JsonData}", menuSelection, entityType.Name, json);
+
                     return StatusCode(StatusCodes.Status500InternalServerError, "Record created, but failed to retrieve its identifier.");
                 }
 
-                // Return Created response with Location header and encrypted ID
-                return CreatedAtAction(nameof(GetByIdAsync),
-                                       new { menuSelection = menuSelection, encryptedId = newEncryptedId },
-                                       new { encryptedId = newEncryptedId });
+                _logger.LogInformation("Successfully created record in section {MenuSelection} (EntityType: {EntityType}). New Encrypted ID: {NewEncryptedId}", menuSelection, entityType.Name, newEncryptedId);
+
+                // Return encrypted ID   
+                return newEncryptedId;
+            }
+            catch (MissingMethodException mmEx)
+            {
+                _logger.LogError(mmEx, "A required repository method was not found for entity type of section {MenuSelection}.", menuSelection);
+
+                return StatusCode(StatusCodes.Status500InternalServerError, $"Internal server configuration error for {menuSelection}.");
+            }
+            catch (TargetInvocationException tiEx) // Catch exceptions thrown by invoked
+            {
+                _logger.LogError(tiEx.InnerException ?? tiEx, "Error during repository operation for section {MenuSelection} with data: {JsonData}", menuSelection, json);
+
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while creating the record in section {menuSelection}. Details: {tiEx.InnerException?.Message ?? tiEx.Message}");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error creating record for section {menuSelection}.");
+                _logger.LogError(ex, "Error creating record for section {MenuSelection} with data: {JsonData}", menuSelection, json);
+
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}.");
             }
-
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Imports SPL data from one or more ZIP files.
+        /// Each ZIP file should contain SPL XML files.
+        /// </summary>
+        /// <param name="files">List of ZIP files to import.</param>
+        /// <returns>A summary of the import operation.</returns>
+        /// <response code="200">Import process completed. Check results for details.</response>
+        /// <response code="400">If no files are provided or files are invalid.</response>
+        /// <response code="500">If an unexpected error occurs during processing.</response>
+        [HttpPost("import")]
+        [ProducesResponseType(typeof(List<SplZipImportResult>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> UploadSplZips(List<IFormFile> files)
+        {
+            if (files == null || !files.Any())
+            {
+                return BadRequest("No files uploaded.");
+            }
+
+            _logger.LogInformation("Received {FileCount} files for SPL import.", files.Count);
+
+            try
+            {
+                var results = await _splImportService.ProcessZipFilesAsync(files);
+
+                return Ok(results);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled exception during SPL ZIP import.");
+
+                return StatusCode(StatusCodes.Status500InternalServerError, "An unexpected error occurred during import.");
+            }
         }
 
         /**************************************************************/
@@ -738,24 +879,27 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         /// <param name="menuSelection">The name of the label section (table) (e.g., "Document", "Organization").</param>
         /// <param name="encryptedId">The encrypted primary key ID of the record to update.</param>
-        /// <param name="data">A dictionary representing the updated record data. The primary key identified by `encryptedId` will be used; any PK in the body is ignored for identification but should match if present for data integrity.</param>
+        /// <param name="jsonData">Json representing the updated record data. The primary key identified by `encryptedId` will be used; any PK in the body is ignored for identification but should match if present for data integrity.</param>
         /// <returns>No content if successful.</returns>
         /// <response code="204">If the update was successful.</response>
         /// <response code="400">If menuSelection is invalid, ID is invalid, or input data is invalid.</response>
         /// <response code="404">If the record with the specified ID is not found in the section.</response>
         /// <response code="500">If an internal server error occurs.</response>
-        /// <example>
+        /// <remarks>
         /// PUT /api/Label/Document/some_encrypted_string
+        ///   
         /// Request Body:
+        /// ```json
         /// {
-        ///   // "DocumentID": (value matching decrypted 'some_encrypted_string', or can be omitted),
+        ///   "DocumentID": (value matching decrypted 'some_encrypted_string', or can be omitted),
         ///   "DocumentGUID": "updated_guid_value",
         ///   "Title": "Updated Title",
         ///   // ... other properties to update
         /// }
+        /// ```
+        ///   
         /// Response (204): No Content
-        /// </example>
-        /// <remarks>
+        ///   
         /// The primary key from the route parameter takes precedence over any PK in the request body.
         /// Validates that the record exists before attempting the update operation.
         /// Uses reflection to invoke repository methods for existence check and update.
@@ -765,83 +909,175 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateAsync(string menuSelection, string encryptedId, [FromBody] Dictionary<string, object?> data)
+        public async Task<IActionResult> UpdateAsync(string menuSelection, string encryptedId, [FromBody] object? jsonData)
         {
             #region implementation
+            string? json;
 
             // Resolve the entity type from the menu selection
             var entityType = getEntityType(menuSelection);
             if (entityType == null)
             {
+                _logger.LogWarning("Invalid menu selection received: {MenuSelection}", menuSelection);
                 return BadRequest($"Invalid menu selection: {menuSelection}");
             }
 
-            // Validate input parameters and model state
-            if (data == null || string.IsNullOrWhiteSpace(encryptedId) || !ModelState.IsValid)
+            // Validate input parameters
+            if (string.IsNullOrWhiteSpace(encryptedId))
             {
-                return BadRequest(ModelState.IsValid ? "Input data or ID is invalid." : ModelState);
+                _logger.LogWarning("Encrypted ID is null or whitespace for menu selection: {MenuSelection}", menuSelection);
+                return BadRequest("Encrypted ID is required.");
+            }
+
+            // Validate that jsonData is not null or empty
+            if(jsonData == null)
+            {
+                _logger.LogWarning("JSON data is null for menu selection: {MenuSelection}", menuSelection);
+                return BadRequest("Request body with JSON data is required.");
+            }
+
+            json = Convert.ToString(jsonData);
+
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                _logger.LogWarning("JSON data is null or whitespace for menu selection: {MenuSelection}", menuSelection);
+                return BadRequest("Request body with JSON data is required.");
+            }
+
+            if (!ModelState.IsValid) // Though with raw string, ModelState might not have much unless other model binders fail first.
+            {
+                return BadRequest(ModelState);
             }
 
             // Identify the primary key property for this entity type
             var pkProperty = getPrimaryKeyProperty(entityType);
             if (pkProperty == null)
             {
+                _logger.LogError("Could not determine primary key for section {MenuSelection} (EntityType: {EntityType}). Update cannot proceed.", menuSelection, entityType.FullName);
                 return BadRequest($"Could not determine primary key for section {menuSelection}. Update cannot proceed.");
             }
 
             // Decrypt the primary key from the route parameter
             if (!tryDecryptPk(encryptedId, pkProperty.PropertyType, out object? decryptedPkValue) || decryptedPkValue == null)
             {
+                _logger.LogWarning("Invalid encrypted ID format or value for section {MenuSelection}. EncryptedID: {EncryptedId}", menuSelection, encryptedId);
                 return BadRequest($"Invalid encrypted ID format or value for section {menuSelection}.");
             }
 
             try
             {
                 // First, check if the entity exists using the generic repository's ReadByIdAsync
-                // This ensures we are trying to update an existing record.
                 var repository = getRepository(entityType);
+
+                if (repository == null)
+                {
+                    _logger.LogError("Could not retrieve repository for entity type {EntityType}", entityType.FullName);
+
+                    return StatusCode(StatusCodes.Status500InternalServerError, $"Internal configuration error for section {menuSelection}.");
+                }
+
                 var readByIdMethod = repository.GetType().GetMethod("ReadByIdAsync", new[] { typeof(string) });
-                if (readByIdMethod == null) throw new MissingMethodException($"ReadByIdAsync not found on repository for {entityType.Name}");
+
+                if (readByIdMethod == null)
+                {
+                    _logger.LogError("ReadByIdAsync method not found on repository for {EntityType}", entityType.Name);
+
+                    throw new MissingMethodException($"ReadByIdAsync not found on repository for {entityType.Name}");
+                }
 
                 // Verify the record exists before attempting update
                 var checkTask = (Task)readByIdMethod.Invoke(repository, new object[] { encryptedId })!;
+
                 await checkTask;
+
                 var checkResultProp = checkTask.GetType().GetProperty("Result");
+                
                 if (checkResultProp?.GetValue(checkTask) == null)
                 {
+                    _logger.LogInformation("Record with ID {EncryptedId} not found in section {MenuSelection} for update.", encryptedId, menuSelection);
+
                     return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
                 }
 
-                // Deserialize, excluding the PK property from dictionary values initially
-                object? entityInstance = deserializeFromDictionary(data, entityType, pkProperty);
-                if (entityInstance == null)
+                // Get the actual entity that was loaded and is being tracked
+                object? entityToUpdate = checkResultProp?.GetValue(checkTask);
+
+                if (entityToUpdate == null)
                 {
-                    return BadRequest("Failed to deserialize input data for update.");
+                    _logger.LogInformation("Record with ID {EncryptedId} not found in section {MenuSelection} for update.", encryptedId, menuSelection);
+                    return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
+                }     
+
+                try
+                {
+                    var settings = new JsonSerializerSettings
+                    {
+                        // JSON has properties not in your C# class and you want to ignore them
+                        MissingMemberHandling = MissingMemberHandling.Ignore,
+
+                        // Ensure objects are replaced, not merged 
+                        ObjectCreationHandling = ObjectCreationHandling.Replace
+                    };
+
+                    JsonConvert.PopulateObject(json, entityToUpdate, settings);
+                }
+                catch (JsonException jsonEx) // Catches errors from Newtonsoft.Json
+                {
+                    _logger.LogWarning(jsonEx, "JSON deserialization failed for {EntityType} with data: {JsonData}", entityType.Name, jsonData);
+
+                    return BadRequest($"Invalid JSON format for {menuSelection}. Details: {jsonEx.Message}");
                 }
 
-                // Set the PK property on the instance with the decrypted value from the route
-                pkProperty.SetValue(entityInstance, Convert.ChangeType(decryptedPkValue, Nullable.GetUnderlyingType(pkProperty.PropertyType) ?? pkProperty.PropertyType));
+                // Set the PK property on the instance with the decrypted value from the route.
+                // This ensures the PK from the URL is authoritative.
+                var targetPkType = Nullable.GetUnderlyingType(pkProperty.PropertyType) ?? pkProperty.PropertyType;
+
+                var convertedPkValue = Convert.ChangeType(decryptedPkValue, targetPkType);
+
+                pkProperty.SetValue(entityToUpdate, convertedPkValue);
 
                 // Execute the update operation using reflection
                 var updateMethod = repository.GetType().GetMethod("UpdateAsync", new[] { entityType });
-                if (updateMethod == null) throw new MissingMethodException($"UpdateAsync not found on repository for {entityType.Name}");
 
-                var updateTask = (Task<int>)updateMethod.Invoke(repository, new object[] { entityInstance })!;
-                await updateTask;
+                if (updateMethod == null)
+                {
+                    _logger.LogError("UpdateAsync method not found on repository for {EntityType}", entityType.Name);
+                    throw new MissingMethodException($"UpdateAsync not found on repository for {entityType.Name}");
+                }
+
+                var updateTask = (Task<int>)updateMethod.Invoke(repository, new object[] { entityToUpdate })!;
+
+                var recordsAffected = await updateTask;
+
+                _logger.LogInformation("Successfully updated record {EncryptedId} in section {MenuSelection}. Records affected: {RecordsAffected}", encryptedId, menuSelection, recordsAffected);
 
                 return NoContent();
             }
-            catch (KeyNotFoundException) // Could be thrown by GenericRepo if FindAsync fails internally before update
+            catch (KeyNotFoundException knfEx) // This might be thrown by your repository or related logic
             {
+                _logger.LogWarning(knfEx, "Record with ID {EncryptedId} not found in section {MenuSelection} during update attempt (KeyNotFoundException).", encryptedId, menuSelection);
+
                 return NotFound($"Record with ID {encryptedId} not found in section {menuSelection} during update attempt.");
+            }
+            catch (TargetInvocationException tiEx) when (tiEx.InnerException is KeyNotFoundException) // For KNF thrown inside invoked method
+            {
+                _logger.LogWarning(tiEx.InnerException, "Record with ID {EncryptedId} not found in section {MenuSelection} during update attempt (KeyNotFoundException via TargetInvocationException).", encryptedId, menuSelection);
+
+                return NotFound($"Record with ID {encryptedId} not found in section {menuSelection} during update attempt.");
+            }
+            catch (MissingMethodException mmEx)
+            {
+                _logger.LogError(mmEx, "A required repository method was not found for entity type of section {MenuSelection}.", menuSelection);
+
+                return StatusCode(StatusCodes.Status500InternalServerError, $"Internal server configuration error for {menuSelection}.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error updating record {encryptedId} for section {menuSelection}.");
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}.");
-            }
+                _logger.LogError(ex, "Error updating record {EncryptedId} for section {MenuSelection}.", encryptedId, menuSelection);
 
-            #endregion
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your update request for {menuSelection}.");
+                #endregion
+            }
         }
 
         /**************************************************************/
@@ -855,14 +1091,14 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If the menuSelection is invalid.</response>
         /// <response code="404">If the record with the specified ID is not found in the section.</response>
         /// <response code="500">If an internal server error occurs.</response>
-        /// <example>
-        /// DELETE /api/Label/Document/some_encrypted_string
-        /// Response (204): No Content
-        /// Response (404): Not Found
-        /// </example>
         /// <remarks>
+        /// DELETE /api/Label/Document/some_encrypted_string
+        ///   
+        /// Response (204): No Content  
+        /// Response (404): Not Found
+        ///   
         /// Uses the repository's DeleteAsync method which handles encrypted ID decryption internally.
-        /// The GenericRepository throws KeyNotFoundException for non-existent records.
+        /// The Repository throws KeyNotFoundException for non-existent records.
         /// Handles different exception types to provide appropriate HTTP status codes.
         /// </remarks>
         [HttpDelete("{menuSelection}/{encryptedId}")]
@@ -900,10 +1136,10 @@ namespace MedRecPro.Api.Controllers
                 var task = (Task<int>)deleteMethod.Invoke(repository, new object[] { encryptedId })!;
                 var rowsAffected = await task;
 
-                // GenericRepository.DeleteAsync(string encryptedId) throws KeyNotFoundException if not found.
+                // Repository.DeleteAsync(string encryptedId) throws KeyNotFoundException if not found.
                 // So if we reach here, it was successful or an unhandled error occurred.
                 // If it returned 0 without exception (e.g., if FindAsync returned null and it didn't throw),
-                // then it would be a NotFound scenario. However, the current GenericRepository throws.
+                // then it would be a NotFound scenario. However, the current Repository throws.
                 if (rowsAffected == 0)
                 {
                     return NotFound($"record with id {encryptedId} not found in section {menuSelection} for deletion, or no rows affected.");
@@ -911,12 +1147,12 @@ namespace MedRecPro.Api.Controllers
 
                 return NoContent();
             }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("Failed to decrypt ID")) // From GenericRepository
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Failed to decrypt ID")) // From Repository
             {
                 _logger.LogWarning(ex, $"Decryption failed for ID {encryptedId} in section {menuSelection} during delete operation.");
                 return BadRequest($"Invalid encrypted ID format for section {menuSelection}.");
             }
-            catch (KeyNotFoundException ex) // From GenericRepository
+            catch (KeyNotFoundException ex) // From Repository
             {
                 _logger.LogWarning(ex, $"Record with ID {encryptedId} not found in section {menuSelection} for deletion.");
                 return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");

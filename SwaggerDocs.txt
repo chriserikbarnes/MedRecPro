@@ -4,7 +4,7 @@ It is designed to manage Structured Product Labeling (SPL) data based on the ICH
 
 ## General Information
 
-* **Data Access:** The API utilizes a generic repository pattern (`GenericRepository<T>`) implemented in `MedRecPro.DataAccess` for database operations. It assumes table names match class names and primary keys follow the `[ClassName]ID` naming convention. Dapper is used for object-relational mapping.
+* **Data Access:** The API utilizes a generic repository pattern (`Repository<T>`) implemented in `MedRecPro.DataAccess` for database operations. It assumes table names match class names and primary keys follow the `[ClassName]ID` naming convention. Dapper is used for object-relational mapping.
 * **Data Models:** Data structures corresponding to the database tables (e.g., `Document`, `Organization`) are defined in `MedRecPro.DataModels` (`LabelClasses.cs`).
 * **Database Schema:** The underlying database schema is defined in `MedRecPro-TableCreation.sql`.
 

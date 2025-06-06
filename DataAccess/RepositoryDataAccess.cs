@@ -15,7 +15,7 @@ namespace MedRecPro.DataAccess
     /// but primarily relies on EF Core's conventions and configurations for PK handling.
     /// </summary>
     /// <typeparam name="T">The type of the data model class (e.g., Document, Organization), which must be an EF Core entity.</typeparam>
-    public class GenericRepository<T> where T : class
+    public class Repository<T> where T : class
     {
         private readonly ApplicationDbContext _context;
         private readonly DbSet<T> _dbSet;
@@ -32,7 +32,7 @@ namespace MedRecPro.DataAccess
         private static readonly object _lock = new object();
 
         /// <summary>
-        /// Initializes a new instance of the GenericRepository class.
+        /// Initializes a new instance of the Repository class.
         /// </summary>
         /// <param name="context">The Entity Framework ApplicationDbContext instance.</param>
         /// <param name="configuration">Configuration settings for the application, used to retrieve encryption keys.</param>
@@ -40,7 +40,7 @@ namespace MedRecPro.DataAccess
         /// <param name="stringCipher">StringCipher instance for encrypting and decrypting sensitive data.</param>
         /// <exception cref="ArgumentNullException">Thrown if context is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the primary key property cannot be found on type T using expected conventions.</exception>
-        public GenericRepository(ApplicationDbContext context,
+        public Repository(ApplicationDbContext context,
             StringCipher stringCipher,
             ILogger<T> logger,
             IConfiguration configuration)

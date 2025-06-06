@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
 using System.Reflection;
 using MedRecPro.Service;
 using MedRecPro.DataModels;
+using MedRecPro.Services;
 
 string? connectionString, googleClientId, googleClientSecret;
 
@@ -47,11 +48,15 @@ builder.Services.AddScoped<UserDataAccess>();
 
 builder.Services.AddUserLogger(); // custom service
 
-builder.Services.AddTransient<StringCipher>();
-
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 
-builder.Services.AddScoped(typeof(GenericRepository<>), typeof(GenericRepository<>));
+builder.Services.AddScoped(typeof(Repository<>), typeof(Repository<>));
+
+builder.Services.AddScoped<SplXmlParser>(); 
+
+builder.Services.AddScoped<SplImportService>();
+
+builder.Services.AddTransient<StringCipher>();
 
 builder.Services.AddEndpointsApiExplorer();
 
@@ -186,11 +191,11 @@ It is designed to manage Structured Product Labeling (SPL) data based on the ICH
 
 ## General Information
 
-* **Data Access:** The API utilizes a generic repository pattern (`GenericRepository<T>`) implemented in `MedRecPro.DataAccess` for database operations. It assumes table names match class names and primary keys follow the `[ClassName]ID` naming convention. Dapper is used for object-relational mapping.
+* **Data Access:** The API utilizes a generic repository pattern (`Repository<T>`) implemented in `MedRecPro.DataAccess` for database operations. It assumes table names match class names and primary keys follow the `[ClassName]ID` naming convention. EntityFramework is used for object-relational mapping.
 * **Data Models:** Data structures corresponding to the database tables (e.g., `Document`, `Organization`) are defined in `MedRecPro.DataModels` (`LabelClasses.cs`).
 * **Database Schema:** The underlying database schema is defined in `MedRecPro-TableCreation.sql`.
 
-## API Endpoints
+## Label CRUD API Endpoints
 
 ### Labels (`/api/Labels`)
 

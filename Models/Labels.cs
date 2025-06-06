@@ -117,7 +117,7 @@ namespace MedRecPro.DataModels
             /// <summary>
             /// Flag indicating if the organization information is confidential (&lt;confidentialityCode code="B"&gt;).
             /// </summary>
-            public bool? IsConfidential { get; set; } // Made nullable (Default is 0 (false) in SQL)
+            public bool? IsConfidential { get; set; } = false;// Made nullable (Default is 0 (false) in SQL)
             #endregion properties
         }
 
@@ -1196,7 +1196,7 @@ namespace MedRecPro.DataModels
             /// <summary>
             /// Flag indicating if the inactive ingredient information is confidential (&lt;confidentialityCode code="B"&gt;).
             /// </summary>
-            public bool? IsConfidential { get; set; } // Made nullable (Default is 0 (false) in SQL)
+            public bool? IsConfidential { get; set; } = false; // Made nullable (Default is 0 (false) in SQL)
 
             /// <summary>
             /// Order of the ingredient as listed in the SPL file (important for cosmetics).
