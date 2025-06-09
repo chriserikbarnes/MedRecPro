@@ -14,6 +14,8 @@ using System.Reflection;
 using MedRecPro.Service;
 using MedRecPro.DataModels;
 using MedRecPro.Services;
+using Microsoft.Extensions.Options;
+using Swashbuckle.AspNetCore.SwaggerUI;
 
 string? connectionString, googleClientId, googleClientSecret;
 
@@ -299,6 +301,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "MedRecPro API V1");
+        c.ConfigObject.AdditionalItems["operationsSorter"] = "method";
+        c.ConfigObject.AdditionalItems["tagsSorter"] = "alpha";
         c.RoutePrefix = "swagger"; // Access Swagger UI at /swagger
     });
 }

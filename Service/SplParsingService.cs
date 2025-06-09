@@ -41,6 +41,7 @@ namespace MedRecPro.Services
             #endregion
         }
 
+        /**************************************************************/
         /// <summary>
         /// Parses SPL XML content and saves all extracted entities to the database.
         /// </summary>
@@ -60,7 +61,6 @@ namespace MedRecPro.Services
         /// </remarks>
         public async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent, string fileNameInZip)
         {
-            /**************************************************************/
             #region implementation
             var fileResult = new SplFileImportResult { FileName = fileNameInZip };
             XDocument xdoc;
@@ -224,6 +224,7 @@ namespace MedRecPro.Services
             #endregion
         }
 
+        /**************************************************************/
         /// <summary>
         /// Recursively parses and saves a section element and all its child sections.
         /// </summary>
@@ -237,8 +238,7 @@ namespace MedRecPro.Services
         /// Also processes any manufactured products found as subjects within the section.
         /// </remarks>
         private async Task parseAndSaveSectionAsync(XElement sectionEl, int? structuredBodyId, int? parentSectionId, IServiceProvider sp, SplFileImportResult fileResult)
-        {
-            /**************************************************************/
+        {            
             #region implementation
             var labelSection = parseSectionElement(sectionEl, structuredBodyId, parentSectionId);
 
@@ -291,6 +291,7 @@ namespace MedRecPro.Services
             #endregion
         }
 
+        /**************************************************************/
         /// <summary>
         /// Parses and saves a manufactured product element along with its ingredients.
         /// </summary>
@@ -303,8 +304,7 @@ namespace MedRecPro.Services
         /// or be the manufacturedProduct element itself. Processes all ingredient types.
         /// </remarks>
         private async Task parseAndSaveManufacturedProductAsync(XElement productEl, int? sectionId, IServiceProvider sp, SplFileImportResult fileResult)
-        {
-            /**************************************************************/
+        {           
             #region implementation
             var manufacturedMedicineEl = productEl.Element(ns + "manufacturedMedicine") ?? productEl.Element(ns + "manufacturedProduct"); // SPL variations
 
@@ -421,18 +421,20 @@ namespace MedRecPro.Services
                 var denominatorEl = quantityEl.Element(ns + "denominator");
 
                 if (numeratorEl != null && numeratorEl?.Attribute("value") != null)
-                    labelIngredient.QuantityNumerator = parseNullableDecimal(numeratorEl?.Attribute("value")?.Value);
+                    labelIngredient.QuantityNumerator = parseNullableDecimal(numeratorEl?.Attribute("value")?.Value!);
 
                 labelIngredient.QuantityNumeratorUnit = numeratorEl?.Attribute("unit")?.Value;
 
                 if (denominatorEl != null && denominatorEl?.Attribute("value") != null)
-                    labelIngredient.QuantityDenominator = parseNullableDecimal(denominatorEl?.Attribute("value")?.Value);
+                    labelIngredient.QuantityDenominator = parseNullableDecimal(denominatorEl?.Attribute("value")?.Value!);
 
                 labelIngredient.QuantityDenominatorUnit = denominatorEl?.Attribute("unit")?.Value;
             }
 
             var ingredientRepo = getRepository<Label.Ingredient>(sp);
+
             await ingredientRepo.CreateAsync(labelIngredient);
+
             _logger.LogInformation("Created Ingredient for SubstanceID {IngredientSubstanceID} linked to ProductID {ProductID}", labelIngredient.IngredientSubstanceID, productId);
 
             // Parse Active Moiety information
@@ -475,7 +477,7 @@ namespace MedRecPro.Services
             {
                 return new Label.Document
                 {
-                    DocumentGUID = parseNullableGuid(docElement.Element(ns + "id")?.Attribute("root")?.Value),
+                    DocumentGUID = parseNullableGuid(docElement.Element(ns + "id")?.Attribute("root")?.Value!),
 
                     DocumentCode = docElement.Element(ns + "code")?.Attribute("code")?.Value,
 
@@ -485,11 +487,11 @@ namespace MedRecPro.Services
 
                     Title = docElement.Element(ns + "title")?.Value.Trim(),
 
-                    EffectiveTime = parseNullableDateTime(docElement.Element(ns + "effectiveTime")?.Attribute("value")?.Value),
+                    EffectiveTime = parseNullableDateTime(docElement.Element(ns + "effectiveTime")?.Attribute("value")?.Value!),
 
-                    SetGUID = parseNullableGuid(docElement.Element(ns + "setId")?.Attribute("root")?.Value),
+                    SetGUID = parseNullableGuid(docElement.Element(ns + "setId")?.Attribute("root")?.Value!),
 
-                    VersionNumber = parseNullableInt(docElement.Element(ns + "versionNumber")?.Attribute("value")?.Value),
+                    VersionNumber = parseNullableInt(docElement.Element(ns + "versionNumber")?.Attribute("value")?.Value!),
                     // SubmissionFileName might not be in the XML itself, but rather the name of the file in the ZIP.
                 };
             }
@@ -538,26 +540,27 @@ namespace MedRecPro.Services
         /// <param name="parentSectionId">ID of parent section (for nested sections)</param>
         /// <returns>Label.Section entity or null if parsing fails</returns>
         private Label.Section? parseSectionElement(XElement sectionEl, int? structuredBodyId, int? parentSectionId)
-        {
-           
+        {        
             #region implementation
             try
             {
                 var section = new Label.Section
                 {
-                    StructuredBodyID = structuredBodyId, // Only for top-level sections
-                    // ParentSectionID would be set if this is a child, handled by SectionHierarchy
-                    SectionGUID = parseNullableGuid(sectionEl.Element(ns + "id")?.Attribute("root")?.Value),
+                    // Only for top-level sections. ParentSectionID would
+                    // be set if this is a child, handled by SectionHierarchy
+                    StructuredBodyID = structuredBodyId ?? null, 
+    
+                    SectionGUID = parseNullableGuid(sectionEl.Element(ns + "id")?.Attribute("root")?.Value!) ?? Guid.Empty,
 
-                    SectionCode = sectionEl.Element(ns + "code")?.Attribute("code")?.Value,
+                    SectionCode = sectionEl.Element(ns + "code")?.Attribute("code")?.Value ?? string.Empty,
 
-                    SectionCodeSystem = sectionEl.Element(ns + "code")?.Attribute("codeSystem")?.Value,
+                    SectionCodeSystem = sectionEl.Element(ns + "code")?.Attribute("codeSystem")?.Value ?? string.Empty,
 
-                    SectionDisplayName = sectionEl.Element(ns + "code")?.Attribute("displayName")?.Value,
+                    SectionDisplayName = sectionEl.Element(ns + "code")?.Attribute("displayName")?.Value ?? string.Empty,
 
-                    Title = sectionEl.Element(ns + "title")?.Value.Trim(),
+                    Title = sectionEl.Element(ns + "title")?.Value.Trim() ?? string.Empty,
 
-                    EffectiveTime = parseNullableDateTime(sectionEl.Element(ns + "effectiveTime")?.Attribute("value")?.Value)
+                    EffectiveTime = parseNullableDateTime(sectionEl.Element(ns + "effectiveTime")?.Attribute("value")?.Value!) ?? DateTime.MinValue
                 };
                 return section;
             }

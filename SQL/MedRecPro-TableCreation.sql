@@ -22,14 +22,14 @@ GO
 
 CREATE TABLE dbo.Document (
     DocumentID INT IDENTITY(1,1) PRIMARY KEY,
-    DocumentGUID UNIQUEIDENTIFIER NOT NULL, -- Corresponds to <id root> 
-    DocumentCode VARCHAR(50) NOT NULL,      -- Corresponds to <code> code 
-    DocumentCodeSystem VARCHAR(100) NOT NULL, -- Corresponds to <code> codeSystem 
-    DocumentDisplayName VARCHAR(255) NOT NULL, -- Corresponds to <code> displayName 
+    DocumentGUID UNIQUEIDENTIFIER NULL, -- Corresponds to <id root> 
+    DocumentCode VARCHAR(50) NULL,      -- Corresponds to <code> code 
+    DocumentCodeSystem VARCHAR(100) NULL, -- Corresponds to <code> codeSystem 
+    DocumentDisplayName VARCHAR(255) NULL, -- Corresponds to <code> displayName 
     Title NVARCHAR(MAX) NULL,                 -- Corresponds to <title> 
-    EffectiveTime DATETIME2(0) NOT NULL,      -- Corresponds to <effectiveTime value> 
-    SetGUID UNIQUEIDENTIFIER NOT NULL,        -- Corresponds to <setId root> 
-    VersionNumber INT NOT NULL,               -- Corresponds to <versionNumber value> 
+    EffectiveTime DATETIME2(0) NULL,      -- Corresponds to <effectiveTime value> 
+    SetGUID UNIQUEIDENTIFIER NULL,        -- Corresponds to <setId root> 
+    VersionNumber INT  NULL,               -- Corresponds to <versionNumber value> 
     SubmissionFileName VARCHAR(255) NULL      -- Added for tracking the source XML file name 
 );
 GO
@@ -139,13 +139,13 @@ GO
 
 CREATE TABLE dbo.Address (
     AddressID INT IDENTITY(1,1) PRIMARY KEY,
-    StreetAddressLine1 VARCHAR(500) NOT NULL, -- Corresponds to <streetAddressLine> 
+    StreetAddressLine1 VARCHAR(500) NULL, -- Corresponds to <streetAddressLine> 
     StreetAddressLine2 VARCHAR(500) NULL,    -- Corresponds to optional second <streetAddressLine> 
-    City VARCHAR(100) NOT NULL,              -- Corresponds to <city> 
+    City VARCHAR(100) NULL,              -- Corresponds to <city> 
     StateProvince VARCHAR(100) NULL,          -- Corresponds to <state>, required for USA 
     PostalCode VARCHAR(20) NULL,             -- Corresponds to <postalCode>, required for USA 
-    CountryCode CHAR(3) NOT NULL,            -- Corresponds to <country code> (ISO 3-letter) 
-    CountryName VARCHAR(100) NOT NULL        -- Corresponds to <country> name 
+    CountryCode CHAR(3) NULL,            -- Corresponds to <country code> (ISO 3-letter) 
+    CountryName VARCHAR(100) NULL        -- Corresponds to <country> name 
 );
 GO
 
@@ -201,8 +201,8 @@ GO
 
 CREATE TABLE dbo.Telecom (
     TelecomID INT IDENTITY(1,1) PRIMARY KEY,
-    TelecomType VARCHAR(10) NOT NULL, -- 'tel', 'mailto', 'fax' [cite: 86, 89]
-    TelecomValue VARCHAR(500) NOT NULL -- The actual phone number, email address, or fax number [cite: 86, 89]
+    TelecomType VARCHAR(10) NULL, -- 'tel', 'mailto', 'fax' [cite: 86, 89]
+    TelecomValue VARCHAR(500) NULL -- The actual phone number, email address, or fax number [cite: 86, 89]
 );
 GO
 
@@ -232,7 +232,7 @@ GO
 
 CREATE TABLE dbo.ContactPerson (
     ContactPersonID INT IDENTITY(1,1) PRIMARY KEY,
-    ContactPersonName VARCHAR(500) NOT NULL -- Corresponds to <contactPerson><name> 
+    ContactPersonName VARCHAR(500) NULL -- Corresponds to <contactPerson><name> 
 );
 GO
 
@@ -296,8 +296,8 @@ GO
 
 CREATE TABLE dbo.ContactPartyTelecom (
     ContactPartyTelecomID INT IDENTITY(1,1) PRIMARY KEY,
-    ContactPartyID INT NOT NULL, -- FK to ContactParty
-    TelecomID INT NOT NULL       -- FK to Telecom
+    ContactPartyID INT  NULL, -- FK to ContactParty
+    TelecomID INT  NULL       -- FK to Telecom
 );
 GO
 
@@ -317,8 +317,8 @@ GO
 
 CREATE TABLE dbo.OrganizationTelecom (
     OrganizationTelecomID INT IDENTITY(1,1) PRIMARY KEY,
-    OrganizationID INT NOT NULL, -- FK to Organization
-    TelecomID INT NOT NULL       -- FK to Telecom
+    OrganizationID INT  NULL, -- FK to Organization
+    TelecomID INT  NULL       -- FK to Telecom
 );
 GO
 
@@ -339,9 +339,9 @@ GO
 
 CREATE TABLE dbo.DocumentAuthor (
     DocumentAuthorID INT IDENTITY(1,1) PRIMARY KEY,
-    DocumentID INT NOT NULL,     -- FK to Document
-    OrganizationID INT NOT NULL, -- FK to Organization (the authoring org, e.g., Labeler )
-    AuthorType VARCHAR(50) NOT NULL DEFAULT 'Labeler' -- e.g., 'Labeler', 'FDA', 'NCPDP' [cite: 786, 946, 995]
+    DocumentID INT  NULL,     -- FK to Document
+    OrganizationID INT  NULL, -- FK to Organization (the authoring org, e.g., Labeler )
+    AuthorType VARCHAR(50) NULL DEFAULT 'Labeler' -- e.g., 'Labeler', 'FDA', 'NCPDP' [cite: 786, 946, 995]
 );
 GO
 
@@ -363,9 +363,9 @@ GO
 
 CREATE TABLE dbo.RelatedDocument (
     RelatedDocumentID INT IDENTITY(1,1) PRIMARY KEY,
-    SourceDocumentID INT NOT NULL,           -- FK to Document (The document containing the reference)
-    RelationshipTypeCode VARCHAR(10) NOT NULL, -- e.g., 'APND', 'RPLC', 'DRIV', 'XCRPT', 'SUBJ' [cite: 111, 122, 1032, 1299, 1333, 1365, 1557, 1601, 1609, 1645]
-    ReferencedSetGUID UNIQUEIDENTIFIER NOT NULL, -- Corresponds to <setId root> of the referenced document [cite: 112, 121, 1032, 1299, 1333, 1366, 1558, 1602, 1609, 1645]
+    SourceDocumentID INT  NULL,           -- FK to Document (The document containing the reference)
+    RelationshipTypeCode VARCHAR(10) NULL, -- e.g., 'APND', 'RPLC', 'DRIV', 'XCRPT', 'SUBJ' [cite: 111, 122, 1032, 1299, 1333, 1365, 1557, 1601, 1609, 1645]
+    ReferencedSetGUID UNIQUEIDENTIFIER NULL, -- Corresponds to <setId root> of the referenced document [cite: 112, 121, 1032, 1299, 1333, 1366, 1558, 1602, 1609, 1645]
     ReferencedDocumentGUID UNIQUEIDENTIFIER NULL, -- Corresponds to <id root> of the referenced document (used in RPLC) 
     ReferencedVersionNumber INT NULL,          -- Corresponds to <versionNumber value> of the referenced document [cite: 114, 121]
     ReferencedDocumentCode VARCHAR(50) NULL,   -- Corresponds to <code> code of the referenced document (used in RPLC) 
@@ -415,11 +415,11 @@ GO
 
 CREATE TABLE dbo.DocumentRelationship (
     DocumentRelationshipID INT IDENTITY(1,1) PRIMARY KEY,
-    DocumentID INT NOT NULL,         -- FK to Document
+    DocumentID INT  NULL,         -- FK to Document
     ParentOrganizationID INT NULL,   -- FK to Organization (e.g., Labeler)
-    ChildOrganizationID INT NOT NULL,    -- FK to Organization (e.g., Registrant or Establishment)
-    RelationshipType VARCHAR(50) NOT NULL, -- e.g., 'LabelerToRegistrant', 'RegistrantToEstablishment', 'EstablishmentToUSagent', 'EstablishmentToImporter', 'LabelerToDetails', 'FacilityToParentCompany', 'LabelerToParentCompany'
-    RelationshipLevel INT NOT NULL     -- Indicates the level in the hierarchy (e.g., 1 for Labeler, 2 for Registrant, 3 for Establishment)
+    ChildOrganizationID INT  NULL,    -- FK to Organization (e.g., Registrant or Establishment)
+    RelationshipType VARCHAR(50) NULL, -- e.g., 'LabelerToRegistrant', 'RegistrantToEstablishment', 'EstablishmentToUSagent', 'EstablishmentToImporter', 'LabelerToDetails', 'FacilityToParentCompany', 'LabelerToParentCompany'
+    RelationshipLevel INT  NULL     -- Indicates the level in the hierarchy (e.g., 1 for Labeler, 2 for Registrant, 3 for Establishment)
 );
 GO
 
@@ -450,7 +450,7 @@ GO
 
 CREATE TABLE dbo.StructuredBody (
     StructuredBodyID INT IDENTITY(1,1) PRIMARY KEY,
-    DocumentID INT NOT NULL -- FK to Document
+    DocumentID INT  NULL -- FK to Document
 );
 GO
 
@@ -470,13 +470,13 @@ GO
 
 CREATE TABLE dbo.Section (
     SectionID INT IDENTITY(1,1) PRIMARY KEY,
-    StructuredBodyID INT NOT NULL,            -- FK to StructuredBody (for top-level sections)
-    SectionGUID UNIQUEIDENTIFIER NOT NULL,    -- Corresponds to <id root>
-    SectionCode VARCHAR(50) NOT NULL,         -- Corresponds to <code> code (LOINC)
-    SectionCodeSystem VARCHAR(100) NOT NULL,  -- Corresponds to <code> codeSystem
-    SectionDisplayName VARCHAR(255) NOT NULL, -- Corresponds to <code> displayName
+    StructuredBodyID INT  NULL,            -- FK to StructuredBody (for top-level sections)
+    SectionGUID UNIQUEIDENTIFIER NULL,    -- Corresponds to <id root>
+    SectionCode VARCHAR(50) NULL,         -- Corresponds to <code> code (LOINC)
+    SectionCodeSystem VARCHAR(100) NULL,  -- Corresponds to <code> codeSystem
+    SectionDisplayName VARCHAR(255) NULL, -- Corresponds to <code> displayName
     Title NVARCHAR(MAX) NULL,                 -- Corresponds to <title>
-    EffectiveTime DATETIME2(0) NOT NULL       -- Corresponds to <effectiveTime value>
+    EffectiveTime DATETIME2(0) NULL       -- Corresponds to <effectiveTime value>
 );
 GO
 
@@ -526,9 +526,9 @@ GO
 
 CREATE TABLE dbo.SectionHierarchy (
     SectionHierarchyID INT IDENTITY(1,1) PRIMARY KEY,
-    ParentSectionID INT NOT NULL, -- FK to Section (The parent section)
-    ChildSectionID INT NOT NULL,  -- FK to Section (The child/nested section)
-    SequenceNumber INT NOT NULL   -- Order of the child section within the parent
+    ParentSectionID INT  NULL, -- FK to Section (The parent section)
+    ChildSectionID INT  NULL,  -- FK to Section (The child/nested section)
+    SequenceNumber INT  NULL   -- Order of the child section within the parent
 );
 GO
 
@@ -548,9 +548,9 @@ GO
 
 CREATE TABLE dbo.SectionTextContent (
     SectionTextContentID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,             -- FK to Section
-    ContentType VARCHAR(20) NOT NULL,   -- 'Paragraph', 'List', 'Table', 'BlockImage'
-    SequenceNumber INT NOT NULL,        -- Order of content block within the section <text>
+    SectionID INT  NULL,             -- FK to Section
+    ContentType VARCHAR(20) NULL,   -- 'Paragraph', 'List', 'Table', 'BlockImage'
+    SequenceNumber INT  NULL,        -- Order of content block within the section <text>
     ContentText NVARCHAR(MAX) NULL      -- Stores paragraph text directly. List/Table details in separate tables.
 );
 GO
@@ -587,8 +587,8 @@ GO
 
 CREATE TABLE dbo.TextList (
     TextListID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionTextContentID INT NOT NULL, -- FK to SectionTextContent (where ContentType='List')
-    ListType VARCHAR(20) NOT NULL,   -- 'ordered' or 'unordered'
+    SectionTextContentID INT  NULL, -- FK to SectionTextContent (where ContentType='List')
+    ListType VARCHAR(20) NULL,   -- 'ordered' or 'unordered'
     StyleCode VARCHAR(50) NULL     -- e.g., 'BigRoman', 'LittleAlpha', 'Disc', 'Circle', 'Square'
 );
 GO
@@ -619,10 +619,10 @@ GO
 
 CREATE TABLE dbo.TextListItem (
     TextListItemID INT IDENTITY(1,1) PRIMARY KEY,
-    TextListID INT NOT NULL,        -- FK to TextList
-    SequenceNumber INT NOT NULL,    -- Order of the item within the list
+    TextListID INT  NULL,        -- FK to TextList
+    SequenceNumber INT  NULL,    -- Order of the item within the list
     ItemCaption NVARCHAR(100) NULL, -- Optional custom marker from <caption> within <item>
-    ItemText NVARCHAR(MAX) NOT NULL -- Text content of the list item
+    ItemText NVARCHAR(MAX) NULL -- Text content of the list item
 );
 GO
 
@@ -652,7 +652,7 @@ GO
 
 CREATE TABLE dbo.TextTable (
     TextTableID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionTextContentID INT NOT NULL, -- FK to SectionTextContent (where ContentType='Table')
+    SectionTextContentID INT  NULL, -- FK to SectionTextContent (where ContentType='Table')
     Width VARCHAR(20) NULL,           -- Optional width attribute on <table>
     HasHeader BIT NOT NULL DEFAULT 0,   -- Flag indicating if <thead> exists
     HasFooter BIT NOT NULL DEFAULT 0    -- Flag indicating if <tfoot> exists
@@ -691,9 +691,9 @@ GO
 
 CREATE TABLE dbo.TextTableRow (
     TextTableRowID INT IDENTITY(1,1) PRIMARY KEY,
-    TextTableID INT NOT NULL,        -- FK to TextTable
-    RowGroupType VARCHAR(10) NOT NULL, -- 'Header', 'Body', 'Footer' (corresponding to thead, tbody, tfoot)
-    SequenceNumber INT NOT NULL,     -- Order of the row within its group (thead, tbody, tfoot)
+    TextTableID INT  NULL,        -- FK to TextTable
+    RowGroupType VARCHAR(10) NULL, -- 'Header', 'Body', 'Footer' (corresponding to thead, tbody, tfoot)
+    SequenceNumber INT  NULL,     -- Order of the row within its group (thead, tbody, tfoot)
     StyleCode VARCHAR(100) NULL      -- Optional styleCode attribute on <tr> (e.g., 'Botrule')
 );
 GO
@@ -719,10 +719,10 @@ GO
 
 CREATE TABLE dbo.TextTableCell (
     TextTableCellID INT IDENTITY(1,1) PRIMARY KEY,
-    TextTableRowID INT NOT NULL,        -- FK to TextTableRow
-    CellType VARCHAR(5) NOT NULL,     -- 'td' or 'th'
-    SequenceNumber INT NOT NULL,      -- Order of the cell within the row (column number)
-    CellText NVARCHAR(MAX) NOT NULL,  -- Text content of the cell
+    TextTableRowID INT  NULL,        -- FK to TextTableRow
+    CellType VARCHAR(5) NULL,     -- 'td' or 'th'
+    SequenceNumber INT  NULL,      -- Order of the cell within the row (column number)
+    CellText NVARCHAR(MAX) NULL,  -- Text content of the cell
     RowSpan INT NULL,                 -- Optional rowspan attribute
     ColSpan INT NULL,                 -- Optional colspan attribute
     StyleCode VARCHAR(100) NULL,      -- Optional styleCode attribute (e.g., 'Lrule', 'Rrule', 'Toprule', 'Botrule')
@@ -777,11 +777,11 @@ GO
 
 CREATE TABLE dbo.ObservationMedia (
     ObservationMediaID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,              -- FK to Section (where the observationMedia is defined)
-    MediaID VARCHAR(100) NOT NULL,       -- Corresponds to <observationMedia ID=> (used by renderMultimedia)
+    SectionID INT  NULL,              -- FK to Section (where the observationMedia is defined)
+    MediaID VARCHAR(100) NULL,       -- Corresponds to <observationMedia ID=> (used by renderMultimedia)
     DescriptionText NVARCHAR(MAX) NULL,  -- Corresponds to <text> child of observationMedia
-    MediaType VARCHAR(50) NOT NULL,      -- Corresponds to <value mediaType=> (e.g., 'image/jpeg')
-    FileName VARCHAR(255) NOT NULL       -- Corresponds to <reference value=>
+    MediaType VARCHAR(50) NULL,      -- Corresponds to <value mediaType=> (e.g., 'image/jpeg')
+    FileName VARCHAR(255) NULL       -- Corresponds to <reference value=>
 );
 GO
 -- Add Comments and Extended Properties for ObservationMedia table
@@ -820,9 +820,9 @@ GO
 
 CREATE TABLE dbo.RenderedMedia (
     RenderedMediaID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionTextContentID INT NOT NULL, -- FK to SectionTextContent (Paragraph or BlockImage)
-    ObservationMediaID INT NOT NULL,   -- FK to ObservationMedia (The image to render)
-    SequenceInContent INT NOT NULL,    -- Order if multiple images are in one content block
+    SectionTextContentID INT  NULL, -- FK to SectionTextContent (Paragraph or BlockImage)
+    ObservationMediaID INT  NULL,   -- FK to ObservationMedia (The image to render)
+    SequenceInContent INT  NULL,    -- Order if multiple images are in one content block
     IsInline BIT NOT NULL              -- True if <renderMultimedia> is child of <paragraph>, False if child of <text>
 );
 GO
@@ -853,8 +853,8 @@ GO
 
 CREATE TABLE dbo.SectionExcerptHighlight (
     SectionExcerptHighlightID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,         -- FK to Section (The section containing the excerpt/highlight)
-    HighlightText NVARCHAR(MAX) NOT NULL -- Corresponds to the text within <excerpt><highlight><text>
+    SectionID INT  NULL,         -- FK to Section (The section containing the excerpt/highlight)
+    HighlightText NVARCHAR(MAX) NULL -- Corresponds to the text within <excerpt><highlight><text>
 );
 GO
 
@@ -936,10 +936,10 @@ GO
 
 CREATE TABLE dbo.ProductIdentifier (
     ProductIdentifierID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,            -- FK to Product
-    IdentifierValue VARCHAR(100) NOT NULL, -- The actual code value (<code code=>)
-    IdentifierSystemOID VARCHAR(100) NOT NULL, -- OID for the code system (<code codeSystem=>)
-    IdentifierType VARCHAR(50) NOT NULL  -- e.g., 'NDCProduct', 'NHRICProduct', 'GS1', 'HIBCC', 'ISBTProduct', 'CosmeticListingNumber'
+    ProductID INT  NULL,            -- FK to Product
+    IdentifierValue VARCHAR(100) NULL, -- The actual code value (<code code=>)
+    IdentifierSystemOID VARCHAR(100) NULL, -- OID for the code system (<code codeSystem=>)
+    IdentifierType VARCHAR(50) NULL  -- e.g., 'NDCProduct', 'NHRICProduct', 'GS1', 'HIBCC', 'ISBTProduct', 'CosmeticListingNumber'
 );
 GO
 
@@ -974,8 +974,8 @@ GO
 
 CREATE TABLE dbo.GenericMedicine (
     GenericMedicineID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,                -- FK to Product
-    GenericName NVARCHAR(512) NOT NULL,    -- Corresponds to <genericMedicine><name>
+    ProductID INT  NULL,                -- FK to Product
+    GenericName NVARCHAR(512) NULL,    -- Corresponds to <genericMedicine><name>
     PhoneticName NVARCHAR(512) NULL        -- Corresponds to <genericMedicine><name use="PHON">
 );
 GO
@@ -1007,10 +1007,10 @@ GO
 
 CREATE TABLE dbo.SpecializedKind (
     SpecializedKindID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,             -- FK to Product
-    KindCode VARCHAR(50) NOT NULL,      -- Corresponds to <generalizedMaterialKind><code> code
-    KindCodeSystem VARCHAR(100) NOT NULL, -- Corresponds to <generalizedMaterialKind><code> codeSystem
-    KindDisplayName VARCHAR(255) NOT NULL -- Corresponds to <generalizedMaterialKind><code> displayName
+    ProductID INT  NULL,             -- FK to Product
+    KindCode VARCHAR(50) NULL,      -- Corresponds to <generalizedMaterialKind><code> code
+    KindCodeSystem VARCHAR(100) NULL, -- Corresponds to <generalizedMaterialKind><code> codeSystem
+    KindDisplayName VARCHAR(255) NULL -- Corresponds to <generalizedMaterialKind><code> displayName
 );
 GO
 
@@ -1045,11 +1045,11 @@ GO
 
 CREATE TABLE dbo.EquivalentEntity (
     EquivalentEntityID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,                     -- FK to Product (The product being described)
-    EquivalenceCode VARCHAR(50) NOT NULL,       -- Code indicating type of equivalence (e.g., 'C64637' for Same)
-    EquivalenceCodeSystem VARCHAR(100) NOT NULL,-- Code system for EquivalenceCode
-    DefiningMaterialKindCode VARCHAR(100) NOT NULL, -- Item code of the equivalent product (<definingMaterialKind><code> code)
-    DefiningMaterialKindSystem VARCHAR(100) NOT NULL -- Code system of the equivalent product code
+    ProductID INT  NULL,                     -- FK to Product (The product being described)
+    EquivalenceCode VARCHAR(50) NULL,       -- Code indicating type of equivalence (e.g., 'C64637' for Same)
+    EquivalenceCodeSystem VARCHAR(100) NULL,-- Code system for EquivalenceCode
+    DefiningMaterialKindCode VARCHAR(100) NULL, -- Item code of the equivalent product (<definingMaterialKind><code> code)
+    DefiningMaterialKindSystem VARCHAR(100) NULL -- Code system of the equivalent product code
 );
 GO
 
@@ -1085,12 +1085,12 @@ GO
 
 CREATE TABLE dbo.AdditionalIdentifier (
     AdditionalIdentifierID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,                 -- FK to Product
-    IdentifierTypeCode VARCHAR(50) NOT NULL,   -- Code for the type of identifier (e.g., 'C99286' for Model Number)
-    IdentifierTypeCodeSystem VARCHAR(100) NOT NULL, -- Code system for IdentifierTypeCode
-    IdentifierTypeDisplayName VARCHAR(255) NOT NULL, -- Display name for IdentifierTypeCode
-    IdentifierValue VARCHAR(255) NOT NULL,   -- The actual identifier string (<id extension>)
-    IdentifierRootOID VARCHAR(100) NOT NULL    -- The root OID for the identifier (<id root>)
+    ProductID INT  NULL,                 -- FK to Product
+    IdentifierTypeCode VARCHAR(50) NULL,   -- Code for the type of identifier (e.g., 'C99286' for Model Number)
+    IdentifierTypeCodeSystem VARCHAR(100) NULL, -- Code system for IdentifierTypeCode
+    IdentifierTypeDisplayName VARCHAR(255) NULL, -- Display name for IdentifierTypeCode
+    IdentifierValue VARCHAR(255) NULL,   -- The actual identifier string (<id extension>)
+    IdentifierRootOID VARCHAR(100) NULL    -- The root OID for the identifier (<id root>)
 );
 GO
 
@@ -1126,7 +1126,7 @@ GO
 CREATE TABLE dbo.IngredientSubstance (
     IngredientSubstanceID INT IDENTITY(1,1) PRIMARY KEY,
     UNII CHAR(10) NULL,                -- Unique Ingredient Identifier (<code code> where system is UNII)
-    SubstanceName NVARCHAR(1000) NOT NULL -- Name of the substance (<name>)
+    SubstanceName NVARCHAR(1000) NULL -- Name of the substance (<name>)
 );
 GO
 
@@ -1156,9 +1156,9 @@ GO
 
 CREATE TABLE dbo.ActiveMoiety (
     ActiveMoietyID INT IDENTITY(1,1) PRIMARY KEY,
-    IngredientSubstanceID INT NOT NULL, -- FK to IngredientSubstance (The parent substance)
-    MoietyUNII CHAR(10) NOT NULL,       -- UNII code of the active moiety (<activeMoiety><code> code)
-    MoietyName NVARCHAR(1000) NOT NULL  -- Name of the active moiety (<activeMoiety><name>)
+    IngredientSubstanceID INT  NULL, -- FK to IngredientSubstance (The parent substance)
+    MoietyUNII CHAR(10) NULL,       -- UNII code of the active moiety (<activeMoiety><code> code)
+    MoietyName NVARCHAR(1000) NULL  -- Name of the active moiety (<activeMoiety><name>)
 );
 GO
 
@@ -1188,9 +1188,9 @@ GO
 
 CREATE TABLE dbo.ReferenceSubstance (
     ReferenceSubstanceID INT IDENTITY(1,1) PRIMARY KEY,
-    IngredientSubstanceID INT NOT NULL,     -- FK to IngredientSubstance (The parent substance)
-    RefSubstanceUNII CHAR(10) NOT NULL,     -- UNII code of the reference substance (<definingSubstance><code> code)
-    RefSubstanceName NVARCHAR(1000) NOT NULL -- Name of the reference substance (<definingSubstance><name>)
+    IngredientSubstanceID INT  NULL,     -- FK to IngredientSubstance (The parent substance)
+    RefSubstanceUNII CHAR(10) NULL,     -- UNII code of the reference substance (<definingSubstance><code> code)
+    RefSubstanceName NVARCHAR(1000) NULL -- Name of the reference substance (<definingSubstance><name>)
 );
 GO
 
@@ -1220,16 +1220,16 @@ GO
 
 CREATE TABLE dbo.Ingredient (
     IngredientID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,                  -- FK to Product or Product representing a Part
-    IngredientSubstanceID INT NOT NULL,      -- FK to IngredientSubstance
-    ClassCode VARCHAR(10) NOT NULL,          -- e.g., 'ACTIB', 'ACTIM', 'ACTIR', 'IACT', 'INGR', 'COLR', 'CNTM', 'ADJV'
+    ProductID INT  NULL,                  -- FK to Product or Product representing a Part
+    IngredientSubstanceID INT  NULL,      -- FK to IngredientSubstance
+    ClassCode VARCHAR(10) NULL,          -- e.g., 'ACTIB', 'ACTIM', 'ACTIR', 'IACT', 'INGR', 'COLR', 'CNTM', 'ADJV'
     QuantityNumerator DECIMAL(18, 9) NULL,   -- Corresponds to <quantity><numerator value>
     QuantityNumeratorUnit VARCHAR(50) NULL,  -- Corresponds to <quantity><numerator unit>
     QuantityDenominator DECIMAL(18, 9) NULL, -- Corresponds to <quantity><denominator value>
     QuantityDenominatorUnit VARCHAR(50) NULL,-- Corresponds to <quantity><denominator unit>
     ReferenceSubstanceID INT NULL,           -- FK to ReferenceSubstance (if BasisOfStrength='ReferenceIngredient')
     IsConfidential BIT NOT NULL DEFAULT 0,   -- Flag for inactive ingredients <confidentialityCode>
-    SequenceNumber INT NOT NULL              -- Order of ingredient within the product/part
+    SequenceNumber INT  NULL              -- Order of ingredient within the product/part
 );
 GO
 -- Add Comments and Extended Properties for Ingredient table
@@ -1273,9 +1273,9 @@ GO
 
 CREATE TABLE dbo.IngredientSourceProduct (
     IngredientSourceProductID INT IDENTITY(1,1) PRIMARY KEY,
-    IngredientID INT NOT NULL,              -- FK to Ingredient
-    SourceProductNDC VARCHAR(20) NOT NULL,  -- Source NDC Product Code (<substanceSpecification><code> code)
-    SourceProductNDCSysten VARCHAR(100) NOT NULL DEFAULT '2.16.840.1.113883.6.69' -- Code system for Source NDC
+    IngredientID INT  NULL,              -- FK to Ingredient
+    SourceProductNDC VARCHAR(20) NULL,  -- Source NDC Product Code (<substanceSpecification><code> code)
+    SourceProductNDCSysten VARCHAR(100) NULL DEFAULT '2.16.840.1.113883.6.69' -- Code system for Source NDC
 );
 GO
 
@@ -1313,11 +1313,11 @@ CREATE TABLE dbo.PackagingLevel (
     PackagingLevelID INT IDENTITY(1,1) PRIMARY KEY,
     ProductID INT NULL,                       -- FK to Product (if this is the innermost package level for a base product)
     PartProductID INT NULL,                   -- FK to Product (if this is packaging for a Part)
-    QuantityNumerator DECIMAL(18, 9) NOT NULL,-- Corresponds to <quantity><numerator value> (amount of product/inner package)
-    QuantityNumeratorUnit VARCHAR(50) NOT NULL,-- Corresponds to <quantity><numerator unit>
-    PackageFormCode VARCHAR(50) NOT NULL,     -- Corresponds to <containerPackagedProduct><formCode code>
-    PackageFormCodeSystem VARCHAR(100) NOT NULL, -- Corresponds to <containerPackagedProduct><formCode codeSystem>
-    PackageFormDisplayName VARCHAR(255) NOT NULL -- Corresponds to <containerPackagedProduct><formCode displayName>
+    QuantityNumerator DECIMAL(18, 9) NULL,-- Corresponds to <quantity><numerator value> (amount of product/inner package)
+    QuantityNumeratorUnit VARCHAR(50) NULL,-- Corresponds to <quantity><numerator unit>
+    PackageFormCode VARCHAR(50) NULL,     -- Corresponds to <containerPackagedProduct><formCode code>
+    PackageFormCodeSystem VARCHAR(100) NULL, -- Corresponds to <containerPackagedProduct><formCode codeSystem>
+    PackageFormDisplayName VARCHAR(255) NULL -- Corresponds to <containerPackagedProduct><formCode displayName>
     -- Link to outer package via PackagingHierarchy table
 );
 GO
@@ -1358,10 +1358,10 @@ GO
 
 CREATE TABLE dbo.PackageIdentifier (
     PackageIdentifierID INT IDENTITY(1,1) PRIMARY KEY,
-    PackagingLevelID INT NOT NULL,         -- FK to PackagingLevel
-    IdentifierValue VARCHAR(100) NOT NULL, -- The actual code value (<code code=>)
-    IdentifierSystemOID VARCHAR(100) NOT NULL, -- OID for the code system (<code codeSystem=>)
-    IdentifierType VARCHAR(50) NOT NULL  -- e.g., 'NDCPackage', 'NHRICPackage', 'GS1Package', 'HIBCCPackage', 'ISBTPackage'
+    PackagingLevelID INT  NULL,         -- FK to PackagingLevel
+    IdentifierValue VARCHAR(100) NULL, -- The actual code value (<code code=>)
+    IdentifierSystemOID VARCHAR(100) NULL, -- OID for the code system (<code codeSystem=>)
+    IdentifierType VARCHAR(50) NULL  -- e.g., 'NDCPackage', 'NHRICPackage', 'GS1Package', 'HIBCCPackage', 'ISBTPackage'
 );
 GO
 
@@ -1391,9 +1391,9 @@ GO
 
 CREATE TABLE dbo.PackagingHierarchy (
     PackagingHierarchyID INT IDENTITY(1,1) PRIMARY KEY,
-    OuterPackagingLevelID INT NOT NULL, -- FK to PackagingLevel (The containing package)
-    InnerPackagingLevelID INT NOT NULL, -- FK to PackagingLevel (The contained package)
-    SequenceNumber INT NOT NULL       -- Order of inner package within outer package (if multiple identical inner packages)
+    OuterPackagingLevelID INT  NULL, -- FK to PackagingLevel (The containing package)
+    InnerPackagingLevelID INT  NULL, -- FK to PackagingLevel (The contained package)
+    SequenceNumber INT  NULL       -- Order of inner package within outer package (if multiple identical inner packages)
 );
 GO
 
@@ -1413,10 +1413,10 @@ GO
 
 CREATE TABLE dbo.MarketingCategory (
     MarketingCategoryID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,                 -- FK to Product (or Product representing a Part)
-    CategoryCode VARCHAR(50) NOT NULL,      -- Marketing Category code (<approval><code> code)
-    CategoryCodeSystem VARCHAR(100) NOT NULL, -- Marketing Category code system (<approval><code> codeSystem)
-    CategoryDisplayName VARCHAR(255) NOT NULL, -- Marketing Category display name (<approval><code> displayName)
+    ProductID INT  NULL,                 -- FK to Product (or Product representing a Part)
+    CategoryCode VARCHAR(50) NULL,      -- Marketing Category code (<approval><code> code)
+    CategoryCodeSystem VARCHAR(100) NULL, -- Marketing Category code system (<approval><code> codeSystem)
+    CategoryDisplayName VARCHAR(255) NULL, -- Marketing Category display name (<approval><code> displayName)
     ApplicationOrMonographIDValue VARCHAR(100) NULL, -- Application number or Monograph ID (<approval><id extension>)
     ApplicationOrMonographIDOID VARCHAR(100) NULL,   -- OID for App#/Monograph system (<approval><id root>)
     ApprovalDate DATE NULL,                 -- Approval date (<approval><effectiveTime><low value>)
@@ -1467,9 +1467,9 @@ CREATE TABLE dbo.MarketingStatus (
     MarketingStatusID INT IDENTITY(1,1) PRIMARY KEY,
     ProductID INT NULL,                    -- FK to Product (if status applies to product)
     PackagingLevelID INT NULL,             -- FK to PackagingLevel (if status applies to a package)
-    MarketingActCode VARCHAR(50) NOT NULL,   -- Code for marketing activity (<marketingAct><code> code)
-    MarketingActCodeSystem VARCHAR(100) NOT NULL, -- Code system for MarketingActCode
-    StatusCode VARCHAR(20) NOT NULL,       -- e.g., 'active', 'completed', 'new', 'cancelled' (<statusCode code>)
+    MarketingActCode VARCHAR(50) NULL,   -- Code for marketing activity (<marketingAct><code> code)
+    MarketingActCodeSystem VARCHAR(100) NULL, -- Code system for MarketingActCode
+    StatusCode VARCHAR(20) NULL,       -- e.g., 'active', 'completed', 'new', 'cancelled' (<statusCode code>)
     EffectiveStartDate DATE NULL,          -- Marketing start date (<effectiveTime><low value>)
     EffectiveEndDate DATE NULL             -- Marketing end date (<effectiveTime><high value>)
 );
@@ -1515,9 +1515,9 @@ CREATE TABLE dbo.Characteristic (
     CharacteristicID INT IDENTITY(1,1) PRIMARY KEY,
     ProductID INT NULL,                     -- FK to Product (if characteristic applies to product)
     PackagingLevelID INT NULL,              -- FK to PackagingLevel (if characteristic applies to package)
-    CharacteristicCode VARCHAR(50) NOT NULL,    -- Code identifying the characteristic (<characteristic><code> code)
-    CharacteristicCodeSystem VARCHAR(100) NOT NULL, -- Code system for CharacteristicCode
-    ValueType VARCHAR(10) NOT NULL,         -- Data type of the value (PQ, INT, CV, ST, BL, IVL_PQ, ED)
+    CharacteristicCode VARCHAR(50) NULL,    -- Code identifying the characteristic (<characteristic><code> code)
+    CharacteristicCodeSystem VARCHAR(100) NULL, -- Code system for CharacteristicCode
+    ValueType VARCHAR(10) NULL,         -- Data type of the value (PQ, INT, CV, ST, BL, IVL_PQ, ED)
     -- Value columns for different types (only one set relevant per row based on ValueType)
     ValuePQ_Value DECIMAL(18, 9) NULL,
     ValuePQ_Unit VARCHAR(50) NULL,
@@ -1564,10 +1564,10 @@ GO
 
 CREATE TABLE dbo.ProductPart (
     ProductPartID INT IDENTITY(1,1) PRIMARY KEY,
-    KitProductID INT NOT NULL,              -- FK to Product (The parent Kit product)
-    PartProductID INT NOT NULL,             -- FK to Product (The product representing the part)
-    PartQuantityNumerator DECIMAL(18, 9) NOT NULL, -- Total amount/count of this part in the kit (<quantity><numerator value>)
-    PartQuantityNumeratorUnit VARCHAR(50) NOT NULL -- Unit for the part quantity (<quantity><numerator unit>)
+    KitProductID INT  NULL,              -- FK to Product (The parent Kit product)
+    PartProductID INT  NULL,             -- FK to Product (The product representing the part)
+    PartQuantityNumerator DECIMAL(18, 9) NULL, -- Total amount/count of this part in the kit (<quantity><numerator value>)
+    PartQuantityNumeratorUnit VARCHAR(50) NULL -- Unit for the part quantity (<quantity><numerator unit>)
 );
 GO
 
@@ -1593,8 +1593,8 @@ GO
 
 CREATE TABLE dbo.PartOfAssembly (
     PartOfAssemblyID INT IDENTITY(1,1) PRIMARY KEY,
-    PrimaryProductID INT NOT NULL,      -- FK to Product (The product being described that is part of the assembly)
-    AccessoryProductID INT NOT NULL     -- FK to Product (The other product in the assembly, referenced via <part><partProduct> inside <asPartOfAssembly>)
+    PrimaryProductID INT  NULL,      -- FK to Product (The product being described that is part of the assembly)
+    AccessoryProductID INT  NULL     -- FK to Product (The other product in the assembly, referenced via <part><partProduct> inside <asPartOfAssembly>)
     -- The <wholeProduct> element doesn't have its own identifier in the spec, so it's represented implicitly by the link.
 );
 GO
@@ -1627,11 +1627,11 @@ GO
 
 CREATE TABLE dbo.Policy (
     PolicyID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,               -- FK to Product
-    PolicyClassCode VARCHAR(50) NOT NULL, -- e.g., 'DEADrugSchedule'
-    PolicyCode VARCHAR(50) NOT NULL,      -- Code value (e.g., 'C48675' for CII)
-    PolicyCodeSystem VARCHAR(100) NOT NULL, -- Code system for PolicyCode
-    PolicyDisplayName VARCHAR(255) NOT NULL -- Display name for PolicyCode
+    ProductID INT  NULL,               -- FK to Product
+    PolicyClassCode VARCHAR(50) NULL, -- e.g., 'DEADrugSchedule'
+    PolicyCode VARCHAR(50) NULL,      -- Code value (e.g., 'C48675' for CII)
+    PolicyCodeSystem VARCHAR(100) NULL, -- Code system for PolicyCode
+    PolicyDisplayName VARCHAR(255) NULL -- Display name for PolicyCode
 );
 GO
 
@@ -1672,10 +1672,10 @@ GO
 
 CREATE TABLE dbo.ProductRouteOfAdministration (
     ProductRouteOfAdministrationID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,                 -- FK to Product (or Product representing a Part)
-    RouteCode VARCHAR(50) NOT NULL,         -- Code for the route (<routeCode code>)
-    RouteCodeSystem VARCHAR(100) NOT NULL,  -- Code system for RouteCode (<routeCode codeSystem>)
-    RouteDisplayName VARCHAR(255) NOT NULL, -- Display name for RouteCode (<routeCode displayName>)
+    ProductID INT  NULL,                 -- FK to Product (or Product representing a Part)
+    RouteCode VARCHAR(50) NULL,         -- Code for the route (<routeCode code>)
+    RouteCodeSystem VARCHAR(100) NULL,  -- Code system for RouteCode (<routeCode codeSystem>)
+    RouteDisplayName VARCHAR(255) NULL, -- Display name for RouteCode (<routeCode displayName>)
     RouteNullFlavor VARCHAR(10) NULL        -- Used for 'NA' nullFlavor in Bulk Ingredients etc.
 );
 GO
@@ -1743,8 +1743,8 @@ GO
 
 CREATE TABLE dbo.ProductWebLink (
     ProductWebLinkID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,           -- FK to Product
-    WebURL VARCHAR(2048) NOT NULL     -- The absolute URL (<reference value=>)
+    ProductID INT  NULL,           -- FK to Product
+    WebURL VARCHAR(2048) NULL     -- The absolute URL (<reference value=>)
 );
 GO
 
@@ -1798,10 +1798,10 @@ GO
 
 CREATE TABLE dbo.OrganizationIdentifier (
     OrganizationIdentifierID INT IDENTITY(1,1) PRIMARY KEY,
-    OrganizationID INT NOT NULL,           -- FK to Organization
-    IdentifierValue VARCHAR(100) NOT NULL, -- The actual code value (e.g., DUNS number, FEI number, Labeler Code)
-    IdentifierSystemOID VARCHAR(100) NOT NULL, -- OID for the code system (e.g., DUNS OID, FEI OID, NDC OID)
-    IdentifierType VARCHAR(50) NOT NULL  -- e.g., 'DUNS', 'FEI', 'NDCLabelerCode', 'ManufacturerLicenseNumber', 'StateLicense'
+    OrganizationID INT  NULL,           -- FK to Organization
+    IdentifierValue VARCHAR(100) NULL, -- The actual code value (e.g., DUNS number, FEI number, Labeler Code)
+    IdentifierSystemOID VARCHAR(100) NULL, -- OID for the code system (e.g., DUNS OID, FEI OID, NDC OID)
+    IdentifierType VARCHAR(50) NULL  -- e.g., 'DUNS', 'FEI', 'NDCLabelerCode', 'ManufacturerLicenseNumber', 'StateLicense'
 );
 GO
 
@@ -1835,10 +1835,10 @@ GO
 
 CREATE TABLE dbo.BusinessOperation (
     BusinessOperationID INT IDENTITY(1,1) PRIMARY KEY,
-    DocumentRelationshipID INT NOT NULL,      -- FK to DocumentRelationship (linking to the Org performing the operation)
-    OperationCode VARCHAR(50) NOT NULL,      -- Business Operation code (e.g., 'C43360' for manufacture)
-    OperationCodeSystem VARCHAR(100) NOT NULL, -- Code system for OperationCode
-    OperationDisplayName VARCHAR(255) NOT NULL -- Display name for OperationCode
+    DocumentRelationshipID INT  NULL,      -- FK to DocumentRelationship (linking to the Org performing the operation)
+    OperationCode VARCHAR(50) NULL,      -- Business Operation code (e.g., 'C43360' for manufacture)
+    OperationCodeSystem VARCHAR(100) NULL, -- Code system for OperationCode
+    OperationDisplayName VARCHAR(255) NULL -- Display name for OperationCode
 );
 GO
 
@@ -1873,10 +1873,10 @@ GO
 
 CREATE TABLE dbo.BusinessOperationQualifier (
     BusinessOperationQualifierID INT IDENTITY(1,1) PRIMARY KEY,
-    BusinessOperationID INT NOT NULL,          -- FK to BusinessOperation
-    QualifierCode VARCHAR(50) NOT NULL,        -- Qualifier code (<approval><code>)
-    QualifierCodeSystem VARCHAR(100) NOT NULL,   -- Code system for QualifierCode
-    QualifierDisplayName VARCHAR(255) NOT NULL   -- Display name for QualifierCode
+    BusinessOperationID INT  NULL,          -- FK to BusinessOperation
+    QualifierCode VARCHAR(50) NULL,        -- Qualifier code (<approval><code>)
+    QualifierCodeSystem VARCHAR(100) NULL,   -- Code system for QualifierCode
+    QualifierDisplayName VARCHAR(255) NULL   -- Display name for QualifierCode
 );
 GO
 
@@ -1911,8 +1911,8 @@ GO
 
 CREATE TABLE dbo.BusinessOperationProductLink (
     BusinessOperationProductLinkID INT IDENTITY(1,1) PRIMARY KEY,
-    BusinessOperationID INT NOT NULL,    -- FK to BusinessOperation
-    ProductID INT NOT NULL               -- FK to Product (The product linked to the operation)
+    BusinessOperationID INT  NULL,    -- FK to BusinessOperation
+    ProductID INT  NULL               -- FK to Product (The product linked to the operation)
 );
 GO
 
@@ -1933,11 +1933,11 @@ GO
 
 CREATE TABLE dbo.LegalAuthenticator (
     LegalAuthenticatorID INT IDENTITY(1,1) PRIMARY KEY,
-    DocumentID INT NOT NULL,                -- FK to Document
+    DocumentID INT  NULL,                -- FK to Document
     NoteText NVARCHAR(MAX) NULL,            -- Optional signing statement (<noteText>)
-    TimeValue DATETIME2(0) NOT NULL,        -- Signature timestamp (<time value>)
-    SignatureText NVARCHAR(MAX) NOT NULL,   -- Electronic signature text (<signatureText>)
-    AssignedPersonName VARCHAR(500) NOT NULL -- Name of the signing person (<assignedPerson><name>)
+    TimeValue DATETIME2(0) NULL,        -- Signature timestamp (<time value>)
+    SignatureText NVARCHAR(MAX) NULL,   -- Electronic signature text (<signatureText>)
+    AssignedPersonName VARCHAR(500) NULL -- Name of the signing person (<assignedPerson><name>)
     -- representedOrganization is empty in spec examples 35.1.3, 36.1.7 but present for FDA signature in 5.1.6
     -- Add fields if representedOrganization details are needed for FDA signatures
     ,SignerOrganizationID INT NULL           -- Optional FK to Organization (Signer's org, used for FDA signers in 5.1.6)
@@ -2018,10 +2018,10 @@ GO
 
 CREATE TABLE dbo.IdentifiedSubstance (
     IdentifiedSubstanceID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,                  -- FK to Section (The indexing section containing this substance)
-    SubjectType VARCHAR(50) NOT NULL,        -- e.g., 'ActiveMoiety', 'PharmacologicClass'
-    SubstanceIdentifierValue VARCHAR(100) NOT NULL, -- ID value (<id extension> or <code> code)
-    SubstanceIdentifierSystemOID VARCHAR(100) NOT NULL, -- ID system OID (<id root> or <code> codeSystem)
+    SectionID INT  NULL,                  -- FK to Section (The indexing section containing this substance)
+    SubjectType VARCHAR(50) NULL,        -- e.g., 'ActiveMoiety', 'PharmacologicClass'
+    SubstanceIdentifierValue VARCHAR(100) NULL, -- ID value (<id extension> or <code> code)
+    SubstanceIdentifierSystemOID VARCHAR(100) NULL, -- ID system OID (<id root> or <code> codeSystem)
     IsDefinition BIT NOT NULL DEFAULT 0      -- Flag: True if this row represents the *definition* of the substance/class (8.2.3), False if it's a *reference* (8.2.2)
 );
 GO
@@ -2059,10 +2059,10 @@ GO
 
 CREATE TABLE dbo.PharmacologicClass (
     PharmacologicClassID INT IDENTITY(1,1) PRIMARY KEY,
-    IdentifiedSubstanceID INT NOT NULL,      -- FK to IdentifiedSubstance (where IsDefinition=1 and SubjectType='PharmacologicClass')
-    ClassCode VARCHAR(50) NOT NULL,        -- MED-RT or MeSH code (<code> code)
-    ClassCodeSystem VARCHAR(100) NOT NULL, -- Code system (<code> codeSystem)
-    ClassDisplayName VARCHAR(500) NOT NULL -- Display name including type suffix (<code> displayName)
+    IdentifiedSubstanceID INT  NULL,      -- FK to IdentifiedSubstance (where IsDefinition=1 and SubjectType='PharmacologicClass')
+    ClassCode VARCHAR(50) NULL,        -- MED-RT or MeSH code (<code> code)
+    ClassCodeSystem VARCHAR(100) NULL, -- Code system (<code> codeSystem)
+    ClassDisplayName VARCHAR(500) NULL -- Display name including type suffix (<code> displayName)
 );
 GO
 
@@ -2092,9 +2092,9 @@ GO
 
 CREATE TABLE dbo.PharmacologicClassName (
     PharmClassNameID INT IDENTITY(1,1) PRIMARY KEY,
-    PharmacologicClassID INT NOT NULL,    -- FK to PharmacologicClass
-    NameValue NVARCHAR(1000) NOT NULL,   -- The name string (<name>)
-    NameUse CHAR(1) NOT NULL             -- 'L' for preferred, 'A' for alternate (<name use=>)
+    PharmacologicClassID INT  NULL,    -- FK to PharmacologicClass
+    NameValue NVARCHAR(1000) NULL,   -- The name string (<name>)
+    NameUse CHAR(1) NULL             -- 'L' for preferred, 'A' for alternate (<name use=>)
 );
 GO
 
@@ -2125,8 +2125,8 @@ GO
 
 CREATE TABLE dbo.PharmacologicClassLink (
     PharmClassLinkID INT IDENTITY(1,1) PRIMARY KEY,
-    ActiveMoietySubstanceID INT NOT NULL, -- FK to IdentifiedSubstance (where SubjectType='ActiveMoiety')
-    PharmacologicClassID INT NOT NULL     -- FK to PharmacologicClass
+    ActiveMoietySubstanceID INT  NULL, -- FK to IdentifiedSubstance (where SubjectType='ActiveMoiety')
+    PharmacologicClassID INT  NULL     -- FK to PharmacologicClass
 );
 GO
 
@@ -2147,8 +2147,8 @@ GO
 
 CREATE TABLE dbo.PharmacologicClassHierarchy (
     PharmClassHierarchyID INT IDENTITY(1,1) PRIMARY KEY,
-    ChildPharmacologicClassID INT NOT NULL,  -- FK to PharmacologicClass (The class being defined)
-    ParentPharmacologicClassID INT NOT NULL -- FK to PharmacologicClass (The super-class)
+    ChildPharmacologicClassID INT  NULL,  -- FK to PharmacologicClass (The class being defined)
+    ParentPharmacologicClassID INT  NULL -- FK to PharmacologicClass (The super-class)
 );
 GO
 
@@ -2204,11 +2204,11 @@ GO
 
 CREATE TABLE dbo.BillingUnitIndex (
     BillingUnitIndexID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,                 -- FK to the Indexing Section (48779-3) in the Billing Unit Index document
-    PackageNDCValue VARCHAR(20) NOT NULL,   -- The specific NDC Package Code being indexed
-    PackageNDCSystemOID VARCHAR(100) NOT NULL DEFAULT '2.16.840.1.113883.6.69', -- System for NDC
-    BillingUnitCode VARCHAR(5) NOT NULL,    -- NCPDP Billing Unit Code ('GM', 'ML', 'EA')
-    BillingUnitCodeSystemOID VARCHAR(100) NOT NULL DEFAULT '2.16.840.1.113883.2.13' -- System for Billing Unit Code
+    SectionID INT  NULL,                 -- FK to the Indexing Section (48779-3) in the Billing Unit Index document
+    PackageNDCValue VARCHAR(20) NULL,   -- The specific NDC Package Code being indexed
+    PackageNDCSystemOID VARCHAR(100) NULL DEFAULT '2.16.840.1.113883.6.69', -- System for NDC
+    BillingUnitCode VARCHAR(5) NULL,    -- NCPDP Billing Unit Code ('GM', 'ML', 'EA')
+    BillingUnitCodeSystemOID VARCHAR(100) NULL DEFAULT '2.16.840.1.113883.2.13' -- System for Billing Unit Code
 );
 GO
 
@@ -2263,10 +2263,10 @@ GO
 
 CREATE TABLE dbo.ProductConcept (
     ProductConceptID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,                 -- FK to the Indexing Section (48779-3)
-    ConceptCode VARCHAR(36) NOT NULL,       -- The computed MD5 hash code for the concept (8-4-4-4-12 format)
-    ConceptCodeSystem VARCHAR(100) NOT NULL DEFAULT '2.16.840.1.113883.3.3389', -- OID for Product Concept Codes
-    ConceptType VARCHAR(20) NOT NULL,       -- 'AbstractProduct', 'AbstractKit', 'ApplicationProduct', 'ApplicationKit'
+    SectionID INT  NULL,                 -- FK to the Indexing Section (48779-3)
+    ConceptCode VARCHAR(36) NULL,       -- The computed MD5 hash code for the concept (8-4-4-4-12 format)
+    ConceptCodeSystem VARCHAR(100) NULL DEFAULT '2.16.840.1.113883.3.3389', -- OID for Product Concept Codes
+    ConceptType VARCHAR(20) NULL,       -- 'AbstractProduct', 'AbstractKit', 'ApplicationProduct', 'ApplicationKit'
     -- FormCode info only needed for Abstract concepts
     FormCode VARCHAR(50) NULL,              -- Dosage Form code for Abstract concepts
     FormCodeSystem VARCHAR(100) NULL,       -- Code system for FormCode
@@ -2343,10 +2343,10 @@ GO
 
 CREATE TABLE dbo.ProductConceptEquivalence (
     ProductConceptEquivalenceID INT IDENTITY(1,1) PRIMARY KEY,
-    ApplicationProductConceptID INT NOT NULL, -- FK to ProductConcept (The Application concept)
-    AbstractProductConceptID INT NOT NULL,    -- FK to ProductConcept (The Abstract concept it derives from)
-    EquivalenceCode VARCHAR(10) NOT NULL,    -- Code: 'A', 'B', 'OTC', or 'N'
-    EquivalenceCodeSystem VARCHAR(100) NOT NULL DEFAULT '2.16.840.1.113883.3.2964' -- OID for this code system
+    ApplicationProductConceptID INT  NULL, -- FK to ProductConcept (The Application concept)
+    AbstractProductConceptID INT  NULL,    -- FK to ProductConcept (The Abstract concept it derives from)
+    EquivalenceCode VARCHAR(10) NULL,    -- Code: 'A', 'B', 'OTC', or 'N'
+    EquivalenceCodeSystem VARCHAR(100) NULL DEFAULT '2.16.840.1.113883.3.2964' -- OID for this code system
 );
 GO
 
@@ -2375,8 +2375,8 @@ GO
 
 CREATE TABLE dbo.LotIdentifier (
     LotIdentifierID INT IDENTITY(1,1) PRIMARY KEY,
-    LotNumber VARCHAR(100) NOT NULL,  -- The alphanumeric lot number string (<id extension>)
-    LotRootOID VARCHAR(100) NOT NULL  -- The computed globally unique root OID (<id root>)
+    LotNumber VARCHAR(100) NULL,  -- The alphanumeric lot number string (<id extension>)
+    LotRootOID VARCHAR(100) NULL  -- The computed globally unique root OID (<id root>)
 );
 GO
 -- Add Comments and Extended Properties for LotIdentifier table
@@ -2405,9 +2405,9 @@ GO
 
 CREATE TABLE dbo.ProductInstance (
     ProductInstanceID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,                -- FK to Product (The product definition this is an instance of)
-    InstanceType VARCHAR(20) NOT NULL,     -- 'FillLot', 'LabelLot', 'PackageLot'
-    LotIdentifierID INT NOT NULL,          -- FK to LotIdentifier
+    ProductID INT  NULL,                -- FK to Product (The product definition this is an instance of)
+    InstanceType VARCHAR(20) NULL,     -- 'FillLot', 'LabelLot', 'PackageLot'
+    LotIdentifierID INT  NULL,          -- FK to LotIdentifier
     ExpirationDate DATE NULL               -- Expiration date (<expirationTime><high value>), applicable mainly to LabelLot
 );
 GO
@@ -2451,7 +2451,7 @@ GO
 
 CREATE TABLE dbo.DosingSpecification (
     DosingSpecificationID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,                 -- FK to Product
+    ProductID INT  NULL,                 -- FK to Product
     RouteCode VARCHAR(50) NULL,             -- Route of Administration code
     RouteCodeSystem VARCHAR(100) NULL,      -- Code system for RouteCode
     RouteDisplayName VARCHAR(255) NULL,     -- Display name for RouteCode
@@ -2485,10 +2485,10 @@ GO
 
 CREATE TABLE dbo.IngredientInstance (
     IngredientInstanceID INT IDENTITY(1,1) PRIMARY KEY,
-    FillLotInstanceID INT NOT NULL,          -- FK to ProductInstance (The Fill Lot this bulk lot contributes to)
-    IngredientSubstanceID INT NOT NULL,      -- FK to IngredientSubstance (The substance of the bulk lot)
-    LotIdentifierID INT NOT NULL,            -- FK to LotIdentifier (The Bulk Lot number)
-    ManufacturerOrganizationID INT NOT NULL  -- FK to Organization (The manufacturer of the bulk lot)
+    FillLotInstanceID INT  NULL,          -- FK to ProductInstance (The Fill Lot this bulk lot contributes to)
+    IngredientSubstanceID INT  NULL,      -- FK to IngredientSubstance (The substance of the bulk lot)
+    LotIdentifierID INT  NULL,            -- FK to LotIdentifier (The Bulk Lot number)
+    ManufacturerOrganizationID INT  NULL  -- FK to Organization (The manufacturer of the bulk lot)
 );
 GO
 -- Add Comments and Extended Properties for IngredientInstance table
@@ -2518,8 +2518,8 @@ GO
 
 CREATE TABLE dbo.LotHierarchy (
     LotHierarchyID INT IDENTITY(1,1) PRIMARY KEY,
-    ParentInstanceID INT NOT NULL, -- FK to ProductInstance (The Fill Lot or Package Lot)
-    ChildInstanceID INT NOT NULL   -- FK to ProductInstance (The Label Lot which is a member)
+    ParentInstanceID INT  NULL, -- FK to ProductInstance (The Fill Lot or Package Lot)
+    ChildInstanceID INT  NULL   -- FK to ProductInstance (The Label Lot which is a member)
 );
 GO
 -- Add Comments and Extended Properties for LotHierarchy table
@@ -2539,11 +2539,11 @@ GO
 
 CREATE TABLE dbo.ProductEvent (
     ProductEventID INT IDENTITY(1,1) PRIMARY KEY,
-    PackagingLevelID INT NOT NULL,           -- FK to PackagingLevel (The container level the event applies to)
-    EventCode VARCHAR(50) NOT NULL,        -- Code for the event type (<productEvent><code> code)
-    EventCodeSystem VARCHAR(100) NOT NULL, -- Code system for EventCode
-    EventDisplayName VARCHAR(255) NOT NULL,-- Display name for EventCode
-    QuantityValue INT NOT NULL,            -- Quantity associated with the event (<quantity value>)
+    PackagingLevelID INT  NULL,           -- FK to PackagingLevel (The container level the event applies to)
+    EventCode VARCHAR(50) NULL,        -- Code for the event type (<productEvent><code> code)
+    EventCodeSystem VARCHAR(100) NULL, -- Code system for EventCode
+    EventDisplayName VARCHAR(255) NULL,-- Display name for EventCode
+    QuantityValue INT  NULL,            -- Quantity associated with the event (<quantity value>)
     QuantityUnit VARCHAR(50) NULL,         -- Unit for quantity (usually '1' or null)
     EffectiveTimeLow DATE NULL             -- Start date/Initial date for the event (<effectiveTime><low value>), used for Distribution
 );
@@ -2589,11 +2589,11 @@ GO
 
 CREATE TABLE dbo.NamedEntity (
     NamedEntityID INT IDENTITY(1,1) PRIMARY KEY,
-    OrganizationID INT NOT NULL,             -- FK to Organization (The facility)
-    EntityTypeCode VARCHAR(50) NOT NULL,     -- Code for entity type (e.g., 'C117113' for DBA)
-    EntityTypeCodeSystem VARCHAR(100) NOT NULL,-- Code system for EntityTypeCode
-    EntityTypeDisplayName VARCHAR(255) NOT NULL,-- Display name for EntityTypeCode
-    EntityName VARCHAR(500) NOT NULL,        -- The DBA Name (<name>)
+    OrganizationID INT  NULL,             -- FK to Organization (The facility)
+    EntityTypeCode VARCHAR(50) NULL,     -- Code for entity type (e.g., 'C117113' for DBA)
+    EntityTypeCodeSystem VARCHAR(100) NULL,-- Code system for EntityTypeCode
+    EntityTypeDisplayName VARCHAR(255) NULL,-- Display name for EntityTypeCode
+    EntityName VARCHAR(500) NULL,        -- The DBA Name (<name>)
     EntitySuffix VARCHAR(20) NULL            -- Optional suffix, e.g., ' [WDD]', ' [3PL]'
 );
 GO
@@ -2630,8 +2630,8 @@ GO
 
 CREATE TABLE dbo.TerritorialAuthority (
     TerritorialAuthorityID INT IDENTITY(1,1) PRIMARY KEY,
-    TerritoryCode VARCHAR(10) NOT NULL,       -- State (e.g., 'US-MD') or Country ('USA') code (<territory><code>)
-    TerritoryCodeSystem VARCHAR(50) NOT NULL, -- Code system (e.g., '1.0.3166.2' for state, '1.0.3166.1.2.3' for country)
+    TerritoryCode VARCHAR(10) NULL,       -- State (e.g., 'US-MD') or Country ('USA') code (<territory><code>)
+    TerritoryCodeSystem VARCHAR(50) NULL, -- Code system (e.g., '1.0.3166.2' for state, '1.0.3166.1.2.3' for country)
     GoverningAgencyOrgID INT NULL             -- Optional FK to Organization (if federal agency like DEA)
 );
 GO
@@ -2661,15 +2661,15 @@ GO
 
 CREATE TABLE dbo.License (
     LicenseID INT IDENTITY(1,1) PRIMARY KEY,
-    BusinessOperationID INT NOT NULL,         -- FK to BusinessOperation (The WDD/3PL operation being licensed)
-    LicenseNumber VARCHAR(100) NOT NULL,    -- License number (<id extension>)
-    LicenseRootOID VARCHAR(100) NOT NULL,   -- State/Agency OID (<id root>)
-    LicenseTypeCode VARCHAR(50) NOT NULL,   -- Code for license type (<approval><code> code)
-    LicenseTypeCodeSystem VARCHAR(100) NOT NULL, -- Code system for LicenseTypeCode
-    LicenseTypeDisplayName VARCHAR(255) NOT NULL,-- Display name for LicenseTypeCode
-    StatusCode VARCHAR(20) NOT NULL,        -- License status ('active', 'suspended', 'aborted', 'completed') (<statusCode code>)
+    BusinessOperationID INT  NULL,         -- FK to BusinessOperation (The WDD/3PL operation being licensed)
+    LicenseNumber VARCHAR(100) NULL,    -- License number (<id extension>)
+    LicenseRootOID VARCHAR(100) NULL,   -- State/Agency OID (<id root>)
+    LicenseTypeCode VARCHAR(50) NULL,   -- Code for license type (<approval><code> code)
+    LicenseTypeCodeSystem VARCHAR(100) NULL, -- Code system for LicenseTypeCode
+    LicenseTypeDisplayName VARCHAR(255) NULL,-- Display name for LicenseTypeCode
+    StatusCode VARCHAR(20) NULL,        -- License status ('active', 'suspended', 'aborted', 'completed') (<statusCode code>)
     ExpirationDate DATE NULL,               -- License expiration date (<effectiveTime><high value>)
-    TerritorialAuthorityID INT NOT NULL     -- FK to TerritorialAuthority (Issuing state/agency)
+    TerritorialAuthorityID INT  NULL     -- FK to TerritorialAuthority (Issuing state/agency)
 );
 GO
 -- Add Comments and Extended Properties for License table
@@ -2713,10 +2713,10 @@ GO
 
 CREATE TABLE dbo.AttachedDocument (
     AttachedDocumentID INT IDENTITY(1,1) PRIMARY KEY,
-    ParentEntityType VARCHAR(50) NOT NULL, -- e.g., 'DisciplinaryAction', 'REMSMaterial'
-    ParentEntityID INT NOT NULL,         -- FK to the parent table (e.g., DisciplinaryActionID)
-    MediaType VARCHAR(100) NOT NULL,     -- Media type (e.g., 'application/pdf')
-    FileName VARCHAR(255) NOT NULL       -- File name referenced in the SPL (<reference value=>)
+    ParentEntityType VARCHAR(50) NULL, -- e.g., 'DisciplinaryAction', 'REMSMaterial'
+    ParentEntityID INT  NULL,         -- FK to the parent table (e.g., DisciplinaryActionID)
+    MediaType VARCHAR(100) NULL,     -- Media type (e.g., 'application/pdf')
+    FileName VARCHAR(255) NULL       -- File name referenced in the SPL (<reference value=>)
 );
 GO
 -- Add Comments and Extended Properties for AttachedDocument table
@@ -2748,11 +2748,11 @@ GO
 
 CREATE TABLE dbo.DisciplinaryAction (
     DisciplinaryActionID INT IDENTITY(1,1) PRIMARY KEY,
-    LicenseID INT NOT NULL,                -- FK to License
-    ActionCode VARCHAR(50) NOT NULL,       -- Code for the action type (<action><code> code)
-    ActionCodeSystem VARCHAR(100) NOT NULL, -- Code system for ActionCode
-    ActionDisplayName VARCHAR(255) NOT NULL,-- Display name for ActionCode
-    EffectiveTime DATE NOT NULL,           -- Date the action took effect (<effectiveTime value>)
+    LicenseID INT  NULL,                -- FK to License
+    ActionCode VARCHAR(50) NULL,       -- Code for the action type (<action><code> code)
+    ActionCodeSystem VARCHAR(100) NULL, -- Code system for ActionCode
+    ActionDisplayName VARCHAR(255) NULL,-- Display name for ActionCode
+    EffectiveTime DATE NULL,           -- Date the action took effect (<effectiveTime value>)
     ActionText NVARCHAR(MAX) NULL          -- Text description if action code is 'other' (<text xsi:type="ST">)
 );
 GO
@@ -2787,9 +2787,9 @@ GO
 
 CREATE TABLE dbo.SubstanceSpecification (
     SubstanceSpecificationID INT IDENTITY(1,1) PRIMARY KEY,
-    IdentifiedSubstanceID INT NOT NULL,      -- FK to IdentifiedSubstance (The substance subject to tolerance)
-    SpecCode VARCHAR(100) NOT NULL,        -- Specification code ('40-CFR-...' format)
-    SpecCodeSystem VARCHAR(100) NOT NULL, -- Code system (2.16.840.1.113883.3.149)
+    IdentifiedSubstanceID INT  NULL,      -- FK to IdentifiedSubstance (The substance subject to tolerance)
+    SpecCode VARCHAR(100) NULL,        -- Specification code ('40-CFR-...' format)
+    SpecCodeSystem VARCHAR(100) NULL, -- Code system (2.16.840.1.113883.3.149)
     EnforcementMethodCode VARCHAR(50) NULL, -- Optional code for Enforcement Analytical Method
     EnforcementMethodCodeSystem VARCHAR(100) NULL,
     EnforcementMethodDisplayName VARCHAR(255) NULL
@@ -2821,8 +2821,8 @@ GO
 
 CREATE TABLE dbo.Analyte (
     AnalyteID INT IDENTITY(1,1) PRIMARY KEY,
-    SubstanceSpecificationID INT NOT NULL, -- FK to SubstanceSpecification
-    AnalyteSubstanceID INT NOT NULL      -- FK to IdentifiedSubstance (The substance being measured)
+    SubstanceSpecificationID INT  NULL, -- FK to SubstanceSpecification
+    AnalyteSubstanceID INT  NULL      -- FK to IdentifiedSubstance (The substance being measured)
 );
 GO
 -- Add Comments and Extended Properties for Analyte table
@@ -2841,9 +2841,9 @@ GO
 
 CREATE TABLE dbo.Commodity (
     CommodityID INT IDENTITY(1,1) PRIMARY KEY,
-    CommodityCode VARCHAR(50) NOT NULL,       -- Code for the commodity (<presentSubstance><code> code)
-    CommodityCodeSystem VARCHAR(100) NOT NULL,-- Code system for CommodityCode (2.16.840.1.113883.6.275.1)
-    CommodityDisplayName VARCHAR(255) NOT NULL,-- Display name for CommodityCode
+    CommodityCode VARCHAR(50) NULL,       -- Code for the commodity (<presentSubstance><code> code)
+    CommodityCodeSystem VARCHAR(100) NULL,-- Code system for CommodityCode (2.16.840.1.113883.6.275.1)
+    CommodityDisplayName VARCHAR(255) NULL,-- Display name for CommodityCode
     CommodityName NVARCHAR(1000) NULL       -- Optional name (<presentSubstance><name>)
 );
 GO
@@ -2868,9 +2868,9 @@ GO
 
 CREATE TABLE dbo.ApplicationType (
     ApplicationTypeID INT IDENTITY(1,1) PRIMARY KEY,
-    AppTypeCode VARCHAR(50) NOT NULL,       -- Code for the application type (<approval><code> code)
-    AppTypeCodeSystem VARCHAR(100) NOT NULL,-- Code system for AppTypeCode (2.16.840.1.113883.6.275.1)
-    AppTypeDisplayName VARCHAR(255) NOT NULL -- Display name for AppTypeCode
+    AppTypeCode VARCHAR(50) NULL,       -- Code for the application type (<approval><code> code)
+    AppTypeCodeSystem VARCHAR(100) NULL,-- Code system for AppTypeCode (2.16.840.1.113883.6.275.1)
+    AppTypeDisplayName VARCHAR(255) NULL -- Display name for AppTypeCode
 );
 GO
 -- Add Comments and Extended Properties for ApplicationType table
@@ -2894,11 +2894,11 @@ GO
 
 CREATE TABLE dbo.ObservationCriterion (
     ObservationCriterionID INT IDENTITY(1,1) PRIMARY KEY,
-    SubstanceSpecificationID INT NOT NULL,    -- FK to SubstanceSpecification
-    ToleranceHighValue DECIMAL(18, 9) NOT NULL,-- Tolerance limit (<value><high value>)
-    ToleranceHighUnit VARCHAR(10) NOT NULL DEFAULT '[ppm]', -- Tolerance unit (<value><high unit>)
+    SubstanceSpecificationID INT  NULL,    -- FK to SubstanceSpecification
+    ToleranceHighValue DECIMAL(18, 9) NULL,-- Tolerance limit (<value><high value>)
+    ToleranceHighUnit VARCHAR(10) NULL DEFAULT '[ppm]', -- Tolerance unit (<value><high unit>)
     CommodityID INT NULL,                  -- Optional FK to Commodity
-    ApplicationTypeID INT NOT NULL,          -- FK to ApplicationType
+    ApplicationTypeID INT  NULL,          -- FK to ApplicationType
     ExpirationDate DATE NULL,                -- Optional expiration/revocation date (<effectiveTime><high value>)
     TextNote NVARCHAR(MAX) NULL            -- Optional text note (<text>)
 );
@@ -2956,10 +2956,10 @@ GO
 
 CREATE TABLE dbo.SpecifiedSubstance (
     SpecifiedSubstanceID INT IDENTITY(1,1) PRIMARY KEY,
-    IngredientID INT NOT NULL,                 -- FK to Ingredient (The ingredient being specified)
-    SubstanceCode VARCHAR(100) NOT NULL,       -- The specified substance code (<code> code)
-    SubstanceCodeSystem VARCHAR(100) NOT NULL, -- Code system (2.16.840.1.113883.3.6277)
-    SubstanceDisplayName VARCHAR(255) NOT NULL -- Display name matching the code (<code> displayName)
+    IngredientID INT  NULL,                 -- FK to Ingredient (The ingredient being specified)
+    SubstanceCode VARCHAR(100) NULL,       -- The specified substance code (<code> code)
+    SubstanceCodeSystem VARCHAR(100) NULL, -- Code system (2.16.840.1.113883.3.6277)
+    SubstanceDisplayName VARCHAR(255) NULL -- Display name matching the code (<code> displayName)
 );
 GO
 
@@ -2995,12 +2995,12 @@ GO
 
 CREATE TABLE dbo.WarningLetterProductInfo (
     WarningLetterProductInfoID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,                 -- FK to the Indexing Section (48779-3)
+    SectionID INT  NULL,                 -- FK to the Indexing Section (48779-3)
     ProductName NVARCHAR(500) NULL,         -- Proprietary name (<name>)
-    GenericName NVARCHAR(512) NOT NULL,     -- Non-proprietary name (<genericMedicine><name>)
-    FormCode VARCHAR(50) NOT NULL,          -- Dosage Form code (<formCode code>)
-    FormCodeSystem VARCHAR(100) NOT NULL,   -- Dosage Form code system
-    FormDisplayName VARCHAR(255) NOT NULL,  -- Dosage Form display name
+    GenericName NVARCHAR(512) NULL,     -- Non-proprietary name (<genericMedicine><name>)
+    FormCode VARCHAR(50) NULL,          -- Dosage Form code (<formCode code>)
+    FormCodeSystem VARCHAR(100) NULL,   -- Dosage Form code system
+    FormDisplayName VARCHAR(255) NULL,  -- Dosage Form display name
     -- Storing strength and item codes as text for simplicity in this context
     StrengthText NVARCHAR(1000) NULL,       -- Text representation of strength(s)
     ItemCodesText NVARCHAR(1000) NULL       -- Text representation of relevant item code(s)
@@ -3049,8 +3049,8 @@ GO
 
 CREATE TABLE dbo.WarningLetterDate (
     WarningLetterDateID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,           -- FK to the Indexing Section (48779-3)
-    AlertIssueDate DATE NOT NULL,     -- Date the warning letter alert was issued (<effectiveTime><low value>)
+    SectionID INT  NULL,           -- FK to the Indexing Section (48779-3)
+    AlertIssueDate DATE NULL,     -- Date the warning letter alert was issued (<effectiveTime><low value>)
     ResolutionDate DATE NULL          -- Optional date the issue was resolved (<effectiveTime><high value>)
 );
 GO
@@ -3096,8 +3096,8 @@ GO
 
 CREATE TABLE dbo.Holder (
     HolderID INT IDENTITY(1,1) PRIMARY KEY,
-    MarketingCategoryID INT NOT NULL, -- FK to MarketingCategory
-    HolderOrganizationID INT NOT NULL -- FK to Organization (The Application Holder)
+    MarketingCategoryID INT  NULL, -- FK to MarketingCategory
+    HolderOrganizationID INT  NULL -- FK to Organization (The Application Holder)
 );
 GO
 -- Add Comments and Extended Properties for Holder table
@@ -3122,10 +3122,10 @@ GO
 
 CREATE TABLE dbo.Protocol (
     ProtocolID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,               -- FK to the Section containing the protocol definition
-    ProtocolCode VARCHAR(50) NOT NULL,    -- Code identifying the protocol type
-    ProtocolCodeSystem VARCHAR(100) NOT NULL, -- Code system for ProtocolCode
-    ProtocolDisplayName VARCHAR(255) NOT NULL -- Display name for ProtocolCode
+    SectionID INT  NULL,               -- FK to the Section containing the protocol definition
+    ProtocolCode VARCHAR(50) NULL,    -- Code identifying the protocol type
+    ProtocolCodeSystem VARCHAR(100) NULL, -- Code system for ProtocolCode
+    ProtocolDisplayName VARCHAR(255) NULL -- Display name for ProtocolCode
     -- The link to substanceAdministration is implicit via the Section. SequenceNumber 2 fixed per spec.
 );
 GO
@@ -3150,9 +3150,9 @@ GO
 
 CREATE TABLE dbo.Stakeholder (
     StakeholderID INT IDENTITY(1,1) PRIMARY KEY,
-    StakeholderCode VARCHAR(50) NOT NULL UNIQUE, -- Code identifying the stakeholder type
-    StakeholderCodeSystem VARCHAR(100) NOT NULL, -- Code system for StakeholderCode
-    StakeholderDisplayName VARCHAR(255) NOT NULL -- Display name for StakeholderCode
+    StakeholderCode VARCHAR(50) NULL UNIQUE, -- Code identifying the stakeholder type
+    StakeholderCodeSystem VARCHAR(100) NULL, -- Code system for StakeholderCode
+    StakeholderDisplayName VARCHAR(255) NULL -- Display name for StakeholderCode
 );
 GO
 -- Add Comments and Extended Properties for Stakeholder table
@@ -3182,9 +3182,9 @@ GO
 
 CREATE TABLE dbo.REMSMaterial (
     REMSMaterialID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,              -- FK to the REMS Material Section (82346-8)
-    MaterialDocumentGUID UNIQUEIDENTIFIER NOT NULL, -- Document ID for the material (<document><id root>)
-    Title NVARCHAR(MAX) NOT NULL,        -- Title of the material (<document><title>)
+    SectionID INT  NULL,              -- FK to the REMS Material Section (82346-8)
+    MaterialDocumentGUID UNIQUEIDENTIFIER NULL, -- Document ID for the material (<document><id root>)
+    Title NVARCHAR(MAX) NULL,        -- Title of the material (<document><title>)
     TitleReference VARCHAR(100) NULL,    -- Link ID within title (<reference value=> pointing to text)
     AttachedDocumentID INT NULL          -- FK to AttachedDocument (if material is an attached file like PDF)
 );
@@ -3221,18 +3221,18 @@ GO
 
 CREATE TABLE dbo.Requirement (
     RequirementID INT IDENTITY(1,1) PRIMARY KEY,
-    ProtocolID INT NOT NULL,                -- FK to Protocol
-    RequirementSequenceNumber INT NOT NULL, -- Sequence relative to substance admin (1=before, 2=during, 3=after)
+    ProtocolID INT  NULL,                -- FK to Protocol
+    RequirementSequenceNumber INT  NULL, -- Sequence relative to substance admin (1=before, 2=during, 3=after)
     IsMonitoringObservation BIT NOT NULL DEFAULT 0, -- Flag: True if <monitoringObservation>, False if <requirement>
     PauseQuantityValue DECIMAL(18, 9) NULL,-- Optional delay value (<pauseQuantity value>)
     PauseQuantityUnit VARCHAR(50) NULL,   -- Optional delay unit (<pauseQuantity unit>)
-    RequirementCode VARCHAR(50) NOT NULL,   -- Code for the requirement/observation
-    RequirementCodeSystem VARCHAR(100) NOT NULL, -- Code system for RequirementCode
-    RequirementDisplayName VARCHAR(500) NOT NULL,-- Display name for RequirementCode
-    OriginalTextReference VARCHAR(100) NOT NULL,-- Link ID pointing to text description (#...)
+    RequirementCode VARCHAR(50) NULL,   -- Code for the requirement/observation
+    RequirementCodeSystem VARCHAR(100) NULL, -- Code system for RequirementCode
+    RequirementDisplayName VARCHAR(500) NULL,-- Display name for RequirementCode
+    OriginalTextReference VARCHAR(100) NULL,-- Link ID pointing to text description (#...)
     PeriodValue DECIMAL(18, 9) NULL,      -- Optional repetition period value (<effectiveTime><period value>)
     PeriodUnit VARCHAR(50) NULL,          -- Optional repetition period unit (<effectiveTime><period unit>)
-    StakeholderID INT NOT NULL,             -- FK to Stakeholder
+    StakeholderID INT  NULL,             -- FK to Stakeholder
     REMSMaterialID INT NULL                 -- Optional FK to REMSMaterial (referenced document)
 );
 GO
@@ -3288,12 +3288,12 @@ GO
 
 CREATE TABLE dbo.REMSApproval (
     REMSApprovalID INT IDENTITY(1,1) PRIMARY KEY,
-    ProtocolID INT NOT NULL,                 -- FK to the first Protocol defined in the document
-    ApprovalCode VARCHAR(50) NOT NULL,       -- Code for REMS Approval ('C128899')
-    ApprovalCodeSystem VARCHAR(100) NOT NULL, -- Code system for ApprovalCode
-    ApprovalDisplayName VARCHAR(255) NOT NULL,-- Display name for ApprovalCode
-    ApprovalDate DATE NOT NULL,              -- Initial REMS approval date (<effectiveTime><low value>)
-    TerritoryCode CHAR(3) NOT NULL           -- Territory code ('USA')
+    ProtocolID INT  NULL,                 -- FK to the first Protocol defined in the document
+    ApprovalCode VARCHAR(50) NULL,       -- Code for REMS Approval ('C128899')
+    ApprovalCodeSystem VARCHAR(100) NULL, -- Code system for ApprovalCode
+    ApprovalDisplayName VARCHAR(255) NULL,-- Display name for ApprovalCode
+    ApprovalDate DATE NULL,              -- Initial REMS approval date (<effectiveTime><low value>)
+    TerritoryCode CHAR(3) NULL           -- Territory code ('USA')
 );
 GO
 -- Add Comments and Extended Properties for REMSApproval table
@@ -3322,11 +3322,11 @@ GO
 
 CREATE TABLE dbo.REMSElectronicResource (
     REMSElectronicResourceID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,                 -- FK to the REMS Material Section (82346-8) where resource is listed
-    ResourceDocumentGUID UNIQUEIDENTIFIER NOT NULL, -- Document ID for the resource reference (<document><id root>)
-    Title NVARCHAR(MAX) NOT NULL,           -- Title of the resource (<document><title>)
+    SectionID INT  NULL,                 -- FK to the REMS Material Section (82346-8) where resource is listed
+    ResourceDocumentGUID UNIQUEIDENTIFIER NULL, -- Document ID for the resource reference (<document><id root>)
+    Title NVARCHAR(MAX) NULL,           -- Title of the resource (<document><title>)
     TitleReference VARCHAR(100) NULL,       -- Link ID within title (<reference value=> pointing to text)
-    ResourceReferenceValue VARCHAR(2048) NOT NULL -- The URL or URN (<text><reference value=>)
+    ResourceReferenceValue VARCHAR(2048) NULL -- The URL or URN (<text><reference value=>)
 );
 GO
 -- Add Comments and Extended Properties for REMSElectronicResource table
@@ -3369,8 +3369,8 @@ GO
 
 CREATE TABLE dbo.CertificationProductLink (
     CertificationProductLinkID INT IDENTITY(1,1) PRIMARY KEY,
-    DocumentRelationshipID INT NOT NULL, -- FK to DocumentRelationship (linking Doc to certified Establishment)
-    ProductIdentifierID INT NOT NULL     -- FK to ProductIdentifier (NDC or ISBT code being certified)
+    DocumentRelationshipID INT  NULL, -- FK to DocumentRelationship (linking Doc to certified Establishment)
+    ProductIdentifierID INT  NULL     -- FK to ProductIdentifier (NDC or ISBT code being certified)
 );
 GO
 -- Add Comments and Extended Properties for CertificationProductLink table
@@ -3401,10 +3401,10 @@ CREATE TABLE dbo.ComplianceAction (
     SectionID INT NULL,                   -- FK to Section (for Drug Listing Inactivation - Section 30)
     PackageIdentifierID INT NULL,         -- FK to PackageIdentifier (for Drug Listing Inactivation - Section 30)
     DocumentRelationshipID INT NULL,      -- FK to DocumentRelationship (for Estab Reg Inactivation - Section 31)
-    ActionCode VARCHAR(50) NOT NULL,      -- Action code (e.g., C162847 Inactivated)
-    ActionCodeSystem VARCHAR(100) NOT NULL, -- Code system for ActionCode
-    ActionDisplayName VARCHAR(255) NOT NULL,-- Display name for ActionCode
-    EffectiveTimeLow DATE NOT NULL,         -- Inactivation date (<effectiveTime><low value>)
+    ActionCode VARCHAR(50) NULL,      -- Action code (e.g., C162847 Inactivated)
+    ActionCodeSystem VARCHAR(100) NULL, -- Code system for ActionCode
+    ActionDisplayName VARCHAR(255) NULL,-- Display name for ActionCode
+    EffectiveTimeLow DATE NULL,         -- Inactivation date (<effectiveTime><low value>)
     EffectiveTimeHigh DATE NULL,          -- Optional Reactivation date (<effectiveTime><high value>)
     CONSTRAINT CK_ComplianceAction_Target CHECK (
         (PackageIdentifierID IS NOT NULL AND DocumentRelationshipID IS NULL) -- Drug Listing Target
@@ -3454,10 +3454,10 @@ GO
 
 CREATE TABLE dbo.InteractionIssue (
     InteractionIssueID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,                  -- FK to Section where the interaction is mentioned
-    InteractionCode VARCHAR(50) NOT NULL,    -- Code for interaction ('C54708')
-    InteractionCodeSystem VARCHAR(100) NOT NULL, -- Code system
-    InteractionDisplayName VARCHAR(255) NOT NULL -- Display name ('INTERACTION')
+    SectionID INT  NULL,                  -- FK to Section where the interaction is mentioned
+    InteractionCode VARCHAR(50) NULL,    -- Code for interaction ('C54708')
+    InteractionCodeSystem VARCHAR(100) NULL, -- Code system
+    InteractionDisplayName VARCHAR(255) NULL -- Display name ('INTERACTION')
 );
 GO
 -- Add Comments and Extended Properties for InteractionIssue table
@@ -3481,8 +3481,8 @@ GO
 
 CREATE TABLE dbo.ContributingFactor (
     ContributingFactorID INT IDENTITY(1,1) PRIMARY KEY,
-    InteractionIssueID INT NOT NULL,  -- FK to InteractionIssue
-    FactorSubstanceID INT NOT NULL   -- FK to IdentifiedSubstance (The interacting drug/class)
+    InteractionIssueID INT  NULL,  -- FK to InteractionIssue
+    FactorSubstanceID INT  NULL   -- FK to IdentifiedSubstance (The interacting drug/class)
 );
 GO
 -- Add Comments and Extended Properties for ContributingFactor table
@@ -3506,13 +3506,13 @@ GO
 
 CREATE TABLE dbo.InteractionConsequence (
     InteractionConsequenceID INT IDENTITY(1,1) PRIMARY KEY,
-    InteractionIssueID INT NOT NULL,          -- FK to InteractionIssue
-    ConsequenceTypeCode VARCHAR(50) NOT NULL,  -- Code for type ('C54386' PK effect, '44100-6' Medical problem)
-    ConsequenceTypeCodeSystem VARCHAR(100) NOT NULL, -- Code system
-    ConsequenceTypeDisplayName VARCHAR(255) NOT NULL,-- Display name
-    ConsequenceValueCode VARCHAR(50) NOT NULL, -- Code for the specific effect/problem
-    ConsequenceValueCodeSystem VARCHAR(100) NOT NULL,-- Code system (NCI or SNOMED CT)
-    ConsequenceValueDisplayName VARCHAR(500) NOT NULL -- Display name for the value code
+    InteractionIssueID INT  NULL,          -- FK to InteractionIssue
+    ConsequenceTypeCode VARCHAR(50) NULL,  -- Code for type ('C54386' PK effect, '44100-6' Medical problem)
+    ConsequenceTypeCodeSystem VARCHAR(100) NULL, -- Code system
+    ConsequenceTypeDisplayName VARCHAR(255) NULL,-- Display name
+    ConsequenceValueCode VARCHAR(50) NULL, -- Code for the specific effect/problem
+    ConsequenceValueCodeSystem VARCHAR(100) NULL,-- Code system (NCI or SNOMED CT)
+    ConsequenceValueDisplayName VARCHAR(500) NULL -- Display name for the value code
 );
 GO
 -- Add Comments and Extended Properties for InteractionConsequence table
@@ -3547,9 +3547,9 @@ GO
 
 CREATE TABLE dbo.NCTLink (
     NCTLinkID INT IDENTITY(1,1) PRIMARY KEY,
-    SectionID INT NOT NULL,            -- FK to the Indexing Section (48779-3)
-    NCTNumber VARCHAR(20) NOT NULL,    -- The NCT number ('NCT' + 8 digits)
-    NCTRootOID VARCHAR(100) NOT NULL DEFAULT '2.16.840.1.113883.3.1077' -- Root OID for NCT
+    SectionID INT  NULL,            -- FK to the Indexing Section (48779-3)
+    NCTNumber VARCHAR(20) NULL,    -- The NCT number ('NCT' + 8 digits)
+    NCTRootOID VARCHAR(100) NULL DEFAULT '2.16.840.1.113883.3.1077' -- Root OID for NCT
 );
 GO
 -- Add Comments and Extended Properties for NCTLink table
@@ -3612,7 +3612,7 @@ GO
 
 CREATE TABLE dbo.FacilityProductLink (
     FacilityProductLinkID INT IDENTITY(1,1) PRIMARY KEY,
-    DocumentRelationshipID INT NOT NULL, -- FK to DocumentRelationship (linking Doc/Reg to Facility)
+    DocumentRelationshipID INT  NULL, -- FK to DocumentRelationship (linking Doc/Reg to Facility)
     ProductID INT NULL,              -- FK to Product (if linked by internal ProductID)
     ProductIdentifierID INT NULL,    -- FK to ProductIdentifier (if linked by CLN)
     ProductName NVARCHAR(500) NULL,  -- Product Name (if linked by name before CLN assigned)
@@ -3648,8 +3648,8 @@ GO
 
 CREATE TABLE dbo.ResponsiblePersonLink (
     ResponsiblePersonLinkID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductID INT NOT NULL,          -- FK to Product (The cosmetic product listed in the Facility Reg doc)
-    ResponsiblePersonOrgID INT NOT NULL -- FK to Organization (The responsible person organization)
+    ProductID INT  NULL,          -- FK to Product (The cosmetic product listed in the Facility Reg doc)
+    ResponsiblePersonOrgID INT  NULL -- FK to Organization (The responsible person organization)
 );
 GO
 -- Add Comments and Extended Properties for ResponsiblePersonLink table

@@ -31,6 +31,10 @@ namespace MedRecPro.Api.Controllers
     {
         #region implementation
 
+        private const int DefaultPageNumber = 1;
+        private const int DefaultPageSize = 10;
+
+
         /// <summary>
         /// Service provider for dependency injection and repository resolution
         /// </summary>
@@ -397,85 +401,163 @@ namespace MedRecPro.Api.Controllers
             {
                 _logger.LogError(ex, "Error occurred while getting documentation for {MenuSelection}", menuSelection);
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while retrieving documentation for {menuSelection}.");
-            } 
+            }
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Retrieves all records for a specified label section.
-        /// Each record is transformed to include an encrypted primary key and omit the original numeric PK.
+        /// Retrieves records for a specified label section, with optional paging.
+        /// If paging parameters (pageNumber, pageSize) are not provided or are 
+        /// null, all records for the section are returned. Each record is 
+        /// transformed to include an encrypted primary key and omit the original numeric PK.
         /// </summary>
-        /// <param name="menuSelection">The name of the label section (table) to query (e.g., "Document", "Organization").</param>
-        /// <returns>A list of records from the specified section, with encrypted IDs.</returns>
-        /// <response code="200">Returns the list of records.</response>
-        /// <response code="400">If the menuSelection is invalid.</response>
+        /// <param name="menuSelection">
+        /// The name of the label section (table) to query (e.g., "Document", "Organization").
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// If provided, pageSize must also be provided for paging to apply.
+        /// If omitted or null (and pageSize is also null/omitted), all records are returned.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// If provided, pageNumber must also be provided for paging to apply.
+        /// If omitted or null (and pageNumber is also null/omitted), all records are returned.
+        /// </param>
+        /// <returns>
+        /// A list of records from the specified section, with encrypted IDs.
+        /// If both pageNumber and pageSize are provided, returns a specific page of records. Otherwise, returns all records.
+        /// </returns>
+        /// <response code="200">Returns the list of records (all or paged).</response>
+        /// <response code="400">
+        /// If menuSelection is invalid, or if provided paging parameters are invalid (e.g., pageNumber &lt;= 0, pageSize &lt;= 0).
+        /// </response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
+        /// To get all records:
         /// GET /api/Label/Document
+        /// 
+        /// To get paged records (e.g., page 2, 20 items per page):
+        /// GET /api/Label/Document?pageNumber=2&amp;pageSize=20
+        /// 
+        /// Response (200 for paged request):
         ///   
-        /// Response (200):
         /// ```json
         /// [
         ///   {
-        ///     "EncryptedDocumentID": "some_encrypted_string_1",
-        ///     "DocumentGUID": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-        ///     "DocumentCode": "34391-9",
-        ///     // ... other properties of Label.Document
-        ///   },
-        ///   {
-        ///     "EncryptedDocumentID": "some_encrypted_string_2",
-        ///     // ...
+        ///     "EncryptedDocumentID": "some_encrypted_string_page2_item1"
+        ///     // other properties
         ///   }
+        ///   // up to pageSize items
         /// ]
         /// ```
-        ///  
-        /// Uses reflection to invoke ReadAllAsync on the appropriate repository.
+        ///   
+        /// Uses reflection to invoke ReadAllAsync(int? pageNumber, int? pageSize) on the appropriate repository.
+        /// The repository is expected to handle null for pageNumber or pageSize as a request for all records.
+        /// If pageNumber is provided for paging, it's 1-based from the client and converted to 0-based for the repository.
         /// All numeric primary keys are replaced with encrypted equivalents for security.
         /// </remarks>
+
         [HttpGet("{menuSelection}")]
         [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<IEnumerable<Dictionary<string, object?>>>> GetAllAsync(string menuSelection)
+        public async Task<ActionResult<IEnumerable<Dictionary<string, object?>>>> GetAllAsync(
+            string menuSelection,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
         {
+            #region Input Validation
+            if (pageNumber.HasValue && pageNumber.Value <= 0)
+            {
+                return BadRequest($"Invalid page number: {pageNumber.Value}. Page number must be greater than 0 if provided.");
+            }
+            if (pageSize.HasValue && pageSize.Value <= 0)
+            {
+                return BadRequest($"Invalid page size: {pageSize.Value}. Page size must be greater than 0 if provided.");
+            }
+
+            // Enforce both or neither
+            if (pageNumber.HasValue != pageSize.HasValue)
+            {
+                return BadRequest("If providing paging, both pageNumber and pageSize must be specified.");
+            }
+            #endregion
+
             #region implementation
 
-            // Resolve the entity type from the menu selection
             var entityType = getEntityType(menuSelection);
             if (entityType == null)
             {
+                _logger.LogWarning($"Invalid menu selection received: {menuSelection}");
                 return BadRequest($"Invalid menu selection: {menuSelection}");
             }
 
             try
             {
-                // Get the appropriate repository for this entity type
                 var repository = getRepository(entityType);
 
-                // Use reflection to invoke ReadAllAsync method on the repository
-                var readAllMethod = repository.GetType().GetMethod("ReadAllAsync");
-                if (readAllMethod == null) throw new MissingMethodException($"ReadAllAsync not found on repository for {entityType.Name}");
+                // The repository's ReadAllAsync method accepts nullable ints.
+                var readAllMethod = repository.GetType().GetMethod("ReadAllAsync", new Type[] { typeof(int?), typeof(int?) });
 
-                // Execute the async method and await its completion
-                var task = (Task)readAllMethod.Invoke(repository, null)!;
+                if (readAllMethod == null)
+                {
+                    var errorMessage = $"ReadAllAsync(int?, int?) method not found on repository for {entityType.Name}. Ensure the repository implements this signature to support optional paging.";
+                    _logger.LogError(errorMessage);
+
+                    return StatusCode(StatusCodes.Status500InternalServerError, "Server configuration error: Required data access method not found.");
+                }
+
+                // pageSize is passed as is (it's either null or a positive value)
+                var methodParams = new object?[] { pageNumber, pageSize };
+
+                var task = (Task)readAllMethod.Invoke(repository, methodParams)!;
                 await task;
 
-                // Extract the result from the completed task
                 var resultProperty = task.GetType().GetProperty("Result");
-                var entities = (IEnumerable<object>)resultProperty?.GetValue(task)!;
 
-                // Transform each entity to include encrypted ID and remove numeric PK
+                if (resultProperty == null)
+                {
+                    _logger.LogError($"Task for {readAllMethod.Name} on {entityType.Name} repository did not have a 'Result' property after completion.");
+                    return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while retrieving data results.");
+                }
+
+                var entities = (IEnumerable<object>?)resultProperty.GetValue(task);
+
+                if (entities == null)
+                {
+                    _logger.LogWarning($"ReadAllAsync for {entityType.Name} returned null (Page: {pageNumber}, Size: {pageSize}). Treating as empty list.");
+                    entities = Enumerable.Empty<object>();
+                }
+
                 var dtoList = entities.Select(e => e.ToEntityWithEncryptedId(_pkEncryptionSecret, _logger)).ToList();
+
+                // Add pagination headers if paging was applied and total count is available
+                if (pageNumber.HasValue 
+                    && pageSize.HasValue)
+                {
+                    int totalCount = dtoList?.Count() ?? 0; 
+                    Response.Headers.Append("X-Page-Number", pageNumber.Value.ToString());
+                    Response.Headers.Append("X-Page-Size", pageSize.Value.ToString());
+                    Response.Headers.Append("X-Total-Count", totalCount.ToString());
+                }
 
                 return Ok(dtoList);
             }
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                // Log the actual exception thrown by the repository method
+                _logger.LogError(ex.InnerException, $"Error executing repository's ReadAllAsync for section {menuSelection} (Client Page: {pageNumber}, Size: {pageSize}). Inner Exception: {ex.InnerException.Message}");
+
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}. Details: {ex.InnerException.Message}");
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error retrieving all records for section {menuSelection}.");
+                _logger.LogError(ex, $"Error retrieving records for section {menuSelection} (Client Page: {pageNumber}, Size: {pageSize}).");
+
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}.");
             }
-
             #endregion
         }
 
@@ -747,6 +829,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UploadSplZips(List<IFormFile> files)
         {
+            #region implementation
             if (files == null || !files.Any())
             {
                 return BadRequest("No files uploaded.");
@@ -766,6 +849,7 @@ namespace MedRecPro.Api.Controllers
 
                 return StatusCode(StatusCodes.Status500InternalServerError, "An unexpected error occurred during import.");
             }
+            #endregion
         }
 
         /**************************************************************/
@@ -807,6 +891,7 @@ namespace MedRecPro.Api.Controllers
         public async Task<IActionResult> UpdateAsync(string menuSelection, string encryptedId, [FromBody] object? jsonData)
         {
             #region implementation
+
             string? json;
 
             // Resolve the entity type from the menu selection
@@ -825,7 +910,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate that jsonData is not null or empty
-            if(jsonData == null)
+            if (jsonData == null)
             {
                 _logger.LogWarning("JSON data is null for menu selection: {MenuSelection}", menuSelection);
                 return BadRequest("Request body with JSON data is required.");
@@ -886,7 +971,7 @@ namespace MedRecPro.Api.Controllers
                 await checkTask;
 
                 var checkResultProp = checkTask.GetType().GetProperty("Result");
-                
+
                 if (checkResultProp?.GetValue(checkTask) == null)
                 {
                     _logger.LogInformation("Record with ID {EncryptedId} not found in section {MenuSelection} for update.", encryptedId, menuSelection);
@@ -901,7 +986,7 @@ namespace MedRecPro.Api.Controllers
                 {
                     _logger.LogInformation("Record with ID {EncryptedId} not found in section {MenuSelection} for update.", encryptedId, menuSelection);
                     return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
-                }     
+                }
 
                 try
                 {
@@ -971,8 +1056,9 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogError(ex, "Error updating record {EncryptedId} for section {MenuSelection}.", encryptedId, menuSelection);
 
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your update request for {menuSelection}.");
-                #endregion
             }
+
+            #endregion
         }
 
         /**************************************************************/

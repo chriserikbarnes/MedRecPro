@@ -280,14 +280,30 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************/
-        /// <summary>
-        /// Reads all records from the database table corresponding to type T.
+        ///<summary>
+        /// Reads a paged set of records from the database table corresponding to type T.
+        /// If either pageNumber or pageSize is null, all records are returned.
         /// </summary>
-        /// <returns>An enumerable collection of all entity objects in the table.</returns>
-        public virtual async Task<IEnumerable<T>> ReadAllAsync()
+        /// <param name="pageNumber">Page index (1 = first page). If null, returns all records.</param>
+        /// <param name="pageSize">Number of records per page. If null, returns all records.</param>
+        /// <returns>An enumerable collection of entity objects for the specified page, or all entities if paging is not specified.</returns>
+        public virtual async Task<IEnumerable<T>> ReadAllAsync(int? pageNumber, int? pageSize)
         {
             #region implementation
-            return await _dbSet.ToListAsync();
+            IQueryable<T> query = _dbSet;
+
+            if (pageNumber.HasValue 
+                && pageSize.HasValue)
+            {
+                if (pageNumber < 1) throw new ArgumentOutOfRangeException(nameof(pageNumber));
+                if (pageSize <= 0) throw new ArgumentOutOfRangeException(nameof(pageSize));
+
+                query = query
+                    .Skip((pageNumber.Value - 1) * pageSize.Value)
+                    .Take(pageSize.Value);
+            }
+
+            return await query.ToListAsync();
             #endregion
         }
 
@@ -335,7 +351,7 @@ namespace MedRecPro.DataAccess
             if (!tryDecryptId(encryptedId, nameof(encryptedId), out id))
             {
                 _logger.LogWarning("Failed to decrypt ID for DeleteAsync. Encrypted ID: {EncryptedId}", encryptedId);
-                
+
                 throw new InvalidOperationException($"Failed to decrypt ID for DeleteAsync. Encrypted ID: {encryptedId}");
             }
 
@@ -379,7 +395,7 @@ namespace MedRecPro.DataAccess
             if (primaryKeyValueObject is long longValue)
             {
                 // Additional check for typical auto-incrementing int PKs
-                if (longValue <= 0 && typeof(T).GetProperty(_primaryKeyName)?.PropertyType == typeof(long)) 
+                if (longValue <= 0 && typeof(T).GetProperty(_primaryKeyName)?.PropertyType == typeof(long))
                 {
                     throw new InvalidOperationException($"Primary key value '{longValue}' for '{_primaryKeyName}' is not valid for delete operation on type {typeof(T).Name}.");
                 }
@@ -408,7 +424,8 @@ namespace MedRecPro.DataAccess
 
             // If the primary key is not a long, we need to handle it differently.
             // Here it assumed that the key is encrypted.
-            if (primaryKeyValueObject is string stringValue) {
+            if (primaryKeyValueObject is string stringValue)
+            {
                 return await DeleteAsync(stringValue);
             }
 
