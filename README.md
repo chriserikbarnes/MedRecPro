@@ -2,10 +2,16 @@
 
 MedRecPro is a structured product label management system built with ASP.NET Core, providing secure access to data through a RESTful API.
 
+## Specifications
+
+- **HL7 Version**: HL7 Dec 2023 https://www.fda.gov/media/84201/download
+- **Info**: https://www.fda.gov/industry/fda-data-standards-advisory-board/structured-product-labeling-resources
+- **Data Source**: https://dailymed.nlm.nih.gov/dailymed/spl-resources-all-drug-labels.cfm
+
 ## Features
 
 - **User Authentication**: Secure authentication using ASP.NET Identity with support for external providers
-- **Document Management**: Full CRUD operations for medical documents based on SPL (Structured Product Labeling) standards
+- **Document Management**: Full CRUD operations for medical labels based on SPL (Structured Product Labeling) standards
 - **Data Security**: Encrypted user identifiers and sensitive information
 - **Role-based Access Control**: Granular permissions system for different user roles
 - **API Documentation**: Swagger/OpenAPI integration
@@ -33,21 +39,20 @@ MedRecPro is a structured product label management system built with ASP.NET Cor
 - `GET /api/users/GetUser/{encryptedUserId}` - Retrieves user information
 - `POST /api/users/CreateUser` - Creates a new user
 
-### Documents
-- `GET /api/documents` - Retrieves all documents
-- `GET /api/documents/{id}` - Retrieves a specific document
-- `POST /api/documents` - Creates a new document
-- `PUT /api/documents/{id}` - Updates an existing document
-- `DELETE /api/documents/{id}` - Deletes a document
+### Labels
+- `GET /api/label` - Retrieves all labels
+- `GET /api/label/{id}` - Retrieves a specific item
+- `POST /api/label` - Creates a new item
+- `PUT /api/label/{id}` - Updates an existing item
+- `DELETE /api/label/{id}` - Deletes a item
 
 ## Database Schema
 
 The database includes tables for:
 
 - Users and authentication
-- Label documents and metadata
+- SPL labels and metadata
 - Organizations and contacts
-- Document sections and content
 - Relationships between entities
 
 ## Getting Started

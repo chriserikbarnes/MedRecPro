@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using MedRecPro.Helpers;
 using MedRecPro.Data;
+using MedRecPro.DataModels;
 
 
 namespace MedRecPro.DataAccess
@@ -116,6 +117,7 @@ namespace MedRecPro.DataAccess
         /// <returns></returns>
         private static string? getPrimaryKeyColumn(DbContext context, string tableName)
         {
+            #region implementation
             // Find the entity type mapped to the given table name (case-insensitive)
             var entityType = context.Model.GetEntityTypes()
                 .FirstOrDefault(et =>
@@ -132,7 +134,8 @@ namespace MedRecPro.DataAccess
             // Return the property (column) names of the primary key
             return primaryKey.Properties
                 .Select(p => p.GetColumnName(StoreObjectIdentifier.Table(tableName, entityType.GetSchema())))
-                .FirstOrDefault();
+                .FirstOrDefault(); 
+            #endregion
         }
 
         /**************************************/
@@ -304,6 +307,164 @@ namespace MedRecPro.DataAccess
             }
 
             return await query.ToListAsync();
+            #endregion
+        }
+
+        /**************************************/
+        /// <summary>
+        /// Reads a paged set of "complete label" data, structured hierarchically starting from the Document entity.
+        /// This method is specialized and will only execute if the repository's type T is Label.Document.
+        /// It manually constructs the object graph since the POCOs lack navigation properties.
+        /// </summary>
+        /// <param name="pageNumber">Optional. The 1-based page number to retrieve.</param>
+        /// <param name="pageSize">Optional. The number of records per page.</param>
+        /// <returns>A list of dictionaries, where each dictionary represents a complete, hierarchical Document label.</returns>
+        /// <exception cref="NotSupportedException">Thrown if this method is called on a repository other than Repository<Label.Document>.</exception>
+        public virtual async Task<IEnumerable<Dictionary<string, object?>>> ReadAllCompleteLabelsAsync(int? pageNumber, int? pageSize)
+        {
+            #region Implementation
+            // This logic is highly specific to the Document -> children relationship.
+            // Enforce that this method is only called from a Repository<Label.Document>.
+            if (typeof(T) != typeof(Label.Document))
+            {
+                throw new NotSupportedException($"ReadAllCompleteLabelsAsync is only supported on Repository<MedRecPro.DataModels.Label.Document>, not on Repository<{typeof(T).Name}>.");
+            }
+
+            // Cast the DbSet to the correct type. This is safe due to the check above.
+            var documentsDbSet = _dbSet as DbSet<Label.Document>;
+            if (documentsDbSet == null)
+            {
+                // This should not happen if the check passes, but it's a good safeguard.
+                throw new InvalidOperationException("Internal error: DbSet could not be cast to DbSet<Label.Document>.");
+            }
+
+            // 1. Fetch the root Document entities with paging
+            IQueryable<Label.Document> query = documentsDbSet.AsNoTracking();
+
+            if (pageNumber.HasValue && pageSize.HasValue)
+            {
+                if (pageNumber < 1) throw new ArgumentOutOfRangeException(nameof(pageNumber));
+                if (pageSize <= 0) throw new ArgumentOutOfRangeException(nameof(pageSize));
+
+                query = query
+                    .OrderBy(d => d.DocumentID) // Consistent ordering is crucial for paging
+                    .Skip((pageNumber.Value - 1) * pageSize.Value)
+                    .Take(pageSize.Value);
+            }
+
+            var documents = await query.ToListAsync();
+            if (!documents.Any())
+            {
+                return Enumerable.Empty<Dictionary<string, object?>>();
+            }
+
+            var documentIds = documents.Select(d => d.DocumentID).ToList();
+
+            // 2. Batch-fetch all related child and grandchild data for the retrieved documents
+            // This avoids the N+1 query problem.
+
+            // Direct children of Document
+            var documentAuthors = await _context.Set<Label.DocumentAuthor>().AsNoTracking().Where(da => documentIds.Contains(da.DocumentID)).ToListAsync();
+
+            var structuredBodies = await _context.Set<Label.StructuredBody>().AsNoTracking().Where(sb => documentIds.Contains(sb.DocumentID)).ToListAsync();
+
+            var legalAuthenticators = await _context.Set<Label.LegalAuthenticator>().AsNoTracking().Where(la => documentIds.Contains(la.DocumentID)).ToListAsync();
+
+            // Children of StructuredBody
+            var structuredBodyIds = structuredBodies.Select(sb => sb.StructuredBodyID).ToList();
+
+            var sections = await _context.Set<Label.Section>().AsNoTracking().Where(s => structuredBodyIds.Contains(s.StructuredBodyID)).ToListAsync();
+
+            // Children of Section
+            var sectionIds = sections.Select(s => s.SectionID).ToList();
+            var sectionTextContents = await _context.Set<Label.SectionTextContent>().AsNoTracking().Where(stc => sectionIds.Contains(stc.SectionID)).ToListAsync();
+
+            var products = await _context.Set<Label.Product>().AsNoTracking().Where(p => sectionIds.Contains(p.SectionID)).ToListAsync();
+
+            // Grandchildren and beyond (example for SectionTextContent -> TextList -> TextListItem)
+            var textContentIds = sectionTextContents.Select(stc => stc.SectionTextContentID).ToList();
+
+            var textLists = await _context.Set<Label.TextList>().AsNoTracking().Where(tl => textContentIds.Contains(tl.SectionTextContentID)).ToListAsync();
+
+            var textListIds = textLists.Select(tl => tl.TextListID).ToList();
+
+            var textListItems = await _context.Set<Label.TextListItem>().AsNoTracking().Where(tli => textListIds.Contains(tli.TextListID)).ToListAsync();
+
+            // For efficiency, group related data by their parent ID into lookups
+            var authorsLookup = documentAuthors.ToLookup(da => da.DocumentID);
+            var bodiesLookup = structuredBodies.ToLookup(sb => sb.DocumentID);
+            var authenticatorsLookup = legalAuthenticators.ToLookup(la => la.DocumentID);
+            var sectionsLookup = sections.ToLookup(s => s.StructuredBodyID);
+            var textContentsLookup = sectionTextContents.ToLookup(stc => stc.SectionID);
+            var productsLookup = products.ToLookup(p => p.SectionID);
+            var listsLookup = textLists.ToLookup(tl => tl.SectionTextContentID);
+            var listItemsLookup = textListItems.ToLookup(tli => tli.TextListID);
+
+            // 3. Stitch the data together into a hierarchical structure
+            var results = new List<Dictionary<string, object?>>();
+
+            foreach (var doc in documents)
+            {
+                var docDto = doc.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                // Add direct children of Document
+                docDto["DocumentAuthors"] = authorsLookup[doc.DocumentID]
+                    .Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                docDto["LegalAuthenticators"] = authenticatorsLookup[doc.DocumentID]
+                    .Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                // Handle nested children (StructuredBody -> Section -> etc.)
+                var bodyDtos = new List<Dictionary<string, object?>>();
+
+                foreach (var body in bodiesLookup[doc.DocumentID])
+                {
+                    var bodyDto = body.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    var sectionDtos = new List<Dictionary<string, object?>>();
+                    foreach (var section in sectionsLookup[body.StructuredBodyID])
+                    {
+                        var sectionDto = section.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                        // Add children of Section
+                        var textContentDtos = new List<Dictionary<string, object?>>();
+                        foreach (var textContent in textContentsLookup[section.SectionID])
+                        {
+                            var textContentDto = textContent.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                            // Add children of SectionTextContent (e.g., Lists)
+                            var listDtos = new List<Dictionary<string, object?>>();
+                            foreach (var list in listsLookup[textContent.SectionTextContentID])
+                            {
+                                var listDto = list.ToEntityWithEncryptedId(_encryptionKey, _logger);
+                                // Add list items
+                                listDto["Items"] = listItemsLookup[list.TextListID]
+                                    .Select(item => item.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+                                listDtos.Add(listDto);
+                            }
+                            textContentDto["Lists"] = listDtos;
+
+                            // (You would add similar logic for Tables here)
+                            textContentDtos.Add(textContentDto);
+                        }
+                        sectionDto["TextContents"] = textContentDtos;
+
+                        sectionDto["Products"] = productsLookup[section.SectionID]
+                            .Select(p => p.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                        sectionDtos.Add(sectionDto);
+                    }
+                    bodyDto["Sections"] = sectionDtos;
+
+                    bodyDtos.Add(bodyDto);
+                }
+
+                docDto["StructuredBodies"] = bodyDtos;
+
+                results.Add(docDto);
+            }
+
+            return results;
             #endregion
         }
 

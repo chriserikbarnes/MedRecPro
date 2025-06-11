@@ -32,7 +32,7 @@ namespace MedRecPro.DataModels
 
     /// <summary>
     /// Container for all SPL Label metadata classes/sections. The nested classes are based on the
-    /// ICH7 SPL (Dec 2023) specification. https://www.fda.gov/media/84201/download?attachment. Most
+    /// Health Level Seven (HL7) SPL (Dec 2023) specification. https://www.fda.gov/media/84201/download. Most
     /// labels won't contain every section.
     /// </summary>
     public class Label

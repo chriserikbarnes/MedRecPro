@@ -436,10 +436,10 @@ namespace MedRecPro.Api.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
         /// To get all records:
-        /// GET /api/Label/Document
+        /// GET /api/Label/Section
         /// 
         /// To get paged records (e.g., page 2, 20 items per page):
-        /// GET /api/Label/Document?pageNumber=2&amp;pageSize=20
+        /// GET /api/Label/Section?pageNumber=2&amp;pageSize=20
         /// 
         /// Response (200 for paged request):
         ///   
@@ -459,11 +459,11 @@ namespace MedRecPro.Api.Controllers
         /// All numeric primary keys are replaced with encrypted equivalents for security.
         /// </remarks>
 
-        [HttpGet("{menuSelection}")]
+        [HttpGet("Section/{menuSelection}")]
         [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<IEnumerable<Dictionary<string, object?>>>> GetAllAsync(
+        public async Task<ActionResult<IEnumerable<Dictionary<string, object?>>>> GetSection(
             string menuSelection,
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
@@ -498,12 +498,13 @@ namespace MedRecPro.Api.Controllers
             {
                 var repository = getRepository(entityType);
 
-                // The repository's ReadAllAsync method accepts nullable ints.
+                // The repository's GetSection method accepts nullable ints.
                 var readAllMethod = repository.GetType().GetMethod("ReadAllAsync", new Type[] { typeof(int?), typeof(int?) });
 
                 if (readAllMethod == null)
                 {
-                    var errorMessage = $"ReadAllAsync(int?, int?) method not found on repository for {entityType.Name}. Ensure the repository implements this signature to support optional paging.";
+                    var errorMessage = $"GetSection(int?, int?) method not found on repository for {entityType.Name}. Ensure the repository implements this signature to support optional paging.";
+
                     _logger.LogError(errorMessage);
 
                     return StatusCode(StatusCodes.Status500InternalServerError, "Server configuration error: Required data access method not found.");
@@ -527,7 +528,7 @@ namespace MedRecPro.Api.Controllers
 
                 if (entities == null)
                 {
-                    _logger.LogWarning($"ReadAllAsync for {entityType.Name} returned null (Page: {pageNumber}, Size: {pageSize}). Treating as empty list.");
+                    _logger.LogWarning($"GetSection for {entityType.Name} returned null (Page: {pageNumber}, Size: {pageSize}). Treating as empty list.");
                     entities = Enumerable.Empty<object>();
                 }
 
@@ -548,7 +549,7 @@ namespace MedRecPro.Api.Controllers
             catch (TargetInvocationException ex) when (ex.InnerException != null)
             {
                 // Log the actual exception thrown by the repository method
-                _logger.LogError(ex.InnerException, $"Error executing repository's ReadAllAsync for section {menuSelection} (Client Page: {pageNumber}, Size: {pageSize}). Inner Exception: {ex.InnerException.Message}");
+                _logger.LogError(ex.InnerException, $"Error executing repository's GetSection for section {menuSelection} (Client Page: {pageNumber}, Size: {pageSize}). Inner Exception: {ex.InnerException.Message}");
 
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}. Details: {ex.InnerException.Message}");
             }
@@ -559,6 +560,77 @@ namespace MedRecPro.Api.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}.");
             }
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves a collection of "complete" label structures, with optional paging.
+        /// Each item in the collection is a hierarchical object starting with a Document
+        /// and including its related child entities (authors, sections, text, etc.).
+        /// </summary>
+        /// <param name="pageNumber">Optional. The 1-based page number to retrieve. Defaults to 1.</param>
+        /// <param name="pageSize">Optional. The number of records per page. Defaults to 10.</param>
+        /// <returns>A list of complete, hierarchical label objects.</returns>
+        /// <response code="200">Returns the list of complete labels.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/Label/Complete?pageNumber=1&amp;pageSize=5
+        /// 
+        /// This endpoint fetches a deep object graph for each document. The response can be large.
+        /// All primary keys within the structure are encrypted for security.
+        /// </remarks>
+        [HttpGet("Complete")]
+        [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<Dictionary<string, object?>>>> GetCompleteLabels(
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+            if (pageNumber.HasValue && pageNumber.Value <= 0)
+            {
+                return BadRequest("Page number must be greater than 0 if provided.");
+            }
+            if (pageSize.HasValue && pageSize.Value <= 0)
+            {
+                return BadRequest("Page size must be greater than 0 if provided.");
+            }
+            // Use defaults if one is provided but not the other, or if neither is.
+            var usePaging = pageNumber.HasValue || pageSize.HasValue;
+            var finalPageNumber = usePaging ? (pageNumber ?? DefaultPageNumber) : (int?)null;
+            var finalPageSize = usePaging ? (pageSize ?? DefaultPageSize) : (int?)null;
+            #endregion
+
+            try
+            {
+                // We need the specific repository for Label.Document
+                var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
+
+                var completeLabels = await documentRepository.ReadAllCompleteLabelsAsync(finalPageNumber, finalPageSize);
+
+                if (usePaging)
+                {
+                    int totalCount = completeLabels?.Count() ?? 0;
+                    Response.Headers.Append("X-Page-Number", (finalPageNumber ?? DefaultPageNumber).ToString());
+                    Response.Headers.Append("X-Page-Size", (finalPageSize ?? DefaultPageSize).ToString());
+                    Response.Headers.Append("X-Total-Count", totalCount.ToString());
+                }
+
+                return Ok(completeLabels);
+            }
+            catch (NotSupportedException ex)
+            {
+                // This would indicate a developer error (calling the method on the wrong repository type).
+                _logger.LogError(ex, "Developer error: ReadAllCompleteLabelsAsync was called on an incorrect repository type.");
+                return StatusCode(StatusCodes.Status500InternalServerError, "A server configuration error occurred.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while fetching complete labels.");
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing your request.");
+            }
         }
 
         /**************************************************************/
