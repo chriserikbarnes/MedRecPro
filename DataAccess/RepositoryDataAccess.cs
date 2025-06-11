@@ -310,7 +310,7 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
-        /**************************************/
+       /**************************************/
         /// <summary>
         /// Reads a paged set of "complete label" data, structured hierarchically starting from the Document entity.
         /// This method is specialized and will only execute if the repository's type T is Label.Document.
@@ -319,26 +319,22 @@ namespace MedRecPro.DataAccess
         /// <param name="pageNumber">Optional. The 1-based page number to retrieve.</param>
         /// <param name="pageSize">Optional. The number of records per page.</param>
         /// <returns>A list of dictionaries, where each dictionary represents a complete, hierarchical Document label.</returns>
-        /// <exception cref="NotSupportedException">Thrown if this method is called on a repository other than Repository<Label.Document>.</exception>
+        /// <exception cref="NotSupportedException">Thrown if this method is called 
+        /// on a repository other than Repository&gt;Label.Document&lt;.
+        /// </exception>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="Label.Document"/>
         public virtual async Task<IEnumerable<Dictionary<string, object?>>> ReadAllCompleteLabelsAsync(int? pageNumber, int? pageSize)
         {
-            #region Implementation
-            // This logic is highly specific to the Document -> children relationship.
-            // Enforce that this method is only called from a Repository<Label.Document>.
+            #region Pre-computation and Validation
             if (typeof(T) != typeof(Label.Document))
             {
                 throw new NotSupportedException($"ReadAllCompleteLabelsAsync is only supported on Repository<MedRecPro.DataModels.Label.Document>, not on Repository<{typeof(T).Name}>.");
             }
 
-            // Cast the DbSet to the correct type. This is safe due to the check above.
-            var documentsDbSet = _dbSet as DbSet<Label.Document>;
-            if (documentsDbSet == null)
-            {
-                // This should not happen if the check passes, but it's a good safeguard.
-                throw new InvalidOperationException("Internal error: DbSet could not be cast to DbSet<Label.Document>.");
-            }
+            var documentsDbSet = _dbSet as DbSet<Label.Document> ?? throw new InvalidOperationException("Internal error: DbSet could not be cast to DbSet<Label.Document>.");
 
-            // 1. Fetch the root Document entities with paging
+            // 1. FETCH ROOT DOCUMENTS
             IQueryable<Label.Document> query = documentsDbSet.AsNoTracking();
 
             if (pageNumber.HasValue && pageSize.HasValue)
@@ -346,10 +342,7 @@ namespace MedRecPro.DataAccess
                 if (pageNumber < 1) throw new ArgumentOutOfRangeException(nameof(pageNumber));
                 if (pageSize <= 0) throw new ArgumentOutOfRangeException(nameof(pageSize));
 
-                query = query
-                    .OrderBy(d => d.DocumentID) // Consistent ordering is crucial for paging
-                    .Skip((pageNumber.Value - 1) * pageSize.Value)
-                    .Take(pageSize.Value);
+                query = query.OrderBy(d => d.DocumentID).Skip((pageNumber.Value - 1) * pageSize.Value).Take(pageSize.Value);
             }
 
             var documents = await query.ToListAsync();
@@ -359,48 +352,215 @@ namespace MedRecPro.DataAccess
             }
 
             var documentIds = documents.Select(d => d.DocumentID).ToList();
+            #endregion
 
-            // 2. Batch-fetch all related child and grandchild data for the retrieved documents
-            // This avoids the N+1 query problem.
+            #region Batch Fetch All Related Data
+            // This section performs all database queries upfront based on the collected IDs.
 
-            // Direct children of Document
-            var documentAuthors = await _context.Set<Label.DocumentAuthor>().AsNoTracking().Where(da => documentIds.Contains(da.DocumentID)).ToListAsync();
+            // Level 1 Children (of Document)
+            var documentAuthors = await _context.Set<Label.DocumentAuthor>().AsNoTracking().Where(e => documentIds.Contains(e.DocumentID)).ToListAsync();
+            var documentRelationships = await _context.Set<Label.DocumentRelationship>().AsNoTracking().Where(e => documentIds.Contains(e.DocumentID)).ToListAsync();
+            var legalAuthenticators = await _context.Set<Label.LegalAuthenticator>().AsNoTracking().Where(e => documentIds.Contains(e.DocumentID)).ToListAsync();
+            var relatedDocuments = await _context.Set<Label.RelatedDocument>().AsNoTracking().Where(e => documentIds.Contains(e.SourceDocumentID)).ToListAsync();
+            var structuredBodies = await _context.Set<Label.StructuredBody>().AsNoTracking().Where(e => documentIds.Contains(e.DocumentID)).ToListAsync();
 
-            var structuredBodies = await _context.Set<Label.StructuredBody>().AsNoTracking().Where(sb => documentIds.Contains(sb.DocumentID)).ToListAsync();
+            // Level 2 Children
+            var documentRelationshipIds = documentRelationships.Select(e => e.DocumentRelationshipID).ToList();
+            var structuredBodyIds = structuredBodies.Select(e => e.StructuredBodyID).ToList();
+            var businessOperations = await _context.Set<Label.BusinessOperation>().AsNoTracking().Where(e => documentRelationshipIds.Contains(e.DocumentRelationshipID)).ToListAsync();
+            var sections = await _context.Set<Label.Section>().AsNoTracking().Where(e => structuredBodyIds.Contains(e.StructuredBodyID)).ToListAsync();
 
-            var legalAuthenticators = await _context.Set<Label.LegalAuthenticator>().AsNoTracking().Where(la => documentIds.Contains(la.DocumentID)).ToListAsync();
+            // Level 3 Children
+            var businessOperationIds = businessOperations.Select(e => e.BusinessOperationID).ToList();
+            var sectionIds = sections.Select(e => e.SectionID).ToList();
+            var businessOperationQualifiers = await _context.Set<Label.BusinessOperationQualifier>().AsNoTracking().Where(e => businessOperationIds.Contains(e.BusinessOperationID)).ToListAsync();
+            var businessOperationProductLinks = await _context.Set<Label.BusinessOperationProductLink>().AsNoTracking().Where(e => businessOperationIds.Contains(e.BusinessOperationID)).ToListAsync();
+            var licenses = await _context.Set<Label.License>().AsNoTracking().Where(e => businessOperationIds.Contains(e.BusinessOperationID)).ToListAsync();
+            var sectionHierarchies = await _context.Set<Label.SectionHierarchy>().AsNoTracking().Where(e => sectionIds.Contains(e.ParentSectionID) || sectionIds.Contains(e.ChildSectionID)).ToListAsync();
+            var sectionTextContents = await _context.Set<Label.SectionTextContent>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var observationMedia = await _context.Set<Label.ObservationMedia>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var sectionExcerptHighlights = await _context.Set<Label.SectionExcerptHighlight>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var products = await _context.Set<Label.Product>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var identifiedSubstances = await _context.Set<Label.IdentifiedSubstance>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var productConcepts = await _context.Set<Label.ProductConcept>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var interactionIssues = await _context.Set<Label.InteractionIssue>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            // Other direct children of Section...
+            var billingUnitIndexes = await _context.Set<Label.BillingUnitIndex>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var warningLetterProductInfos = await _context.Set<Label.WarningLetterProductInfo>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var warningLetterDates = await _context.Set<Label.WarningLetterDate>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var protocols = await _context.Set<Label.Protocol>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var remsMaterials = await _context.Set<Label.REMSMaterial>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var remsElectronicResources = await _context.Set<Label.REMSElectronicResource>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var complianceActions = await _context.Set<Label.ComplianceAction>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
+            var nctLinks = await _context.Set<Label.NCTLink>().AsNoTracking().Where(e => sectionIds.Contains(e.SectionID)).ToListAsync();
 
-            // Children of StructuredBody
-            var structuredBodyIds = structuredBodies.Select(sb => sb.StructuredBodyID).ToList();
+            // Level 4 Children
+            var licenseIds = licenses.Select(e => e.LicenseID).ToList();
+            var sectionTextContentIds = sectionTextContents.Select(e => e.SectionTextContentID).ToList();
+            var productIds = products.Select(e => e.ProductID).ToList();
+            var productConceptIds = productConcepts.Select(e => e.ProductConceptID).ToList();
+            var identifiedSubstanceIds = identifiedSubstances.Select(e => e.IdentifiedSubstanceID).ToList();
+            var interactionIssueIds = interactionIssues.Select(e => e.InteractionIssueID).ToList();
+            var protocolIds = protocols.Select(e => e.ProtocolID).ToList();
+            var remsMaterialIds = remsMaterials.Select(e => e.REMSMaterialID).ToList();
+            var disciplinaryActions = await _context.Set<Label.DisciplinaryAction>().AsNoTracking().Where(e => licenseIds.Contains(e.LicenseID)).ToListAsync();
+            var textLists = await _context.Set<Label.TextList>().AsNoTracking().Where(e => sectionTextContentIds.Contains(e.SectionTextContentID)).ToListAsync();
+            var textTables = await _context.Set<Label.TextTable>().AsNoTracking().Where(e => sectionTextContentIds.Contains(e.SectionTextContentID)).ToListAsync();
+            var renderedMedia = await _context.Set<Label.RenderedMedia>().AsNoTracking().Where(e => sectionTextContentIds.Contains(e.SectionTextContentID)).ToListAsync();
+            var productIdentifiers = await _context.Set<Label.ProductIdentifier>().AsNoTracking().Where(e => productIds.Contains(e.ProductID)).ToListAsync();
+            var genericMedicines = await _context.Set<Label.GenericMedicine>().AsNoTracking().Where(e => productIds.Contains(e.ProductID)).ToListAsync();
+            var ingredients = await _context.Set<Label.Ingredient>().AsNoTracking().Where(e => productIds.Contains(e.ProductID) || productConceptIds.Contains(e.ProductConceptID)).ToListAsync();
 
-            var sections = await _context.Set<Label.Section>().AsNoTracking().Where(s => structuredBodyIds.Contains(s.StructuredBodyID)).ToListAsync();
+            var packagingLevels = await _context.Set<Label.PackagingLevel>().AsNoTracking().Where(e => productIds.Contains(e.ProductID) || productIds.Contains(e.PartProductID)).ToListAsync();
+            var marketingCategories = await _context.Set<Label.MarketingCategory>().AsNoTracking().Where(e => productIds.Contains(e.ProductID) || productConceptIds.Contains(e.ProductConceptID)).ToListAsync();
+            var marketingStatuses = await _context.Set<Label.MarketingStatus>().AsNoTracking().Where(e => productIds.Contains(e.ProductID)).ToListAsync(); // Note: also links to PackagingLevel
+            var characteristics = await _context.Set<Label.Characteristic>().AsNoTracking().Where(e => productIds.Contains(e.ProductID)).ToListAsync(); // Note: also links to PackagingLevel
+            var productParts = await _context.Set<Label.ProductPart>().AsNoTracking().Where(e => productIds.Contains(e.KitProductID)).ToListAsync();
+            var policies = await _context.Set<Label.Policy>().AsNoTracking().Where(e => productIds.Contains(e.ProductID)).ToListAsync();
+            var productRoutes = await _context.Set<Label.ProductRouteOfAdministration>().AsNoTracking().Where(e => productIds.Contains(e.ProductID)).ToListAsync();
+            var productWebLinks = await _context.Set<Label.ProductWebLink>().AsNoTracking().Where(e => productIds.Contains(e.ProductID)).ToListAsync();
+            var pharmacologicClasses = await _context.Set<Label.PharmacologicClass>().AsNoTracking().Where(e => identifiedSubstanceIds.Contains(e.IdentifiedSubstanceID)).ToListAsync();
+            var substanceSpecifications = await _context.Set<Label.SubstanceSpecification>().AsNoTracking().Where(e => identifiedSubstanceIds.Contains(e.IdentifiedSubstanceID)).ToListAsync();
+            var contributingFactors = await _context.Set<Label.ContributingFactor>().AsNoTracking().Where(e => interactionIssueIds.Contains(e.InteractionIssueID)).ToListAsync();
+            var interactionConsequences = await _context.Set<Label.InteractionConsequence>().AsNoTracking().Where(e => interactionIssueIds.Contains(e.InteractionIssueID)).ToListAsync();
+            var requirements = await _context.Set<Label.Requirement>().AsNoTracking().Where(e => protocolIds.Contains(e.ProtocolID)).ToListAsync();
+            var remsApprovals = await _context.Set<Label.REMSApproval>().AsNoTracking().Where(e => protocolIds.Contains(e.ProtocolID)).ToListAsync();
 
-            // Children of Section
-            var sectionIds = sections.Select(s => s.SectionID).ToList();
-            var sectionTextContents = await _context.Set<Label.SectionTextContent>().AsNoTracking().Where(stc => sectionIds.Contains(stc.SectionID)).ToListAsync();
+            // Level 5 Children
+            var disciplinaryActionIds = disciplinaryActions.Select(e => e.DisciplinaryActionID).ToList();
+            var textListIds = textLists.Select(e => e.TextListID).ToList();
+            var textTableIds = textTables.Select(e => e.TextTableID).ToList();
+            var ingredientIds = ingredients.Select(e => e.IngredientID).ToList();
+            var ingredientSubstanceIdsFromIngredients = ingredients.Select(e => e.IngredientSubstanceID).ToList();
 
-            var products = await _context.Set<Label.Product>().AsNoTracking().Where(p => sectionIds.Contains(p.SectionID)).ToListAsync();
+            var packagingLevelIds = packagingLevels.Select(e => e.PackagingLevelID).ToList();
+            var marketingCategoryIds = marketingCategories.Select(e => e.MarketingCategoryID).ToList();
+            var pharmacologicClassIds = pharmacologicClasses.Select(e => e.PharmacologicClassID).ToList();
+            var substanceSpecificationIds = substanceSpecifications.Select(e => e.SubstanceSpecificationID).ToList();
 
-            // Grandchildren and beyond (example for SectionTextContent -> TextList -> TextListItem)
-            var textContentIds = sectionTextContents.Select(stc => stc.SectionTextContentID).ToList();
+            var attachedDocsForDisciplinary = await _context.Set<Label.AttachedDocument>().AsNoTracking().Where(e => e.ParentEntityType == "DisciplinaryAction" && disciplinaryActionIds.Contains(e.ParentEntityID)).ToListAsync();
 
-            var textLists = await _context.Set<Label.TextList>().AsNoTracking().Where(tl => textContentIds.Contains(tl.SectionTextContentID)).ToListAsync();
+            var attachedDocsForRems = await _context.Set<Label.AttachedDocument>().AsNoTracking().Where(e => e.ParentEntityType == "REMSMaterial" && remsMaterialIds.Contains(e.ParentEntityID)).ToListAsync();
+            var textListItems = await _context.Set<Label.TextListItem>().AsNoTracking().Where(e => textListIds.Contains(e.TextListID)).ToListAsync();
+            var textTableRows = await _context.Set<Label.TextTableRow>().AsNoTracking().Where(e => textTableIds.Contains(e.TextTableID)).ToListAsync();
+            var ingredientSourceProducts = await _context.Set<Label.IngredientSourceProduct>().AsNoTracking().Where(e => ingredientIds.Contains(e.IngredientID)).ToListAsync();
+            var specifiedSubstances = await _context.Set<Label.SpecifiedSubstance>().AsNoTracking().Where(e => ingredientIds.Contains(e.IngredientID)).ToListAsync();
+            var packageIdentifiers = await _context.Set<Label.PackageIdentifier>().AsNoTracking().Where(e => packagingLevelIds.Contains(e.PackagingLevelID)).ToListAsync();
+            var packagingHierarchies = await _context.Set<Label.PackagingHierarchy>().AsNoTracking().Where(e => packagingLevelIds.Contains(e.OuterPackagingLevelID) || packagingLevelIds.Contains(e.InnerPackagingLevelID)).ToListAsync();
+            var marketingStatusForPackage = await _context.Set<Label.MarketingStatus>().AsNoTracking().Where(e => packagingLevelIds.Contains(e.PackagingLevelID)).ToListAsync();
+            var characteristicsForPackage = await _context.Set<Label.Characteristic>().AsNoTracking().Where(e => packagingLevelIds.Contains(e.PackagingLevelID)).ToListAsync();
+            var holders = await _context.Set<Label.Holder>().AsNoTracking().Where(e => marketingCategoryIds.Contains(e.MarketingCategoryID)).ToListAsync();
+            var pharmClassNames = await _context.Set<Label.PharmacologicClassName>().AsNoTracking().Where(e => pharmacologicClassIds.Contains(e.PharmacologicClassID)).ToListAsync();
+            var pharmClassLinks = await _context.Set<Label.PharmacologicClassLink>().AsNoTracking().Where(e => pharmacologicClassIds.Contains(e.PharmacologicClassID)).ToListAsync();
+            var analytes = await _context.Set<Label.Analyte>().AsNoTracking().Where(e => substanceSpecificationIds.Contains(e.SubstanceSpecificationID)).ToListAsync();
+            var observationCriteria = await _context.Set<Label.ObservationCriterion>().AsNoTracking().Where(e => substanceSpecificationIds.Contains(e.SubstanceSpecificationID)).ToListAsync();
 
-            var textListIds = textLists.Select(tl => tl.TextListID).ToList();
+            var productInstances = await _context.Set<Label.ProductInstance>().AsNoTracking().Where(pi => productIds.Contains(pi.ProductID)).ToListAsync();
+            var productInstanceIds = productInstances.Select(pi => pi.ProductInstanceID).ToList();
+            var ingredientInstances = await _context.Set<Label.IngredientInstance>().AsNoTracking().Where(ii => productInstanceIds.Contains(ii.FillLotInstanceID)).ToListAsync();
+            var ingredientSubstanceIdsFromIngredientInstances = ingredientInstances.Select(ii => ii.IngredientSubstanceID).ToList();
 
-            var textListItems = await _context.Set<Label.TextListItem>().AsNoTracking().Where(tli => textListIds.Contains(tli.TextListID)).ToListAsync();
+            // Combine all IngredientSubstanceIDs and fetch them
+            var allIngredientSubstanceIds = ingredientSubstanceIdsFromIngredients
+                .Concat(ingredientSubstanceIdsFromIngredientInstances)
+                .Where(id => id.HasValue)
+                .Distinct()
+                .ToList();
 
-            // For efficiency, group related data by their parent ID into lookups
-            var authorsLookup = documentAuthors.ToLookup(da => da.DocumentID);
-            var bodiesLookup = structuredBodies.ToLookup(sb => sb.DocumentID);
-            var authenticatorsLookup = legalAuthenticators.ToLookup(la => la.DocumentID);
-            var sectionsLookup = sections.ToLookup(s => s.StructuredBodyID);
-            var textContentsLookup = sectionTextContents.ToLookup(stc => stc.SectionID);
-            var productsLookup = products.ToLookup(p => p.SectionID);
-            var listsLookup = textLists.ToLookup(tl => tl.SectionTextContentID);
-            var listItemsLookup = textListItems.ToLookup(tli => tli.TextListID);
+            var ingredientSubstances = await _context.Set<Label.IngredientSubstance>().AsNoTracking().Where(e => allIngredientSubstanceIds.Contains(e.IngredientSubstanceID)).ToListAsync();
 
-            // 3. Stitch the data together into a hierarchical structure
+            // Fetch children of IngredientSubstance
+            var ingredientSubstanceIds = ingredientSubstances.Select(e => e.IngredientSubstanceID).ToList();
+            var activeMoieties = await _context.Set<Label.ActiveMoiety>().AsNoTracking().Where(e => ingredientSubstanceIds.Contains(e.IngredientSubstanceID)).ToListAsync();
+            var referenceSubstances = await _context.Set<Label.ReferenceSubstance>().AsNoTracking().Where(e => ingredientSubstanceIds.Contains(e.IngredientSubstanceID)).ToListAsync();
+
+            // Fetch the other children of ProductInstance
+            var lotHierarchies = await _context.Set<Label.LotHierarchy>().AsNoTracking().Where(lh => productInstanceIds.Contains(lh.ParentInstanceID) || productInstanceIds.Contains(lh.ChildInstanceID)).ToListAsync();
+            var packagingByProductInstance = await _context.Set<Label.PackagingLevel>().AsNoTracking().Where(pl => productInstanceIds.Contains(pl.ProductInstanceID)).ToListAsync();
+
+            // Level 6 Children
+            var textTableRowIds = textTableRows.Select(e => e.TextTableRowID).ToList();
+            var textTableCells = await _context.Set<Label.TextTableCell>().AsNoTracking().Where(e => textTableRowIds.Contains(e.TextTableRowID)).ToListAsync();
+            #endregion
+
+            #region Create Lookups for Efficient Access
+            // Create lookups for every fetched table, keyed by their parent's ID.
+            var authorsLookup = documentAuthors.ToLookup(e => e.DocumentID);
+            var relationshipsLookup = documentRelationships.ToLookup(e => e.DocumentID);
+            var authenticatorsLookup = legalAuthenticators.ToLookup(e => e.DocumentID);
+            var relatedDocsLookup = relatedDocuments.ToLookup(e => e.SourceDocumentID);
+            var bodiesLookup = structuredBodies.ToLookup(e => e.DocumentID);
+            var bizOpsLookup = businessOperations.ToLookup(e => e.DocumentRelationshipID);
+            var sectionsLookup = sections.ToLookup(e => e.StructuredBodyID);
+            var bizOpQualifiersLookup = businessOperationQualifiers.ToLookup(e => e.BusinessOperationID);
+            var bizOpProductsLookup = businessOperationProductLinks.ToLookup(e => e.BusinessOperationID);
+            var licensesLookup = licenses.ToLookup(e => e.BusinessOperationID);
+            var sectionHierarchyLookup = sectionHierarchies.ToLookup(e => e.ParentSectionID);
+            var textContentsLookup = sectionTextContents.ToLookup(e => e.SectionID);
+            var mediaLookup = observationMedia.ToLookup(e => e.SectionID);
+            var highlightsLookup = sectionExcerptHighlights.ToLookup(e => e.SectionID);
+            var productsBySectionLookup = products.ToLookup(e => e.SectionID);
+            var identifiedSubstancesBySectionLookup = identifiedSubstances.ToLookup(e => e.SectionID);
+            var productConceptsBySectionLookup = productConcepts.ToLookup(e => e.SectionID);
+            var interactionIssuesBySectionLookup = interactionIssues.ToLookup(e => e.SectionID);
+            var disciplinaryActionsLookup = disciplinaryActions.ToLookup(e => e.LicenseID);
+            var listsLookup = textLists.ToLookup(e => e.SectionTextContentID);
+            var tablesLookup = textTables.ToLookup(e => e.SectionTextContentID);
+            var renderedMediaLookup = renderedMedia.ToLookup(e => e.SectionTextContentID);
+            var productIdentifiersLookup = productIdentifiers.ToLookup(e => e.ProductID);
+            var genericMedicinesLookup = genericMedicines.ToLookup(e => e.ProductID);
+            var ingredientsByProductLookup = ingredients.Where(i => i.ProductID.HasValue).ToLookup(e => e.ProductID);
+            var ingredientsByConceptLookup = ingredients.Where(i => i.ProductConceptID.HasValue).ToLookup(e => e.ProductConceptID);
+            var packagingByProductLookup = packagingLevels.Where(p => p.ProductID.HasValue).ToLookup(e => e.ProductID);
+            var packagingByPartProductLookup = packagingLevels.Where(p => p.PartProductID.HasValue).ToLookup(e => e.PartProductID);
+            var marketingCategoriesByProductLookup = marketingCategories.Where(mc => mc.ProductID.HasValue).ToLookup(e => e.ProductID);
+            var marketingCategoriesByConceptLookup = marketingCategories.Where(mc => mc.ProductConceptID.HasValue).ToLookup(e => e.ProductConceptID);
+            var marketingStatusByProductLookup = marketingStatuses.ToLookup(e => e.ProductID);
+            var characteristicsByProductLookup = characteristics.ToLookup(e => e.ProductID);
+            var productPartsLookup = productParts.ToLookup(e => e.KitProductID);
+            var policiesLookup = policies.ToLookup(e => e.ProductID);
+            var routesLookup = productRoutes.ToLookup(e => e.ProductID);
+            var webLinksLookup = productWebLinks.ToLookup(e => e.ProductID);
+            var pharmClassesLookup = pharmacologicClasses.ToLookup(e => e.IdentifiedSubstanceID);
+            var substanceSpecsLookup = substanceSpecifications.ToLookup(e => e.IdentifiedSubstanceID);
+            var contributingFactorsLookup = contributingFactors.ToLookup(e => e.InteractionIssueID);
+            var consequencesLookup = interactionConsequences.ToLookup(e => e.InteractionIssueID);
+            var ingredientSubstancesLookup = ingredientSubstances.ToLookup(e => e.IngredientSubstanceID);
+            var activeMoietiesLookup = activeMoieties.ToLookup(e => e.IngredientSubstanceID);
+            var referenceSubstancesLookup = referenceSubstances.ToLookup(e => e.IngredientSubstanceID);
+            var productInstancesByProductLookup = productInstances.ToLookup(pi => pi.ProductID);
+            var ingredientInstancesByFillLotLookup = ingredientInstances.ToLookup(ii => ii.FillLotInstanceID);
+            var lotHierarchyByParentLookup = lotHierarchies.ToLookup(lh => lh.ParentInstanceID);
+            var packagingByInstanceLookup = packagingByProductInstance.ToLookup(pl => pl.ProductInstanceID);
+            var attachedDocsDisciplinaryLookup = attachedDocsForDisciplinary.ToLookup(e => e.ParentEntityID);
+            var attachedDocsRemsLookup = attachedDocsForRems.ToLookup(e => e.ParentEntityID);
+            var listItemsLookup = textListItems.ToLookup(e => e.TextListID);
+            var tableRowsLookup = textTableRows.ToLookup(e => e.TextTableID);
+            var ingredientSourcesLookup = ingredientSourceProducts.ToLookup(e => e.IngredientID);
+            var specifiedSubstancesLookup = specifiedSubstances.ToLookup(e => e.IngredientID);
+            var packageIdentifiersLookup = packageIdentifiers.ToLookup(e => e.PackagingLevelID);
+            var packagingHierarchyLookup = packagingHierarchies.ToLookup(e => e.OuterPackagingLevelID);
+            var marketingStatusByPackageLookup = marketingStatusForPackage.ToLookup(e => e.PackagingLevelID);
+            var characteristicsByPackageLookup = characteristicsForPackage.ToLookup(e => e.PackagingLevelID);
+            var holdersLookup = holders.ToLookup(e => e.MarketingCategoryID);
+            var pharmClassNameLookup = pharmClassNames.ToLookup(e => e.PharmacologicClassID);
+            var pharmClassLinkLookup = pharmClassLinks.ToLookup(e => e.PharmacologicClassID);
+            var analytesLookup = analytes.ToLookup(e => e.SubstanceSpecificationID);
+            var criteriaLookup = observationCriteria.ToLookup(e => e.SubstanceSpecificationID);
+            var tableCellsLookup = textTableCells.ToLookup(e => e.TextTableRowID);
+            var billingUnitIndexLookup = billingUnitIndexes.ToLookup(e => e.SectionID);
+            var warningLetterProductInfoLookup = warningLetterProductInfos.ToLookup(e => e.SectionID);
+            var warningLetterDateLookup = warningLetterDates.ToLookup(e => e.SectionID);
+            var protocolLookup = protocols.ToLookup(e => e.SectionID);
+            var remsMaterialLookup = remsMaterials.ToLookup(e => e.SectionID);
+            var remsElectronicResourceLookup = remsElectronicResources.ToLookup(e => e.SectionID);
+            var complianceActionLookup = complianceActions.ToLookup(e => e.SectionID);
+            var nctLinkLookup = nctLinks.ToLookup(e => e.SectionID);
+            var requirementLookup = requirements.ToLookup(e => e.ProtocolID);
+            var remsApprovalLookup = remsApprovals.ToLookup(e => e.ProtocolID);
+            #endregion
+
+            #region Stitch Data Together
             var results = new List<Dictionary<string, object?>>();
 
             foreach (var doc in documents)
@@ -408,63 +568,341 @@ namespace MedRecPro.DataAccess
                 var docDto = doc.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
                 // Add direct children of Document
-                docDto["DocumentAuthors"] = authorsLookup[doc.DocumentID]
-                    .Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+                docDto["DocumentAuthors"] = authorsLookup[doc.DocumentID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
-                docDto["LegalAuthenticators"] = authenticatorsLookup[doc.DocumentID]
-                    .Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+                docDto["LegalAuthenticators"] = authenticatorsLookup[doc.DocumentID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
-                // Handle nested children (StructuredBody -> Section -> etc.)
-                var bodyDtos = new List<Dictionary<string, object?>>();
+                docDto["RelatedDocuments"] = relatedDocsLookup[doc.DocumentID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
-                foreach (var body in bodiesLookup[doc.DocumentID])
-                {
+                // DocumentRelationships -> BusinessOperations -> Qualifiers/Links/Licenses -> DisciplinaryActions -> AttachedDocs
+                docDto["DocumentRelationships"] = relationshipsLookup[doc.DocumentID].Select(rel => {
+                    var relDto = rel.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    relDto["BusinessOperations"] = bizOpsLookup[rel.DocumentRelationshipID].Select(op => {
+                        var opDto = op.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                        opDto["Qualifiers"] = bizOpQualifiersLookup[op.BusinessOperationID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                        opDto["ProductLinks"] = bizOpProductsLookup[op.BusinessOperationID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                        opDto["Licenses"] = licensesLookup[op.BusinessOperationID].Select(lic => {
+                            var licDto = lic.ToEntityWithEncryptedId(_encryptionKey, _logger);
+                            licDto["DisciplinaryActions"] = disciplinaryActionsLookup[lic.LicenseID].Select(da => {
+                                var daDto = da.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                                daDto["AttachedDocuments"] = attachedDocsDisciplinaryLookup[da.DisciplinaryActionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                                return daDto;
+                            }).ToList();
+
+                            return licDto;
+                        }).ToList();
+
+                        return opDto;
+                    }).ToList();
+
+                    return relDto;
+                }).ToList();
+
+                // StructuredBodies -> Sections -> [All Section Children]
+                docDto["StructuredBodies"] = bodiesLookup[doc.DocumentID].Select(body => {
                     var bodyDto = body.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
-                    var sectionDtos = new List<Dictionary<string, object?>>();
-                    foreach (var section in sectionsLookup[body.StructuredBodyID])
-                    {
-                        var sectionDto = section.ToEntityWithEncryptedId(_encryptionKey, _logger);
+                    // Recursive function to build section hierarchy
+                    Func<int?, List<Dictionary<string, object?>>> buildSectionTree = null!;
+                    buildSectionTree = (parentId) => {
+                        return sectionHierarchyLookup[parentId].Select(sh => {
 
-                        // Add children of Section
-                        var textContentDtos = new List<Dictionary<string, object?>>();
-                        foreach (var textContent in textContentsLookup[section.SectionID])
-                        {
-                            var textContentDto = textContent.ToEntityWithEncryptedId(_encryptionKey, _logger);
+                            var childSection = sections.FirstOrDefault(s => s.SectionID == sh.ChildSectionID);
 
-                            // Add children of SectionTextContent (e.g., Lists)
-                            var listDtos = new List<Dictionary<string, object?>>();
-                            foreach (var list in listsLookup[textContent.SectionTextContentID])
-                            {
-                                var listDto = list.ToEntityWithEncryptedId(_encryptionKey, _logger);
-                                // Add list items
-                                listDto["Items"] = listItemsLookup[list.TextListID]
-                                    .Select(item => item.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
-                                listDtos.Add(listDto);
-                            }
-                            textContentDto["Lists"] = listDtos;
+                            if (childSection == null) return null;
 
-                            // (You would add similar logic for Tables here)
-                            textContentDtos.Add(textContentDto);
-                        }
-                        sectionDto["TextContents"] = textContentDtos;
+                            var childDto = StitchSection(childSection); // Use helper to stitch all section children
+                            childDto["SubSections"] = buildSectionTree(childSection.SectionID);
 
-                        sectionDto["Products"] = productsLookup[section.SectionID]
-                            .Select(p => p.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+                            return childDto;
+                        }).Where(s => s != null).ToList()!;
+                    };
 
-                        sectionDtos.Add(sectionDto);
-                    }
-                    bodyDto["Sections"] = sectionDtos;
-
-                    bodyDtos.Add(bodyDto);
-                }
-
-                docDto["StructuredBodies"] = bodyDtos;
+                    // Stitch top-level sections and their hierarchies
+                    bodyDto["Sections"] = sectionsLookup[body.StructuredBodyID].Select(section => {
+                        var sectionDto = StitchSection(section);
+                        sectionDto["SubSections"] = buildSectionTree(section.SectionID);
+                        return sectionDto;
+                    }).ToList();
+                    return bodyDto;
+                }).ToList();
 
                 results.Add(docDto);
             }
 
             return results;
+            #endregion
+
+            #region Stitching Helper Methods
+            // Helper to stitch all children of a single Section
+            Dictionary<string, object?> StitchSection(Label.Section section)
+            {
+                var sectionDto = section.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                sectionDto["TextContents"] = textContentsLookup[section.SectionID].Select(textContent => StitchTextContent(textContent)).ToList();
+
+                sectionDto["ObservationMedia"] = mediaLookup[section.SectionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                sectionDto["ExcerptHighlights"] = highlightsLookup[section.SectionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                sectionDto["Products"] = productsBySectionLookup[section.SectionID].Select(product => StitchProduct(product)).ToList();
+
+                sectionDto["IdentifiedSubstances"] = identifiedSubstancesBySectionLookup[section.SectionID].Select(substance => StitchIdentifiedSubstance(substance)).ToList();
+
+                sectionDto["ProductConcepts"] = productConceptsBySectionLookup[section.SectionID].Select(concept => StitchProductConcept(concept)).ToList();
+
+                sectionDto["InteractionIssues"] = interactionIssuesBySectionLookup[section.SectionID].Select(issue => {
+                    var issueDto = issue.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    issueDto["ContributingFactors"] = contributingFactorsLookup[issue.InteractionIssueID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    issueDto["Consequences"] = consequencesLookup[issue.InteractionIssueID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    return issueDto;
+                }).ToList();
+
+                sectionDto["BillingUnitIndexes"] = billingUnitIndexLookup[section.SectionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                sectionDto["WarningLetterProductInfos"] = warningLetterProductInfoLookup[section.SectionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                sectionDto["WarningLetterDates"] = warningLetterDateLookup[section.SectionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                sectionDto["Protocols"] = protocolLookup[section.SectionID].Select(p => {
+
+                    var pDto = p.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    pDto["Requirements"] = requirementLookup[p.ProtocolID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    pDto["REMSApprovals"] = remsApprovalLookup[p.ProtocolID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    return pDto;
+                }).ToList();
+
+                sectionDto["REMSMaterials"] = remsMaterialLookup[section.SectionID].Select(m => {
+
+                    var mDto = m.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    mDto["AttachedDocuments"] = attachedDocsRemsLookup[m.REMSMaterialID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    return mDto;
+                }).ToList();
+
+                sectionDto["REMSElectronicResources"] = remsElectronicResourceLookup[section.SectionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                sectionDto["ComplianceActions"] = complianceActionLookup[section.SectionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                sectionDto["NCTLinks"] = nctLinkLookup[section.SectionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+                return sectionDto;
+            }
+
+            // Helper to stitch children of SectionTextContent
+            Dictionary<string, object?> StitchTextContent(Label.SectionTextContent textContent)
+            {
+                var textContentDto = textContent.ToEntityWithEncryptedId(_encryptionKey, _logger);
+                textContentDto["Lists"] = listsLookup[textContent.SectionTextContentID].Select(list => {
+
+                    var listDto = list.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    listDto["Items"] = listItemsLookup[list.TextListID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    return listDto;
+                }).ToList();
+
+                textContentDto["Tables"] = tablesLookup[textContent.SectionTextContentID].Select(table => {
+
+                    var tableDto = table.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    tableDto["Rows"] = tableRowsLookup[table.TextTableID].Select(row => {
+
+                        var rowDto = row.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                        rowDto["Cells"] = tableCellsLookup[row.TextTableRowID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                        return rowDto;
+                    }).ToList();
+
+                    return tableDto;
+                }).ToList();
+
+                textContentDto["RenderedMedia"] = renderedMediaLookup[textContent.SectionTextContentID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                return textContentDto;
+            }
+
+            // Helper to stitch children of Product
+            Dictionary<string, object?> StitchProduct(Label.Product product)
+            {
+                var productDto = product.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                productDto["Identifiers"] = productIdentifiersLookup[product.ProductID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                productDto["GenericMedicines"] = genericMedicinesLookup[product.ProductID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                productDto["Ingredients"] = ingredientsByProductLookup[product.ProductID].Select(ing => {
+
+                    var ingDto = ing.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    ingDto["SourceProducts"] = ingredientSourcesLookup[ing.IngredientID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    ingDto["SpecifiedSubstances"] = specifiedSubstancesLookup[ing.IngredientID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    ingDto["IngredientSubstance"] = ingredientSubstancesLookup[ing.IngredientSubstanceID]
+                        .Select(sub => StitchIngredientSubstance(sub))
+                        .FirstOrDefault();
+
+                    return ingDto;
+                }).ToList();
+
+                productDto["MarketingCategories"] = marketingCategoriesByProductLookup[product.ProductID].Select(mc => {
+
+                    var mcDto = mc.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    mcDto["Holders"] = holdersLookup[mc.MarketingCategoryID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    return mcDto;
+                }).ToList();
+
+                productDto["MarketingStatuses"] = marketingStatusByProductLookup[product.ProductID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                productDto["Characteristics"] = characteristicsByProductLookup[product.ProductID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                productDto["Parts"] = productPartsLookup[product.ProductID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                productDto["Policies"] = policiesLookup[product.ProductID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                productDto["RoutesOfAdministration"] = routesLookup[product.ProductID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                productDto["WebLinks"] = webLinksLookup[product.ProductID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                productDto["Packaging"] = packagingByProductLookup[product.ProductID].Select(pkg => StitchPackagingLevel(pkg)).ToList();
+
+                productDto["ProductInstances"] = productInstancesByProductLookup[product.ProductID].Select(pi => StitchProductInstance(pi)).ToList();
+
+                return productDto;
+            }
+
+            // Helper method to stich products
+            Dictionary<string, object?> StitchProductInstance(Label.ProductInstance pi)
+            {
+                var piDto = pi.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                piDto["IngredientInstances"] = ingredientInstancesByFillLotLookup[pi.ProductInstanceID].Select(ii => {
+                   
+                    var iiDto = ii.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    // Stitch the IngredientSubstance for this IngredientInstance
+                    iiDto["IngredientSubstance"] = ingredientSubstancesLookup[ii.IngredientSubstanceID]
+                        .Select(sub => StitchIngredientSubstance(sub))
+                        .FirstOrDefault();
+
+                    return iiDto;
+                }).ToList();
+
+                piDto["LotHierarchyMembers"] = lotHierarchyByParentLookup[pi.ProductInstanceID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+                piDto["Packaging"] = packagingByInstanceLookup[pi.ProductInstanceID].Select(pkg => StitchPackagingLevel(pkg)).ToList();
+                return piDto;
+            }
+
+            // Helper method to stich Ingredient Substances
+            Dictionary<string, object?> StitchIngredientSubstance(Label.IngredientSubstance substance)
+            {
+                var substanceDto = substance.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                substanceDto["ActiveMoieties"] = activeMoietiesLookup[substance.IngredientSubstanceID]
+                    .Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                substanceDto["ReferenceSubstances"] = referenceSubstancesLookup[substance.IngredientSubstanceID]
+                    .Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                return substanceDto;
+            }
+
+            // Helper to stitch children of PackagingLevel (recursively)
+            Dictionary<string, object?> StitchPackagingLevel(Label.PackagingLevel pkg)
+            {
+                var pkgDto = pkg.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                pkgDto["Identifiers"] = packageIdentifiersLookup[pkg.PackagingLevelID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                pkgDto["MarketingStatuses"] = marketingStatusByPackageLookup[pkg.PackagingLevelID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                pkgDto["Characteristics"] = characteristicsByPackageLookup[pkg.PackagingLevelID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                pkgDto["ContainedPackages"] = packagingHierarchyLookup[pkg.PackagingLevelID].Select(h => {
+                    var innerPkg = packagingLevels.FirstOrDefault(p => p.PackagingLevelID == h.InnerPackagingLevelID);
+                    return innerPkg != null ? StitchPackagingLevel(innerPkg) : null;
+                }).Where(p => p != null).ToList();
+
+                return pkgDto;
+            }
+
+            // Helper to stitch children of IdentifiedSubstance
+            Dictionary<string, object?> StitchIdentifiedSubstance(Label.IdentifiedSubstance substance)
+            {
+                var substanceDto = substance.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                substanceDto["PharmacologicClasses"] = pharmClassesLookup[substance.IdentifiedSubstanceID].Select(pc => {
+
+                    var pcDto = pc.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    pcDto["Names"] = pharmClassNameLookup[pc.PharmacologicClassID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    pcDto["Links"] = pharmClassLinkLookup[pc.PharmacologicClassID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    return pcDto;
+                }).ToList();
+
+                substanceDto["Specifications"] = substanceSpecsLookup[substance.IdentifiedSubstanceID].Select(spec => {
+
+                    var specDto = spec.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    specDto["Analytes"] = analytesLookup[spec.SubstanceSpecificationID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    specDto["ObservationCriteria"] = criteriaLookup[spec.SubstanceSpecificationID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    return specDto;
+                }).ToList();
+
+                return substanceDto;
+            }
+
+            // Helper to stitch children of ProductConcept
+            Dictionary<string, object?> StitchProductConcept(Label.ProductConcept concept)
+            {
+                var conceptDto = concept.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                conceptDto["Ingredients"] = ingredientsByConceptLookup[concept.ProductConceptID].Select(ing => {
+
+                    var ingDto = ing.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    ingDto["SourceProducts"] = ingredientSourcesLookup[ing.IngredientID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    ingDto["SpecifiedSubstances"] = specifiedSubstancesLookup[ing.IngredientID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    ingDto["IngredientSubstance"] = ingredientSubstancesLookup[ing.IngredientSubstanceID]
+                        .Select(sub => StitchIngredientSubstance(sub))
+                        .FirstOrDefault();
+
+                    return ingDto;
+                }).ToList();
+
+                conceptDto["MarketingCategories"] = marketingCategoriesByConceptLookup[concept.ProductConceptID].Select(mc => {
+                    
+                    var mcDto = mc.ToEntityWithEncryptedId(_encryptionKey, _logger);
+
+                    mcDto["Holders"] = holdersLookup[mc.MarketingCategoryID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
+
+                    return mcDto;
+                }).ToList();
+
+                return conceptDto;
+            }
             #endregion
         }
 
