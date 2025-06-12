@@ -5,6 +5,7 @@ using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Reflection;
 using System.Reflection.Emit;
+using LabelContainer = MedRecPro.DataModels.Label;
 
 namespace MedRecPro.Data
 {

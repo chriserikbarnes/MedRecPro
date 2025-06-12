@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using MedRecPro.Helpers;
 using MedRecPro.Data;
 using MedRecPro.DataModels;
+using MedRecPro.Models;
 
 
 namespace MedRecPro.DataAccess
@@ -108,7 +109,7 @@ namespace MedRecPro.DataAccess
         }
 
         #region Private
-        /**************************************/
+        /**************************************************************/
         /// <summary>
         /// Retrieves the primary key column name for a given table in the database context.
         /// </summary>
@@ -138,7 +139,7 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
-        /**************************************/
+        //**************************************************************/
         /// <summary>
         /// Retrieves the Primary Key encryption secret from configuration.
         /// </summary>
@@ -208,7 +209,7 @@ namespace MedRecPro.DataAccess
 
         #endregion
 
-        /**************************************/
+        /**************************************************************/
         /// <summary>
         /// Creates a new record in the database corresponding to the provided entity.
         /// The primary key is assumed to be database-generated and will be populated on the entity.
@@ -259,7 +260,7 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
-        /**************************************/
+        /**************************************************************/
         /// <summary>
         /// Reads a single record from the database based on its encrypted primary key ID.
         /// </summary>
@@ -282,7 +283,7 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
-        /**************************************/
+        /**************************************************************/
         ///<summary>
         /// Reads a paged set of records from the database table corresponding to type T.
         /// If either pageNumber or pageSize is null, all records are returned.
@@ -310,8 +311,28 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
-       /**************************************/
+        /**************************************************************/
+        public virtual async Task<List<DocumentDto>> GetCompleteLabelsAsync(int? pageNumber, int? pageSize)
+        {
+            var results = await DtoLabelHelper.BuildDocumentsAsync(
+            _context,
+            getPkSecret(),
+            _logger,
+            pageNumber,
+            pageSize);
+
+            return results;
+
+        }
+
+
+#if DEBUG
+        /**************************************************************/
         /// <summary>
+        /// 
+        /// DEBUGGING ONLY. THIS IS NOT FOR RELEASE IT IS A 'GOD METHOD'
+        /// FOR COMPARISONS AND GETTING THE LAY OF THE LAND INTERNALLY
+        /// 
         /// Reads a paged set of "complete label" data, structured hierarchically starting from the Document entity.
         /// This method is specialized and will only execute if the repository's type T is Label.Document.
         /// It manually constructs the object graph since the POCOs lack navigation properties.
@@ -324,7 +345,7 @@ namespace MedRecPro.DataAccess
         /// </exception>
         /// <seealso cref="Label"/>
         /// <seealso cref="Label.Document"/>
-        public virtual async Task<IEnumerable<Dictionary<string, object?>>> ReadAllCompleteLabelsAsync(int? pageNumber, int? pageSize)
+        protected internal virtual async Task<IEnumerable<Dictionary<string, object?>>> readAllCompleteLabelsAsync(int? pageNumber, int? pageSize)
         {
             #region Pre-computation and Validation
             if (typeof(T) != typeof(Label.Document))
@@ -575,19 +596,23 @@ namespace MedRecPro.DataAccess
                 docDto["RelatedDocuments"] = relatedDocsLookup[doc.DocumentID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
                 // DocumentRelationships -> BusinessOperations -> Qualifiers/Links/Licenses -> DisciplinaryActions -> AttachedDocs
-                docDto["DocumentRelationships"] = relationshipsLookup[doc.DocumentID].Select(rel => {
+                docDto["DocumentRelationships"] = relationshipsLookup[doc.DocumentID].Select(rel =>
+                {
                     var relDto = rel.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
-                    relDto["BusinessOperations"] = bizOpsLookup[rel.DocumentRelationshipID].Select(op => {
+                    relDto["BusinessOperations"] = bizOpsLookup[rel.DocumentRelationshipID].Select(op =>
+                    {
                         var opDto = op.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
                         opDto["Qualifiers"] = bizOpQualifiersLookup[op.BusinessOperationID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
                         opDto["ProductLinks"] = bizOpProductsLookup[op.BusinessOperationID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
-                        opDto["Licenses"] = licensesLookup[op.BusinessOperationID].Select(lic => {
+                        opDto["Licenses"] = licensesLookup[op.BusinessOperationID].Select(lic =>
+                        {
                             var licDto = lic.ToEntityWithEncryptedId(_encryptionKey, _logger);
-                            licDto["DisciplinaryActions"] = disciplinaryActionsLookup[lic.LicenseID].Select(da => {
+                            licDto["DisciplinaryActions"] = disciplinaryActionsLookup[lic.LicenseID].Select(da =>
+                            {
                                 var daDto = da.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
                                 daDto["AttachedDocuments"] = attachedDocsDisciplinaryLookup[da.DisciplinaryActionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
@@ -605,13 +630,16 @@ namespace MedRecPro.DataAccess
                 }).ToList();
 
                 // StructuredBodies -> Sections -> [All Section Children]
-                docDto["StructuredBodies"] = bodiesLookup[doc.DocumentID].Select(body => {
+                docDto["StructuredBodies"] = bodiesLookup[doc.DocumentID].Select(body =>
+                {
                     var bodyDto = body.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
                     // Recursive function to build section hierarchy
                     Func<int?, List<Dictionary<string, object?>>> buildSectionTree = null!;
-                    buildSectionTree = (parentId) => {
-                        return sectionHierarchyLookup[parentId].Select(sh => {
+                    buildSectionTree = (parentId) =>
+                    {
+                        return sectionHierarchyLookup[parentId].Select(sh =>
+                        {
 
                             var childSection = sections.FirstOrDefault(s => s.SectionID == sh.ChildSectionID);
 
@@ -625,7 +653,8 @@ namespace MedRecPro.DataAccess
                     };
 
                     // Stitch top-level sections and their hierarchies
-                    bodyDto["Sections"] = sectionsLookup[body.StructuredBodyID].Select(section => {
+                    bodyDto["Sections"] = sectionsLookup[body.StructuredBodyID].Select(section =>
+                    {
                         var sectionDto = StitchSection(section);
                         sectionDto["SubSections"] = buildSectionTree(section.SectionID);
                         return sectionDto;
@@ -657,7 +686,8 @@ namespace MedRecPro.DataAccess
 
                 sectionDto["ProductConcepts"] = productConceptsBySectionLookup[section.SectionID].Select(concept => StitchProductConcept(concept)).ToList();
 
-                sectionDto["InteractionIssues"] = interactionIssuesBySectionLookup[section.SectionID].Select(issue => {
+                sectionDto["InteractionIssues"] = interactionIssuesBySectionLookup[section.SectionID].Select(issue =>
+                {
                     var issueDto = issue.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
                     issueDto["ContributingFactors"] = contributingFactorsLookup[issue.InteractionIssueID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
@@ -673,7 +703,8 @@ namespace MedRecPro.DataAccess
 
                 sectionDto["WarningLetterDates"] = warningLetterDateLookup[section.SectionID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
-                sectionDto["Protocols"] = protocolLookup[section.SectionID].Select(p => {
+                sectionDto["Protocols"] = protocolLookup[section.SectionID].Select(p =>
+                {
 
                     var pDto = p.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
@@ -684,7 +715,8 @@ namespace MedRecPro.DataAccess
                     return pDto;
                 }).ToList();
 
-                sectionDto["REMSMaterials"] = remsMaterialLookup[section.SectionID].Select(m => {
+                sectionDto["REMSMaterials"] = remsMaterialLookup[section.SectionID].Select(m =>
+                {
 
                     var mDto = m.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
@@ -705,7 +737,8 @@ namespace MedRecPro.DataAccess
             Dictionary<string, object?> StitchTextContent(Label.SectionTextContent textContent)
             {
                 var textContentDto = textContent.ToEntityWithEncryptedId(_encryptionKey, _logger);
-                textContentDto["Lists"] = listsLookup[textContent.SectionTextContentID].Select(list => {
+                textContentDto["Lists"] = listsLookup[textContent.SectionTextContentID].Select(list =>
+                {
 
                     var listDto = list.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
@@ -714,11 +747,13 @@ namespace MedRecPro.DataAccess
                     return listDto;
                 }).ToList();
 
-                textContentDto["Tables"] = tablesLookup[textContent.SectionTextContentID].Select(table => {
+                textContentDto["Tables"] = tablesLookup[textContent.SectionTextContentID].Select(table =>
+                {
 
                     var tableDto = table.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
-                    tableDto["Rows"] = tableRowsLookup[table.TextTableID].Select(row => {
+                    tableDto["Rows"] = tableRowsLookup[table.TextTableID].Select(row =>
+                    {
 
                         var rowDto = row.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
@@ -744,7 +779,8 @@ namespace MedRecPro.DataAccess
 
                 productDto["GenericMedicines"] = genericMedicinesLookup[product.ProductID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
-                productDto["Ingredients"] = ingredientsByProductLookup[product.ProductID].Select(ing => {
+                productDto["Ingredients"] = ingredientsByProductLookup[product.ProductID].Select(ing =>
+                {
 
                     var ingDto = ing.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
@@ -759,7 +795,8 @@ namespace MedRecPro.DataAccess
                     return ingDto;
                 }).ToList();
 
-                productDto["MarketingCategories"] = marketingCategoriesByProductLookup[product.ProductID].Select(mc => {
+                productDto["MarketingCategories"] = marketingCategoriesByProductLookup[product.ProductID].Select(mc =>
+                {
 
                     var mcDto = mc.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
@@ -792,8 +829,9 @@ namespace MedRecPro.DataAccess
             {
                 var piDto = pi.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
-                piDto["IngredientInstances"] = ingredientInstancesByFillLotLookup[pi.ProductInstanceID].Select(ii => {
-                   
+                piDto["IngredientInstances"] = ingredientInstancesByFillLotLookup[pi.ProductInstanceID].Select(ii =>
+                {
+
                     var iiDto = ii.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
                     // Stitch the IngredientSubstance for this IngredientInstance
@@ -834,7 +872,8 @@ namespace MedRecPro.DataAccess
 
                 pkgDto["Characteristics"] = characteristicsByPackageLookup[pkg.PackagingLevelID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
-                pkgDto["ContainedPackages"] = packagingHierarchyLookup[pkg.PackagingLevelID].Select(h => {
+                pkgDto["ContainedPackages"] = packagingHierarchyLookup[pkg.PackagingLevelID].Select(h =>
+                {
                     var innerPkg = packagingLevels.FirstOrDefault(p => p.PackagingLevelID == h.InnerPackagingLevelID);
                     return innerPkg != null ? StitchPackagingLevel(innerPkg) : null;
                 }).Where(p => p != null).ToList();
@@ -847,7 +886,8 @@ namespace MedRecPro.DataAccess
             {
                 var substanceDto = substance.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
-                substanceDto["PharmacologicClasses"] = pharmClassesLookup[substance.IdentifiedSubstanceID].Select(pc => {
+                substanceDto["PharmacologicClasses"] = pharmClassesLookup[substance.IdentifiedSubstanceID].Select(pc =>
+                {
 
                     var pcDto = pc.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
@@ -858,7 +898,8 @@ namespace MedRecPro.DataAccess
                     return pcDto;
                 }).ToList();
 
-                substanceDto["Specifications"] = substanceSpecsLookup[substance.IdentifiedSubstanceID].Select(spec => {
+                substanceDto["Specifications"] = substanceSpecsLookup[substance.IdentifiedSubstanceID].Select(spec =>
+                {
 
                     var specDto = spec.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
@@ -877,7 +918,8 @@ namespace MedRecPro.DataAccess
             {
                 var conceptDto = concept.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
-                conceptDto["Ingredients"] = ingredientsByConceptLookup[concept.ProductConceptID].Select(ing => {
+                conceptDto["Ingredients"] = ingredientsByConceptLookup[concept.ProductConceptID].Select(ing =>
+                {
 
                     var ingDto = ing.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
@@ -892,8 +934,9 @@ namespace MedRecPro.DataAccess
                     return ingDto;
                 }).ToList();
 
-                conceptDto["MarketingCategories"] = marketingCategoriesByConceptLookup[concept.ProductConceptID].Select(mc => {
-                    
+                conceptDto["MarketingCategories"] = marketingCategoriesByConceptLookup[concept.ProductConceptID].Select(mc =>
+                {
+
                     var mcDto = mc.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
                     mcDto["Holders"] = holdersLookup[mc.MarketingCategoryID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
@@ -904,7 +947,8 @@ namespace MedRecPro.DataAccess
                 return conceptDto;
             }
             #endregion
-        }
+        } 
+#endif
 
         /**************************************/
         /// <summary>
@@ -936,7 +980,7 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
-        /**************************************/
+        /**************************************************************/
         /// <summary>
         /// Deletes a record from the database based on its encrypted primary key ID.
         /// </summary>
@@ -967,7 +1011,7 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
-        /**************************************/
+        /**************************************************************/
         /// <summary>
         /// Deletes a record from the database based on the primary key of the provided entity.
         /// </summary>

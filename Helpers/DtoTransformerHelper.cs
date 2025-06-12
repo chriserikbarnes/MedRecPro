@@ -96,36 +96,256 @@ namespace MedRecPro.Helpers
         /// <summary>
         /// Lock object for thread-safe access to the XML documentation cache
         /// </summary>
-        private static readonly object _xmlDocsCacheLock = new object();
+        private static readonly object _lock = new object();
 
+        #endregion
+
+        #region private methods
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the primary key property of an entity type based on naming conventions.
+        /// </summary>
+        /// <param name="entityType"></param>
+        /// <param name="logger"></param>
+        /// <returns></returns>
+        private static PropertyInfo? getPkProp(Type? entityType, ILogger logger)
+        {
+            #region implementation
+            PropertyInfo? pkProperty = null;
+
+            lock (_lock)
+            {
+
+                try
+                {
+                    // If the entity type is null, return null immediately
+                    if (entityType == null)
+                    {
+                        if (logger != null)
+                            logger.LogWarning("DtoTransformer.getPkProp() called with a null entity type.");
+                        return null;
+                    }
+
+                    // Convention 1: ClassNameID (e.g., DocumentID for Label.Document)
+                    string pkNameConvention1 = entityType.Name + "ID";
+                    pkProperty = entityType.GetProperty(pkNameConvention1, BindingFlags.Public | BindingFlags.Instance);
+
+                    // Convention 2: ClassNameId (e.g., DocumentId for Label.Document)
+                    if (pkProperty == null)
+                    {
+                        string pkNameConvention2 = entityType.Name + "Id";
+                        pkProperty = entityType.GetProperty(pkNameConvention2, BindingFlags.Public | BindingFlags.Instance);
+                    }
+
+                    // Convention 3: Id (case-insensitive, common for Identity entities)
+                    if (pkProperty == null)
+                    {
+                        pkProperty = entityType.GetProperty("Id", BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                    }
+                }
+                catch (Exception e)
+                {
+                    if (logger != null)
+                        logger.LogWarning($"DtoTransformer.getPkProp() {e.Message}");
+                }
+            }
+
+            return pkProperty;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the XML documentation summary for a specific member (class, property, method, etc.)
+        /// from the loaded XML documentation file.
+        /// </summary>
+        /// <param name="memberNamePrefix">The member type prefix (T for types, P for properties, M for methods, etc.).</param>
+        /// <param name="elementFullName">The full name of the element including namespace and type.</param>
+        /// <param name="assembly">The assembly containing the member.</param>
+        /// <param name="logger">Logger for recording lookup attempts and failures.</param>
+        /// <returns>The summary text from XML documentation, or null if not found or failed to parse.</returns>
+        /// <remarks>
+        /// Uses XPath queries to locate specific member documentation within the XML file.
+        /// Handles XPath exceptions gracefully and returns null for missing documentation.
+        /// Member names follow .NET XML documentation conventions (e.g., "T:Namespace.ClassName").
+        /// </remarks>
+        private static string? getXmlSummary(string memberNamePrefix, string elementFullName, Assembly assembly, ILogger logger)
+        {
+            #region implementation
+
+            // Load the XML documentation for this assembly
+            var xmlDoc = loadXmlDocumentation(assembly, logger);
+            if (xmlDoc == null)
+            {
+                return null;
+            }
+
+            // IMPORTANT CORRECTION: Convert '+' from reflection's FullName to '.' for XML doc format
+            string xmlCompatibleElementFullName = elementFullName.Replace('+', '.');
+
+            // Construct full member name for XML lookup, e.g., "T:Namespace.ClassName" or "P:Namespace.ClassName.PropertyName"
+            string fullXmlMemberName = $"{memberNamePrefix}:{xmlCompatibleElementFullName}";
+
+            try
+            {
+                // Use XPath to find the summary node for this specific member
+                XmlNode? summaryNode = xmlDoc.SelectSingleNode($"//member[@name='{fullXmlMemberName}']/summary");
+                return summaryNode?.InnerText.Trim();
+            }
+            catch (System.Xml.XPath.XPathException ex)
+            {
+                logger.LogWarning(ex, "XPathException while trying to get summary for {FullXmlMemberName} in assembly {AssemblyName}.", fullXmlMemberName, assembly.GetName().Name);
+                return null;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a property is nullable based on its type information.
+        /// Handles both reference types (inherently nullable) and Nullable&lt;T&gt; value types.
+        /// </summary>
+        /// <param name="property">The PropertyInfo object to analyze for nullability.</param>
+        /// <returns>True if the property can hold null values, false otherwise.</returns>
+        /// <remarks>
+        /// Reference types (classes, interfaces, delegates, strings) are considered nullable.
+        /// Value types are nullable only if they are Nullable&lt;T&gt; (e.g., int?, DateTime?).
+        /// This method does not detect C# 8.0+ nullable reference type annotations, which would
+        /// require more complex reflection involving NullabilityInfoContext (.NET 5.0+).
+        /// </remarks>
+        private static bool isPropertyNullable(PropertyInfo property)
+        {
+            #region implementation
+
+            // Check for reference types (class, interface, delegate, string) which are inherently nullable
+            if (!property.PropertyType.IsValueType || property.PropertyType == typeof(string))
+            {
+                return true;
+            }
+
+            // Check for Nullable<T> value types (e.g., int?, DateTime?)
+            if (Nullable.GetUnderlyingType(property.PropertyType) != null)
+            {
+                return true;
+            }
+
+            // For C# 8.0+ nullable reference types, this requires deeper inspection of attributes
+            // which is complex. For simplicity, this basic check covers value types and string.
+            // A more robust check would involve NullabilityInfoContext (net5.0+).
+            // For now, we'll assume non-Nullable<T> value types are not nullable in the C# sense
+            // unless C# 8 NRT attributes say otherwise, which we aren't checking here.
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Loads XML documentation for the specified assembly from the application's base directory.
+        /// Results are cached to avoid repeated file I/O operations for the same assembly.
+        /// </summary>
+        /// <param name="assembly">The assembly for which to load XML documentation.</param>
+        /// <param name="logger">Logger for recording load attempts and failures.</param>
+        /// <returns>XmlDocument containing the documentation, or null if not found or failed to load.</returns>
+        /// <remarks>
+        /// This method expects XML documentation files to be named {AssemblyName}.xml and located
+        /// in the application's base directory. Results are cached in memory for performance.
+        /// Thread-safe implementation using lock for cache access.
+        /// </remarks>
+        private static XmlDocument? loadXmlDocumentation(Assembly assembly, ILogger logger)
+        {
+            #region implementation
+
+            // Thread-safe cache access
+            lock (_lock)
+            {
+                // Check if documentation is already cached for this assembly
+                if (_xmlDocsCache.TryGetValue(assembly, out var cachedDoc))
+                {
+                    return cachedDoc; // Return cached doc (could be null if previously not found)
+                }
+
+                // Get assembly name for constructing XML file path
+                string assemblyName = assembly.GetName().Name ?? string.Empty;
+                if (string.IsNullOrEmpty(assemblyName))
+                {
+                    logger.LogWarning("Assembly name is null or empty, cannot load XML documentation.");
+                    _xmlDocsCache[assembly] = null;
+                    return null;
+                }
+
+                // Construct expected XML documentation file path
+                string xmlFilePath = Path.Combine(AppContext.BaseDirectory, $"{assemblyName}.xml");
+
+                if (File.Exists(xmlFilePath))
+                {
+                    try
+                    {
+                        // Load and parse the XML documentation file
+                        var xmlDoc = new XmlDocument();
+                        xmlDoc.Load(xmlFilePath);
+                        _xmlDocsCache[assembly] = xmlDoc;
+                        logger.LogTrace("Successfully loaded XML documentation from {XmlFilePath}", xmlFilePath);
+                        return xmlDoc;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Failed to load XML documentation from {XmlFilePath}", xmlFilePath);
+                        _xmlDocsCache[assembly] = null; // Cache null to avoid retrying on failure
+                        return null;
+                    }
+                }
+                else
+                {
+                    logger.LogTrace("XML documentation file not found at {XmlFilePath}", xmlFilePath);
+                    _xmlDocsCache[assembly] = null; // Cache null as not found
+                    return null;
+                }
+            }
+
+            #endregion
+        }
         #endregion
 
         /**************************************************************/
         /// <summary>
         /// Transforms an entity object into a dictionary, replacing its primary key
-        /// with an encrypted version. It assumes the primary key property 
-        /// follows the convention 'ClassNameID', 'ClassNameId', or 'Id'.
-        /// The original PK property is omitted from the output dictionary.
+        /// and any foreign key properties with encrypted versions.
+        /// It assumes the primary key property follows the convention 'ClassNameID', 'ClassNameId', or 'Id'.
+        /// It assumes foreign key properties follow the convention of ending with 'ID' (e.g., 'ParentSectionID').
+        /// The original ID properties are omitted from the output dictionary.
         /// </summary>
         /// <param name="entity">The entity object to transform. Can be null.</param>
-        /// <param name="pkEncryptionSecret">The secret key used for encrypting the primary key.</param>
+        /// <param name="pkEncryptionSecret">The secret key used for encrypting the ID keys.</param>
         /// <param name="logger">Logger for recording any issues during transformation.</param>
         /// <returns>
-        /// A dictionary representing the transformed entity with an encrypted PK.
+        /// A dictionary representing the transformed entity with encrypted ID fields.
         /// Returns an empty dictionary if the input entity is null.
-        /// The encrypted PK will be named 'Encrypted' + OriginalPKName (e.g., 'EncryptedDocumentID').
+        /// Encrypted keys will be named 'Encrypted' + OriginalIDPropertyName (e.g., 'ChildSectionID' becomes 'EncryptedChildSectionID').
         /// </returns>
         /// <example>
         /// <code>
-        /// var user = new User { UserID = 123, Name = "John Doe" };
-        /// var result = user.ToEntityWithEncryptedId("mySecret", logger);
-        /// // Result: { "EncryptedUserID": "encrypted_string", "Name": "John Doe" }
+        /// var sectionHierarchy = new SectionHierarchy { 
+        ///     SectionHierarchyID = 1, 
+        ///     ParentSectionID = 10, 
+        ///     ChildSectionID = 25, 
+        ///     SequenceNumber = 1 
+        /// };
+        /// var result = sectionHierarchy.ToEntityWithEncryptedId("mySecret", logger);
+        /// // Result: { 
+        /// //   "EncryptedSectionHierarchyID": "encrypted_string_1", 
+        /// //   "EncryptedParentSectionID": "encrypted_string_10",
+        /// //   "EncryptedChildSectionID": "encrypted_string_25",
+        /// //   "SequenceNumber": 1 
+        /// // }
         /// </code>
         /// </example>
         /// <remarks>
-        /// This method uses reflection to find the primary key property based on naming conventions.
-        /// If encryption fails, the encrypted field will not be added to the result dictionary.
-        /// All other public readable properties are copied to the output dictionary unchanged.
+        /// This method uses reflection to find key properties based on naming conventions.
+        /// If encryption fails for any key, the corresponding encrypted field will not be added.
+        /// All other public, readable, non-key, non-navigation properties are copied to the output dictionary unchanged.
+        /// Navigation properties (identified as `virtual`) are ignored to prevent circular reference errors.
         /// </remarks>
         public static Dictionary<string, object?> ToEntityWithEncryptedId(
             this object? entity,
@@ -145,33 +365,13 @@ namespace MedRecPro.Helpers
             }
 
             // Initialize result dictionary for transformed entity
-            var dto = new Dictionary<string, object?>();
+            var dictionary = new Dictionary<string, object?>();
 
             // Get the type information for reflection operations
             var entityType = entity.GetType();
 
-            PropertyInfo? pkProperty = null;
-
-            #region primary key property discovery
-
-            // Convention 1: ClassNameID (e.g., DocumentID for Label.Document)
-            string pkNameConvention1 = entityType.Name + "ID";
-            pkProperty = entityType.GetProperty(pkNameConvention1, BindingFlags.Public | BindingFlags.Instance);
-
-            // Convention 2: ClassNameId (e.g., DocumentId for Label.Document)
-            if (pkProperty == null)
-            {
-                string pkNameConvention2 = entityType.Name + "Id";
-                pkProperty = entityType.GetProperty(pkNameConvention2, BindingFlags.Public | BindingFlags.Instance);
-            }
-
-            // Convention 3: Id (case-insensitive, common for Identity entities)
-            if (pkProperty == null)
-            {
-                pkProperty = entityType.GetProperty("Id", BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-            }
-
-            #endregion
+            // Get the primary key property using conventions
+            PropertyInfo? pkProperty = getPkProp(entityType, logger);
 
             #region primary key encryption processing
 
@@ -191,7 +391,7 @@ namespace MedRecPro.Helpers
                         string encryptedPkString = StringCipher.Encrypt(pkValue.ToString()!, pkEncryptionSecret);
 
                         // Add the encrypted PK to the DTO
-                        dto[encryptedPkFieldName] = encryptedPkString;
+                        dictionary[encryptedPkFieldName] = encryptedPkString;
                     }
                     catch (Exception ex)
                     {
@@ -209,7 +409,7 @@ namespace MedRecPro.Helpers
                 else
                 {
                     // PK value is null, so encrypted PK is also null.
-                    dto[encryptedPkFieldName] = null;
+                    dictionary[encryptedPkFieldName] = null;
 
                     if (logger != null)
                         // Log trace when PK is null
@@ -227,7 +427,7 @@ namespace MedRecPro.Helpers
 
             #endregion
 
-            #region copy remaining properties
+            #region copy or encrypt remaining properties
 
             // Copy all other readable public instance properties
             foreach (var prop in entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
@@ -235,19 +435,60 @@ namespace MedRecPro.Helpers
                 // Skip properties that cannot be read
                 if (!prop.CanRead) continue;
 
-                // Skip the original PK property as it's being replaced/masked
+                // Skip the original PK property as it's already been processed and replaced
                 if (pkProperty != null && prop.Name == pkProperty.Name)
                 {
                     continue;
                 }
 
-                // Copy the property value to the result dictionary
-                dto[prop.Name] = prop.GetValue(entity);
+                // Skip virtual navigation properties to prevent circular references
+                var getMethod = prop.GetGetMethod();
+                if (getMethod != null && getMethod.IsVirtual && !getMethod.IsFinal)
+                {
+                    continue;
+                }
+
+                // Check if the property is a foreign key (by naming convention '...ID')
+                // Skipping properties that end with 'GUID' to avoid confusion with GUIDs.
+                if (!prop.Name.EndsWith("GUID", StringComparison.OrdinalIgnoreCase)
+                    && (prop.Name.EndsWith("ID", StringComparison.OrdinalIgnoreCase)
+                    || prop.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase)))
+                {
+                    // This is a foreign key property. Encrypt it.
+                    object? fkValue = prop.GetValue(entity);
+                    string encryptedFkFieldName = "Encrypted" + prop.Name;
+
+                    if (fkValue != null)
+                    {
+                        try
+                        {
+                            string encryptedFkString = StringCipher.Encrypt(fkValue.ToString()!, pkEncryptionSecret);
+                            dictionary[encryptedFkFieldName] = encryptedFkString;
+                        }
+                        catch (Exception ex)
+                        {
+                            if (logger != null)
+                            {
+                                logger.LogError(ex, "Failed to encrypt FK for entity type {EntityType}, FK property {FKProperty}. FK Value: {FKValue}. Field '{EncryptedFKField}' will not be added.",
+                                               entityType.FullName, prop.Name, fkValue.ToString(), encryptedFkFieldName);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    // This is a regular property, not a PK or FK. Copy it as is.
+                    var obj = prop.GetValue(entity);
+
+                    // Don't add null props
+                    if (obj != null)
+                        dictionary[prop.Name] = obj;
+                }
             }
 
             #endregion
 
-            return dto;
+            return dictionary;
 
             #endregion
         }
@@ -335,159 +576,6 @@ namespace MedRecPro.Helpers
             }
 
             return menu;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Loads XML documentation for the specified assembly from the application's base directory.
-        /// Results are cached to avoid repeated file I/O operations for the same assembly.
-        /// </summary>
-        /// <param name="assembly">The assembly for which to load XML documentation.</param>
-        /// <param name="logger">Logger for recording load attempts and failures.</param>
-        /// <returns>XmlDocument containing the documentation, or null if not found or failed to load.</returns>
-        /// <remarks>
-        /// This method expects XML documentation files to be named {AssemblyName}.xml and located
-        /// in the application's base directory. Results are cached in memory for performance.
-        /// Thread-safe implementation using lock for cache access.
-        /// </remarks>
-        private static XmlDocument? loadXmlDocumentation(Assembly assembly, ILogger logger)
-        {
-            #region implementation
-
-            // Thread-safe cache access
-            lock (_xmlDocsCacheLock)
-            {
-                // Check if documentation is already cached for this assembly
-                if (_xmlDocsCache.TryGetValue(assembly, out var cachedDoc))
-                {
-                    return cachedDoc; // Return cached doc (could be null if previously not found)
-                }
-
-                // Get assembly name for constructing XML file path
-                string assemblyName = assembly.GetName().Name ?? string.Empty;
-                if (string.IsNullOrEmpty(assemblyName))
-                {
-                    logger.LogWarning("Assembly name is null or empty, cannot load XML documentation.");
-                    _xmlDocsCache[assembly] = null;
-                    return null;
-                }
-
-                // Construct expected XML documentation file path
-                string xmlFilePath = Path.Combine(AppContext.BaseDirectory, $"{assemblyName}.xml");
-
-                if (File.Exists(xmlFilePath))
-                {
-                    try
-                    {
-                        // Load and parse the XML documentation file
-                        var xmlDoc = new XmlDocument();
-                        xmlDoc.Load(xmlFilePath);
-                        _xmlDocsCache[assembly] = xmlDoc;
-                        logger.LogTrace("Successfully loaded XML documentation from {XmlFilePath}", xmlFilePath);
-                        return xmlDoc;
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Failed to load XML documentation from {XmlFilePath}", xmlFilePath);
-                        _xmlDocsCache[assembly] = null; // Cache null to avoid retrying on failure
-                        return null;
-                    }
-                }
-                else
-                {
-                    logger.LogTrace("XML documentation file not found at {XmlFilePath}", xmlFilePath);
-                    _xmlDocsCache[assembly] = null; // Cache null as not found
-                    return null;
-                }
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Retrieves the XML documentation summary for a specific member (class, property, method, etc.)
-        /// from the loaded XML documentation file.
-        /// </summary>
-        /// <param name="memberNamePrefix">The member type prefix (T for types, P for properties, M for methods, etc.).</param>
-        /// <param name="elementFullName">The full name of the element including namespace and type.</param>
-        /// <param name="assembly">The assembly containing the member.</param>
-        /// <param name="logger">Logger for recording lookup attempts and failures.</param>
-        /// <returns>The summary text from XML documentation, or null if not found or failed to parse.</returns>
-        /// <remarks>
-        /// Uses XPath queries to locate specific member documentation within the XML file.
-        /// Handles XPath exceptions gracefully and returns null for missing documentation.
-        /// Member names follow .NET XML documentation conventions (e.g., "T:Namespace.ClassName").
-        /// </remarks>
-        private static string? getXmlSummary(string memberNamePrefix, string elementFullName, Assembly assembly, ILogger logger)
-        {
-            #region implementation
-
-            // Load the XML documentation for this assembly
-            var xmlDoc = loadXmlDocumentation(assembly, logger);
-            if (xmlDoc == null)
-            {
-                return null;
-            }
-
-            // IMPORTANT CORRECTION: Convert '+' from reflection's FullName to '.' for XML doc format
-            string xmlCompatibleElementFullName = elementFullName.Replace('+', '.');
-
-            // Construct full member name for XML lookup, e.g., "T:Namespace.ClassName" or "P:Namespace.ClassName.PropertyName"
-            string fullXmlMemberName = $"{memberNamePrefix}:{xmlCompatibleElementFullName}";
-
-            try
-            {
-                // Use XPath to find the summary node for this specific member
-                XmlNode? summaryNode = xmlDoc.SelectSingleNode($"//member[@name='{fullXmlMemberName}']/summary");
-                return summaryNode?.InnerText.Trim();
-            }
-            catch (System.Xml.XPath.XPathException ex)
-            {
-                logger.LogWarning(ex, "XPathException while trying to get summary for {FullXmlMemberName} in assembly {AssemblyName}.", fullXmlMemberName, assembly.GetName().Name);
-                return null;
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Determines whether a property is nullable based on its type information.
-        /// Handles both reference types (inherently nullable) and Nullable&lt;T&gt; value types.
-        /// </summary>
-        /// <param name="property">The PropertyInfo object to analyze for nullability.</param>
-        /// <returns>True if the property can hold null values, false otherwise.</returns>
-        /// <remarks>
-        /// Reference types (classes, interfaces, delegates, strings) are considered nullable.
-        /// Value types are nullable only if they are Nullable&lt;T&gt; (e.g., int?, DateTime?).
-        /// This method does not detect C# 8.0+ nullable reference type annotations, which would
-        /// require more complex reflection involving NullabilityInfoContext (.NET 5.0+).
-        /// </remarks>
-        private static bool isPropertyNullable(PropertyInfo property)
-        {
-            #region implementation
-
-            // Check for reference types (class, interface, delegate, string) which are inherently nullable
-            if (!property.PropertyType.IsValueType || property.PropertyType == typeof(string))
-            {
-                return true;
-            }
-
-            // Check for Nullable<T> value types (e.g., int?, DateTime?)
-            if (Nullable.GetUnderlyingType(property.PropertyType) != null)
-            {
-                return true;
-            }
-
-            // For C# 8.0+ nullable reference types, this requires deeper inspection of attributes
-            // which is complex. For simplicity, this basic check covers value types and string.
-            // A more robust check would involve NullabilityInfoContext (net5.0+).
-            // For now, we'll assume non-Nullable<T> value types are not nullable in the C# sense
-            // unless C# 8 NRT attributes say otherwise, which we aren't checking here.
-            return false;
 
             #endregion
         }

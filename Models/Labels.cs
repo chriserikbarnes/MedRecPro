@@ -30,6 +30,7 @@ namespace MedRecPro.DataModels
         }
     }
 
+    /*******************************************************************************/
     /// <summary>
     /// Container for all SPL Label metadata classes/sections. The nested classes are based on the
     /// Health Level Seven (HL7) SPL (Dec 2023) specification. https://www.fda.gov/media/84201/download. Most
@@ -38,6 +39,7 @@ namespace MedRecPro.DataModels
     public class Label
     {
         #region Properties
+
         /*******************************************************************************/
         /// <summary>
         /// Stores the main metadata for each SPL document version. Based on Section 2.1.3.

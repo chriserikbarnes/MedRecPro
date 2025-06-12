@@ -149,10 +149,6 @@ builder.Services.AddAuthentication(options =>
 // Assuming MedRecPro.Models.PasswordHasher<User> is your specific implementation.
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
-
-
-
-
 // --- Authorization ---
 builder.Services.AddAuthorization(options =>
 {

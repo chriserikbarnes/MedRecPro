@@ -608,7 +608,9 @@ namespace MedRecPro.Api.Controllers
                 // We need the specific repository for Label.Document
                 var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
 
-                var completeLabels = await documentRepository.ReadAllCompleteLabelsAsync(finalPageNumber, finalPageSize);
+                //var completeLabels = await documentRepository.ReadAllCompleteLabelsAsync(finalPageNumber, finalPageSize);
+
+                var completeLabels = await documentRepository.GetCompleteLabelsAsync(finalPageNumber, finalPageSize);
 
                 if (usePaging)
                 {
