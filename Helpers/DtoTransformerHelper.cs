@@ -388,7 +388,7 @@ namespace MedRecPro.Helpers
                     try
                     {
                         // StringCipher.Encrypt is static as per your provided StringCipher class
-                        string encryptedPkString = StringCipher.Encrypt(pkValue.ToString()!, pkEncryptionSecret);
+                        string encryptedPkString = StringCipher.Encrypt(pkValue.ToString()!, pkEncryptionSecret, StringCipher.EncryptionStrength.Fast);
 
                         // Add the encrypted PK to the DTO
                         dictionary[encryptedPkFieldName] = encryptedPkString;
@@ -462,7 +462,7 @@ namespace MedRecPro.Helpers
                     {
                         try
                         {
-                            string encryptedFkString = StringCipher.Encrypt(fkValue.ToString()!, pkEncryptionSecret);
+                            string encryptedFkString = StringCipher.Encrypt(fkValue.ToString()!, pkEncryptionSecret,StringCipher.EncryptionStrength.Fast);
                             dictionary[encryptedFkFieldName] = encryptedFkString;
                         }
                         catch (Exception ex)

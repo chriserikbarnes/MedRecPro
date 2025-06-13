@@ -18,6 +18,7 @@ using Humanizer;
 
 
 using System.ComponentModel.DataAnnotations;
+using static MedRecPro.Helpers.StringCipher;
 
 namespace MedRecPro.Helpers
 {
@@ -645,9 +646,10 @@ namespace MedRecPro.Helpers
         /// </summary>
         /// <param name="text"></param>
         /// <param name="key"></param>
-        /// <seealso cref="StringCipher.Encrypt(string, string)"/>
+        /// <param name="strength">default = Strong</param>
+        /// <seealso cref="StringCipher.Encrypt(string, string, StringCipher.EncryptionStrength)"/>
         /// <returns></returns>
-        public static string Encrypt(this string text, string key)
+        public static string Encrypt(this string text, string key, EncryptionStrength strength = EncryptionStrength.Strong)
         {
             return StringCipher.Encrypt(text, key);
         }

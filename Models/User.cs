@@ -457,7 +457,7 @@ namespace MedRecPro.Models
                 if (this.Id > 0) // Use 'this.Id' which is the PK from IdentityUser<long>
                 {
                     string secret = getPkSecret();
-                    return StringCipher.Encrypt(this.Id.ToString(), secret);
+                    return StringCipher.Encrypt(this.Id.ToString(), secret, StringCipher.EncryptionStrength.Fast);
                 }
 
                 if(!string.IsNullOrEmpty(_encryptedUserId))

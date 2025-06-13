@@ -180,7 +180,7 @@ namespace MedRecPro.DataAccess
                     // Ensure EncryptedUserId is populated for UpdateLastLoginAsync
                     if (string.IsNullOrWhiteSpace(user.EncryptedUserId))
                     {
-                        user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
+                        user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
                     }
 
                     await UpdateLastLoginAsync(user.EncryptedUserId, DateTime.UtcNow, null /* IP address */);
@@ -276,7 +276,7 @@ namespace MedRecPro.DataAccess
                     if (existingUser != null)
                     {
 
-                        var encryptedId = StringCipher.Encrypt(existingUser.Id.ToString(), getPkSecret());
+                        var encryptedId = StringCipher.Encrypt(existingUser.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
 
                         await UpdateAsync(user, encryptedId);
 
@@ -288,7 +288,7 @@ namespace MedRecPro.DataAccess
                 _dbContext.AppUsers.Add(user);
                 await _dbContext.SaveChangesAsync();
 
-                return StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
+                return StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
             }
             catch (DbUpdateException ex)
             {
@@ -329,7 +329,7 @@ namespace MedRecPro.DataAccess
                 {
                     user.SetUserIdInternal(user.Id);
 
-                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret()); // Ensure outgoing DTO has it
+                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast); // Ensure outgoing DTO has it
                 }
                 return user;
             }
@@ -362,7 +362,7 @@ namespace MedRecPro.DataAccess
                 {
                     user.SetUserIdInternal(user.Id);
 
-                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
+                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
                 }
                 return user;
             }
@@ -405,7 +405,7 @@ namespace MedRecPro.DataAccess
                 foreach (var user in users)
                 {
                     user.SetUserIdInternal(user.Id);
-                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret());
+                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
                 }
                 return users;
             }

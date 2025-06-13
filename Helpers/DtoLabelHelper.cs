@@ -53,12 +53,17 @@ namespace MedRecPro.Helpers
            int? size = null)
         {
             #region implementation
+
             // 1. Fetch top-level Documents with optional pagination
             var query = db.Set<Label.Document>().AsNoTracking();
+
             if (page.HasValue && size.HasValue)
             {
                 // Apply pagination using LINQ skip/take
-                query = query.OrderBy(d => d.DocumentID).Skip((page.Value - 1) * size.Value).Take(size.Value);
+                query = query
+                    .OrderBy(d => d.DocumentID)
+                    .Skip((page.Value - 1) * size.Value)
+                    .Take(size.Value);
             }
 
             var docs = await query.ToListAsync();

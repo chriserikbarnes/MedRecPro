@@ -92,7 +92,7 @@ namespace MedRecPro.Security
                     }
                     else
                     {
-                        string encryptedUserId = StringCipher.Encrypt(user.Id.ToString(), _pkSecret);
+                        string encryptedUserId = StringCipher.Encrypt(user.Id.ToString(), _pkSecret, StringCipher.EncryptionStrength.Fast);
                         await _userDataAccess.UpdateLastLoginAsync(encryptedUserId, 
                             loginTime:DateTime.UtcNow, 
                             ipAddress:Context.Connection.RemoteIpAddress?.ToString());
@@ -105,7 +105,7 @@ namespace MedRecPro.Security
                         // Add other claims as needed, e.g., roles
                         new Claim(ClaimTypes.Role, user.UserRole ?? "User"), // Add user role
                         new Claim("EncryptedUserId", user.EncryptedUserId
-                            ?? StringCipher.Encrypt(user.Id.ToString(), _pkSecret)) // Custom claim for encrypted ID if needed elsewhere
+                            ?? StringCipher.Encrypt(user.Id.ToString(), _pkSecret, StringCipher.EncryptionStrength.Fast)) // Custom claim for encrypted ID if needed elsewhere
                     };
                     var identity = new ClaimsIdentity(claims, Scheme.Name);
                     var principal = new ClaimsPrincipal(identity);

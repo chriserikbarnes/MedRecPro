@@ -119,7 +119,7 @@ namespace MedRecPro.Controllers
 
                 try
                 {
-                    encryptedAuthUserId = StringCipher.Encrypt(id.ToString(), _pkSecret);
+                    encryptedAuthUserId = StringCipher.Encrypt(id.ToString(), _pkSecret,StringCipher.EncryptionStrength.Fast);
 
                     ret = encryptedAuthUserId;
                 }
@@ -601,7 +601,7 @@ namespace MedRecPro.Controllers
                     new Claim(ClaimTypes.Role, user.UserRole),
 
                     // It uses the ENCRYPTED user.Id
-                    new Claim(JwtRegisteredClaimNames.NameId, StringCipher.Encrypt(_pkSecret, user.Id.ToString())),
+                    new Claim(JwtRegisteredClaimNames.NameId, StringCipher.Encrypt(_pkSecret, user.Id.ToString(), StringCipher.EncryptionStrength.Fast)),
 
                     // Using JwtRegisteredClaimNames
                     new Claim(JwtRegisteredClaimNames.Email, user.Email ?? loginRequest.Email ?? string.Empty), 
@@ -684,7 +684,7 @@ namespace MedRecPro.Controllers
                         string json = JsonConvert.SerializeObject(userDto);
 
                         // Encrypt
-                        string eJson = StringCipher.Encrypt(json, _pkSecret);
+                        string eJson = StringCipher.Encrypt(json, _pkSecret, StringCipher.EncryptionStrength.Strong);
 
                         // Write
                         Response.Cookies.Append(cookieName, eJson);

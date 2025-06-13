@@ -204,7 +204,7 @@ namespace MedRecPro.Service
 
                 _logger.LogInformation("Attempting to encrypt permissions with encryption key");
 
-                return StringCipher.Encrypt(json, _encryptionKey);
+                return StringCipher.Encrypt(json, _encryptionKey, StringCipher.EncryptionStrength.Fast);
             }
             catch (Exception ex)
             {

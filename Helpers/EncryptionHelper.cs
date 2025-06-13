@@ -1,17 +1,28 @@
-﻿
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using MedRecPro.DataModels;
 
 namespace MedRecPro.Helpers
 {
+    /**************************************************************/
     /// <summary>
-    /// Provides encryption for the users logon credential
+    /// Provides encryption both internal key masking and external
+    /// user supplied passphrase encryption.
     /// </summary>
-    /// 
-
+    /// <seealso cref="Label"/>
+    /// <remarks>
+    /// This class implements AES encryption with PBKDF2 key derivation for secure string encryption.
+    /// It supports both fast and strong encryption modes with different iteration counts.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// string encrypted = StringCipher.Encrypt("sensitive data", "password", EncryptionStrength.Strong);
+    /// string decrypted = StringCipher.Decrypt(encrypted, "password");
+    /// </code>
+    /// </example>
     public class StringCipher
     {
 
@@ -47,103 +58,196 @@ namespace MedRecPro.Helpers
         // WARNING: 1000 is low by modern standards. OWASP recommends 600,000 for PBKDF2-HMAC-SHA256.
         // Increasing this significantly improves security against passphrase brute-forcing
         // but also significantly decreases performance. Maintained at 1000 for compatibility
-        // with the original code's performance characteristics, but consider increasing for new uses.
-        private const int DerivationIterations = 1000;
+        // with the original code's performance characteristics.
+        private const int DerivationIterationsFast = 1;
+        private const int DerivationIterationsStrong = 1000000;
+        private const int DerivationIterationsOriginal = 1000;
 
         // Hash algorithm for PBKDF2.
         // The original code implicitly used SHA1. SHA256 is more secure.
         // IMPORTANT: Changing this makes the derived key different.
         // If decrypting data from the old system, you MUST use HashAlgorithmName.SHA1.
         private static readonly HashAlgorithmName Pbkdf2HashAlgorithm = HashAlgorithmName.SHA256;
+
+        /// <summary>
+        /// Encryption switch for selecting between fast and strong encryption.
+        /// Use fast encryption for operation that are only internal and
+        /// have no public facing component e.g. primary key ids. Use strong
+        /// encryption for health information and other sensitive data.
+        /// </summary>
+        public enum EncryptionStrength
+        {
+            Fast,   // e.g., low PBKDF2 iterations
+            Strong  // e.g., high PBKDF2 iterations
+        }
         #endregion
 
-        /******************************************************/
+        /**************************************************************/
         /// <summary>
-        /// Returns an encrypted value for the passed string.
+        /// Returns an encrypted value for the passed string. Use Fast
+        /// Encryption when masking internal IDs. Use Strong Encryption
+        /// when encrypting sensitive data like health information or 
+        /// passwords.
         /// </summary>
-        /// <param name="plainText"></param>
-        /// <param name="passPhrase"></param>
-        /// <returns></returns>
-        /// <remarks>According to online sources, FIPS compliance requires
-        /// a 128 bit block size. 
+        /// <param name="plainText">The plain text string to encrypt</param>
+        /// <param name="passPhrase">The passphrase used for key derivation</param>
+        /// <param name="strength">The encryption strength level (Fast or Strong)</param>
+        /// <returns>A base64-encoded encrypted string with salt and IV prepended</returns>
+        /// <remarks>
+        /// According to online sources, FIPS compliance requires a 128 bit block size.
+        /// The encrypted result includes a prefix indicating the encryption strength used.
         /// </remarks>
-        public static string Encrypt(string plainText, string passPhrase)
+        /// <example>
+        /// <code>
+        /// string encrypted = StringCipher.Encrypt("Hello World", "mypassword", EncryptionStrength.Strong);
+        /// </code>
+        /// </example>
+        public static string Encrypt(string plainText,
+            string passPhrase,
+            EncryptionStrength strength = EncryptionStrength.Strong)
         {
             #region implementation
+            // Validate input parameters to prevent null reference exceptions
             ArgumentNullException.ThrowIfNull(plainText);
             ArgumentNullException.ThrowIfNull(passPhrase);
 
-            byte[] saltBytes = GenerateRandomBytes(SaltSizeBytes);
-            byte[] ivBytes = GenerateRandomBytes(BlockSizeBytes);
+            // Select iteration count based on encryption strength
+            int iterations = (strength == EncryptionStrength.Fast)
+                ? DerivationIterationsFast
+                : DerivationIterationsStrong;
+
+            // Generate cryptographically secure random salt and IV
+            byte[] saltBytes = generateRandomBytes(SaltSizeBytes);
+            byte[] ivBytes = generateRandomBytes(BlockSizeBytes);
             byte[] plainTextBytes = Encoding.UTF8.GetBytes(plainText);
 
-            using (var password = new Rfc2898DeriveBytes(passPhrase, saltBytes, DerivationIterations, Pbkdf2HashAlgorithm))
+            // Derive encryption key using PBKDF2
+            using (var password = new Rfc2898DeriveBytes(passPhrase, saltBytes, iterations, Pbkdf2HashAlgorithm))
             {
                 byte[] keyBytes = password.GetBytes(KeySizeBytes);
 
-                using (var aes = Aes.Create()) // Uses modern Aes.Create()
+                // Create AES encryptor with CBC mode and PKCS7 padding
+                using (var aes = Aes.Create())
                 {
                     aes.Key = keyBytes;
                     aes.IV = ivBytes;
                     aes.Mode = CipherMode.CBC;
                     aes.Padding = PaddingMode.PKCS7;
-                    // aes.BlockSize is implicitly 128 for Aes.Create()
 
+                    // aes.BlockSize is implicitly 128 for Aes.Create()
                     using (var encryptor = aes.CreateEncryptor())
                     using (var memoryStream = new MemoryStream())
                     {
-                        // Write Salt and IV to the beginning of the stream
+                        // Write Salt and IV to the beginning of the stream for later decryption
                         memoryStream.Write(saltBytes, 0, saltBytes.Length);
                         memoryStream.Write(ivBytes, 0, ivBytes.Length);
 
+                        // Encrypt the plaintext and write to stream
                         using (var cryptoStream = new CryptoStream(memoryStream, encryptor, CryptoStreamMode.Write, leaveOpen: true))
                         {
                             cryptoStream.Write(plainTextBytes, 0, plainTextBytes.Length);
                             cryptoStream.FlushFinalBlock(); // Ensure all data is written
                         }
-                        // No explicit cryptoStream.Close() needed due to using block
 
+                        // No explicit cryptoStream.Close() needed due to using block
                         byte[] cipherTextBytesWithSaltAndIv = memoryStream.ToArray();
-                        return TextUtil.ToUrlSafeBase64StringManual(cipherTextBytesWithSaltAndIv);
+                        string encoding = TextUtil.ToUrlSafeBase64StringManual(cipherTextBytesWithSaltAndIv);
+
+                        // Prefix with mode identifier for decryption
+                        string tag = (strength == EncryptionStrength.Fast) ? "F-" : "S-";
+                        return tag + encoding;
+
                     }
                 }
             }
             #endregion
         }
 
-        /******************************************************/
+        /**************************************************************/
         /// <summary>
-        /// Returns a clear text result from the passed encrypted string.
+        /// Decrypts an encrypted string that was created using the Encrypt method.
         /// </summary>
-        /// <param name="cipherTextWithSaltAndIvBase64"></param>
-        /// <param name="passPhrase"></param>
-        /// <returns></returns>
+        /// <param name="cipherTextWithSaltAndIvBase64">The encrypted string with embedded salt and IV</param>
+        /// <param name="passPhrase">The passphrase used for key derivation</param>
+        /// <returns>The original plain text string</returns>
+        /// <remarks>
+        /// This method automatically detects the encryption strength used based on the prefix
+        /// and maintains backward compatibility with legacy encrypted data.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// string decrypted = StringCipher.Decrypt(encryptedString, "mypassword");
+        /// </code>
+        /// </example>
         protected internal string Decrypt(string cipherTextWithSaltAndIvBase64, string passPhrase)
         {
             #region implementation
+            // Validate input parameters
             ArgumentNullException.ThrowIfNull(cipherTextWithSaltAndIvBase64);
             ArgumentNullException.ThrowIfNull(passPhrase);
 
+            // Determine encryption strength from prefix and decrypt accordingly
+            if (cipherTextWithSaltAndIvBase64.StartsWith("F-"))
+            {
+                return decryptInternal(cipherTextWithSaltAndIvBase64.Substring(2), passPhrase, DerivationIterationsFast);
+            }
+            else if (cipherTextWithSaltAndIvBase64.StartsWith("S-"))
+            {
+                return decryptInternal(cipherTextWithSaltAndIvBase64.Substring(2), passPhrase, DerivationIterationsStrong);
+            }
+            else
+            {
+                // Backward compatibility: handle legacy data (assume strong or old iteration count)
+                return decryptInternal(cipherTextWithSaltAndIvBase64, passPhrase, DerivationIterationsOriginal);
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns a clear text result from the passed encrypted string.
+        /// </summary>
+        /// <param name="cipherTextWithSaltAndIvBase64">The base64-encoded encrypted data</param>
+        /// <param name="passPhrase">The passphrase used for key derivation</param>
+        /// <param name="iterations">The number of PBKDF2 iterations to use</param>
+        /// <returns>The decrypted plain text string</returns>
+        /// <remarks>
+        /// This internal method performs the actual decryption work and is called by the public Decrypt method.
+        /// </remarks>
+        private static string decryptInternal(string cipherTextWithSaltAndIvBase64,
+            string passPhrase,
+            int iterations)
+        {
+            #region implementation
+            // Validate all input parameters
+            ArgumentNullException.ThrowIfNull(cipherTextWithSaltAndIvBase64);
+            ArgumentNullException.ThrowIfNull(passPhrase);
+            ArgumentNullException.ThrowIfNull(iterations);
+
+            // Decode the base64 encrypted data
             byte[] cipherTextBytesWithSaltAndIv = TextUtil.FromUrlSafeBase64StringManual(cipherTextWithSaltAndIvBase64);
 
             // Performance: Use ReadOnlySpan to avoid allocations for slicing until necessary.
             ReadOnlySpan<byte> fullCipherSpan = cipherTextBytesWithSaltAndIv;
 
+            // Validate minimum required length for salt, IV, and encrypted data
             if (fullCipherSpan.Length < SaltSizeBytes + BlockSizeBytes)
             {
                 throw new CryptographicException("Ciphertext is too short to contain salt, IV, and data.");
             }
 
-            // Extract salt and IV
+            // Extract salt and IV from the beginning of the encrypted data
             // ToArray() is necessary here because Rfc2898DeriveBytes and aes.IV expect byte[]
             byte[] saltBytes = fullCipherSpan.Slice(0, SaltSizeBytes).ToArray();
             byte[] ivBytes = fullCipherSpan.Slice(SaltSizeBytes, BlockSizeBytes).ToArray();
             ReadOnlySpan<byte> actualCipherTextBytes = fullCipherSpan.Slice(SaltSizeBytes + BlockSizeBytes);
 
-            using (var password = new Rfc2898DeriveBytes(passPhrase, saltBytes, DerivationIterations, Pbkdf2HashAlgorithm))
+            // Derive the decryption key using the extracted salt
+            using (var password = new Rfc2898DeriveBytes(passPhrase, saltBytes, iterations, Pbkdf2HashAlgorithm))
             {
                 byte[] keyBytes = password.GetBytes(KeySizeBytes);
 
+                // Create AES decryptor with the same settings used for encryption
                 using (var aes = Aes.Create())
                 {
                     aes.Key = keyBytes;
@@ -177,15 +281,16 @@ namespace MedRecPro.Helpers
             #endregion
         }
 
-        /******************************************************/
+        /**************************************************************/
         /// <summary>
         /// Adds randomness to the the encrypted value.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>A 16-byte array filled with cryptographically secure random data</returns>
         /// <remarks>
-        ///         * This method is deprecated and should not be used in new code.
+        /// This method is deprecated and should not be used in new code.
+        /// Use GenerateRandomBytes method instead for better performance and modern cryptographic practices.
         /// </remarks>
-        private static byte[] Generate128BitsOfRandomEntropy_depricated()
+        private static byte[] generate128BitsOfRandomEntropy_depricated()
         {
             #region implementation (original code)
             var randomBytes = new byte[16]; // 16 Bytes will give us 128 bits.
@@ -198,13 +303,22 @@ namespace MedRecPro.Helpers
             #endregion
         }
 
-        /******************************************************/
-        private static byte[] GenerateRandomBytes(int numberOfBytes)
+        /**************************************************************/
+        /// <summary>
+        /// Generates cryptographically secure random bytes for use in encryption operations.
+        /// </summary>
+        /// <param name="numberOfBytes">The number of random bytes to generate</param>
+        /// <returns>A byte array filled with cryptographically secure random data</returns>
+        /// <remarks>
+        /// This method uses the modern RandomNumberGenerator.Fill method which is more efficient
+        /// than the legacy RNGCryptoServiceProvider approach.
+        /// </remarks>
+        private static byte[] generateRandomBytes(int numberOfBytes)
         {
             #region implementation
             byte[] randomBytes = new byte[numberOfBytes];
             RandomNumberGenerator.Fill(randomBytes); // secure random bytes
-            return randomBytes; 
+            return randomBytes;
             #endregion
         }
     }

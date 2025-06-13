@@ -246,7 +246,7 @@ namespace MedRecPro.DataAccess
                 throw new InvalidOperationException($"Primary key '{_primaryKeyName}' on type {typeof(T).Name} was not populated after creation.");
             }
 
-            ret = pkValue?.ToString()?.Encrypt(_encryptionKey);
+            ret = pkValue?.ToString()?.Encrypt(_encryptionKey, StringCipher.EncryptionStrength.Fast);
 
             if (string.IsNullOrWhiteSpace(ret))
             {
@@ -1044,7 +1044,7 @@ namespace MedRecPro.DataAccess
                 }
 
                 // Encrypt the primary key value to match the expected format
-                encryptedId = longValue.ToString().Encrypt(_encryptionKey);
+                encryptedId = longValue.ToString().Encrypt(_encryptionKey, StringCipher.EncryptionStrength.Fast);
 
                 // Call the ID-based delete for simplicity and consistency
                 return await DeleteAsync(encryptedId);
@@ -1059,7 +1059,7 @@ namespace MedRecPro.DataAccess
                 }
 
                 // Encrypt the primary key value to match the expected format
-                encryptedId = intValue.ToString().Encrypt(_encryptionKey);
+                encryptedId = intValue.ToString().Encrypt(_encryptionKey, StringCipher.EncryptionStrength.Fast);
 
                 // Call the ID-based delete for simplicity and consistency
                 return await DeleteAsync(encryptedId);

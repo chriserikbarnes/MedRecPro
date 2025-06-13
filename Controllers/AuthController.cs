@@ -563,7 +563,7 @@ namespace MedRecPro.Controllers
                 // Return user information
                 return Ok(new
                 {
-                    encryptedUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)?.Encrypt(_pkSecret),
+                    encryptedUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)?.Encrypt(_pkSecret, StringCipher.EncryptionStrength.Fast),
                     Name = User.Identity.Name,
                     Claims = claims
                 });
