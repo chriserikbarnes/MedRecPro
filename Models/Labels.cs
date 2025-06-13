@@ -5,7 +5,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Reflection;
 
-namespace MedRecPro.DataModels
+namespace MedRecPro.Models
 {
     /*******************************************************************************/
     /// <summary>

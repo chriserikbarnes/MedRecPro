@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using MedRecPro.Helpers;
 using MedRecPro.Data;
-using MedRecPro.DataModels;
+using MedRecPro.Models;
 using MedRecPro.Models;
 
 
@@ -314,7 +314,7 @@ namespace MedRecPro.DataAccess
         /**************************************************************/
         public virtual async Task<List<DocumentDto>> GetCompleteLabelsAsync(int? pageNumber, int? pageSize)
         {
-            var results = await DtoLabelHelper.BuildDocumentsAsync(
+            var results = await DtoLabelAccess.BuildDocumentsAsync(
             _context,
             getPkSecret(),
             _logger,

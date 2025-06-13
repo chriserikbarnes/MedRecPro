@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-using MedRecPro.DataModels;
+using MedRecPro.Models;
 using MedRecPro.DataAccess;
 using MedRecPro.Models; // For ImportResult
 using Microsoft.Extensions.DependencyInjection;

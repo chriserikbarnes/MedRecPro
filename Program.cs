@@ -12,7 +12,7 @@ using MedRecPro.Security; // Namespace for BasicAuthenticationHandler
 using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
 using System.Reflection;
 using MedRecPro.Service;
-using MedRecPro.DataModels;
+using MedRecPro.Models;
 using MedRecPro.Services;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.SwaggerUI;
@@ -258,7 +258,7 @@ When you need to ensure fresh data from the database, use the `/REST/API/Utility
         }
     });
     // Set the comments path for the Swagger JSON and UI.
-    var dataModelsXmlFile = $"{typeof(MedRecPro.DataModels.Label).Assembly.GetName().Name}.xml";
+    var dataModelsXmlFile = $"{typeof(MedRecPro.Models.Label).Assembly.GetName().Name}.xml";
     var dataModelsXmlPath = Path.Combine(AppContext.BaseDirectory, dataModelsXmlFile);
     if (File.Exists(dataModelsXmlPath))
     {

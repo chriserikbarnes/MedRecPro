@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Reflection;
 
-using MedRecPro.DataModels; // From LabelClasses.cs
+using MedRecPro.Models; // From LabelClasses.cs
 using MedRecPro.DataAccess; // From LabelDataAccess.cs (Repository)
 using MedRecPro.Helpers;   // From DtoTransformer.cs (DtoTransformer, StringCipher)
 using MedRecPro.Services;
@@ -315,7 +315,7 @@ namespace MedRecPro.Api.Controllers
             try
             {
                 // Generate menu using DtoTransformer helper, fallback to empty list if null
-                List<string> menu = DtoTransformer.ToEntityMenu(new Label(), _logger)
+                List<string> menu = DtoTransform.ToEntityMenu(new Label(), _logger)
                     ?? new List<string>();
                 return Ok(menu);
             }
@@ -385,7 +385,7 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var documentation = DtoTransformer.GetClassDocumentation(entityType, _logger);
+                var documentation = DtoTransform.GetClassDocumentation(entityType, _logger);
 
                 if (documentation == null)
                 {

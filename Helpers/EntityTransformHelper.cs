@@ -84,7 +84,7 @@ namespace MedRecPro.Helpers
     /// It also provides caching mechanisms for XML documentation files to improve performance.
     /// All transformation methods are designed to handle null inputs gracefully and provide detailed logging.
     /// </remarks>
-    public static class DtoTransformer
+    public static class DtoTransform
     {
         #region implementation
 

@@ -5,7 +5,7 @@ using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Reflection;
 using System.Reflection.Emit;
-using LabelContainer = MedRecPro.DataModels.Label;
+using LabelContainer = MedRecPro.Models.Label;
 
 namespace MedRecPro.Data
 {
@@ -43,7 +43,7 @@ namespace MedRecPro.Data
 
             // Dynamically discover and register public nested
             // classes MedRecPro.DataModels.Label as entities.
-            var labelContainerType = typeof(MedRecPro.DataModels.Label);
+            var labelContainerType = typeof(MedRecPro.Models.Label);
 
             // Get public nested types that are classes
             // and not abstract (suitable for entities)

@@ -1,12 +1,12 @@
 ﻿using MedRecPro.Data;
+using MedRecPro.Helpers;
 using MedRecPro.Models;
-using MedRecPro.DataModels;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace MedRecPro.Helpers
+namespace MedRecPro.DataAccess
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -15,7 +15,7 @@ namespace MedRecPro.Helpers
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static class DtoLabelHelper
+    public static class DtoLabelAccess
     {
         /**************************************************************/
         /// <summary>
