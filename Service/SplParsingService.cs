@@ -10,7 +10,7 @@ using MedRecPro.Models; // For ImportResult
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace MedRecPro.Services
+namespace MedRecPro.Service
 {
     /// <summary>
     /// Parses SPL (Structured Product Labeling) XML files and saves the extracted data to the database.

@@ -9,7 +9,7 @@ using MedRecPro.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
-namespace MedRecPro.Services
+namespace MedRecPro.Service
 {
     /// <summary>
     /// Service responsible for importing and processing SPL (Structured Product Labeling) data from ZIP archives containing XML files.

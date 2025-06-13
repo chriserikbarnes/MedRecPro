@@ -4,8 +4,7 @@ using System.Reflection;
 using MedRecPro.Models; // From LabelClasses.cs
 using MedRecPro.DataAccess; // From LabelDataAccess.cs (Repository)
 using MedRecPro.Helpers;   // From DtoTransformer.cs (DtoTransformer, StringCipher)
-using MedRecPro.Services;
-using MedRecPro.Models;
+using MedRecPro.Service;
 using Newtonsoft.Json; // From SplImportService.cs (SplImportService)
 
 namespace MedRecPro.Api.Controllers

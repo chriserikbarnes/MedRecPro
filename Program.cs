@@ -2,18 +2,18 @@
 using Microsoft.OpenApi.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
-using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
 using Microsoft.AspNetCore.Authentication.Cookies;
-using MedRecPro.Data; // Namespace for ApplicationDbContext
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
+using System.Reflection;
+
+using MedRecPro.Data; // Namespace for ApplicationDbContext
+using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
+using MedRecPro.Service;
 using MedRecPro.Models; // Namespace for User model
 using MedRecPro.DataAccess;
 using MedRecPro.Security; // Namespace for BasicAuthenticationHandler
-using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
-using System.Reflection;
-using MedRecPro.Service;
-using MedRecPro.Models;
-using MedRecPro.Services;
+
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.SwaggerUI;
 
