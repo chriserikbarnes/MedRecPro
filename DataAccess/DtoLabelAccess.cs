@@ -1212,14 +1212,32 @@ namespace MedRecPro.DataAccess
         /// <returns>List of Ingredient DTOs with nested IngredientSubstance data.</returns>
         /// <seealso cref="Label.Ingredient"/>
         /// <seealso cref="Label.IngredientSubstance"/>
+        /// <seealso cref="Label.IngredientInstance"/>
+        /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="IngredientSubstanceDto"/>
+        /// <seealso cref="IngredientInstanceDto"/>"/>
+        /// <remarks>
+        /// This method builds complete IngredientDto objects including nested substance and instance data.
+        /// Returns an empty list if productId is null or no ingredients are found.
+        /// Each Ingredient includes its associated IngredientSubstance and IngredientInstance collections.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var ingredients = await buildIngredientsAsync(dbContext, 123, "secret", logger);
+        /// </code>
+        /// </example>
         private static async Task<List<IngredientDto>> buildIngredientsAsync(
-      ApplicationDbContext db,
-      int? productId,
-      string pkSecret,
-      ILogger logger)
+          ApplicationDbContext db,
+          int? productId,
+          string pkSecret,
+          ILogger logger)
         {
             #region implementation
-            // Get all ingredients for this product
+            // Return empty list if no productId provided
+            if (productId == null)
+                return new List<IngredientDto>();
+
+            // Get all ingredients for this product with no change tracking for performance
             var ingredients = await db.Set<Label.Ingredient>()
                 .AsNoTracking()
                 .Where(i => i.ProductID == productId)
@@ -1227,24 +1245,33 @@ namespace MedRecPro.DataAccess
 
             var ingredientDtos = new List<IngredientDto>();
 
-            // For each ingredient, build its substance details
+            // For each ingredient, build its substance details and instances
             foreach (var ingredient in ingredients)
             {
+                // Skip null ingredients or ingredients without valid IDs
                 if (ingredient == null || ingredient.IngredientID == null)
                     continue;
 
-                // The correct FK is IngredientSubstanceID, not IngredientID
+                // Build the associated IngredientSubstance (using correct FK: IngredientSubstanceID)
                 var ingredientSubstance = await buildIngredientSubstanceAsync(
+                    db,
+                    ingredient.IngredientSubstanceID,
+                    pkSecret,
+                    logger);
+
+                // Build all IngredientInstances for this substance
+                var ingredientInstances = await buildIngredientInstancesAsync(
                     db,
                     ingredient.IngredientSubstanceID,
                     pkSecret,
                     logger
                 );
 
-                // Assemble ingredient DTO with substance data
+                // Assemble ingredient DTO with substance data and instances
                 ingredientDtos.Add(new IngredientDto
                 {
                     Ingredient = ingredient.ToEntityWithEncryptedId(pkSecret, logger),
+                    IngredientInstances = ingredientInstances ?? new List<IngredientInstanceDto>(),
                     IngredientSubstance = ingredientSubstance
                 });
             }
@@ -1263,6 +1290,17 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>IngredientSubstance DTO with encrypted ID, or null if not found.</returns>
         /// <seealso cref="Label.IngredientSubstance"/>
+        /// <seealso cref="IngredientSubstanceDto"/>
+        /// <remarks>
+        /// This method retrieves and transforms a single IngredientSubstance entity into a DTO.
+        /// Returns null if ingredientSubstanceId is null or the entity is not found in the database.
+        /// The returned DTO includes encrypted primary key for security.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var substance = await buildIngredientSubstanceAsync(dbContext, 789, "secret", logger);
+        /// </code>
+        /// </example>
         private static async Task<IngredientSubstanceDto?> buildIngredientSubstanceAsync(
             ApplicationDbContext db,
             int? ingredientSubstanceId,
@@ -1270,14 +1308,16 @@ namespace MedRecPro.DataAccess
             ILogger logger)
         {
             #region implementation
+            // Return null if no ingredientSubstanceId provided
             if (ingredientSubstanceId == null)
                 return null;
 
-            // Query for the specific ingredient substance
+            // Query for the specific ingredient substance with no change tracking
             var entity = await db.Set<Label.IngredientSubstance>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(s => s.IngredientSubstanceID == ingredientSubstanceId);
 
+            // Return null if entity not found
             if (entity == null)
                 return null;
 
@@ -1286,6 +1326,74 @@ namespace MedRecPro.DataAccess
             {
                 IngredientSubstance = entity.ToEntityWithEncryptedId(pkSecret, logger)
             };
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of IngredientInstanceDto for a given IngredientSubstanceID.
+        /// Each includes its IngredientSubstance (as IngredientSubstanceDto), if available.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="ingredientSubstanceId">The ingredient substance ID to find instances for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of IngredientInstanceDto with nested IngredientSubstanceDto where available, or null if not found.</returns>
+        /// <seealso cref="Label.IngredientInstance"/>
+        /// <seealso cref="IngredientInstanceDto"/>
+        /// <seealso cref="IngredientSubstanceDto"/>
+        /// <remarks>
+        /// This method builds complete IngredientInstanceDto objects including nested IngredientSubstance data.
+        /// Returns null if ingredientSubstanceId is null or no ingredient instances are found.
+        /// Each IngredientInstance that has an associated IngredientSubstanceID will include the full IngredientSubstanceDto.
+        /// The method processes all instances associated with the specified substance ID.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var instances = await buildIngredientInstancesAsync(dbContext, 456, "secret", logger);
+        /// </code>
+        /// </example>
+        private static async Task<List<IngredientInstanceDto>?> buildIngredientInstancesAsync(
+            ApplicationDbContext db,
+            int? ingredientSubstanceId,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+            // Return null if no ingredientSubstanceId provided
+            if (ingredientSubstanceId == null)
+                return null;
+
+            // Query all IngredientInstance rows for this substance with no change tracking
+            var entity = await db.Set<Label.IngredientInstance>()
+                .AsNoTracking()
+                .Where(ii => ii.IngredientSubstanceID == ingredientSubstanceId)
+                .ToListAsync();
+
+            // Return null if no entities found
+            if (entity == null)
+                return null;
+
+            // Build IngredientInstanceDto objects with substance data
+            List<IngredientInstanceDto> ingredientInstances = new List<IngredientInstanceDto>();
+
+            foreach (var item in entity)
+            {
+                // Build the IngredientSubstanceDto for this instance (recursive call for substance details)
+                var ingredientSubstance = await buildIngredientSubstanceAsync(
+                    db,
+                    item.IngredientSubstanceID,
+                    pkSecret,
+                    logger);
+
+                // Create the IngredientInstanceDto with encrypted IDs
+                ingredientInstances.Add(new IngredientInstanceDto
+                {
+                    IngredientInstance = item.ToEntityWithEncryptedId(pkSecret, logger),
+                });
+            }
+
+            return ingredientInstances;
             #endregion
         }
 

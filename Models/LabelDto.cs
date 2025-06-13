@@ -130,6 +130,8 @@
         public required Dictionary<string, object?> Ingredient { get; set; }
 
         public IngredientSubstanceDto? IngredientSubstance { get; set; }
+
+        public List<IngredientInstanceDto> IngredientInstances { get; set; } = new();
     }
 
     /**************************************************************/
@@ -137,7 +139,8 @@
     {
         public required Dictionary<string, object?> IngredientInstance { get; set; }
 
-        public List<IngredientInstanceDto> IngredientSubstances { get; set; } = new();
+        public List<IngredientSubstanceDto> IngredientSubstances { get; set; } = new();
+
     }
 
     /**************************************************************/
