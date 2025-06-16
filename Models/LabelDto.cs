@@ -38,6 +38,14 @@
     }
 
     /**************************************************************/
+    public class CharacteristicDto
+    {
+        public required Dictionary<string, object?> Characteristic { get; set; }
+        public PackagingLevelDto? PackagingLevel { get; set; }
+        public ProductDto? Product { get; set; }
+    }
+
+    /**************************************************************/
     public class ComplianceActionDto
     {
         public required Dictionary<string, object?> ComplianceAction { get; set; }
@@ -122,6 +130,8 @@
     public class IdentifiedSubstanceDto
     {
         public required Dictionary<string, object?> IdentifiedSubstance { get; set; }
+
+        public List<SubstanceSpecificationDto> SubstanceSpecifications { get; set; } = new();
     }
 
     /**************************************************************/
@@ -138,6 +148,7 @@
     public class IngredientInstanceDto
     {
         public required Dictionary<string, object?> IngredientInstance { get; set; }
+        public LotIdentifierDto? LotIdentifier { get; set; }
 
         public List<IngredientSubstanceDto> IngredientSubstances { get; set; } = new();
 
@@ -181,6 +192,12 @@
     public class LotIdentifierDto
     {
         public required Dictionary<string, object?> LotIdentifier { get; set; }
+    }
+
+    /**************************************************************/
+    public class MarketingCategoryDto
+    {
+        public required Dictionary<string, object?> MarketingCategory { get; set; }
     }
 
     /**************************************************************/
@@ -229,6 +246,13 @@
     }
 
     /**************************************************************/
+    public class PackagingLevelDto
+    {
+        public required Dictionary<string, object?> PackagingLevel { get; set; }
+        public List<Dictionary<string, object?>> PackagingHierarchy { get; set; } = new();
+    }
+
+    /**************************************************************/
     public class PackageIdentifierDto
     {
         public required Dictionary<string, object?> PackageIdentifier { get; set; }
@@ -269,7 +293,13 @@
         public List<AnalyteDto> Analytes { get; set; } = new();
         public List<LotIdentifierDto> LotIdentifiers { get; set; } = new();
         public List<PackagingHierarchyDto> PackagingHierarchies { get; set; } = new();
+        public List<MarketingCategoryDto> MarketingCategories { get; set; } = new();
+        public List<PackagingLevelDto> PackagingLevels { get; set; } = new();
+        public List<LotHierarchyDto> ParentLotHierarchies { get; set; } = new();
+        public List<LotHierarchyDto> ChildLotHierarchies { get; set; } = new();
     }
+
+   
 
     /**************************************************************/
     public class ProductIdentifierDto
@@ -281,6 +311,7 @@
     public class ProductInstanceDto
     {
         public required Dictionary<string, object?> ProductInstance { get; set; }
+        public LotIdentifierDto? LotIdentifier { get; set; }
         public List<LotHierarchyDto> ParentHierarchies { get; set; } = new();
         public List<LotHierarchyDto> ChildHierarchies { get; set; } = new();
     }
@@ -374,8 +405,6 @@
     public class SectionHierarchyDto
     {
         public required Dictionary<string, object?> SectionHierarchy { get; set; }
-        public SectionDto? ParentSection { get; set; }
-        public SectionDto? ChildSection { get; set; }
     }
 
     /**************************************************************/
@@ -394,11 +423,18 @@
     }
 
     /**************************************************************/
+    public class SubstanceSpecificationDto
+    {
+        public required Dictionary<string, object?> SubstanceSpecification { get; set; }
+
+        public List<AnalyteDto> Analytes { get; set; } = new();
+    }
+
+    /**************************************************************/
     public class TelecomDto
     {
         public required Dictionary<string, object?> Telecom { get; set; }
-        public List<ContactPartyTelecomDto> ContactPartyLinks { get; set; } = new();
-        public List<OrganizationTelecomDto> OrganizationLinks { get; set; } = new();
+        public List<Dictionary<string, object?>> ContactPartyLinks { get; set; } = new();
     }
 
     /**************************************************************/

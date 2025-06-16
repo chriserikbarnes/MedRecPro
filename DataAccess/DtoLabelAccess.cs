@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using static MedRecPro.Models.Label;
 
 namespace MedRecPro.DataAccess
 {
@@ -213,6 +214,9 @@ namespace MedRecPro.DataAccess
                 .Where(cp => cp.OrganizationID == organizationId)
                 .ToListAsync();
 
+            var names = await buildNamedEntityDtoAsync(db, organizationId, pkSecret, logger)
+                ?? new List<NamedEntityDto>();
+
             // Convert each ContactParty to DTO
             var contactPartyDtos = new List<ContactPartyDto>();
             foreach (var cp in contactParties)
@@ -233,7 +237,8 @@ namespace MedRecPro.DataAccess
                 Organization = orgDict,
                 ContactParties = contactPartyDtos,
                 Telecoms = telecoms,
-                Identifiers = identifiers
+                Identifiers = identifiers,
+                NamedEntities = names
 
                 // TODO: Continue with org dependencies
             };
@@ -759,7 +764,10 @@ namespace MedRecPro.DataAccess
             if (structuredBodyId == null) return new List<SectionDto>();
 
             // Get all sections for this structured body
-            var sections = await db.Set<Label.Section>().AsNoTracking().Where(s => s.StructuredBodyID == structuredBodyId).ToListAsync();
+            var sections = await db.Set<Label.Section>()
+                .AsNoTracking()
+                .Where(s => s.StructuredBodyID == structuredBodyId)
+                .ToListAsync();
 
             var sectionDtos = new List<SectionDto>();
 
@@ -768,9 +776,18 @@ namespace MedRecPro.DataAccess
             {
                 // Build all child collections for this section
                 var products = await buildProductsAsync(db, section.SectionID, pkSecret, logger);
+
+                var parents = await buildParentSectionHierarchyDtoAsync(db, section.SectionID, pkSecret, logger) ?? new List<SectionHierarchyDto>();
+
+                var children = await buildChildSectionHierarchyDtoAsync(db, section.SectionID, pkSecret, logger) ?? new List<SectionHierarchyDto>();
+
+                var content = await buildSectionTextContentDtoAsync(db, section.SectionID, pkSecret, logger)
+                    ?? new List<SectionTextContentDto>();
+
                 var highlights = await buildSectionExcerptHighlightsAsync(db, section.SectionID, pkSecret, logger);
 
                 var media = await buildObservationMediaAsync(db, section.SectionID, pkSecret, logger);
+
                 var identifiedSubstances = await buildIdentifiedSubstancesAsync(db, section.SectionID, pkSecret, logger);
 
                 var productConcepts = await buildProductConceptsAsync(db, section.SectionID, pkSecret, logger);
@@ -793,6 +810,9 @@ namespace MedRecPro.DataAccess
                 sectionDtos.Add(new SectionDto
                 {
                     Section = section.ToEntityWithEncryptedId(pkSecret, logger),
+                    ParentSectionHierarchies = parents,
+                    ChildSectionHierarchies = children,
+                    TextContents = content,
                     Products = products,
                     ExcerptHighlights = highlights,
                     ObservationMedia = media,
@@ -879,6 +899,9 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of IdentifiedSubstance DTOs with encrypted IDs.</returns>
         /// <seealso cref="Label.IdentifiedSubstance"/>
+        /// <seealso cref="Label.SubstanceSpecification"/>
+        /// <seealso cref="IdentifiedSubstanceDto"/>
+        /// <seealso cref="SubstanceSpecificationDto"/>
         private static async Task<List<IdentifiedSubstanceDto>> buildIdentifiedSubstancesAsync(ApplicationDbContext db, int? sectionId, string pkSecret, ILogger logger)
         {
             #region implementation
@@ -890,9 +913,125 @@ namespace MedRecPro.DataAccess
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
 
+            // For each identified substance, build its substance specifications
             // Transform entities to DTOs with encrypted IDs
+            var dtos = new List<IdentifiedSubstanceDto>();
+            foreach (var item in items)
+            {
+                // For each IdentifiedSubstance, build SubstanceSpecifications
+                var specs = await buildSubstanceSpecificationsAsync(
+                    db,
+                    item.IdentifiedSubstanceID,
+                    pkSecret,
+                    logger);
+
+                dtos.Add(new IdentifiedSubstanceDto
+                {
+                    IdentifiedSubstance = item.ToEntityWithEncryptedId(pkSecret, logger),
+                    SubstanceSpecifications = specs
+                });
+            }
+
+            return dtos;
+            #endregion
+        }
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of SubstanceSpecification DTOs for the specified IdentifiedSubstance.
+        /// Retrieves detailed substance specifications including analyte information and chemical properties.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="identifiedSubstanceID">The IdentifiedSubstance ID to find specifications for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of SubstanceSpecification DTOs with nested Analyte data and encrypted IDs.</returns>
+        /// <seealso cref="Label.SubstanceSpecification"/>
+        /// <seealso cref="Label.Analyte"/>
+        /// <seealso cref="SubstanceSpecificationDto"/>
+        /// <seealso cref="AnalyteDto"/>
+        /// <remarks>
+        /// This method builds complete SubstanceSpecificationDto objects including nested Analyte data.
+        /// Returns an empty list if identifiedSubstanceID is null or no specifications are found.
+        /// Each SubstanceSpecification includes its associated Analytes collection with encrypted IDs.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var specs = await buildSubstanceSpecificationsAsync(dbContext, 456, "secret", logger);
+        /// </code>
+        /// </example>
+        private static async Task<List<SubstanceSpecificationDto>> buildSubstanceSpecificationsAsync(ApplicationDbContext db, int? identifiedSubstanceID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Return empty list if no identifiedSubstanceID provided
+            if (identifiedSubstanceID == null) return new List<SubstanceSpecificationDto>();
+
+            // Query substance specifications for the specified IdentifiedSubstance with no change tracking
+            var items = await db.Set<Label.SubstanceSpecification>()
+                .AsNoTracking()
+                .Where(e => e.IdentifiedSubstanceID == identifiedSubstanceID)
+                .ToListAsync();
+
+            var dtos = new List<SubstanceSpecificationDto>();
+
+            // For each substance specification, build its analytes
+            foreach (var item in items)
+            {
+                // For each SubstanceSpecification, build associated Analytes
+                var analytes = await buildAnalytesAsync(
+                    db,
+                    item.SubstanceSpecificationID,
+                    pkSecret,
+                    logger);
+
+                // Create SubstanceSpecificationDto with encrypted IDs and nested analytes
+                dtos.Add(new SubstanceSpecificationDto
+                {
+                    SubstanceSpecification = item.ToEntityWithEncryptedId(pkSecret, logger),
+                    Analytes = analytes
+                });
+            }
+
+            return dtos;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of Analyte DTOs for the specified SubstanceSpecification.
+        /// This is a junction between SubstanceSpecification and its IdentifiedSubstances.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="substanceSpecificationID">The SubstanceSpecification ID to find analytes for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of Analyte DTOs with encrypted IDs, empty list if none found.</returns>
+        /// <seealso cref="Label.Analyte"/>
+        /// <seealso cref="AnalyteDto"/>
+        /// <remarks>
+        /// This method builds Analyte DTOs with encrypted primary keys for security.
+        /// Returns an empty list if substanceSpecificationID is null or no analytes are found.
+        /// Uses LINQ Select for efficient transformation of entities to DTOs.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var analytes = await buildAnalytesAsync(dbContext, 789, "secret", logger);
+        /// </code>
+        /// </example>
+        private static async Task<List<AnalyteDto>> buildAnalytesAsync(ApplicationDbContext db, int? substanceSpecificationID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Return empty list if no substanceSpecificationID provided
+            if (substanceSpecificationID == null) return new List<AnalyteDto>();
+
+            // Query analytes for the specified SubstanceSpecification with no change tracking
+            var items = await db.Set<Label.Analyte>()
+                .AsNoTracking()
+                .Where(e => e.AnalyteSubstanceID == substanceSpecificationID)
+                .ToListAsync();
+
+            // Transform entities to DTOs with encrypted IDs using LINQ Select for efficiency
             return items
-                .Select(item => new IdentifiedSubstanceDto { IdentifiedSubstance = item.ToEntityWithEncryptedId(pkSecret, logger) })
+                .Select(item => new AnalyteDto { Analyte = item.ToEntityWithEncryptedId(pkSecret, logger) })
                 .ToList();
             #endregion
         }
@@ -1178,18 +1317,32 @@ namespace MedRecPro.DataAccess
 
                 var ingredients = await buildIngredientsAsync(db, product.ProductID, pkSecret, logger);
 
+                var packageLevels = await buildPackagingLevelsAsync(db, product.ProductID, pkSecret, logger);
+
+                var ingredientInstances = await buildProductIngredientInstancesAsync(db, product.ProductID, pkSecret, logger);
+
+                var parentLots = await buildFillLotHierarchyDtoAsync(db, product.ProductID, pkSecret, logger) ?? new List<LotHierarchyDto>();
+
+                var childLots = await buildLabelLotHierarchyDtoAsync(db, product.ProductID, pkSecret, logger)
+                    ?? new List<LotHierarchyDto>();
+
+
                 // Assemble complete product DTO with all nested data
                 productDtos.Add(new ProductDto
                 {
                     Product = product.ToEntityWithEncryptedId(pkSecret, logger),
                     GenericMedicines = genericMeds,
+                    ParentLotHierarchies = parentLots,
+                    ChildLotHierarchies = childLots,
                     ProductIdentifiers = productIds,
+                    PackagingLevels = packageLevels,
                     ProductRouteOfAdministrations = productRoutes,
                     ProductWebLinks = webLinks,
                     BusinessOperationProductLinks = businessOpLinks,
                     ResponsiblePersonLinks = respPersonLinks,
                     ProductInstances = productInstances,
-                    Ingredients = ingredients
+                    Ingredients = ingredients,
+                    IngredientInstances = ingredientInstances ?? new List<IngredientInstanceDto>()
                 });
             }
             return productDtos;
@@ -1199,7 +1352,6 @@ namespace MedRecPro.DataAccess
         #endregion
 
         #region Product Children Builders
-
         /**************************************************************/
         /// <summary>
         /// Builds a list of Ingredient DTOs for the specified product with nested ingredient substance details.
@@ -1390,6 +1542,52 @@ namespace MedRecPro.DataAccess
                 ingredientInstances.Add(new IngredientInstanceDto
                 {
                     IngredientInstance = item.ToEntityWithEncryptedId(pkSecret, logger),
+                });
+            }
+
+            return ingredientInstances;
+            #endregion
+        }
+
+        /**************************************************************/
+        private static async Task<List<IngredientInstanceDto>?> buildProductIngredientInstancesAsync(
+           ApplicationDbContext db,
+           int? productID,
+           string pkSecret,
+           ILogger logger)
+        {
+            #region implementation
+            // Return null if no ingredientSubstanceId provided
+            if (productID == null)
+                return null;
+
+            // Query all IngredientInstance rows for this substance with no change tracking
+            var entity = await db.Set<Label.IngredientInstance>()
+                .AsNoTracking()
+                .Where(ii => ii.FillLotInstanceID == productID)
+                .ToListAsync();
+
+            // Return null if no entities found
+            if (entity == null)
+                return null;
+
+            // Build IngredientInstanceDto objects with substance data
+            List<IngredientInstanceDto> ingredientInstances = new List<IngredientInstanceDto>();
+
+            foreach (var item in entity)
+            {
+                // Build the IngredientSubstanceDto for this instance (recursive call for substance details)
+                var ingredientSubstance = await buildIngredientSubstanceAsync(
+                    db,
+                    item.IngredientSubstanceID,
+                    pkSecret,
+                    logger);
+
+                // Create the IngredientInstanceDto with encrypted IDs
+                ingredientInstances.Add(new IngredientInstanceDto
+                {
+                    IngredientInstance = item.ToEntityWithEncryptedId(pkSecret, logger),
+                    LotIdentifier = await buildLotIdentifierDtoAsync(db, item.LotIdentifierID, pkSecret, logger)
                 });
             }
 
@@ -1599,6 +1797,8 @@ namespace MedRecPro.DataAccess
             // For each instance, build its lot hierarchies
             foreach (var instance in instances)
             {
+                var lot = await buildLotIdentifierDtoAsync(db, instance.LotIdentifierID, pkSecret, logger);
+
                 // Build parent and child hierarchy relationships
                 var parentHierarchies = await buildLotHierarchiesAsParentAsync(db, instance.ProductInstanceID, pkSecret, logger);
 
@@ -1608,6 +1808,7 @@ namespace MedRecPro.DataAccess
                 dtos.Add(new ProductInstanceDto
                 {
                     ProductInstance = instance.ToEntityWithEncryptedId(pkSecret, logger),
+                    LotIdentifier = lot,
                     ParentHierarchies = parentHierarchies,
                     ChildHierarchies = childHierarchies
                 });
@@ -1796,6 +1997,486 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
-        #endregion
+        private static async Task<List<PackagingLevelDto>> buildPackagingLevelsAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (productID == null) return new List<PackagingLevelDto>();
+
+            List<Dictionary<string, object?>> packagingHierarchyDtos = new List<Dictionary<string, object?>>();
+
+            // Query packaging levels for the specified packaging hierarchy
+            var items = await db.Set<Label.PackagingLevel>()
+                .AsNoTracking()
+                .Where(e => e.ProductID == productID)
+                .ToListAsync();
+
+            foreach (var item in items)
+            {
+                var pack = await buildPackagingHierarchyDtoAsync(db, item.PackagingLevelID, pkSecret, logger);
+
+                if (pack != null && pack.Any())
+                    foreach (var p in pack)
+                        if (p.PackagingHierarchy != null)
+                            packagingHierarchyDtos.Add(p.PackagingHierarchy);
+            }
+
+            // Transform entities to DTOs with encrypted IDs
+            return items
+                .Select(item => new PackagingLevelDto
+                {
+                    PackagingLevel = item.ToEntityWithEncryptedId(pkSecret, logger),
+                    PackagingHierarchy = packagingHierarchyDtos
+                })
+                .ToList();
+            #endregion
+        }
+
+
+
+        // LotHierarchyDto: LotHierarchy has a one-to-many relationship with ProductInstance. Pass in the product instance id to relationship between Fill/Package Lots and Label Lots. Based on Section 16.2.7, 16.2.11. The parent is the package/fill lot and the child is the label lot.
+        private static async Task<List<LotHierarchyDto>?> buildFillLotHierarchyDtoAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+
+            if (productID == null) return new List<LotHierarchyDto>();
+
+            // Query lot hierarchies for the specified product instance
+            var items = await db.Set<Label.LotHierarchy>()
+                .AsNoTracking()
+                .Where(e => e.ParentInstanceID == productID)
+                .ToListAsync();
+
+            // Transform entities to DTOs with encrypted IDs
+            return items
+                .Select(item => new LotHierarchyDto { LotHierarchy = item.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<LotHierarchyDto>();
+
+            #endregion
+        }
+
+        // LotHierarchyDto: LotHierarchy has a one-to-many relationship with ProductInstance. Pass in the product instance id to relationship between Fill/Package Lots and Label Lots. Based on Section 16.2.7, 16.2.11. The parent is the package/fill lot and the child is the label lot.
+        private static async Task<List<LotHierarchyDto>?> buildLabelLotHierarchyDtoAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+
+            if (productID == null) return new List<LotHierarchyDto>();
+            // Query lot hierarchies for the specified product instance
+            var items = await db.Set<Label.LotHierarchy>()
+                .AsNoTracking()
+                .Where(e => e.ChildInstanceID == productID)
+                .ToListAsync();
+
+            // Transform entities to DTOs with encrypted IDs
+            return items
+                .Select(item => new LotHierarchyDto { LotHierarchy = item.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<LotHierarchyDto>();
+
+            #endregion
+        }
+
+        // LotIdentifierDto: can be related to either the Product or the Ingredient.
+        private static async Task<LotIdentifierDto?> buildLotIdentifierDtoAsync(ApplicationDbContext db, int? lotIdentifierId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (lotIdentifierId == null) return null;
+
+            // Query lot identifier for the specified lot identifier ID
+            var entity = await db.Set<Label.LotIdentifier>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.LotIdentifierID == lotIdentifierId);
+
+            // Return null if entity not found
+            if (entity == null)
+                return null;
+
+            // Transform entity to DTO with encrypted ID
+            return new LotIdentifierDto
+            {
+                LotIdentifier = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            };
+            #endregion
+        }
+
+        // NamedEntityDto: Fetch Label.NamedEntity entity and map to NamedEntityDto
+        private static async Task<List<NamedEntityDto>?> buildNamedEntityDtoAsync(ApplicationDbContext db, int? organizationID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (organizationID == null)
+                return null;
+
+            var entity = await db.Set<Label.NamedEntity>()
+                .AsNoTracking()
+                .Where(e => e.OrganizationID == organizationID)
+                .ToListAsync();
+
+            if (entity == null)
+                return null;
+
+            return entity
+                .Select(e => new NamedEntityDto
+                {
+                    NamedEntity = entity.ToEntityWithEncryptedId(pkSecret, logger)
+                })
+                .ToList();
+            #endregion
+        }
+
+        // PackageIdentifierDto: Fetch Label.PackageIdentifier entity and map to PackageIdentifierDto
+        private static async Task<PackageIdentifierDto?> buildPackageIdentifierDtoAsync(ApplicationDbContext db, int? packagingLevelID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (packagingLevelID == null)
+                return null;
+
+            var entity = await db.Set<Label.PackageIdentifier>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.PackagingLevelID == packagingLevelID);
+
+            if (entity == null)
+                return null;
+
+            return new PackageIdentifierDto
+            {
+                PackageIdentifier = entity.ToEntityWithEncryptedId(pkSecret, logger)
+                // Add children as needed
+            };
+            #endregion
+        }
+
+        // CharacteristicDto: relates to the Characteristic table (ProductID and PackagingLevelID)
+        private static async Task<CharacteristicDto?> buildCharacteristicDtoAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (productID == null)
+                return null;
+
+            var entity = await db.Set<Label.Characteristic>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.ProductID == productID);
+
+            if (entity == null)
+                return null;
+
+            // Optionally build nested PackagingLevel and Product if needed
+            var packagingLevelDto = await buildPackagingLevelDtoAsync(db, entity.PackagingLevelID, pkSecret, logger);
+
+            var productDto = await buildProductDtoAsync(db, entity.ProductID, pkSecret, logger);
+
+            return new CharacteristicDto
+            {
+                Characteristic = entity.ToEntityWithEncryptedId(pkSecret, logger),
+                PackagingLevel = packagingLevelDto,
+                Product = productDto
+            };
+            #endregion
+        }
+
+        // Helper: ProductDto by PK
+        private static async Task<ProductDto?> buildProductDtoAsync(ApplicationDbContext db, int? productId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (productId == null)
+                return null;
+
+            var entity = await db.Set<Label.Product>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.ProductID == productId);
+
+            if (entity == null)
+                return null;
+
+            return new ProductDto
+            {
+                Product = entity.ToEntityWithEncryptedId(pkSecret, logger)
+                // For full hierarchy, consider calling buildProductsAsync if you need full population.
+            };
+            #endregion
+        }
+
+
+        // PackagingHierarchyDto: Contains both OuterPackagingLevelID and InnerPackagingLevelID
+        private static async Task<List<PackagingHierarchyDto>?> buildPackagingHierarchyDtoAsync(ApplicationDbContext db, int? outerPackagingLevelID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (outerPackagingLevelID == null)
+                return null;
+
+            var entity = await db.Set<Label.PackagingHierarchy>()
+                .AsNoTracking()
+                .Where(e => e.OuterPackagingLevelID == outerPackagingLevelID)
+                .ToListAsync();
+
+            if (entity == null)
+                return null;
+
+            return entity.Select(e => new PackagingHierarchyDto
+            {
+                PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+            #endregion
+        }
+
+        // ProductPartDto: ProductPart has a one-to-many relationship with Product (KitProductID == productID)
+        private static async Task<ProductPartDto?> buildProductPartDtoAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (productID == null)
+                return null;
+
+            var entity = await db.Set<Label.ProductPart>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.KitProductID == productID);
+
+            if (entity == null)
+                return null;
+
+            return new ProductPartDto
+            {
+                ProductPart = entity.ToEntityWithEncryptedId(pkSecret, logger)
+                // Add nested children if needed
+            };
+            #endregion
+        }
+
+        // ReferenceSubstanceDto: The reference substance is related to Ingredient via ReferenceSubstanceID
+        private static async Task<ReferenceSubstanceDto?> buildReferenceSubstanceDtoAsync(ApplicationDbContext db, int? referenceSubstanceId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (referenceSubstanceId == null)
+                return null;
+
+            var entity = await db.Set<Label.ReferenceSubstance>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.ReferenceSubstanceID == referenceSubstanceId);
+
+            if (entity == null)
+                return null;
+
+            return new ReferenceSubstanceDto
+            {
+                ReferenceSubstance = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            };
+            #endregion
+        }
+
+        // SectionHierarchyDto: SectionHierarchy contains ParentSectionID and ChildSectionID
+        private static async Task<List<SectionHierarchyDto>?> buildParentSectionHierarchyDtoAsync(ApplicationDbContext db, int? sectionID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (sectionID == null)
+                return null;
+
+            var entity = await db.Set<Label.SectionHierarchy>()
+                .AsNoTracking()
+                .Where(e => e.ParentSectionID == sectionID)
+                .ToListAsync();
+
+            if (entity == null)
+                return null;
+
+            return entity.Select(entity => new SectionHierarchyDto
+            {
+                SectionHierarchy = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+            #endregion
+        }
+
+        private static async Task<List<SectionHierarchyDto>?> buildChildSectionHierarchyDtoAsync(ApplicationDbContext db, int? sectionID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (sectionID == null)
+                return null;
+
+            var entity = await db.Set<Label.SectionHierarchy>()
+                .AsNoTracking()
+                .Where(e => e.ChildSectionID == sectionID)
+                .ToListAsync();
+
+            if (entity == null)
+                return null;
+
+            return entity.Select(entity => new SectionHierarchyDto
+            {
+                SectionHierarchy = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+            #endregion
+        }
+
+        // SectionTextContentDto: SectionID is a foreign key to the Section table
+        private static async Task<List<SectionTextContentDto>?> buildSectionTextContentDtoAsync(ApplicationDbContext db, int? sectionID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (sectionID == null)
+                return null;
+
+            var entity = await db.Set<Label.SectionTextContent>()
+                .AsNoTracking()
+                .Where(e => e.SectionID == sectionID)
+                .ToListAsync();
+
+            if (entity == null)
+                return null;
+
+            return entity.Select(e => new SectionTextContentDto
+            {
+                SectionTextContent = e.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
+        // TelecomDto: Telecom entity by primary key
+        private static async Task<TelecomDto?> buildTelecomDtoAsync(ApplicationDbContext db, int? telecomId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (telecomId == null)
+                return null;
+
+            var entity = await db.Set<Label.Telecom>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.TelecomID == telecomId);
+
+            var party = await db.Set<Label.ContactPartyTelecom>()
+                .AsNoTracking()
+                .Where(e => e.TelecomID == telecomId)
+                .ToListAsync();
+
+            if (entity == null)
+                return null;
+
+            return new TelecomDto
+            {
+                Telecom = entity.ToEntityWithEncryptedId(pkSecret, logger),
+                ContactPartyLinks = party.Select(p => p.ToEntityWithEncryptedId(pkSecret, logger)).ToList()
+            };
+            #endregion
+        }
+
+        // TerritorialAuthorityDto: Fetch Label.TerritorialAuthority entity and map to TerritorialAuthorityDto
+        private static async Task<TerritorialAuthorityDto?> buildTerritorialAuthorityDtoAsync(ApplicationDbContext db, int? territorialAuthorityId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (territorialAuthorityId == null)
+                return null;
+
+            var entity = await db.Set<Label.TerritorialAuthority>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.TerritorialAuthorityID == territorialAuthorityId);
+
+            if (entity == null)
+                return null;
+
+            return new TerritorialAuthorityDto
+            {
+                TerritorialAuthority = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            };
+            #endregion
+        }
+
+        // MarketingCategoryDto: ProductID is used to get MarketingCategory, then fetch by MarketingCategoryID
+        private static async Task<MarketingCategoryDto?> buildMarketingCategoryDtoAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (productID == null)
+                return null;
+
+            var entity = await db.Set<Label.MarketingCategory>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.ProductID == productID);
+
+            if (entity == null)
+                return null;
+
+            return new MarketingCategoryDto
+            {
+                MarketingCategory = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            };
+            #endregion
+        }
+
+        // HolderDto: Fetch Label.Holder entity by MarketingCategoryID and map to HolderDto
+        private static async Task<HolderDto?> buildHolderDtoAsync(ApplicationDbContext db, int? marketingCategoryID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (marketingCategoryID == null)
+                return null;
+
+            var entity = await db.Set<Label.Holder>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.MarketingCategoryID == marketingCategoryID);
+
+            if (entity == null)
+                return null;
+
+            return new HolderDto
+            {
+                Holder = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            };
+            #endregion
+        }
+
+        // IngredientSourceProductDto: Fetch Label.IngredientSourceProduct entity by IngredientID
+        private static async Task<IngredientSourceProductDto?> buildIngredientSourceProductDtoAsync(ApplicationDbContext db, int? ingredientID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (ingredientID == null)
+                return null;
+
+            var entity = await db.Set<Label.IngredientSourceProduct>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.IngredientID == ingredientID);
+
+            if (entity == null)
+                return null;
+
+            return new IngredientSourceProductDto
+            {
+                IngredientSourceProduct = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            };
+            #endregion
+        }
+
+        // IngredientInstanceDto: Fetch Label.IngredientInstance entity by primary key
+        private static async Task<IngredientInstanceDto?> buildIngredientInstanceDtoAsync(ApplicationDbContext db, int? ingredientInstanceId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (ingredientInstanceId == null)
+                return null;
+
+            var entity = await db.Set<Label.IngredientInstance>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.IngredientInstanceID == ingredientInstanceId);
+
+            if (entity == null)
+                return null;
+
+            return new IngredientInstanceDto
+            {
+                IngredientInstance = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            };
+            #endregion
+        }
+
+        // Helper: PackagingLevelDto by PK
+        private static async Task<PackagingLevelDto?> buildPackagingLevelDtoAsync(ApplicationDbContext db, int? packagingLevelID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (packagingLevelID == null)
+                return null;
+
+            var entity = await db.Set<Label.PackagingLevel>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.PackagingLevelID == packagingLevelID);
+
+            if (entity == null)
+                return null;
+
+            return new PackagingLevelDto
+            {
+                PackagingLevel = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            };
+            #endregion
+        }
     }
+    #endregion
 }
