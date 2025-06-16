@@ -75,11 +75,16 @@ Security settings including encryption keys should be configured in your user se
 
 ```json
 {
-  "Security": {
-    "DB": {
-      "PKSecret": "your-encryption-key-here"
+    "Authentication:Google:ClientSecret" : "your-google-client-secret-here",
+    "Authentication:Google:ClientId" : "your-google-client-id-here",
+    "Security:DB:PKSecret": "your-encryption-key-here",
+    "Dev:DB:Connection": "Server=localhost;Database=MedRecPro;User Id=sa;Password=your_password_here;",
+    "Jwt":{
+        "Key": "your-super-strong-key",
+        "Issuer": "MedRecPro",
+        "Audience": "MedRecUsers",
+        "ExpirationMinutes": 60
     }
-  }
 }
 ```
 
