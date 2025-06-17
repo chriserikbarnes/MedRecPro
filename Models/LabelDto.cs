@@ -1,6 +1,12 @@
 ﻿namespace MedRecPro.Models
 {
     /**************************************************************/
+    public class AdditionalIdentifierDto
+    {
+        public required Dictionary<string, object?> AdditionalIdentifier { get; set; }
+    }
+
+    /**************************************************************/
     public class AddressDto
     {
         public required Dictionary<string, object?> Address { get; set; }
@@ -11,6 +17,12 @@
     public class AnalyteDto
     {
         public required Dictionary<string, object?> Analyte { get; set; }
+    }
+
+    /**************************************************************/
+    public class ApplicationTypeDto
+    {
+        public required Dictionary<string, object?> ApplicationType { get; set; }
     }
 
     /**************************************************************/
@@ -32,6 +44,12 @@
     }
 
     /**************************************************************/
+    public class BusinessOperationQualifierDto
+    {
+        public required Dictionary<string, object?> BusinessOperationQualifier { get; set; }
+    }
+
+    /**************************************************************/
     public class CertificationProductLinkDto
     {
         public required Dictionary<string, object?> CertificationProductLink { get; set; }
@@ -42,6 +60,18 @@
     {
         public required Dictionary<string, object?> Characteristic { get; set; }
         public List<Dictionary<string, object?>> PackagingLevels { get; set; } = new();
+    }
+
+    /**************************************************************/
+    public class CommodityDto
+    {
+        public required Dictionary<string, object?> Commodity { get; set; }
+    }
+
+    /**************************************************************/
+    public class ContributingFactorDto
+    {
+        public required Dictionary<string, object?> ContributingFactor { get; set; }
     }
 
     /**************************************************************/
@@ -73,6 +103,12 @@
     {
         public required Dictionary<string, object?> ContactPerson { get; set; }
         public List<ContactPartyDto> ContactParties { get; set; } = new();
+    }
+
+    /**************************************************************/
+    public class DisciplinaryActionDto
+    {
+        public required Dictionary<string, object?> DisciplinaryAction { get; set; }
     }
 
     /**************************************************************/
@@ -110,6 +146,18 @@
         public List<CertificationProductLinkDto> CertificationProductLinks { get; set; } = new();
         public List<ComplianceActionDto> ComplianceActions { get; set; } = new();
         public List<FacilityProductLinkDto> FacilityProductLinks { get; set; } = new();
+    }
+
+    /**************************************************************/
+    public class DosingSpecificationDto
+    {
+        public required Dictionary<string, object?> DosingSpecification { get; set; }
+    }
+
+    /**************************************************************/
+    public class EquivalentEntityDto
+    {
+        public required Dictionary<string, object?> EquivalentEntity { get; set; }
     }
 
     /**************************************************************/
@@ -176,6 +224,12 @@
     }
 
     /**************************************************************/
+    public class InteractionConsequenceDto
+    {
+        public required Dictionary<string, object?> InteractionConsequence { get; set; }
+    }
+
+    /**************************************************************/
     public class InteractionIssueDto
     {
         public required Dictionary<string, object?> InteractionIssue { get; set; }
@@ -187,6 +241,12 @@
         public required Dictionary<string, object?> LegalAuthenticator { get; set; }
         public DocumentDto? Document { get; set; }
         public OrganizationDto? Organization { get; set; }
+    }
+
+    /**************************************************************/
+    public class LicenseDto
+    {
+        public required Dictionary<string, object?> License { get; set; }
     }
 
     /**************************************************************/
@@ -213,6 +273,18 @@
     public class NamedEntityDto
     {
         public required Dictionary<string, object?> NamedEntity { get; set; }
+    }
+
+    /**************************************************************/
+    public class NCTLinkDto
+    {
+        public required Dictionary<string, object?> NCTLink { get; set; }
+    }
+
+    /**************************************************************/
+    public class ObservationCriterionDto
+    {
+        public required Dictionary<string, object?> ObservationCriterion { get; set; }
     }
 
     /**************************************************************/
@@ -274,7 +346,49 @@
     }
 
     /**************************************************************/
+    public class PartOfAssemblyDto
+    {
+        public required Dictionary<string, object?> PartOfAssembly { get; set; }
+    }
+
+    /**************************************************************/
+    public class PharmacologicClassDto
+    {
+        public required Dictionary<string, object?> PharmacologicClass { get; set; }
+    }
+
+    /**************************************************************/
+    public class PharmacologicClassNameDto
+    {
+        public required Dictionary<string, object?> PharmacologicClassName { get; set; }
+    }
+
+    /**************************************************************/
+    public class PharmacologicClassLinkDto
+    {
+        public required Dictionary<string, object?> PharmacologicClassLink { get; set; }
+    }
+
+    /**************************************************************/
+    public class PharmacologicClassHierarchyDto
+    {
+        public required Dictionary<string, object?> PharmacologicClassHierarchy { get; set; }
+    }
+
+    /**************************************************************/
+    public class PolicyDto
+    {
+        public required Dictionary<string, object?> Policy { get; set; }
+    }
+
+    /**************************************************************/
     public class ProductConceptDto
+    {
+        public required Dictionary<string, object?> ProductConcept { get; set; }
+    }
+
+    /**************************************************************/
+    public class ProductConceptEquivalenceDto
     {
         public required Dictionary<string, object?> ProductConcept { get; set; }
     }
@@ -307,6 +421,12 @@
         public List<LotHierarchyDto> ParentLotHierarchies { get; set; } = new();
         public List<LotHierarchyDto> ChildLotHierarchies { get; set; } = new();
         public List<CharacteristicDto> Characteristics { get; set; } = new();
+    }
+
+    /**************************************************************/
+    public class ProductEventDto
+    {
+        public required Dictionary<string, object?> ProductEvent { get; set; }
     }
 
     /**************************************************************/
@@ -364,6 +484,12 @@
     }
 
     /**************************************************************/
+    public class REMSApprovalDto
+    {
+        public required Dictionary<string, object?> REMSApproval { get; set; }
+    }
+
+    /**************************************************************/
     public class REMSElectronicResourceDto
     {
         public required Dictionary<string, object?> REMSElectronicResource { get; set; }
@@ -373,6 +499,18 @@
     public class REMSMaterialDto
     {
         public required Dictionary<string, object?> REMSMaterial { get; set; }
+    }
+
+    /**************************************************************/
+    public class RenderedMediaDto
+    {
+        public required Dictionary<string, object?> RenderedMedia { get; set; }
+    }
+
+    /**************************************************************/
+    public class RequirementDto
+    {
+        public required Dictionary<string, object?> Requirement { get; set; }
     }
 
     /**************************************************************/
@@ -424,6 +562,24 @@
     }
 
     /**************************************************************/
+    public class  SpecializedKindDto
+    {
+        public required Dictionary<string, object?> SpecializedKind { get; set; }
+    }
+
+    /**************************************************************/
+    public class SpecifiedSubstanceDto
+    {
+        public required Dictionary<string, object?> SpecifiedSubstance { get; set; }
+    }
+
+    /**************************************************************/
+    public class StakeholderDto
+    {
+        public required Dictionary<string, object?> Stakeholder { get; set; }
+    }
+
+    /**************************************************************/
     public class StructuredBodyDto
     {
         public required Dictionary<string, object?> StructuredBody { get; set; }
@@ -450,6 +606,36 @@
     public class TerritorialAuthorityDto
     {
         public required Dictionary<string, object?> TerritorialAuthority { get; set; }
+    }
+
+    /**************************************************************/
+    public class TextListDto
+    {
+        public required Dictionary<string, object?> TextList { get; set; }
+    }
+
+    /**************************************************************/
+    public class TextListItemDto
+    {
+        public required Dictionary<string, object?> TextListItem { get; set; }
+    }
+
+    /**************************************************************/
+    public class TextTableDto
+    {
+        public required Dictionary<string, object?> TextTable { get; set; }
+    }
+
+    /**************************************************************/
+    public class TextTableRowDto
+    {
+        public required Dictionary<string, object?> TextTableRow { get; set; }
+    }
+
+    /**************************************************************/
+    public class TextTableCellDto
+    {
+        public required Dictionary<string, object?> TextTableCell { get; set; }
     }
 
     /**************************************************************/
