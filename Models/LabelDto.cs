@@ -41,8 +41,7 @@
     public class CharacteristicDto
     {
         public required Dictionary<string, object?> Characteristic { get; set; }
-        public PackagingLevelDto? PackagingLevel { get; set; }
-        public ProductDto? Product { get; set; }
+        public List<Dictionary<string, object?>> PackagingLevels { get; set; } = new();
     }
 
     /**************************************************************/
@@ -142,6 +141,10 @@
         public IngredientSubstanceDto? IngredientSubstance { get; set; }
 
         public List<IngredientInstanceDto> IngredientInstances { get; set; } = new();
+
+        public List<ReferenceSubstanceDto> ReferenceSubstances { get; set; } = new();
+
+        public List<IngredientSourceProductDto> IngredientSourceProducts { get; set; } = new();
     }
 
     /**************************************************************/
@@ -164,6 +167,7 @@
     public class IngredientSubstanceDto
     {
         public required Dictionary<string, object?> IngredientSubstance { get; set; }
+        public List<IngredientInstanceDto> IngredientInstances { get; set; } = new();
     }
 
     /**************************************************************/
@@ -297,6 +301,7 @@
         public List<PackagingLevelDto> PackagingLevels { get; set; } = new();
         public List<LotHierarchyDto> ParentLotHierarchies { get; set; } = new();
         public List<LotHierarchyDto> ChildLotHierarchies { get; set; } = new();
+        public List<CharacteristicDto> Characteristics { get; set; } = new();
     }
 
    
@@ -314,6 +319,7 @@
         public LotIdentifierDto? LotIdentifier { get; set; }
         public List<LotHierarchyDto> ParentHierarchies { get; set; } = new();
         public List<LotHierarchyDto> ChildHierarchies { get; set; } = new();
+        public List<PackagingLevelDto> PackagingLevels { get; set; } = new();
     }
 
     /**************************************************************/
