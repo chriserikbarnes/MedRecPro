@@ -41,10 +41,10 @@ MedRecPro is a structured product label management system built with ASP.NET Cor
 
 ### Labels
 - `GET /api/label` - Retrieves all labels
-- `GET /api/label/{id}` - Retrieves a specific item
+- `GET /api/label/{encryptedId}` - Retrieves a specific item
 - `POST /api/label` - Creates a new item
-- `PUT /api/label/{id}` - Updates an existing item
-- `DELETE /api/label/{id}` - Deletes a item
+- `PUT /api/label/{encryptedId}` - Updates an existing item
+- `DELETE /api/label/{encryptedId}` - Deletes a item
 
 ## Database Schema
 

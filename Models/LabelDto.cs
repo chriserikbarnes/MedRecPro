@@ -309,8 +309,6 @@
         public List<CharacteristicDto> Characteristics { get; set; } = new();
     }
 
-   
-
     /**************************************************************/
     public class ProductIdentifierDto
     {
