@@ -92,6 +92,11 @@
         public List<DocumentRelationshipDto> DocumentRelationships { get; set; } = new();
         public List<StructuredBodyDto> StructuredBodies { get; set; } = new();
         public List<LegalAuthenticatorDto> LegalAuthenticators { get; set; } = new();
+        
+        /// <summary>
+        /// Provides query execution performance in Milliseconds.
+        /// </summary>
+        public double PerformanceMs { get; set; }
     }
 
     /**************************************************************/
