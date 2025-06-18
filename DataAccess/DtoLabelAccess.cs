@@ -2,7 +2,11 @@
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
+using System;
 using System.Diagnostics;
+using Windows.Services.Store;
+using static MedRecPro.Models.Label;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace MedRecPro.DataAccess
 {
@@ -406,6 +410,11 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
+        // Builds the NCTLink DTOs for the specified section.
+        // SectionDto > NCTLinkDto
+        private static async Task<List<NCTLinkDto>?> buildNCTLinkDtoAsync(ApplicationDbContext db, int? sectionID, string pkSecret, ILogger logger) { return null; }
+
+        /**************************************************************/
         /// <summary>
         /// Builds a list of section hierarchy DTOs where the specified section ID is the parent.
         /// SectionHierarchy contains ParentSectionID and ChildSectionID relationships.
@@ -517,6 +526,54 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
+        // Represents the renderMultimedia tag, linking text content to an ObservationMedia entry
+        // SectionDto >SectionTextContentDto > RenderedMediaDto
+        private static async Task<List<RenderedMediaDto>?> buildRenderedMediasAsync(ApplicationDbContext db, int? sectionTextContentID, string pkSecret, ILogger logger)
+        {
+            return null; // Placeholder for future implementation
+        }
+
+        /**************************************************************/
+        // Stores details specific to table elements.
+        // SectionDto > SectionTextContentDto > TextTableDto
+        private static async Task<List<TextTableDto>?> buildTextTablesAsync(ApplicationDbContext db, int? sectionTextContentID, string pkSecret, ILogger logger)
+        {
+            return null; // Placeholder for future implementation
+        }
+
+        /**************************************************************/
+        // Stores details specific to individual tr elements.
+        // SectionDto > SectionTextContentDto > TextTableDto > TextTableRowDto
+        private static async Task<List<TextTableRowDto>?> buildTextTableRowsAsync(ApplicationDbContext db, int? textTableID, string pkSecret, ILogger logger)
+        {
+            return null; // Placeholder for future implementation
+        }
+
+        /**************************************************************/
+        // Stores details specific to individual td elements.
+        // SectionDto > SectionTextContentDto > TextTableDto > TextTableRowDto > TextTableCellDto
+        private static async Task<List<TextTableCellDto>?> buildTextTableCellsAsync(ApplicationDbContext db, int? textTableRowID, string pkSecret, ILogger logger)
+        {
+            return null; // Placeholder for future implementation
+        }
+
+        /**************************************************************/
+        // Stores details specific to list elements.
+        // SectionDto >SectionTextContentDto > TextListDto
+        private static async Task<List<TextListDto>?> buildTextListsAsync(ApplicationDbContext db, int? sectionTextContentID, string pkSecret, ILogger logger)
+        {
+            return null; // Placeholder for future implementation
+        }
+
+        /**************************************************************/
+        // Stores details specific to list elements.
+        // SectionDto > SectionTextContentDto > TextListDto > TextListItemDto
+        private static async Task<List<TextListItemDto>?> buildTextListItemsAsync(ApplicationDbContext db, int? textListID, string pkSecret, ILogger logger)
+        {
+            return null; // Placeholder for future implementation
+        }
+
+        /**************************************************************/
         /// <summary>
         /// Builds a list of SectionExcerptHighlight DTOs for the specified section.
         /// Retrieves highlighted text content within excerpt sections such as Boxed Warnings and Indications.
@@ -599,6 +656,14 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
+        //Links an Application Product Concept to its corresponding Abstract Product Concept
+        // SectionDto > ProductConceptDto > ProductConceptEquivalenceDto
+        private static async Task<List<ProductConceptEquivalenceDto>> buildProductConceptEquivalencesAsync(ApplicationDbContext db, int? productConceptID, string pkSecret, ILogger logger) 
+        { 
+            return null; 
+        }
+
+        /**************************************************************/
         /// <summary>
         /// Builds a list of InteractionIssue DTOs for the specified section.
         /// Retrieves drug interaction issues and their associated details.
@@ -628,16 +693,22 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
-        /// <summary>
-        /// Builds a list of BillingUnitIndex DTOs for the specified section.
-        /// Retrieves links between NDC Package Codes and their NCPDP Billing Units.
-        /// </summary>
-        /// <param name="db">The database context.</param>
-        /// <param name="sectionId">The section ID to find billing unit indexes for.</param>
-        /// <param name="pkSecret">Secret used for ID encryption.</param>
-        /// <param name="logger">Logger instance for diagnostics.</param>
-        /// <returns>List of BillingUnitIndex DTOs with encrypted IDs.</returns>
-        /// <seealso cref="Label.BillingUnitIndex"/>
+        // Builds the list of consequences from an interaction issue.
+        // SectionDto > InteractionIssueDto > InteractionConsequenceDto
+        private static async Task<List<InteractionConsequenceDto>> buildInteractionConsequencesAsync(ApplicationDbContext db, int? interactionIssueId, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
+            /// <summary>
+            /// Builds a list of BillingUnitIndex DTOs for the specified section.
+            /// Retrieves links between NDC Package Codes and their NCPDP Billing Units.
+            /// </summary>
+            /// <param name="db">The database context.</param>
+            /// <param name="sectionId">The section ID to find billing unit indexes for.</param>
+            /// <param name="pkSecret">Secret used for ID encryption.</param>
+            /// <param name="logger">Logger instance for diagnostics.</param>
+            /// <returns>List of BillingUnitIndex DTOs with encrypted IDs.</returns>
+            /// <seealso cref="Label.BillingUnitIndex"/>
         private static async Task<List<BillingUnitIndexDto>> buildBillingUnitIndexesAsync(ApplicationDbContext db, int? sectionId, string pkSecret, ILogger logger)
         {
             #region implementation
@@ -741,6 +812,30 @@ namespace MedRecPro.DataAccess
                 .Select(item => new ProtocolDto { Protocol = item.ToEntityWithEncryptedId(pkSecret, logger) })
                 .ToList();
             #endregion
+        }
+
+        /**************************************************************/
+        // Stores the REMS approval details associated with the first protocol mention
+        // SectionDto > ProtocolDto > REMSApprovalDto
+        private static async Task<List<REMSApprovalDto>> buildREMSApprovalsAsync(ApplicationDbContext db, int? protocolID, string pkSecret, ILogger logger)
+        {
+            return null;
+        }
+
+        /**************************************************************/
+        // Represents a REMS requirement or monitoring observation within a protocol 
+        // SectionDto > ProtocolDto > RequirementDto
+        private static async Task<List<RequirementDto>> buildRequirementsAsync(ApplicationDbContext db, int? protocolID, string pkSecret, ILogger logger)
+        {
+            return null;
+        }
+
+        /**************************************************************/
+        // Lookup table for REMS stakeholder types
+        // SectionDto > ProtocolDto > RequirementDto > StakeholderDto
+        private static async Task<List<RequirementDto>> buildStakeholdersAsync(ApplicationDbContext db, int? stakeholderID, string pkSecret, ILogger logger)
+        {
+            return null;
         }
 
         /**************************************************************/
@@ -894,6 +989,54 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
+        // Additional identifiers for the product.
+        // ProductDto > AdditionalIdentifiersDto
+        private static async Task<List<AdditionalIdentifierDto>?>buildAdditionalIdentifiersAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            return null;
+        }
+
+        /**************************************************************/
+        // Dosing specs for the product.
+        // ProductDto > DosingSpecificationDto
+        private static async Task<List<DosingSpecificationDto>?> buildDosingSpecificationsAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            return null;
+        }
+
+        /**************************************************************/
+        // Equivalent entities for the product.
+        // ProductDto > EquivalentEntityDto
+        private static async Task<List<EquivalentEntityDto>?> buildEquivalentEntitiesAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            return null;
+        }
+
+        /**************************************************************/
+        // Equivalent entities for the product. ProductID == PrimaryProductID
+        // ProductDto > PartOfAssemblyDto
+        private static async Task<List<PartOfAssemblyDto>?> buildPartOfAssembliesAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            return null;
+        }
+
+        /**************************************************************/
+        // Policies for the product. ProductID == productID
+        // ProductDto > PolicyDto
+        private static async Task<List<PolicyDto>?> buildPoliciesAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            return null;
+        }
+
+        /**************************************************************/
+        // Stores specialized kind information, like device product classification or cosmetic category.
+        // ProductDto > SpecializedKindsDto
+        private static async Task<List<SpecializedKindDto>?> buildSpecializedKindsAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            return null;
+        }
+
+        /**************************************************************/
         /// <summary>
         /// Builds a product DTO for a specified product ID.
         /// Helper method to retrieve product entity by primary key.
@@ -908,17 +1051,17 @@ namespace MedRecPro.DataAccess
         /// <remarks>
         /// For full hierarchy, consider calling buildProductsAsync if you need full population.
         /// </remarks>
-        private static async Task<ProductDto?> buildProductDtoAsync(ApplicationDbContext db, int? productId, string pkSecret, ILogger logger)
+        private static async Task<ProductDto?> buildProductDtoAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no product ID is provided
-            if (productId == null)
+            if (productID == null)
                 return null;
 
             // Query product for the specified product ID
             var entity = await db.Set<Label.Product>()
                 .AsNoTracking()
-                .FirstOrDefaultAsync(e => e.ProductID == productId);
+                .FirstOrDefaultAsync(e => e.ProductID == productID);
 
             // Return null if no entity found
             if (entity == null)
@@ -939,20 +1082,20 @@ namespace MedRecPro.DataAccess
         /// Retrieves non-proprietary medicine names associated with a product.
         /// </summary>
         /// <param name="db">The database context.</param>
-        /// <param name="productId">The product ID to find generic medicines for.</param>
+        /// <param name="productID">The product ID to find generic medicines for.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of GenericMedicine DTOs with encrypted IDs.</returns>
         /// <seealso cref="Label.GenericMedicine"/>
-        private static async Task<List<GenericMedicineDto>> buildGenericMedicinesAsync(ApplicationDbContext db, int? productId, string pkSecret, ILogger logger)
+        private static async Task<List<GenericMedicineDto>> buildGenericMedicinesAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
         {
             #region implementation
-            if (productId == null) return new List<GenericMedicineDto>();
+            if (productID == null) return new List<GenericMedicineDto>();
 
             // Query generic medicines for the specified product
             var items = await db.Set<Label.GenericMedicine>()
                 .AsNoTracking()
-                .Where(e => e.ProductID == productId)
+                .Where(e => e.ProductID == productID)
                 .ToListAsync();
 
             // Transform entities to DTOs with encrypted IDs
@@ -968,20 +1111,20 @@ namespace MedRecPro.DataAccess
         /// Retrieves various types of identifiers associated with a product such as NDC, GTIN, etc.
         /// </summary>
         /// <param name="db">The database context.</param>
-        /// <param name="productId">The product ID to find product identifiers for.</param>
+        /// <param name="productID">The product ID to find product identifiers for.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of ProductIdentifier DTOs with encrypted IDs.</returns>
         /// <seealso cref="Label.ProductIdentifier"/>
-        private static async Task<List<ProductIdentifierDto>> buildProductIdentifiersAsync(ApplicationDbContext db, int? productId, string pkSecret, ILogger logger)
+        private static async Task<List<ProductIdentifierDto>> buildProductIdentifiersAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
         {
             #region implementation
-            if (productId == null) return new List<ProductIdentifierDto>();
+            if (productID == null) return new List<ProductIdentifierDto>();
 
             // Query product identifiers for the specified product
             var items = await db.Set<Label.ProductIdentifier>()
                 .AsNoTracking()
-                .Where(e => e.ProductID == productId)
+                .Where(e => e.ProductID == productID)
                 .ToListAsync();
 
             // Transform entities to DTOs with encrypted IDs
@@ -997,20 +1140,20 @@ namespace MedRecPro.DataAccess
         /// Retrieves routes of administration associated with a product or part.
         /// </summary>
         /// <param name="db">The database context.</param>
-        /// <param name="productId">The product ID to find routes of administration for.</param>
+        /// <param name="productID">The product ID to find routes of administration for.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of ProductRouteOfAdministration DTOs with encrypted IDs.</returns>
         /// <seealso cref="Label.ProductRouteOfAdministration"/>
-        private static async Task<List<ProductRouteOfAdministrationDto>> buildProductRouteOfAdministrationsAsync(ApplicationDbContext db, int? productId, string pkSecret, ILogger logger)
+        private static async Task<List<ProductRouteOfAdministrationDto>> buildProductRouteOfAdministrationsAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
         {
             #region implementation
-            if (productId == null) return new List<ProductRouteOfAdministrationDto>();
+            if (productID == null) return new List<ProductRouteOfAdministrationDto>();
 
             // Query product routes of administration for the specified product
             var items = await db.Set<Label.ProductRouteOfAdministration>()
                 .AsNoTracking()
-                .Where(e => e.ProductID == productId)
+                .Where(e => e.ProductID == productID)
                 .ToListAsync();
 
             // Transform entities to DTOs with encrypted IDs
@@ -1026,20 +1169,20 @@ namespace MedRecPro.DataAccess
         /// Retrieves web page links for cosmetic products.
         /// </summary>
         /// <param name="db">The database context.</param>
-        /// <param name="productId">The product ID to find web links for.</param>
+        /// <param name="productID">The product ID to find web links for.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of ProductWebLink DTOs with encrypted IDs.</returns>
         /// <seealso cref="Label.ProductWebLink"/>
-        private static async Task<List<ProductWebLinkDto>> buildProductWebLinksAsync(ApplicationDbContext db, int? productId, string pkSecret, ILogger logger)
+        private static async Task<List<ProductWebLinkDto>> buildProductWebLinksAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
         {
             #region implementation
-            if (productId == null) return new List<ProductWebLinkDto>();
+            if (productID == null) return new List<ProductWebLinkDto>();
 
             // Query product web links for the specified product
             var items = await db.Set<Label.ProductWebLink>()
                 .AsNoTracking()
-                .Where(e => e.ProductID == productId)
+                .Where(e => e.ProductID == productID)
                 .ToListAsync();
 
             // Transform entities to DTOs with encrypted IDs
@@ -1139,11 +1282,7 @@ namespace MedRecPro.DataAccess
         /// <remarks>
         /// Based on Section 3.1.9. Relates to the Characteristic table (ProductID and PackagingLevelID).
         /// </remarks>
-        private static async Task<List<CharacteristicDto>> buildCharacteristicsDtoAsync(
-            ApplicationDbContext db,
-            int? productID,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<List<CharacteristicDto>> buildCharacteristicsDtoAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return empty list if no product ID is provided
@@ -1490,11 +1629,7 @@ namespace MedRecPro.DataAccess
         /// var ingredients = await buildIngredientsAsync(dbContext, 123, "secret", logger);
         /// </code>
         /// </example>
-        private static async Task<List<IngredientDto>> buildIngredientsAsync(
-          ApplicationDbContext db,
-          int? productId,
-          string pkSecret,
-          ILogger logger)
+        private static async Task<List<IngredientDto>> buildIngredientsAsync(ApplicationDbContext db, int? productId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return empty list if no productId provided
@@ -1558,6 +1693,13 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
+        // Stores the specified substance code and name linked to an
+        // ingredient in Biologic/Drug Substance Indexing documents.
+        // IngredientDto > SpecifiedSubstanceDto
+        private static async Task<List<SpecifiedSubstanceDto>> buildSpecifiedSubstancesAsync(ApplicationDbContext db, int? ingredientID, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
         /// <summary>
         /// Builds an IngredientSubstance DTO for the specified ingredient substance ID.
         /// Retrieves detailed substance information including UNII codes and substance names.
@@ -1579,11 +1721,7 @@ namespace MedRecPro.DataAccess
         /// var substance = await buildIngredientSubstanceAsync(dbContext, 789, "secret", logger);
         /// </code>
         /// </example>
-        private static async Task<IngredientSubstanceDto?> buildIngredientSubstanceAsync(
-            ApplicationDbContext db,
-            int? ingredientSubstanceId,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<IngredientSubstanceDto?> buildIngredientSubstanceAsync(ApplicationDbContext db, int? ingredientSubstanceId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no ingredientSubstanceId provided
@@ -1638,11 +1776,7 @@ namespace MedRecPro.DataAccess
         /// var instances = await buildIngredientInstancesAsync(dbContext, 456, "secret", logger);
         /// </code>
         /// </example>
-        private static async Task<List<IngredientInstanceDto>?> buildIngredientInstancesAsync(
-            ApplicationDbContext db,
-            int? ingredientSubstanceId,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<List<IngredientInstanceDto>?> buildIngredientInstancesAsync(ApplicationDbContext db, int? ingredientSubstanceId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no ingredientSubstanceId provided
@@ -1683,11 +1817,7 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
-        private static async Task<List<IngredientInstanceDto>?> buildProductIngredientInstancesAsync(
-           ApplicationDbContext db,
-           int? productID,
-           string pkSecret,
-           ILogger logger)
+        private static async Task<List<IngredientInstanceDto>?> buildProductIngredientInstancesAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no ingredientSubstanceId provided
@@ -1886,6 +2016,44 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
+        // Builds a list of contributing factors for the specified factor
+        // substance ID. FactorSubstanceID == IdentifiedSubstanceID
+        // IdentifiedSubstanceDto > ContributingFactorDto
+        private static async Task<List<ContributingFactorDto>> buildContributingFactorsAsync(ApplicationDbContext db, int? factorSubstanceID, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
+        // Builds a list of pharmacologic classes for the IdentifiedSubstance
+        // IdentifiedSubstanceDto > PharmacologicClassDto
+        private static async Task<List<PharmacologicClassDto>> buildPharmacologicClassesAsync(ApplicationDbContext db, int? identifiedSubstanceID, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
+        // Builds a list of pharmacologic classes names for the pharmacologic classes
+        // IdentifiedSubstanceDto > PharmacologicClassDto > PharmacologicClassNameDto
+        private static async Task<List<PharmacologicClassNameDto>> buildPharmacologicClassNamesAsync(ApplicationDbContext db, int? pharmacologicClassID, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
+        // Builds a list of pharmacologic classes links for the pharmacologic classes
+        // IdentifiedSubstanceDto > PharmacologicClassDto > PharmacologicClassLinkDto
+        private static async Task<List<PharmacologicClassLinkDto>> buildPharmacologicClassLinksAsync(ApplicationDbContext db, int? pharmacologicClassID, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
+        // Builds a list of pharmacologic class hierarchies for the pharmacologic classes
+        // ChildPharmacologicClassID == pharmacologicClassID
+        // IdentifiedSubstanceDto > PharmacologicClassDto > PharmacologicClassLinkDto
+        private static async Task<List<PharmacologicClassHierarchyDto>> buildPharmacologicClassHierarchiesAsync(ApplicationDbContext db, int? pharmacologicClassID, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
+        // Builds a list of consequences for contributing factors.
+        // IdentifiedSubstanceDto > ContributingFactorDto > InteractionConsequenceDto
+        private static async Task<List<ContributingFactorDto>> buildContributingFactornteractionConsequencesAsync(ApplicationDbContext db, int? interactionIssueID, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
         /// <summary>
         /// Builds a list of SubstanceSpecification DTOs for the specified IdentifiedSubstance.
         /// Retrieves detailed substance specifications including analyte information and chemical properties.
@@ -1985,6 +2153,22 @@ namespace MedRecPro.DataAccess
                 .ToList();
             #endregion
         }
+
+        /**************************************************************/
+        // Builds a list of ObservationCriterion DTOs for the specified SubstanceSpecification.
+        // SubstanceSpecificationDto > ObservationCriterionDto
+        private static async Task<List<ObservationCriterionDto>> buildObservationCriterionAsync(ApplicationDbContext db, int? substanceSpecificationID, string pkSecret, ILogger logger) { return null; }
+
+        /**************************************************************/
+        // Get the application type ids from the ObservationCriterion.
+        // SubstanceSpecificationDto > ObservationCriterionDto > ApplicationTypeDto
+        private static async Task<List<ApplicationTypeDto>> buildApplicationTypesAsync(ApplicationDbContext db, int? applicationTypeID, string pkSecret, ILogger logger) { return null; }
+
+        /**************************************************************/
+        // Gets the commodities for the specified commodity ID.
+        // SubstanceSpecificationDto ObservationCriterionDto > CommodityDto
+        private static async Task<List<CommodityDto>> buildCommoditiesAsync(ApplicationDbContext db, int? commodityId, string pkSecret, ILogger logger) { return null; }
+
         #endregion
 
         #region Packaging Hierarchy Builders
@@ -2009,7 +2193,7 @@ namespace MedRecPro.DataAccess
             // Return empty list if no product ID is provided
             if (productID == null) return new List<PackagingLevelDto>();
 
-            List<Dictionary<string, object?>> packagingHierarchyDtos = new List<Dictionary<string, object?>>();
+            List<PackagingHierarchyDto> packagingHierarchyDtos = new List<PackagingHierarchyDto>();
 
             // Query packaging levels for the specified packaging hierarchy
             var items = await db.Set<Label.PackagingLevel>()
@@ -2026,7 +2210,7 @@ namespace MedRecPro.DataAccess
                 if (pack != null && pack.Any())
                     foreach (var p in pack)
                         if (p.PackagingHierarchy != null)
-                            packagingHierarchyDtos.Add(p.PackagingHierarchy);
+                            packagingHierarchyDtos.Add(p);
             }
 
             // Transform entities to DTOs with encrypted IDs
@@ -2112,6 +2296,14 @@ namespace MedRecPro.DataAccess
                 PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger)
             }).ToList();
             #endregion
+        }
+
+        /**************************************************************/
+        // Stores product events like distribution or return quantities
+        // PackagingLevelDto > ProductEventDto
+        private static async Task<List<ProductEventDto>?> buildProductEventsAsync(ApplicationDbContext db, int? packagingLevelID, string pkSecret, ILogger logger)
+        {
+            return null;
         }
 
         /**************************************************************/
@@ -2776,6 +2968,23 @@ namespace MedRecPro.DataAccess
                 .ToList();
             #endregion
         }
+
+        /**************************************************************/
+        // Adds licenses to the the business operation
+        // BusinessOperationDto > LicenseDto
+        private static async Task<List<LicenseDto>> buildLicensesAsync(ApplicationDbContext db, int? businessOperationId, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
+        // Adds DisciplinaryAction DTOs for the specified license.
+        //  BusinessOperationDto > LicenseDto > DisciplinaryActionDto
+        private static async Task<List<DisciplinaryActionDto>> buildDisciplinaryActionsAsync(ApplicationDbContext db, int? licenseId, string pkSecret, ILogger logger)
+        { return null; }
+
+        /**************************************************************/
+        // Adds BusinessOperationQualifier DTOs for the specified business operation.
+        // BuisnessOperation > BusinessOperationQualifier
+        private static async Task<List<BusinessOperationQualifierDto>> buildBusinessOperationQualifiersAsync(ApplicationDbContext db, int? businessOperationId, string pkSecret, ILogger logger) { return null; }
 
         /**************************************************************/
         /// <summary>
