@@ -2584,43 +2584,66 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
+        /// <summary>
+        /// Builds product ingredient instances for a specified product ID. Retrieves 
+        /// ingredient instance records associated with a product and transforms 
+        /// them into DTOs with encrypted identifiers and related lot identifier data.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="productID">The unique identifier of the product to find ingredient instances for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of IngredientInstanceDto objects representing the ingredient instances with their lot identifiers, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method queries ingredient instances where FillLotInstanceID matches the provided product ID.
+        /// Each ingredient instance is enriched with its associated lot identifier information.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var ingredientInstances = await buildProductIngredientInstancesAsync(dbContext, 123, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.IngredientInstance"/>
+        /// <seealso cref="IngredientInstanceDto"/>
+        /// <seealso cref="buildIngredientSubstanceAsync"/>
+        /// <seealso cref="buildLotIdentifierDtoAsync"/>
         private static async Task<List<IngredientInstanceDto>> buildProductIngredientInstancesAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
         {
             #region implementation
-            // Return null if no ingredientSubstanceId provided
+            // Early return if no product ID provided
             if (productID == null)
                 return new List<IngredientInstanceDto>();
 
-            // Query all IngredientInstance rows for this substance with no change tracking
+            // Query all ingredient instance rows for this product with no change tracking
             var entity = await db.Set<Label.IngredientInstance>()
                 .AsNoTracking()
                 .Where(ii => ii.FillLotInstanceID == productID)
                 .ToListAsync();
 
-            // Return null if no entities found
+            // Return empty list if no ingredient instances found
             if (entity == null || !entity.Any())
                 return new List<IngredientInstanceDto>();
 
-            // Build IngredientInstanceDto objects with substance data
+            // Build IngredientInstanceDto objects with lot identifier data
             List<IngredientInstanceDto> ingredientInstances = new List<IngredientInstanceDto>();
 
+            // Process each ingredient instance and build associated data
             foreach (var item in entity)
             {
-                // Build the IngredientSubstanceDto for this instance (recursive call for substance details)
-                var ingredientSubstance = await buildIngredientSubstanceAsync(
-                    db,
-                    item.IngredientSubstanceID,
-                    pkSecret,
-                    logger);
+                // Build the lot identifier data for this instance
+                var lotIdentifier = await buildLotIdentifierDtoAsync(db, item.LotIdentifierID, pkSecret, logger);
 
-                // Create the IngredientInstanceDto with encrypted IDs
+                // Create the IngredientInstanceDto with encrypted IDs and lot identifier
                 ingredientInstances.Add(new IngredientInstanceDto
                 {
                     IngredientInstance = item.ToEntityWithEncryptedId(pkSecret, logger),
-                    LotIdentifier = await buildLotIdentifierDtoAsync(db, item.LotIdentifierID, pkSecret, logger)
+                    LotIdentifier = lotIdentifier
                 });
             }
 
+            // Return processed ingredient instances with lot identifier data, ensuring non-null result
             return ingredientInstances ?? new List<IngredientInstanceDto>();
             #endregion
         }
@@ -2636,12 +2659,12 @@ namespace MedRecPro.DataAccess
         /// <returns>A list of IngredientInstanceDto objects, or null if no ingredient substance ID provided or no entities found.</returns>
         /// <seealso cref="Label.IngredientInstance"/>
         /// <seealso cref="IngredientInstanceDto"/>
-        private static async Task<List<IngredientInstanceDto>?> buildIngredientInstancesDtoAsync(ApplicationDbContext db, int? ingredientSubstanceID, string pkSecret, ILogger logger)
+        private static async Task<List<IngredientInstanceDto>> buildIngredientInstancesDtoAsync(ApplicationDbContext db, int? ingredientSubstanceID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no ingredient substance ID is provided
             if (ingredientSubstanceID == null)
-                return null;
+                return new List<IngredientInstanceDto>();
 
             // Query ingredient instances for the specified ingredient substance
             var entity = await db.Set<Label.IngredientInstance>()
@@ -2650,14 +2673,13 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Return null if no entities found
-            if (entity == null)
-                return null;
+            if (entity == null || !entity.Any())
+                return new List<IngredientInstanceDto>();
 
             // Transform entities to DTOs with encrypted IDs
-            return entity.Select(e => new IngredientInstanceDto
-            {
-                IngredientInstance = e.ToEntityWithEncryptedId(pkSecret, logger)
-            }).ToList();
+            return entity
+                .Select(e => new IngredientInstanceDto{IngredientInstance = e.ToEntityWithEncryptedId(pkSecret, logger)})
+                .ToList() ?? new List<IngredientInstanceDto>();
             #endregion
         }
 
@@ -2759,22 +2781,27 @@ namespace MedRecPro.DataAccess
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
 
+            if (items == null || !items.Any())
+                return new List<IdentifiedSubstanceDto>();
+
             // For each identified substance, build its substance specifications
             // Transform entities to DTOs with encrypted IDs
             var dtos = new List<IdentifiedSubstanceDto>();
             foreach (var item in items)
             {
                 // For each IdentifiedSubstance, build SubstanceSpecifications
-                var specs = await buildSubstanceSpecificationsAsync(
-                    db,
-                    item.IdentifiedSubstanceID,
-                    pkSecret,
-                    logger);
+                var specs = await buildSubstanceSpecificationsAsync(db,item.IdentifiedSubstanceID,pkSecret,logger);
+
+                var contributingFactors = await buildContributingFactorsAsync(db, item.IdentifiedSubstanceID, pkSecret, logger);
+
+                var pharmacologicClasses = await buildPharmacologicClassesAsync(db, item.IdentifiedSubstanceID, pkSecret, logger);
 
                 dtos.Add(new IdentifiedSubstanceDto
                 {
                     IdentifiedSubstance = item.ToEntityWithEncryptedId(pkSecret, logger),
-                    SubstanceSpecifications = specs
+                    SubstanceSpecifications = specs,
+                    ContributingFactors = contributingFactors,
+                    PharmacologicClasses = pharmacologicClasses
                 });
             }
 
@@ -2783,36 +2810,269 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
-        // Builds a list of contributing factors for the specified factor
-        // substance ID. FactorSubstanceID == IdentifiedSubstanceID
-        // IdentifiedSubstanceDto > ContributingFactorDto
-        private static async Task<List<ContributingFactorDto>> buildContributingFactorsAsync(ApplicationDbContext db, int? factorSubstanceID, string pkSecret, ILogger logger)
-        { return null; }
+        /// <summary>
+        /// Builds a list of contributing factors for the specified factor substance ID 
+        /// where FactorSubstanceID equals IdentifiedSubstanceID. Retrieves contributing 
+        /// factor records associated with an identified substance and transforms 
+        /// them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="identifiedSubstanceID">The unique identifier of the identified substance to find contributing factors for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of ContributingFactorDto objects representing the contributing factors, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: IdentifiedSubstanceDto > ContributingFactorDto
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var contributingFactors = await buildContributingFactorsAsync(dbContext, 456, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.ContributingFactor"/>
+        /// <seealso cref="ContributingFactorDto"/>
+        private static async Task<List<ContributingFactorDto>> buildContributingFactorsAsync(ApplicationDbContext db, int? identifiedSubstanceID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no identified substance ID provided
+            if (identifiedSubstanceID == null)
+                return new List<ContributingFactorDto>();
+
+            // Query contributing factors for the specified identified substance using read-only tracking
+            var entity = await db.Set<Label.ContributingFactor>()
+                .AsNoTracking()
+                .Where(e => e.FactorSubstanceID == identifiedSubstanceID)
+                .ToListAsync();
+
+            // Return empty list if no contributing factors found
+            if (entity == null || !entity.Any())
+                return new List<ContributingFactorDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new ContributingFactorDto { ContributingFactor = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<ContributingFactorDto>();
+            #endregion
+        }
 
         /**************************************************************/
-        // Builds a list of pharmacologic classes for the IdentifiedSubstance
-        // IdentifiedSubstanceDto > PharmacologicClassDto
+        /// <summary>
+        /// Builds a list of pharmacologic classes for the IdentifiedSubstance.
+        /// Retrieves pharmacologic class records for an identified substance and 
+        /// enriches them with names, links, and hierarchies, then transforms 
+        /// them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="identifiedSubstanceID">The unique identifier of the identified substance to find pharmacologic classes for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of PharmacologicClassDto objects representing the pharmacologic classes with their associated data, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: IdentifiedSubstanceDto > PharmacologicClassDto
+        /// Each pharmacologic class is enriched with its names, links, and hierarchies.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var pharmacologicClasses = await buildPharmacologicClassesAsync(dbContext, 456, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.PharmacologicClass"/>
+        /// <seealso cref="PharmacologicClassDto"/>
+        /// <seealso cref="buildPharmacologicClassNamesAsync"/>
+        /// <seealso cref="buildPharmacologicClassLinksAsync"/>
+        /// <seealso cref="buildPharmacologicClassHierarchiesAsync"/>
         private static async Task<List<PharmacologicClassDto>> buildPharmacologicClassesAsync(ApplicationDbContext db, int? identifiedSubstanceID, string pkSecret, ILogger logger)
-        { return null; }
+        {
+            #region implementation
+            // Early return if no identified substance ID provided
+            if (identifiedSubstanceID == null)
+                return new List<PharmacologicClassDto>();
+
+            var dtos = new List<PharmacologicClassDto>();
+
+            // Query pharmacologic classes for the specified identified substance using read-only tracking
+            var entity = await db.Set<Label.PharmacologicClass>()
+                .AsNoTracking()
+                .Where(e => e.IdentifiedSubstanceID == identifiedSubstanceID)
+                .ToListAsync();
+
+            // Return empty list if no pharmacologic classes found
+            if (entity == null || !entity.Any())
+                return new List<PharmacologicClassDto>();
+
+            // Process each pharmacologic class and build associated data
+            foreach (var e in entity)
+            {
+                // Skip entities without valid IDs
+                if (e.PharmacologicClassID == null)
+                    continue;
+
+                // Build the pharmacologic class names, links, and hierarchies for this class
+                var pharmacologicClassNames = await buildPharmacologicClassNamesAsync(db, e.PharmacologicClassID, pkSecret, logger);
+                var pharmLinks = await buildPharmacologicClassLinksAsync(db, e.PharmacologicClassID, pkSecret, logger);
+                var pharmHierarchies = await buildPharmacologicClassHierarchiesAsync(db, e.PharmacologicClassID, pkSecret, logger);
+
+                // Create pharmacologic class DTO with encrypted ID and associated data
+                dtos.Add(new PharmacologicClassDto
+                {
+                    PharmacologicClass = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    PharmacologicClassNames = pharmacologicClassNames,
+                    PharmacologicClassLinks = pharmLinks,
+                    PharmacologicClassHierarchies = pharmHierarchies
+                });
+            }
+
+            // Return processed pharmacologic classes with associated data, ensuring non-null result
+            return dtos ?? new List<PharmacologicClassDto>();
+            #endregion
+        }
 
         /**************************************************************/
-        // Builds a list of pharmacologic classes names for the pharmacologic classes
-        // IdentifiedSubstanceDto > PharmacologicClassDto > PharmacologicClassNameDto
+        /// <summary>
+        /// Builds a list of pharmacologic class names for the pharmacologic classes.
+        /// Retrieves pharmacologic class name records for a specified pharmacologic 
+        /// class ID and transforms them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="pharmacologicClassID">The unique identifier of the pharmacologic class to find names for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of PharmacologicClassNameDto objects representing the pharmacologic class names, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: IdentifiedSubstanceDto > PharmacologicClassDto > PharmacologicClassNameDto
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var classNames = await buildPharmacologicClassNamesAsync(dbContext, 789, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.PharmacologicClassName"/>
+        /// <seealso cref="PharmacologicClassNameDto"/>
         private static async Task<List<PharmacologicClassNameDto>> buildPharmacologicClassNamesAsync(ApplicationDbContext db, int? pharmacologicClassID, string pkSecret, ILogger logger)
-        { return null; }
+        {
+            #region implementation
+            // Early return if no pharmacologic class ID provided
+            if (pharmacologicClassID == null)
+                return new List<PharmacologicClassNameDto>();
+
+            // Query pharmacologic class names for the specified pharmacologic class using read-only tracking
+            var entity = await db.Set<Label.PharmacologicClassName>()
+                .AsNoTracking()
+                .Where(e => e.PharmacologicClassID == pharmacologicClassID)
+                .ToListAsync();
+
+            // Return empty list if no pharmacologic class names found
+            if (entity == null || !entity.Any())
+                return new List<PharmacologicClassNameDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new PharmacologicClassNameDto { PharmacologicClassName = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<PharmacologicClassNameDto>();
+            #endregion
+        }
 
         /**************************************************************/
-        // Builds a list of pharmacologic classes links for the pharmacologic classes
-        // IdentifiedSubstanceDto > PharmacologicClassDto > PharmacologicClassLinkDto
+        /// <summary>
+        /// Builds a list of pharmacologic class links for the pharmacologic classes. 
+        /// Retrieves pharmacologic class link records for a specified pharmacologic 
+        /// class ID and transforms them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="pharmacologicClassID">The unique identifier of the pharmacologic class to find links for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of PharmacologicClassLinkDto objects representing the pharmacologic class links, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: IdentifiedSubstanceDto > PharmacologicClassDto > PharmacologicClassLinkDto
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var classLinks = await buildPharmacologicClassLinksAsync(dbContext, 789, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.PharmacologicClassLink"/>
+        /// <seealso cref="PharmacologicClassLinkDto"/>
         private static async Task<List<PharmacologicClassLinkDto>> buildPharmacologicClassLinksAsync(ApplicationDbContext db, int? pharmacologicClassID, string pkSecret, ILogger logger)
-        { return null; }
+        {
+            #region implementation
+            // Early return if no pharmacologic class ID provided
+            if (pharmacologicClassID == null)
+                return new List<PharmacologicClassLinkDto>();
+
+            // Query pharmacologic class links for the specified pharmacologic class using read-only tracking
+            var entity = await db.Set<Label.PharmacologicClassLink>()
+                .AsNoTracking()
+                .Where(e => e.PharmacologicClassID == pharmacologicClassID)
+                .ToListAsync();
+
+            // Return empty list if no pharmacologic class links found
+            if (entity == null || !entity.Any())
+                return new List<PharmacologicClassLinkDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new PharmacologicClassLinkDto { PharmacologicClassLink = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<PharmacologicClassLinkDto>();
+            #endregion
+        }
 
         /**************************************************************/
-        // Builds a list of pharmacologic class hierarchies for the pharmacologic classes
-        // ChildPharmacologicClassID == pharmacologicClassID
-        // IdentifiedSubstanceDto > PharmacologicClassDto > PharmacologicClassLinkDto
+        /// <summary>
+        /// Builds a list of pharmacologic class hierarchies for the pharmacologic 
+        /// classes where ChildPharmacologicClassID equals pharmacologicClassID.
+        /// Retrieves pharmacologic class hierarchy records for a specified 
+        /// pharmacologic class ID and transforms them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="pharmacologicClassID">The unique identifier of the child pharmacologic class to find hierarchies for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of PharmacologicClassHierarchyDto objects representing the pharmacologic class hierarchies, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: IdentifiedSubstanceDto > PharmacologicClassDto > PharmacologicClassHierarchyDto
+        /// The query filters by ChildPharmacologicClassID to find parent hierarchies for the specified class.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var classHierarchies = await buildPharmacologicClassHierarchiesAsync(dbContext, 789, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.PharmacologicClassHierarchy"/>
+        /// <seealso cref="PharmacologicClassHierarchyDto"/>
         private static async Task<List<PharmacologicClassHierarchyDto>> buildPharmacologicClassHierarchiesAsync(ApplicationDbContext db, int? pharmacologicClassID, string pkSecret, ILogger logger)
-        { return null; }
+        {
+            #region implementation
+            // Early return if no pharmacologic class ID provided
+            if (pharmacologicClassID == null)
+                return new List<PharmacologicClassHierarchyDto>();
+
+            // Query pharmacologic class hierarchies where this class is the child using read-only tracking
+            var entity = await db.Set<Label.PharmacologicClassHierarchy>()
+                .AsNoTracking()
+                .Where(e => e.ChildPharmacologicClassID == pharmacologicClassID)
+                .ToListAsync();
+
+            // Return empty list if no pharmacologic class hierarchies found
+            if (entity == null || !entity.Any())
+                return new List<PharmacologicClassHierarchyDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new PharmacologicClassHierarchyDto { PharmacologicClassHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<PharmacologicClassHierarchyDto>();
+            #endregion
+        }
 
         /**************************************************************/
         // Builds a list of consequences for contributing factors.
@@ -2913,6 +3173,9 @@ namespace MedRecPro.DataAccess
                 .AsNoTracking()
                 .Where(e => e.AnalyteSubstanceID == substanceSpecificationID)
                 .ToListAsync();
+
+            if(items == null || !items.Any())
+                return new List<AnalyteDto>();
 
             // Transform entities to DTOs with encrypted IDs using LINQ Select for efficiency
             return items
