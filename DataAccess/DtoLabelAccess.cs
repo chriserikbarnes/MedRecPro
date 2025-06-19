@@ -6,6 +6,7 @@ using System;
 using System.Diagnostics;
 using Windows.Services.Store;
 using static MedRecPro.Models.Label;
+using static System.Collections.Specialized.BitVector32;
 using static System.Net.Mime.MediaTypeNames;
 
 namespace MedRecPro.DataAccess
@@ -327,8 +328,9 @@ namespace MedRecPro.DataAccess
         #region Content Hierarchy Builders
         /**************************************************************/
         /// <summary>
-        /// Builds a list of Section DTOs for the specified structured body with all nested collections.
-        /// Constructs comprehensive section data including products, highlights, media, substances, and various specialized content.
+        /// Builds a list of Section DTOs for the specified structured body with all 
+        /// nested collections. Constructs comprehensive section data including 
+        /// products, highlights, media, substances, and various specialized content.
         /// </summary>
         /// <param name="db">The database context.</param>
         /// <param name="structuredBodyId">The structured body ID to find sections for.</param>
@@ -353,9 +355,7 @@ namespace MedRecPro.DataAccess
             foreach (var section in sections)
             {
                 // Build all child collections for this section
-                var products = await buildProductsAsync(db, section.SectionID, pkSecret, logger);
-
-                var parents = await buildParentSectionHierarchyDtoAsync(db, section.SectionID, pkSecret, logger) ?? new List<SectionHierarchyDto>();
+                var billingUnitIndexes = await buildBillingUnitIndexesAsync(db, section.SectionID, pkSecret, logger);
 
                 var children = await buildChildSectionHierarchyDtoAsync(db, section.SectionID, pkSecret, logger) ?? new List<SectionHierarchyDto>();
 
@@ -364,19 +364,19 @@ namespace MedRecPro.DataAccess
 
                 var highlights = await buildSectionExcerptHighlightsAsync(db, section.SectionID, pkSecret, logger);
 
-                var media = await buildObservationMediaAsync(db, section.SectionID, pkSecret, logger);
-
                 var identifiedSubstances = await buildIdentifiedSubstancesAsync(db, section.SectionID, pkSecret, logger);
-
-                var productConcepts = await buildProductConceptsAsync(db, section.SectionID, pkSecret, logger);
 
                 var interactionIssues = await buildInteractionIssuesAsync(db, section.SectionID, pkSecret, logger);
 
-                var billingUnitIndexes = await buildBillingUnitIndexesAsync(db, section.SectionID, pkSecret, logger);
+                var media = await buildObservationMediaAsync(db, section.SectionID, pkSecret, logger);
 
-                var warningLetterInfos = await buildWarningLetterProductInfosAsync(db, section.SectionID, pkSecret, logger);
+                var NCTLinks = await buildNCTLinkDtoAsync(db, section.SectionID, pkSecret, logger);
 
-                var warningLetterDates = await buildWarningLetterDatesAsync(db, section.SectionID, pkSecret, logger);
+                var parents = await buildParentSectionHierarchyDtoAsync(db, section.SectionID, pkSecret, logger) ?? new List<SectionHierarchyDto>();
+
+                var productConcepts = await buildProductConceptsAsync(db, section.SectionID, pkSecret, logger);
+
+                var products = await buildProductsAsync(db, section.SectionID, pkSecret, logger);
 
                 var protocols = await buildProtocolsAsync(db, section.SectionID, pkSecret, logger);
 
@@ -384,25 +384,30 @@ namespace MedRecPro.DataAccess
 
                 var remsResources = await buildREMSElectronicResourcesAsync(db, section.SectionID, pkSecret, logger);
 
+                var warningLetterDates = await buildWarningLetterDatesAsync(db, section.SectionID, pkSecret, logger);
+
+                var warningLetterInfos = await buildWarningLetterProductInfosAsync(db, section.SectionID, pkSecret, logger);
+
                 // Assemble complete section DTO with all nested data
                 sectionDtos.Add(new SectionDto
                 {
-                    Section = section.ToEntityWithEncryptedId(pkSecret, logger),
-                    ParentSectionHierarchies = parents,
-                    ChildSectionHierarchies = children,
-                    TextContents = content,
-                    Products = products,
-                    ExcerptHighlights = highlights,
-                    ObservationMedia = media,
-                    IdentifiedSubstances = identifiedSubstances,
-                    ProductConcepts = productConcepts,
-                    InteractionIssues = interactionIssues,
                     BillingUnitIndexes = billingUnitIndexes,
-                    WarningLetterProductInfos = warningLetterInfos,
-                    WarningLetterDates = warningLetterDates,
+                    ChildSectionHierarchies = children,
+                    ExcerptHighlights = highlights,
+                    IdentifiedSubstances = identifiedSubstances,
+                    InteractionIssues = interactionIssues,
+                    NCTLinks = NCTLinks,
+                    ObservationMedia = media,
+                    ParentSectionHierarchies = parents,
+                    ProductConcepts = productConcepts,
+                    Products = products,
                     Protocols = protocols,
+                    REMSElectronicResources = remsResources,
                     REMSMaterials = remsMaterials,
-                    REMSElectronicResources = remsResources
+                    Section = section.ToEntityWithEncryptedId(pkSecret, logger),
+                    TextContents = content,
+                    WarningLetterDates = warningLetterDates,
+                    WarningLetterProductInfos = warningLetterInfos
                 });
             }
             return sectionDtos;
@@ -410,9 +415,41 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
-        // Builds the NCTLink DTOs for the specified section.
-        // SectionDto > NCTLinkDto
-        private static async Task<List<NCTLinkDto>?> buildNCTLinkDtoAsync(ApplicationDbContext db, int? sectionID, string pkSecret, ILogger logger) { return null; }
+        /// <summary>
+        /// Builds the NCTLink DTOs for the specified section.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="sectionID">The section ID to find NCT links for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of NCTLink DTOs for the section.</returns>
+        /// <seealso cref="Label.NCTLink"/>
+        /// <seealso cref="NCTLinkDto"/>
+        /// <seealso cref="SectionDto"/>
+        private static async Task<List<NCTLinkDto>> buildNCTLinkDtoAsync(ApplicationDbContext db, int? sectionID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Return empty list if no section ID is provided
+            if (sectionID == null)
+                return new List<NCTLinkDto>();
+
+            // Query NCT links for the specified section
+            var entity = await db.Set<Label.NCTLink>()
+                .AsNoTracking()
+                .Where(e => e.SectionID == sectionID)
+                .ToListAsync();
+
+            // Return empty list if no entities found
+            if (entity == null)
+                return new List<NCTLinkDto>();
+
+            // Transform entities to DTOs with encrypted IDs
+            return entity.Select(entity => new NCTLinkDto
+            {
+                NCTLink = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList() ?? new List<NCTLinkDto>();
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -507,6 +544,8 @@ namespace MedRecPro.DataAccess
             if (sectionID == null)
                 return null;
 
+            List<SectionTextContentDto> sectionTextContentDtos = new List<SectionTextContentDto>();
+
             // Query section text content for the specified section
             var entity = await db.Set<Label.SectionTextContent>()
                 .AsNoTracking()
@@ -517,60 +556,292 @@ namespace MedRecPro.DataAccess
             if (entity == null)
                 return null;
 
-            // Transform entities to DTOs with encrypted IDs
-            return entity.Select(e => new SectionTextContentDto
+            foreach(var e in entity)
             {
-                SectionTextContent = e.ToEntityWithEncryptedId(pkSecret, logger)
-            }).ToList();
+                // Build all child collections for this section text content
+                var renderedMedias = await buildRenderedMediasAsync(db, e.SectionTextContentID, pkSecret, logger);
+
+                var textTables = await buildTextTablesAsync(db, e.SectionTextContentID, pkSecret, logger);
+
+                var textLists = await buildTextListsAsync(db, e.SectionTextContentID, pkSecret, logger);
+
+                // Create SectionTextContentDto with encrypted ID and nested collections
+                sectionTextContentDtos.Add(new SectionTextContentDto
+                {
+                    SectionTextContent = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    RenderedMedias = renderedMedias,
+                    TextTables = textTables,
+                    TextLists = textLists
+                });
+            }
+
+            // Return DTOs with encrypted IDs
+            return sectionTextContentDtos;
             #endregion
         }
 
         /**************************************************************/
-        // Represents the renderMultimedia tag, linking text content to an ObservationMedia entry
-        // SectionDto >SectionTextContentDto > RenderedMediaDto
-        private static async Task<List<RenderedMediaDto>?> buildRenderedMediasAsync(ApplicationDbContext db, int? sectionTextContentID, string pkSecret, ILogger logger)
+        /// <summary>
+        /// Represents the renderMultimedia tag, linking text content to an ObservationMedia entry.
+        /// Builds rendered media DTOs for the specified section text content.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="sectionTextContentID">The section text content ID to find rendered media for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of rendered media DTOs for the section text content.</returns>
+        /// <seealso cref="Label.RenderedMedia"/>
+        /// <seealso cref="RenderedMediaDto"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        private static async Task<List<RenderedMediaDto>> buildRenderedMediasAsync(ApplicationDbContext db, int? sectionTextContentID, string pkSecret, ILogger logger)
         {
-            return null; // Placeholder for future implementation
+            #region implementation
+            // Return empty list if no section text content ID is provided
+            if (sectionTextContentID == null)
+                return new List<RenderedMediaDto>();
+
+            // Query rendered media for the specified section text content
+            var entity = await db.Set<Label.RenderedMedia>()
+                .AsNoTracking()
+                .Where(e => e.SectionTextContentID == sectionTextContentID)
+                .ToListAsync();
+
+            // Return empty list if no entities found
+            if (entity == null)
+                return new List<RenderedMediaDto>();
+
+            // Transform entities to DTOs with encrypted IDs
+            return entity.Select(e => new RenderedMediaDto
+            {
+                RenderedMedia = e.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList() ?? new List<RenderedMediaDto>();
+            #endregion
         }
 
         /**************************************************************/
-        // Stores details specific to table elements.
-        // SectionDto > SectionTextContentDto > TextTableDto
-        private static async Task<List<TextTableDto>?> buildTextTablesAsync(ApplicationDbContext db, int? sectionTextContentID, string pkSecret, ILogger logger)
+        /// <summary>
+        /// Stores details specific to table elements.
+        /// Builds text table DTOs with their associated rows for the specified section text content.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="sectionTextContentID">The section text content ID to find text tables for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of text table DTOs with nested row data for the section text content.</returns>
+        /// <seealso cref="Label.TextTable"/>
+        /// <seealso cref="TextTableDto"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        private static async Task<List<TextTableDto>> buildTextTablesAsync(ApplicationDbContext db, int? sectionTextContentID, string pkSecret, ILogger logger)
         {
-            return null; // Placeholder for future implementation
+            #region implementation
+            // Return empty list if no section text content ID is provided
+            if (sectionTextContentID == null)
+                return new List<TextTableDto>();
+
+            var dtos = new List<TextTableDto>();
+
+            // Query text tables for the specified section text content
+            var entity = await db.Set<Label.TextTable>()
+                .AsNoTracking()
+                .Where(e => e.SectionTextContentID == sectionTextContentID)
+                .ToListAsync();
+
+            // Return empty list if no entities found
+            if (entity == null)
+                return new List<TextTableDto>();
+
+            // Build DTOs with nested row data for each text table
+            foreach (var e in entity)
+            {
+                // Build all rows for this text table
+                var rows = await buildTextTableRowsAsync(db, e.TextTableID, pkSecret, logger);
+
+                dtos.Add(new TextTableDto
+                {
+                    TextTable = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    TextTableRows = rows
+                });
+            }
+
+            // Return completed DTOs
+            return dtos ?? new List<TextTableDto>();
+            #endregion
         }
 
         /**************************************************************/
-        // Stores details specific to individual tr elements.
-        // SectionDto > SectionTextContentDto > TextTableDto > TextTableRowDto
-        private static async Task<List<TextTableRowDto>?> buildTextTableRowsAsync(ApplicationDbContext db, int? textTableID, string pkSecret, ILogger logger)
+        /// <summary>
+        /// Stores details specific to individual tr elements.
+        /// Builds text table row DTOs with their associated cells for the specified text table.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="textTableID">The text table ID to find rows for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of text table row DTOs with nested cell data for the text table.</returns>
+        /// <seealso cref="Label.TextTableRow"/>
+        /// <seealso cref="TextTableRowDto"/>
+        /// <seealso cref="TextTableDto"/>
+        private static async Task<List<TextTableRowDto>> buildTextTableRowsAsync(ApplicationDbContext db, int? textTableID, string pkSecret, ILogger logger)
         {
-            return null; // Placeholder for future implementation
+            #region implementation
+            // Return empty list if no text table ID is provided
+            if (textTableID == null)
+                return new List<TextTableRowDto>();
+
+            var dtos = new List<TextTableRowDto>();
+
+            // Query text table rows for the specified text table
+            var entity = await db.Set<Label.TextTableRow>()
+                .AsNoTracking()
+                .Where(e => e.TextTableID == textTableID)
+                .ToListAsync();
+
+            // Return empty list if no entities found
+            if (entity == null)
+                return new List<TextTableRowDto>();
+
+            // Build DTOs with nested cell data for each text table row
+            foreach (var e in entity)
+            {
+                // Build all cells for this text table row
+                var cells = await buildTextTableCellsAsync(db, e.TextTableRowID, pkSecret, logger);
+
+                dtos.Add(new TextTableRowDto
+                {
+                    TextTableRow = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    TextTableCells = cells
+                });
+            }
+
+            // Return completed DTOs
+            return dtos ?? new List<TextTableRowDto>();
+            #endregion
         }
 
         /**************************************************************/
-        // Stores details specific to individual td elements.
-        // SectionDto > SectionTextContentDto > TextTableDto > TextTableRowDto > TextTableCellDto
-        private static async Task<List<TextTableCellDto>?> buildTextTableCellsAsync(ApplicationDbContext db, int? textTableRowID, string pkSecret, ILogger logger)
+        /// <summary>
+        /// Stores details specific to individual td elements.
+        /// Builds text table cell DTOs for the specified text table row.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="textTableRowID">The text table row ID to find cells for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of text table cell DTOs for the text table row.</returns>
+        /// <seealso cref="Label.TextTableCell"/>
+        /// <seealso cref="TextTableCellDto"/>
+        /// <seealso cref="TextTableRowDto"/>
+        private static async Task<List<TextTableCellDto>> buildTextTableCellsAsync(ApplicationDbContext db, int? textTableRowID, string pkSecret, ILogger logger)
         {
-            return null; // Placeholder for future implementation
+            #region implementation
+            // Return empty list if no text table row ID is provided
+            if (textTableRowID == null)
+                return new List<TextTableCellDto>();
+
+            // Query text table cells for the specified text table row
+            var entity = await db.Set<Label.TextTableCell>()
+                .AsNoTracking()
+                .Where(e => e.TextTableRowID == textTableRowID)
+                .ToListAsync();
+
+            // Return empty list if no entities found
+            if (entity == null)
+                return new List<TextTableCellDto>();
+
+            // Transform entities to DTOs with encrypted IDs
+            return entity.Select(e => new TextTableCellDto
+            {
+                TextTableCell = e.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList() ?? new List<TextTableCellDto>();
+            #endregion
         }
 
         /**************************************************************/
-        // Stores details specific to list elements.
-        // SectionDto >SectionTextContentDto > TextListDto
-        private static async Task<List<TextListDto>?> buildTextListsAsync(ApplicationDbContext db, int? sectionTextContentID, string pkSecret, ILogger logger)
+        /// <summary>
+        /// Stores details specific to list elements.
+        /// Builds text list DTOs with their associated items for the specified section text content.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="sectionTextContentID">The section text content ID to find text lists for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of text list DTOs with nested item data for the section text content.</returns>
+        /// <seealso cref="Label.TextList"/>
+        /// <seealso cref="TextListDto"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        private static async Task<List<TextListDto>> buildTextListsAsync(ApplicationDbContext db, int? sectionTextContentID, string pkSecret, ILogger logger)
         {
-            return null; // Placeholder for future implementation
+            #region implementation
+            // Return empty list if no section text content ID is provided
+            if (sectionTextContentID == null)
+                return new List<TextListDto>();
+
+            var dtos = new List<TextListDto>();
+
+            // Query text lists for the specified section text content
+            var entity = await db.Set<Label.TextList>()
+                .AsNoTracking()
+                .Where(e => e.SectionTextContentID == sectionTextContentID)
+                .ToListAsync();
+
+            // Return empty list if no entities found
+            if (entity == null)
+                return new List<TextListDto>();
+
+            // Build DTOs with nested item data for each text list
+            foreach (var e in entity)
+            {
+                // Build all items for this text list
+                var items = await buildTextListItemsAsync(db, e.TextListID, pkSecret, logger);
+
+                dtos.Add(new TextListDto
+                {
+                    TextList = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    TextListItems = items
+                });
+            }
+
+            // Return completed DTOs
+            return dtos ?? new List<TextListDto>();
+            #endregion
         }
 
         /**************************************************************/
-        // Stores details specific to list elements.
-        // SectionDto > SectionTextContentDto > TextListDto > TextListItemDto
+        /// <summary>
+        /// Stores details specific to list item elements.
+        /// Builds text list item DTOs for the specified text list.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="textListID">The text list ID to find items for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of text list item DTOs for the text list.</returns>
+        /// <seealso cref="Label.TextListItem"/>
+        /// <seealso cref="TextListItemDto"/>
+        /// <seealso cref="TextListDto"/>
         private static async Task<List<TextListItemDto>?> buildTextListItemsAsync(ApplicationDbContext db, int? textListID, string pkSecret, ILogger logger)
         {
-            return null; // Placeholder for future implementation
+            #region implementation
+            // Return empty list if no text list ID is provided
+            if (textListID == null)
+                return new List<TextListItemDto>();
+
+            // Query text list items for the specified text list
+            var entity = await db.Set<Label.TextListItem>()
+                .AsNoTracking()
+                .Where(e => e.TextListID == textListID)
+                .ToListAsync();
+
+            // Return empty list if no entities found
+            if (entity == null)
+                return new List<TextListItemDto>();
+
+            // Transform entities to DTOs with encrypted IDs
+            return entity.Select(e => new TextListItemDto
+            {
+                TextListItem = e.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList() ?? new List<TextListItemDto>();
+            #endregion
         }
 
         /**************************************************************/
