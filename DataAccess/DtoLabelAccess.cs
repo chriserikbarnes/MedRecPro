@@ -2382,10 +2382,14 @@ namespace MedRecPro.DataAccess
         /// <returns>List of Ingredient DTOs with nested IngredientSubstance data.</returns>
         /// <seealso cref="Label.Ingredient"/>
         /// <seealso cref="Label.IngredientSubstance"/>
+        /// <seealso cref="Label.IngredientSourceProduct"/>
         /// <seealso cref="Label.IngredientInstance"/>
+        /// <seealso cref="Label.SpecifiedSubstance"/>
         /// <seealso cref="IngredientDto"/>
         /// <seealso cref="IngredientSubstanceDto"/>
+        /// <seealso cref="IngredientSourceProductDto"/>
         /// <seealso cref="IngredientInstanceDto"/>"/>
+        /// <seealso cref="SpecifiedSubstanceDto"/>
         /// <remarks>
         /// This method builds complete IngredientDto objects including nested substance and instance data.
         /// Returns an empty list if productId is null or no ingredients are found.
@@ -2445,14 +2449,21 @@ namespace MedRecPro.DataAccess
                     pkSecret,
                     logger);
 
+                var specifiedSubstances = await buildSpecifiedSubstancesAsync(
+                    db,
+                    ingredient.IngredientID,
+                    pkSecret,
+                    logger);
+
                 // Assemble ingredient DTO with substance data and instances
                 ingredientDtos.Add(new IngredientDto
                 {
                     Ingredient = ingredient.ToEntityWithEncryptedId(pkSecret, logger),
-                    IngredientInstances = ingredientInstances ?? new List<IngredientInstanceDto>(),
+                    IngredientInstances = ingredientInstances,
                     IngredientSubstance = ingredientSubstance,
-                    IngredientSourceProducts = sourceProducts ?? new List<IngredientSourceProductDto>(),
-                    ReferenceSubstances = refSubstance ?? new List<ReferenceSubstanceDto>()
+                    IngredientSourceProducts = sourceProducts,
+                    ReferenceSubstances = refSubstance,
+                    SpecifiedSubstances = specifiedSubstances
                 });
             }
             return ingredientDtos;
@@ -2460,11 +2471,53 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
-        // Stores the specified substance code and name linked to an
-        // ingredient in Biologic/Drug Substance Indexing documents.
-        // IngredientDto > SpecifiedSubstanceDto
+        /// <summary>
+        /// Stores the specified substance code and name linked to an ingredient in 
+        /// Biologic/Drug Substance Indexing documents. Retrieves specified 
+        /// substance records for a specified ingredient ID and transforms them 
+        /// into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="ingredientID">The unique identifier of the ingredient to find specified substances for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of SpecifiedSubstanceDto objects representing the specified substances, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: IngredientDto > SpecifiedSubstanceDto
+        /// Specified substances contain substance codes and names linked to ingredients in Biologic/Drug Substance Indexing documents.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var specifiedSubstances = await buildSpecifiedSubstancesAsync(dbContext, 321, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.SpecifiedSubstance"/>
+        /// <seealso cref="SpecifiedSubstanceDto"/>
         private static async Task<List<SpecifiedSubstanceDto>> buildSpecifiedSubstancesAsync(ApplicationDbContext db, int? ingredientID, string pkSecret, ILogger logger)
-        { return null; }
+        {
+            #region implementation
+            // Early return if no ingredient ID provided
+            if (ingredientID == null)
+                return new List<SpecifiedSubstanceDto>();
+
+            // Query specified substances for the specified ingredient using read-only tracking
+            var entity = await db.Set<Label.SpecifiedSubstance>()
+                .AsNoTracking()
+                .Where(e => e.IngredientID == ingredientID)
+                .ToListAsync();
+
+            // Return empty list if no specified substances found
+            if (entity == null || !entity.Any())
+                return new List<SpecifiedSubstanceDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new SpecifiedSubstanceDto { SpecifiedSubstance = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<SpecifiedSubstanceDto>();
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -2543,12 +2596,12 @@ namespace MedRecPro.DataAccess
         /// var instances = await buildIngredientInstancesAsync(dbContext, 456, "secret", logger);
         /// </code>
         /// </example>
-        private static async Task<List<IngredientInstanceDto>?> buildIngredientInstancesAsync(ApplicationDbContext db, int? ingredientSubstanceId, string pkSecret, ILogger logger)
+        private static async Task<List<IngredientInstanceDto>> buildIngredientInstancesAsync(ApplicationDbContext db, int? ingredientSubstanceId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no ingredientSubstanceId provided
             if (ingredientSubstanceId == null)
-                return null;
+                return new List<IngredientInstanceDto>();
 
             // Query all IngredientInstance rows for this substance with no change tracking
             var entity = await db.Set<Label.IngredientInstance>()
@@ -2557,8 +2610,8 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Return null if no entities found
-            if (entity == null)
-                return null;
+            if (entity == null || !entity.Any())
+                return new List<IngredientInstanceDto>();
 
             // Build IngredientInstanceDto objects with substance data
             List<IngredientInstanceDto> ingredientInstances = new List<IngredientInstanceDto>();
@@ -2678,7 +2731,7 @@ namespace MedRecPro.DataAccess
 
             // Transform entities to DTOs with encrypted IDs
             return entity
-                .Select(e => new IngredientInstanceDto{IngredientInstance = e.ToEntityWithEncryptedId(pkSecret, logger)})
+                .Select(e => new IngredientInstanceDto { IngredientInstance = e.ToEntityWithEncryptedId(pkSecret, logger) })
                 .ToList() ?? new List<IngredientInstanceDto>();
             #endregion
         }
@@ -2694,12 +2747,12 @@ namespace MedRecPro.DataAccess
         /// <returns>A list of IngredientSourceProductDto objects, or null if no ingredient ID provided or no entities found.</returns>
         /// <seealso cref="Label.IngredientSourceProduct"/>
         /// <seealso cref="IngredientSourceProductDto"/>
-        private static async Task<List<IngredientSourceProductDto>?> buildIngredientSourceProductsDtoAsync(ApplicationDbContext db, int? ingredientID, string pkSecret, ILogger logger)
+        private static async Task<List<IngredientSourceProductDto>> buildIngredientSourceProductsDtoAsync(ApplicationDbContext db, int? ingredientID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no ingredient ID is provided
             if (ingredientID == null)
-                return null;
+                return new List<IngredientSourceProductDto>();
 
             // Query ingredient source products for the specified ingredient
             var entity = await db.Set<Label.IngredientSourceProduct>()
@@ -2708,14 +2761,12 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Return null if no entities found
-            if (entity == null)
-                return null;
+            if (entity == null || !entity.Any())
+                return new List<IngredientSourceProductDto>();
 
             // Transform entities to DTOs with encrypted IDs
-            return entity.Select(e => new IngredientSourceProductDto
-            {
-                IngredientSourceProduct = e.ToEntityWithEncryptedId(pkSecret, logger)
-            }).ToList();
+            return entity.Select(e => new IngredientSourceProductDto { IngredientSourceProduct = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<IngredientSourceProductDto>();
             #endregion
         }
 
@@ -2731,12 +2782,12 @@ namespace MedRecPro.DataAccess
         /// <returns>A list of ReferenceSubstanceDto objects, or null if no ingredient substance ID provided or no entities found.</returns>
         /// <seealso cref="Label.ReferenceSubstance"/>
         /// <seealso cref="ReferenceSubstanceDto"/>
-        private static async Task<List<ReferenceSubstanceDto>?> buildReferenceSubstancesDtoAsync(ApplicationDbContext db, int? ingredientSubstanceID, string pkSecret, ILogger logger)
+        private static async Task<List<ReferenceSubstanceDto>> buildReferenceSubstancesDtoAsync(ApplicationDbContext db, int? ingredientSubstanceID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no ingredient substance ID is provided
             if (ingredientSubstanceID == null)
-                return null;
+                return new List<ReferenceSubstanceDto>();
 
             // Query reference substances for the specified ingredient substance
             var entity = await db.Set<Label.ReferenceSubstance>()
@@ -2745,14 +2796,14 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Return null if no entities found
-            if (entity == null)
-                return null;
+            if (entity == null || !entity.Any())
+                return new List<ReferenceSubstanceDto>();
 
             // Transform entities to DTOs with encrypted IDs, filtering out null entities
             return entity.Where(e => e != null).Select(e => new ReferenceSubstanceDto
             {
                 ReferenceSubstance = e.ToEntityWithEncryptedId(pkSecret, logger)
-            }).ToList();
+            }).ToList() ?? new List<ReferenceSubstanceDto>();
             #endregion
         }
 
@@ -2790,7 +2841,7 @@ namespace MedRecPro.DataAccess
             foreach (var item in items)
             {
                 // For each IdentifiedSubstance, build SubstanceSpecifications
-                var specs = await buildSubstanceSpecificationsAsync(db,item.IdentifiedSubstanceID,pkSecret,logger);
+                var specs = await buildSubstanceSpecificationsAsync(db, item.IdentifiedSubstanceID, pkSecret, logger);
 
                 var contributingFactors = await buildContributingFactorsAsync(db, item.IdentifiedSubstanceID, pkSecret, logger);
 
@@ -2832,13 +2883,17 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="Label.ContributingFactor"/>
+        /// <seealso cref="Label.InteractionConsequence"/>
         /// <seealso cref="ContributingFactorDto"/>
+        /// <seealso cref="InteractionConsequenceDto"/>
         private static async Task<List<ContributingFactorDto>> buildContributingFactorsAsync(ApplicationDbContext db, int? identifiedSubstanceID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Early return if no identified substance ID provided
             if (identifiedSubstanceID == null)
                 return new List<ContributingFactorDto>();
+
+            var dtos = new List<ContributingFactorDto>();
 
             // Query contributing factors for the specified identified substance using read-only tracking
             var entity = await db.Set<Label.ContributingFactor>()
@@ -2850,10 +2905,24 @@ namespace MedRecPro.DataAccess
             if (entity == null || !entity.Any())
                 return new List<ContributingFactorDto>();
 
+            foreach (var e in entity)
+            {
+                // Skip entities without valid IDs
+                if (e.ContributingFactorID == null)
+                    continue;
+
+                var interactions = await buildContributingFactorInteractionConsequencesAsync(db, e.InteractionIssueID, pkSecret, logger);
+
+                // Create contributing factor DTO with encrypted ID
+                dtos.Add(new ContributingFactorDto
+                {
+                    ContributingFactor = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    InteractionConsequences = interactions
+                });
+            }
+
             // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
-            return entity
-                .Select(e => new ContributingFactorDto { ContributingFactor = e.ToEntityWithEncryptedId(pkSecret, logger) })
-                .ToList() ?? new List<ContributingFactorDto>();
+            return dtos ?? new List<ContributingFactorDto>();
             #endregion
         }
 
@@ -3075,10 +3144,51 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
-        // Builds a list of consequences for contributing factors.
-        // IdentifiedSubstanceDto > ContributingFactorDto > InteractionConsequenceDto
-        private static async Task<List<ContributingFactorDto>> buildContributingFactornteractionConsequencesAsync(ApplicationDbContext db, int? interactionIssueID, string pkSecret, ILogger logger)
-        { return null; }
+        /// <summary>
+        /// Builds a list of consequences for contributing factors. Retrieves interaction 
+        /// consequence records for a specified interaction issue ID and transforms 
+        /// them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="interactionIssueID">The unique identifier of the interaction issue to find consequences for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of InteractionConsequenceDto objects representing the interaction consequences, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: IdentifiedSubstanceDto > ContributingFactorDto > InteractionConsequenceDto
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var interactionConsequences = await buildContributingFactorInteractionConsequencesAsync(dbContext, 654, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.InteractionConsequence"/>
+        /// <seealso cref="InteractionConsequenceDto"/>
+        private static async Task<List<InteractionConsequenceDto>> buildContributingFactorInteractionConsequencesAsync(ApplicationDbContext db, int? interactionIssueID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no interaction issue ID provided
+            if (interactionIssueID == null)
+                return new List<InteractionConsequenceDto>();
+
+            // Query interaction consequences for the specified interaction issue using read-only tracking
+            var entity = await db.Set<Label.InteractionConsequence>()
+                .AsNoTracking()
+                .Where(e => e.InteractionIssueID == interactionIssueID)
+                .ToListAsync();
+
+            // Return empty list if no interaction consequences found
+            if (entity == null || !entity.Any())
+                return new List<InteractionConsequenceDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new InteractionConsequenceDto { InteractionConsequence = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<InteractionConsequenceDto>();
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -3092,8 +3202,10 @@ namespace MedRecPro.DataAccess
         /// <returns>List of SubstanceSpecification DTOs with nested Analyte data and encrypted IDs.</returns>
         /// <seealso cref="Label.SubstanceSpecification"/>
         /// <seealso cref="Label.Analyte"/>
+        /// <seealso cref="Label.ObservationCriterion"/>
         /// <seealso cref="SubstanceSpecificationDto"/>
         /// <seealso cref="AnalyteDto"/>
+        /// <seealso cref="ObservationCriterionDto"/>
         /// <remarks>
         /// This method builds complete SubstanceSpecificationDto objects including nested Analyte data.
         /// Returns an empty list if identifiedSubstanceID is null or no specifications are found.
@@ -3116,23 +3228,25 @@ namespace MedRecPro.DataAccess
                 .Where(e => e.IdentifiedSubstanceID == identifiedSubstanceID)
                 .ToListAsync();
 
+            if (items == null || !items.Any())
+                return new List<SubstanceSpecificationDto>();
+
             var dtos = new List<SubstanceSpecificationDto>();
 
             // For each substance specification, build its analytes
             foreach (var item in items)
             {
                 // For each SubstanceSpecification, build associated Analytes
-                var analytes = await buildAnalytesAsync(
-                    db,
-                    item.SubstanceSpecificationID,
-                    pkSecret,
-                    logger);
+                var analytes = await buildAnalytesAsync(db, item.SubstanceSpecificationID, pkSecret, logger);
+
+                var observationCriteria = await buildObservationCriterionAsync(db, item.SubstanceSpecificationID, pkSecret, logger);
 
                 // Create SubstanceSpecificationDto with encrypted IDs and nested analytes
                 dtos.Add(new SubstanceSpecificationDto
                 {
                     SubstanceSpecification = item.ToEntityWithEncryptedId(pkSecret, logger),
-                    Analytes = analytes
+                    Analytes = analytes,
+                    ObservationCriteria = observationCriteria
                 });
             }
 
@@ -3174,7 +3288,7 @@ namespace MedRecPro.DataAccess
                 .Where(e => e.AnalyteSubstanceID == substanceSpecificationID)
                 .ToListAsync();
 
-            if(items == null || !items.Any())
+            if (items == null || !items.Any())
                 return new List<AnalyteDto>();
 
             // Transform entities to DTOs with encrypted IDs using LINQ Select for efficiency
@@ -3185,19 +3299,169 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
-        // Builds a list of ObservationCriterion DTOs for the specified SubstanceSpecification.
-        // SubstanceSpecificationDto > ObservationCriterionDto
-        private static async Task<List<ObservationCriterionDto>> buildObservationCriterionAsync(ApplicationDbContext db, int? substanceSpecificationID, string pkSecret, ILogger logger) { return null; }
+        /// <summary>
+        /// Builds a list of ObservationCriterion DTOs for the specified SubstanceSpecification.
+        /// Retrieves observation criterion records for a specified substance specification ID 
+        /// and enriches them with application types and commodities, then transforms them into 
+        /// DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="substanceSpecificationID">The unique identifier of the substance specification to find observation criteria for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of ObservationCriterionDto objects representing the observation criteria with their associated data, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: SubstanceSpecificationDto > ObservationCriterionDto
+        /// Each observation criterion is enriched with its application types and commodities.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var observationCriteria = await buildObservationCriterionAsync(dbContext, 987, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.ObservationCriterion"/>
+        /// <seealso cref="ObservationCriterionDto"/>
+        /// <seealso cref="buildApplicationTypesAsync"/>
+        /// <seealso cref="buildCommoditiesAsync"/>
+        private static async Task<List<ObservationCriterionDto>> buildObservationCriterionAsync(ApplicationDbContext db, int? substanceSpecificationID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no substance specification ID provided
+            if (substanceSpecificationID == null)
+                return new List<ObservationCriterionDto>();
+
+            var dtos = new List<ObservationCriterionDto>();
+
+            // Query observation criteria for the specified substance specification using read-only tracking
+            var entity = await db.Set<Label.ObservationCriterion>()
+                .AsNoTracking()
+                .Where(e => e.SubstanceSpecificationID == substanceSpecificationID)
+                .ToListAsync();
+
+            // Return empty list if no observation criteria found
+            if (entity == null || !entity.Any())
+                return new List<ObservationCriterionDto>();
+
+            // Process each observation criterion and build associated data
+            foreach (var e in entity)
+            {
+                // Skip entities without valid substance specification IDs
+                if (e.SubstanceSpecificationID == null)
+                    continue;
+
+                // Build the application types and commodities for this observation criterion
+                var applicationTypes = await buildApplicationTypesAsync(db, e.ApplicationTypeID, pkSecret, logger);
+                var commodities = await buildCommoditiesAsync(db, e.CommodityID, pkSecret, logger);
+
+                // Create observation criterion DTO with encrypted ID and associated data
+                dtos.Add(new ObservationCriterionDto
+                {
+                    ObservationCriterion = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    ApplicationTypes = applicationTypes,
+                    Commodities = commodities
+                });
+            }
+
+            // Return processed observation criteria with associated data, ensuring non-null result
+            return dtos ?? new List<ObservationCriterionDto>();
+            #endregion
+        }
 
         /**************************************************************/
-        // Get the application type ids from the ObservationCriterion.
-        // SubstanceSpecificationDto > ObservationCriterionDto > ApplicationTypeDto
-        private static async Task<List<ApplicationTypeDto>> buildApplicationTypesAsync(ApplicationDbContext db, int? applicationTypeID, string pkSecret, ILogger logger) { return null; }
+        /// <summary>
+        /// Get the application type IDs from the ObservationCriterion. Retrieves 
+        /// application type records for a specified application type ID and transforms 
+        /// them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="applicationTypeID">The unique identifier of the application type to retrieve. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of ApplicationTypeDto objects representing the application types, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: SubstanceSpecificationDto > ObservationCriterionDto > ApplicationTypeDto
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var applicationTypes = await buildApplicationTypesAsync(dbContext, 147, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.ApplicationType"/>
+        /// <seealso cref="ApplicationTypeDto"/>
+        private static async Task<List<ApplicationTypeDto>> buildApplicationTypesAsync(ApplicationDbContext db, int? applicationTypeID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no application type ID provided
+            if (applicationTypeID == null)
+                return new List<ApplicationTypeDto>();
+
+            // Query application types for the specified application type ID using read-only tracking
+            var entity = await db.Set<Label.ApplicationType>()
+                .AsNoTracking()
+                .Where(e => e.ApplicationTypeID == applicationTypeID)
+                .ToListAsync();
+
+            // Return empty list if no application types found
+            if (entity == null || !entity.Any())
+                return new List<ApplicationTypeDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new ApplicationTypeDto { ApplicationType = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<ApplicationTypeDto>();
+            #endregion
+        }
 
         /**************************************************************/
-        // Gets the commodities for the specified commodity ID.
-        // SubstanceSpecificationDto ObservationCriterionDto > CommodityDto
-        private static async Task<List<CommodityDto>> buildCommoditiesAsync(ApplicationDbContext db, int? commodityId, string pkSecret, ILogger logger) { return null; }
+        /// <summary>
+        /// Gets the commodities for the specified commodity ID. Retrieves 
+        /// commodity records for a specified commodity ID and transforms them 
+        /// into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="commodityId">The unique identifier of the commodity to retrieve. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of CommodityDto objects representing the commodities, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: SubstanceSpecificationDto > ObservationCriterionDto > CommodityDto
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var commodities = await buildCommoditiesAsync(dbContext, 258, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Commodity"/>
+        /// <seealso cref="CommodityDto"/>
+        private static async Task<List<CommodityDto>> buildCommoditiesAsync(ApplicationDbContext db, int? commodityId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no commodity ID provided
+            if (commodityId == null)
+                return new List<CommodityDto>();
+
+            // Query commodities for the specified commodity ID using read-only tracking
+            var entity = await db.Set<Label.Commodity>()
+                .AsNoTracking()
+                .Where(e => e.CommodityID == commodityId)
+                .ToListAsync();
+
+            // Return empty list if no commodities found
+            if (entity == null || !entity.Any())
+                return new List<CommodityDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new CommodityDto { Commodity = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<CommodityDto>();
+            #endregion
+        }
 
         #endregion
 
@@ -3212,8 +3476,13 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">The logger instance for tracking operations.</param>
         /// <returns>A list of PackagingLevelDto objects with encrypted IDs and packaging hierarchy data.</returns>
         /// <seealso cref="Label.PackagingLevel"/>
+        /// <seealso cref="Label.ProductEvent"/>
+        /// <seealso cref="Label.PackagingHierarchy"/>
         /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="ProductEventDto"/>
+        /// <seealso cref="PackagingHierarchyDto"/>
         /// <seealso cref="buildPackagingHierarchyDtoAsync"/>
+        /// <seealso cref="buildProductEventsAsync"/>
         /// <example>
         /// var packagingLevels = await buildPackagingLevelsAsync(dbContext, 123, "secretKey", logger);
         /// </example>
@@ -3223,7 +3492,7 @@ namespace MedRecPro.DataAccess
             // Return empty list if no product ID is provided
             if (productID == null) return new List<PackagingLevelDto>();
 
-            List<PackagingHierarchyDto> packagingHierarchyDtos = new List<PackagingHierarchyDto>();
+            var dtos = new List<PackagingLevelDto>();
 
             // Query packaging levels for the specified packaging hierarchy
             var items = await db.Set<Label.PackagingLevel>()
@@ -3231,26 +3500,26 @@ namespace MedRecPro.DataAccess
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
 
+            if (items == null || !items.Any())
+                return new List<PackagingLevelDto>();
+
             // Build packaging hierarchy data for each packaging level
             foreach (var item in items)
             {
                 var pack = await buildPackagingHierarchyDtoAsync(db, item.PackagingLevelID, pkSecret, logger);
 
-                // Add packaging hierarchy data if available
-                if (pack != null && pack.Any())
-                    foreach (var p in pack)
-                        if (p.PackagingHierarchy != null)
-                            packagingHierarchyDtos.Add(p);
-            }
+                var events = await buildProductEventsAsync(db, item.PackagingLevelID, pkSecret, logger);
 
-            // Transform entities to DTOs with encrypted IDs
-            return items
-                .Select(item => new PackagingLevelDto
+                dtos.Add(new PackagingLevelDto
                 {
                     PackagingLevel = item.ToEntityWithEncryptedId(pkSecret, logger),
-                    PackagingHierarchy = packagingHierarchyDtos
-                })
-                .ToList();
+                    PackagingHierarchy = pack,
+                    ProductEvents = events
+                });
+            }
+
+            // DTOs with encrypted IDs
+            return dtos ?? new List<PackagingLevelDto>();
             #endregion
         }
 
@@ -3266,12 +3535,12 @@ namespace MedRecPro.DataAccess
         /// <returns>A list of PackagingLevelDto objects, or null if no product instance ID provided or no entities found.</returns>
         /// <seealso cref="Label.PackagingLevel"/>
         /// <seealso cref="PackagingLevelDto"/>
-        private static async Task<List<PackagingLevelDto>?> buildPackagingLevelsDtoAsync(ApplicationDbContext db, int? productInstanceID, string pkSecret, ILogger logger)
+        private static async Task<List<PackagingLevelDto>> buildPackagingLevelsDtoAsync(ApplicationDbContext db, int? productInstanceID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no product instance ID is provided
             if (productInstanceID == null)
-                return null;
+                return new List<PackagingLevelDto>();
 
             // Query packaging levels for the specified product instance
             var entity = await db.Set<Label.PackagingLevel>()
@@ -3280,14 +3549,14 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Return null if no entities found
-            if (entity == null)
-                return null;
+            if (entity == null || !entity.Any())
+                return new List<PackagingLevelDto>();
 
             // Transform entities to DTOs with encrypted IDs
             return entity.Select(entity => new PackagingLevelDto
             {
                 PackagingLevel = entity.ToEntityWithEncryptedId(pkSecret, logger)
-            }).ToList();
+            }).ToList() ?? new List<PackagingLevelDto>();
             #endregion
         }
 
@@ -3303,12 +3572,12 @@ namespace MedRecPro.DataAccess
         /// <returns>A list of PackagingHierarchyDto objects, or null if no outer packaging level ID provided or no entities found.</returns>
         /// <seealso cref="Label.PackagingHierarchy"/>
         /// <seealso cref="PackagingHierarchyDto"/>
-        private static async Task<List<PackagingHierarchyDto>?> buildPackagingHierarchyDtoAsync(ApplicationDbContext db, int? outerPackagingLevelID, string pkSecret, ILogger logger)
+        private static async Task<List<PackagingHierarchyDto>> buildPackagingHierarchyDtoAsync(ApplicationDbContext db, int? outerPackagingLevelID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no outer packaging level ID is provided
             if (outerPackagingLevelID == null)
-                return null;
+                return new List<PackagingHierarchyDto>();
 
             // Query packaging hierarchies for the specified outer packaging level
             var entity = await db.Set<Label.PackagingHierarchy>()
@@ -3318,22 +3587,61 @@ namespace MedRecPro.DataAccess
 
             // Return null if no entities found
             if (entity == null)
-                return null;
+                return new List<PackagingHierarchyDto>();
 
             // Transform entities to DTOs with encrypted IDs
-            return entity.Select(e => new PackagingHierarchyDto
-            {
-                PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger)
-            }).ToList();
+            return entity
+                .Select(e => new PackagingHierarchyDto { PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger)})
+                .ToList() ?? new List<PackagingHierarchyDto>();
             #endregion
         }
 
         /**************************************************************/
-        // Stores product events like distribution or return quantities
-        // PackagingLevelDto > ProductEventDto
-        private static async Task<List<ProductEventDto>?> buildProductEventsAsync(ApplicationDbContext db, int? packagingLevelID, string pkSecret, ILogger logger)
+        /// <summary>
+        /// Stores product events like distribution or return quantities. Retrieves 
+        /// product event records for a specified packaging level ID and transforms 
+        /// them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="packagingLevelID">The unique identifier of the packaging level to find product events for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of ProductEventDto objects representing the product events, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: PackagingLevelDto > ProductEventDto
+        /// Product events include activities like distribution or return quantities associated with packaging levels.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var productEvents = await buildProductEventsAsync(dbContext, 753, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.ProductEvent"/>
+        /// <seealso cref="ProductEventDto"/>
+        private static async Task<List<ProductEventDto>> buildProductEventsAsync(ApplicationDbContext db, int? packagingLevelID, string pkSecret, ILogger logger)
         {
-            return null;
+            #region implementation
+            // Early return if no packaging level ID provided
+            if (packagingLevelID == null)
+                return new List<ProductEventDto>();
+
+            // Query product events for the specified packaging level using read-only tracking
+            var entity = await db.Set<Label.ProductEvent>()
+                .AsNoTracking()
+                .Where(e => e.PackagingLevelID == packagingLevelID)
+                .ToListAsync();
+
+            // Return empty list if no product events found
+            if (entity == null || !entity.Any())
+                return new List<ProductEventDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new ProductEventDto { ProductEvent = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<ProductEventDto>();
+            #endregion
         }
 
         /**************************************************************/
@@ -3397,11 +3705,8 @@ namespace MedRecPro.DataAccess
         /// var orgDto = await buildOrganizationAsync(dbContext, 123, "secret", logger);
         /// </code>
         /// </example>
-        private static async Task<OrganizationDto?> buildOrganizationAsync(
-            ApplicationDbContext db,
-            int? organizationId,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<OrganizationDto?> buildOrganizationAsync(ApplicationDbContext db,
+            int? organizationId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null immediately if organizationId is not provided
@@ -3488,11 +3793,7 @@ namespace MedRecPro.DataAccess
         /// var contactPartyDto = await buildContactPartyAsync(dbContext, 456, "secret", logger);
         /// </code>
         /// </example>
-        private static async Task<ContactPartyDto?> buildContactPartyAsync(
-            ApplicationDbContext db,
-            int? contactPartyId,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<ContactPartyDto?> buildContactPartyAsync(ApplicationDbContext db, int? contactPartyId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no ContactPartyID provided
@@ -3563,11 +3864,7 @@ namespace MedRecPro.DataAccess
         /// var personDto = await buildContactPersonAsync(dbContext, 789, "secret", logger);
         /// </code>
         /// </example>
-        private static async Task<ContactPersonDto?> buildContactPersonAsync(
-            ApplicationDbContext db,
-            int? contactPersonId,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<ContactPersonDto?> buildContactPersonAsync(ApplicationDbContext db, int? contactPersonId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no ContactPersonID provided
@@ -3632,11 +3929,7 @@ namespace MedRecPro.DataAccess
         /// var addressDto = await buildAddressAsync(dbContext, 101, "secret", logger);
         /// </code>
         /// </example>
-        private static async Task<AddressDto?> buildAddressAsync(
-            ApplicationDbContext db,
-            int? addressId,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<AddressDto?> buildAddressAsync(ApplicationDbContext db, int? addressId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no AddressID provided
@@ -3737,11 +4030,7 @@ namespace MedRecPro.DataAccess
         /// <remarks>
         /// Returns an empty list if contactPartyId is null or no telecoms are found.
         /// </remarks>
-        private static async Task<List<ContactPartyTelecomDto>> buildContactPartyTelecomsAsync(
-            ApplicationDbContext db,
-            int? contactPartyId,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<List<ContactPartyTelecomDto>> buildContactPartyTelecomsAsync(ApplicationDbContext db, int? contactPartyId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return empty list if no ContactPartyID provided
@@ -3786,11 +4075,7 @@ namespace MedRecPro.DataAccess
         /// <remarks>
         /// Returns an empty list if organizationId is null or no telecoms are found.
         /// </remarks>
-        private static async Task<List<OrganizationTelecomDto>> buildOrganizationTelecomsAsync(
-            ApplicationDbContext db,
-            int? organizationId,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<List<OrganizationTelecomDto>> buildOrganizationTelecomsAsync(ApplicationDbContext db, int? organizationId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return empty list if no OrganizationID provided
@@ -3833,11 +4118,7 @@ namespace MedRecPro.DataAccess
         /// Returns an empty list if organizationId is null or no identifiers are found.
         /// Uses LINQ Select for more concise conversion compared to foreach loop.
         /// </remarks>
-        private static async Task<List<OrganizationIdentifierDto>> buildOrganizationIdentifiersAsync(
-            ApplicationDbContext db,
-            int? organizationId,
-            string pkSecret,
-            ILogger logger)
+        private static async Task<List<OrganizationIdentifierDto>> buildOrganizationIdentifiersAsync(ApplicationDbContext db, int? organizationId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return empty list if no OrganizationID provided
@@ -3907,12 +4188,12 @@ namespace MedRecPro.DataAccess
         /// <returns>A list of TerritorialAuthorityDto objects, or null if no organization ID provided or no entities found.</returns>
         /// <seealso cref="Label.TerritorialAuthority"/>
         /// <seealso cref="TerritorialAuthorityDto"/>
-        private static async Task<List<TerritorialAuthorityDto>?> buildTerritorialAuthoritiesDtoAsync(ApplicationDbContext db, int? organizationID, string pkSecret, ILogger logger)
+        private static async Task<List<TerritorialAuthorityDto>> buildTerritorialAuthoritiesDtoAsync(ApplicationDbContext db, int? organizationID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no organization ID is provided
             if (organizationID == null)
-                return null;
+                return new List<TerritorialAuthorityDto>();
 
             // Query territorial authorities for the specified governing agency organization
             var entity = await db.Set<Label.TerritorialAuthority>()
@@ -3921,14 +4202,13 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Return null if no entities found
-            if (entity == null)
-                return null;
+            if (entity == null || !entity.Any())
+                return new List<TerritorialAuthorityDto>();
 
             // Transform entities to DTOs with encrypted IDs
-            return entity.Select(e => new TerritorialAuthorityDto
-            {
-                TerritorialAuthority = e.ToEntityWithEncryptedId(pkSecret, logger)
-            }).ToList();
+            return entity
+                .Select(e => new TerritorialAuthorityDto { TerritorialAuthority = e.ToEntityWithEncryptedId(pkSecret, logger)})
+                .ToList() ?? new List<TerritorialAuthorityDto>();
             #endregion
         }
 
@@ -3943,12 +4223,12 @@ namespace MedRecPro.DataAccess
         /// <returns>A list of HolderDto objects, or null if no organization ID provided or no entities found.</returns>
         /// <seealso cref="Label.Holder"/>
         /// <seealso cref="HolderDto"/>
-        private static async Task<List<HolderDto>?> buildHoldersDtoAsync(ApplicationDbContext db, int? organizationID, string pkSecret, ILogger logger)
+        private static async Task<List<HolderDto>> buildHoldersDtoAsync(ApplicationDbContext db, int? organizationID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no organization ID is provided
             if (organizationID == null)
-                return null;
+                return new List<HolderDto>();
 
             // Query holders for the specified holder organization
             var entity = await db.Set<Label.Holder>()
@@ -3957,14 +4237,14 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Return null if no entities found
-            if (entity == null)
-                return null;
+            if (entity == null || !entity.Any())
+                return new List<HolderDto>();
 
             // Transform entities to DTOs with encrypted IDs
             return entity.Select(e => new HolderDto
             {
                 Holder = e.ToEntityWithEncryptedId(pkSecret, logger)
-            }).ToList();
+            }).ToList() ?? new List<HolderDto>();
             #endregion
         }
         #endregion
