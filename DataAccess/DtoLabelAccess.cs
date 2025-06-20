@@ -3,6 +3,7 @@ using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using Windows.Services.Store;
 using static MedRecPro.Models.Label;
@@ -3591,7 +3592,7 @@ namespace MedRecPro.DataAccess
 
             // Transform entities to DTOs with encrypted IDs
             return entity
-                .Select(e => new PackagingHierarchyDto { PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger)})
+                .Select(e => new PackagingHierarchyDto { PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger) })
                 .ToList() ?? new List<PackagingHierarchyDto>();
             #endregion
         }
@@ -4207,7 +4208,7 @@ namespace MedRecPro.DataAccess
 
             // Transform entities to DTOs with encrypted IDs
             return entity
-                .Select(e => new TerritorialAuthorityDto { TerritorialAuthority = e.ToEntityWithEncryptedId(pkSecret, logger)})
+                .Select(e => new TerritorialAuthorityDto { TerritorialAuthority = e.ToEntityWithEncryptedId(pkSecret, logger) })
                 .ToList() ?? new List<TerritorialAuthorityDto>();
             #endregion
         }
@@ -4252,54 +4253,249 @@ namespace MedRecPro.DataAccess
         #region Document Relationship Child Builders
         /**************************************************************/
         /// <summary>
-        /// Builds a list of BusinessOperation DTOs for the specified document relationship.
-        /// Retrieves business operation details for establishments or labelers linked through document relationships.
+        /// Builds a list of BusinessOperation DTOs for the specified document 
+        /// relationship. Retrieves business operation details for establishments
+        /// or labelers linked through document relationships and enriches them
+        /// with licenses and qualifiers, then transforms them into DTOs with 
+        /// encrypted identifiers.
         /// </summary>
-        /// <param name="db">The database context.</param>
-        /// <param name="docRelId">The document relationship ID to find business operations for.</param>
-        /// <param name="pkSecret">Secret used for ID encryption.</param>
-        /// <param name="logger">Logger instance for diagnostics.</param>
-        /// <returns>List of BusinessOperation DTOs with encrypted IDs.</returns>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="docRelId">The unique identifier of the document relationship to find business operations for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of BusinessOperationDto objects representing the business operations with their associated data, or an empty list if none found</returns>
+        /// <remarks>
+        /// Each business operation is enriched with its licenses and business operation qualifiers.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var businessOperations = await buildBusinessOperationsAsync(dbContext, 159, secretKey, logger);
+        /// </code>
+        /// </example>
         /// <seealso cref="Label.BusinessOperation"/>
+        /// <seealso cref="Label.License"/>
+        /// <seealso cref="Label.BusinessOperationQualifier"/>
+        /// <seealso cref="LicenseDto"/>
+        /// <seealso cref="BusinessOperationQualifier"/>
+        /// <seealso cref="BusinessOperationDto"/>
+        /// <seealso cref="buildLicensesAsync"/>
+        /// <seealso cref="buildBusinessOperationQualifiersAsync"/>
         private static async Task<List<BusinessOperationDto>> buildBusinessOperationsAsync(ApplicationDbContext db, int? docRelId, string pkSecret, ILogger logger)
         {
             #region implementation
-            if (docRelId == null) return new List<BusinessOperationDto>();
+            // Early return if no document relationship ID provided
+            if (docRelId == null)
+                return new List<BusinessOperationDto>();
 
-            // Query business operations for the specified document relationship
-            var items = await db.Set<Label.BusinessOperation>()
+            var dtos = new List<BusinessOperationDto>();
+
+            // Query business operations for the specified document relationship using read-only tracking
+            var entities = await db.Set<Label.BusinessOperation>()
                 .AsNoTracking()
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();
 
-            // Transform entities to DTOs with encrypted IDs
-            return items
-                .Select(item => new BusinessOperationDto { BusinessOperation = item.ToEntityWithEncryptedId(pkSecret, logger) })
-                .ToList();
+            // Return empty list if no business operations found
+            if (entities == null || !entities.Any())
+                return new List<BusinessOperationDto>();
+
+            // Process each business operation and build associated data
+            foreach (var e in entities)
+            {
+                // Skip entities without valid IDs
+                if (e.BusinessOperationID == null)
+                    continue;
+
+                // Build licenses and business operation qualifiers for each business operation
+                var licenses = await buildLicensesAsync(db, e.BusinessOperationID, pkSecret, logger);
+                var qualifiers = await buildBusinessOperationQualifiersAsync(db, e.BusinessOperationID, pkSecret, logger);
+
+                // Create business operation DTO with encrypted ID and associated data
+                dtos.Add(new BusinessOperationDto
+                {
+                    BusinessOperation = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    Licenses = licenses,
+                    BusinessOperationQualifiers = qualifiers
+                });
+            }
+
+            // Return processed business operations with associated data, ensuring non-null result
+            return dtos ?? new List<BusinessOperationDto>();
             #endregion
         }
 
         /**************************************************************/
-        // Adds licenses to the the business operation
-        // BusinessOperationDto > LicenseDto
+        /// <summary>
+        /// Adds licenses to the business operation. Retrieves license 
+        /// records for a specified business operation ID and enriches 
+        /// them with disciplinary actions, then transforms them into DTOs 
+        /// with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="businessOperationId">The unique identifier of the business operation to find licenses for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of LicenseDto objects representing the licenses with their associated data, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: BusinessOperationDto > LicenseDto
+        /// Each license is enriched with its disciplinary actions.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var licenses = await buildLicensesAsync(dbContext, 357, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.License"/>
+        /// <seealso cref="Label.DisciplinaryAction"/>
+        /// <seealso cref="LicenseDto"/>
+        /// <seealso cref="DisciplinaryActionDto"/>"/>
+        /// <seealso cref="buildDisciplinaryActionsAsync"/>
         private static async Task<List<LicenseDto>> buildLicensesAsync(ApplicationDbContext db, int? businessOperationId, string pkSecret, ILogger logger)
-        { return null; }
+        {
+            #region implementation
+            // Early return if no business operation ID provided
+            if (businessOperationId == null)
+                return new List<LicenseDto>();
 
-        /**************************************************************/
-        // Adds DisciplinaryAction DTOs for the specified license.
-        //  BusinessOperationDto > LicenseDto > DisciplinaryActionDto
-        private static async Task<List<DisciplinaryActionDto>> buildDisciplinaryActionsAsync(ApplicationDbContext db, int? licenseId, string pkSecret, ILogger logger)
-        { return null; }
+            var dtos = new List<LicenseDto>();
 
-        /**************************************************************/
-        // Adds BusinessOperationQualifier DTOs for the specified business operation.
-        // BuisnessOperation > BusinessOperationQualifier
-        private static async Task<List<BusinessOperationQualifierDto>> buildBusinessOperationQualifiersAsync(ApplicationDbContext db, int? businessOperationId, string pkSecret, ILogger logger) { return null; }
+            // Query licenses for the specified business operation using read-only tracking
+            var entities = await db.Set<Label.License>()
+                .AsNoTracking()
+                .Where(e => e.BusinessOperationID == businessOperationId)
+                .ToListAsync();
+
+            // Return empty list if no licenses found
+            if (entities == null || !entities.Any())
+                return new List<LicenseDto>();
+
+            // Process each license entity and build its DTO with associated data
+            foreach (var e in entities)
+            {
+                // Skip entities without valid IDs
+                if (e.LicenseID == null)
+                    continue;
+
+                // Build disciplinary actions for this license
+                var disciplinaryActions = await buildDisciplinaryActionsAsync(db, e.LicenseID, pkSecret, logger);
+
+                // Create license DTO with encrypted ID and associated data
+                dtos.Add(new LicenseDto
+                {
+                    License = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    DisciplinaryActions = disciplinaryActions,
+                });
+            }
+
+            // Return processed licenses with associated data, ensuring non-null result
+            return dtos ?? new List<LicenseDto>();
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
-        /// Builds a list of CertificationProductLink DTOs for the specified document relationship.
-        /// Retrieves links between establishments and products being certified in Blanket No Changes Certification documents.
+        /// Adds DisciplinaryAction DTOs for the specified license. Retrieves 
+        /// disciplinary action records for a specified license ID and 
+        /// transforms them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="licenseId">The unique identifier of the license to find disciplinary actions for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of DisciplinaryActionDto objects representing the disciplinary actions, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: BusinessOperationDto > LicenseDto > DisciplinaryActionDto
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var disciplinaryActions = await buildDisciplinaryActionsAsync(dbContext, 468, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.DisciplinaryAction"/>
+        /// <seealso cref="DisciplinaryActionDto"/>
+        private static async Task<List<DisciplinaryActionDto>> buildDisciplinaryActionsAsync(ApplicationDbContext db, int? licenseId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no license ID provided
+            if (licenseId == null)
+                return new List<DisciplinaryActionDto>();
+
+            // Query disciplinary actions for the specified license using read-only tracking
+            var entities = await db.Set<Label.DisciplinaryAction>()
+                .AsNoTracking()
+                .Where(e => e.LicenseID == licenseId)
+                .ToListAsync();
+
+            // Return empty list if no disciplinary actions found
+            if (entities == null || !entities.Any())
+                return new List<DisciplinaryActionDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entities
+                .Select(item => new DisciplinaryActionDto { DisciplinaryAction = item.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<DisciplinaryActionDto>();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Adds BusinessOperationQualifier DTOs for the specified business 
+        /// operation. Retrieves business operation qualifier records 
+        /// for a specified business operation ID and transforms them into
+        /// DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="businessOperationId">The unique identifier of the business operation to find qualifiers for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of BusinessOperationQualifierDto objects representing the business operation qualifiers, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: BusinessOperationDto > BusinessOperationQualifierDto
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var qualifiers = await buildBusinessOperationQualifiersAsync(dbContext, 357, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.BusinessOperationQualifier"/>
+        /// <seealso cref="BusinessOperationQualifierDto"/>
+        private static async Task<List<BusinessOperationQualifierDto>> buildBusinessOperationQualifiersAsync(ApplicationDbContext db, int? businessOperationId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no business operation ID provided
+            if (businessOperationId == null)
+                return new List<BusinessOperationQualifierDto>();
+
+            // Query business operation qualifiers for the specified business operation using read-only tracking
+            var entities = await db.Set<Label.BusinessOperationQualifier>()
+                .AsNoTracking()
+                .Where(e => e.BusinessOperationID == businessOperationId)
+                .ToListAsync();
+
+            // Return empty list if no business operation qualifiers found
+            if (entities == null || !entities.Any())
+                return new List<BusinessOperationQualifierDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entities
+                .Select(item => new BusinessOperationQualifierDto { BusinessOperationQualifier = item.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<BusinessOperationQualifierDto>();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of CertificationProductLink DTOs for the specified 
+        /// document relationship. Retrieves links between establishments 
+        /// and products being certified in Blanket No Changes Certification documents.
         /// </summary>
         /// <param name="db">The database context.</param>
         /// <param name="docRelId">The document relationship ID to find certification product links for.</param>
@@ -4318,8 +4514,11 @@ namespace MedRecPro.DataAccess
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();
 
+            if (items == null || !items.Any())
+                return new List<CertificationProductLinkDto>();
+
             // Transform entities to DTOs with encrypted IDs
-            return items.Select(item => new CertificationProductLinkDto { CertificationProductLink = item.ToEntityWithEncryptedId(pkSecret, logger) }).ToList();
+            return items.Select(item => new CertificationProductLinkDto { CertificationProductLink = item.ToEntityWithEncryptedId(pkSecret, logger) }).ToList() ?? new List<CertificationProductLinkDto>();
             #endregion
         }
 
@@ -4344,6 +4543,9 @@ namespace MedRecPro.DataAccess
                 .AsNoTracking()
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();
+
+            if (items == null || !items.Any())
+                return new List<ComplianceActionDto>();
 
             // Transform entities to DTOs with encrypted IDs
             return items
@@ -4373,6 +4575,9 @@ namespace MedRecPro.DataAccess
                 .AsNoTracking()
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();
+
+            if(items == null || !items.Any())
+                return new List<FacilityProductLinkDto>();
 
             // Transform entities to DTOs with encrypted IDs
             return items
