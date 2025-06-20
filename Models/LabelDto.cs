@@ -8,6 +8,13 @@
     }
 
     /**************************************************************/
+    /// <seealso cref="Label.ActiveMoiety"/>
+    public class ActiveMoietyDto
+    {
+        public required Dictionary<string, object?> ActiveMoiety { get; set; }
+    }
+
+    /**************************************************************/
     /// <seealso cref="Label.Address"/>
     public class AddressDto
     {
@@ -27,6 +34,13 @@
     public class ApplicationTypeDto
     {
         public required Dictionary<string, object?> ApplicationType { get; set; }
+    }
+
+    /**************************************************************/
+    /// <seealso cref="Label.AttachedDocument"/>
+    public class AttachedDocumentDto
+    {
+        public required Dictionary<string, object?> AttachedDocument { get; set; }
     }
 
     /**************************************************************/
@@ -252,6 +266,7 @@
     {
         public required Dictionary<string, object?> IngredientSubstance { get; set; }
         public List<IngredientInstanceDto> IngredientInstances { get; set; } = new();
+        public List<ActiveMoietyDto> ActiveMoieties { get; set; } = new();
     }
 
     /**************************************************************/
@@ -307,6 +322,13 @@
     public class MarketingCategoryDto
     {
         public required Dictionary<string, object?> MarketingCategory { get; set; }
+    }
+
+    /**************************************************************/
+    /// <seealso cref="Label.MarketingStatus"/>
+    public class MarketingStatusDto
+    {
+        public required Dictionary<string, object?> MarketingStatus { get; set; }
     }
 
     /**************************************************************/
@@ -382,6 +404,7 @@
         public required Dictionary<string, object?> PackagingLevel { get; set; }
         public List<PackagingHierarchyDto> PackagingHierarchy { get; set; } = new();
         public List<ProductEventDto> ProductEvents { get; set; } = new();
+        public List<MarketingStatusDto> MarketingStatuses { get; set; } = new();
     }
 
     /**************************************************************/
@@ -483,6 +506,7 @@
         public List<LotIdentifierDto> LotIdentifiers { get; set; } = new();
         public List<PackagingHierarchyDto> PackagingHierarchies { get; set; } = new();
         public List<MarketingCategoryDto> MarketingCategories { get; set; } = new();
+        public List<MarketingStatusDto> MarketingStatuses { get; set; } = new();
         public List<PackagingLevelDto> PackagingLevels { get; set; } = new();
         public List<LotHierarchyDto> ParentLotHierarchies { get; set; } = new();
         public List<LotHierarchyDto> ChildLotHierarchies { get; set; } = new();
@@ -585,6 +609,7 @@
     public class REMSMaterialDto
     {
         public required Dictionary<string, object?> REMSMaterial { get; set; }
+        public List<AttachedDocumentDto> AttachedDocuments { get; set; } = new();
     }
 
     /**************************************************************/

@@ -1356,9 +1356,9 @@ namespace MedRecPro.DataAccess
             if (stakeholderID == null) return new List<StakeholderDto>();
 
             // Query stakeholder data using REMSApproval table with stakeholderID as ProtocolID filter
-            var items = await db.Set<Label.REMSApproval>()
+            var items = await db.Set<Label.Stakeholder>()
                 .AsNoTracking()
-                .Where(e => e.ProtocolID == stakeholderID)
+                .Where(e => e.StakeholderID == stakeholderID)
                 .ToListAsync();
 
             // Return empty list if no stakeholder records found
@@ -1383,10 +1383,16 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of REMSMaterial DTOs with encrypted IDs.</returns>
         /// <seealso cref="Label.REMSMaterial"/>
+        /// <seealso cref="Label.AttachedDocument"/>
+        /// <seealso cref="REMSMaterialDto"/>
+        /// <seealso cref="AttachedDocumentDto"/>
+        /// <seealso cref="buildREMSAttachmentsAsync"/>
         private static async Task<List<REMSMaterialDto>> buildREMSMaterialsAsync(ApplicationDbContext db, int? sectionId, string pkSecret, ILogger logger)
         {
             #region implementation
             if (sectionId == null) return new List<REMSMaterialDto>();
+
+           var dtos = new List<REMSMaterialDto>();
 
             // Query REMS materials for the specified section
             var items = await db.Set<Label.REMSMaterial>()
@@ -1397,10 +1403,69 @@ namespace MedRecPro.DataAccess
             if (items == null || !items.Any())
                 return new List<REMSMaterialDto>();
 
+            foreach (var item in items)
+            {
+                if(item.REMSMaterialID == null) continue;
+
+                // Build all attachments for this REMS material
+                var attachments = await buildREMSAttachmentsAsync(db, item.REMSMaterialID, pkSecret, logger);
+
+                dtos.Add(new REMSMaterialDto
+                {
+                    REMSMaterial = item.ToEntityWithEncryptedId(pkSecret, logger),
+                    AttachedDocuments = attachments
+                });
+            }
+
             // Transform entities to DTOs with encrypted IDs
+            return dtos ?? new List<REMSMaterialDto>();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds REMS attachments for the specified parent entity. Retrieves 
+        /// attached document records for a specified parent entity ID and 
+        /// transforms them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="parentEntityID">The unique identifier of the parent entity to find attached documents for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of AttachedDocumentDto objects representing the REMS attachments, or an empty list if none found</returns>
+        /// <remarks>
+        /// REMS (Risk Evaluation and Mitigation Strategies) attachments are regulatory documents associated with parent entities.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var remsAttachments = await buildREMSAttachmentsAsync(dbContext, 127, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.AttachedDocument"/>
+        /// <seealso cref="AttachedDocumentDto"/>
+        private static async Task<List<AttachedDocumentDto>> buildREMSAttachmentsAsync(ApplicationDbContext db, int? parentEntityID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no parent entity ID provided
+            if (parentEntityID == null)
+                return new List<AttachedDocumentDto>();
+
+            // Query attached documents for the specified parent entity using read-only tracking
+            var items = await db.Set<Label.AttachedDocument>()
+                .AsNoTracking()
+                .Where(e => e.ParentEntityID == parentEntityID)
+                .ToListAsync();
+
+            // Return empty list if no attached documents found
+            if (items == null || !items.Any())
+                return new List<AttachedDocumentDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
             return items
-                .Select(item => new REMSMaterialDto { REMSMaterial = item.ToEntityWithEncryptedId(pkSecret, logger) })
-                .ToList();
+                .Select(item => new AttachedDocumentDto { AttachedDocument = item.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<AttachedDocumentDto>();
             #endregion
         }
 
@@ -1477,6 +1542,7 @@ namespace MedRecPro.DataAccess
                 var ingredientInstances = await buildProductIngredientInstancesAsync(db, product.ProductID, pkSecret, logger);
                 var ingredients = await buildIngredientsAsync(db, product.ProductID, pkSecret, logger);
                 var marketingCats = await buildMarketingCategoriesDtoAsync(db, product.ProductID, pkSecret, logger);
+                var marketingStatuses = await buildProductMarketingStatusesAsync(db, product.ProductID, pkSecret, logger);
                 var packageLevels = await buildPackagingLevelsAsync(db, product.ProductID, pkSecret, logger);
                 var parentLots = await buildFillLotHierarchyDtoAsync(db, product.ProductID, pkSecret, logger);
                 var partsOfAssembly = await buildPartOfAssembliesAsync(db, product.ProductID, pkSecret, logger);
@@ -1498,6 +1564,7 @@ namespace MedRecPro.DataAccess
                     ParentLotHierarchies = parentLots,
                     ChildLotHierarchies = childLots,
                     MarketingCategories = marketingCats,
+                    MarketingStatuses = marketingStatuses,
                     ProductIdentifiers = productIds,
                     PackagingLevels = packageLevels,
                     ProductRouteOfAdministrations = productRoutes,
@@ -1519,6 +1586,54 @@ namespace MedRecPro.DataAccess
             return productDtos ?? new List<ProductDto>();
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves marketing status records for a specified product ID and 
+        /// transforms them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="productID">The unique identifier of the product to find marketing statuses for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of MarketingStatusDto objects representing the marketing statuses, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: ProductDto > MarketingStatusDto
+        /// Marketing statuses track the regulatory and commercial status of products in various markets.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var marketingStatuses = await buildProductMarketingStatusesAsync(dbContext, 842, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.MarketingStatus"/>
+        /// <seealso cref="MarketingStatusDto"/>
+        private static async Task<List<MarketingStatusDto>> buildProductMarketingStatusesAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no product ID provided
+            if (productID == null)
+                return new List<MarketingStatusDto>();
+
+            // Query marketing statuses for the specified product using read-only tracking
+            var items = await db.Set<Label.MarketingStatus>()
+                .AsNoTracking()
+                .Where(e => e.ProductID == productID)
+                .ToListAsync();
+
+            // Return empty list if no marketing statuses found
+            if (items == null || !items.Any())
+                return new List<MarketingStatusDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return items
+                .Select(item => new MarketingStatusDto { MarketingStatus = item.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<MarketingStatusDto>();
+            #endregion
+        }
+
         /**************************************************************/
         /// <summary>
         /// Additional identifiers for the product. Retrieves additional 
@@ -2190,7 +2305,7 @@ namespace MedRecPro.DataAccess
                     LotIdentifier = lot,
                     ParentHierarchies = parentHierarchies,
                     ChildHierarchies = childHierarchies,
-                    PackagingLevels = packagingLevels ?? new List<PackagingLevelDto>()
+                    PackagingLevels = packagingLevels
                 });
             }
             return dtos;
@@ -2531,7 +2646,13 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>IngredientSubstance DTO with encrypted ID, or null if not found.</returns>
         /// <seealso cref="Label.IngredientSubstance"/>
+        /// <seealso cref="Label.ActiveMoiety"/>
+        /// <seealso cref="Label.IngredientInstance"/>
+        /// <seealso cref="IngredientInstanceDto"/>
         /// <seealso cref="IngredientSubstanceDto"/>
+        /// <seealso cref="ActiveMoietyDto"/>
+        /// <seealso cref="buildIngredientInstancesAsync"/>
+        /// <seealso cref="buildActiveMoietiesDtoAsync"/>"/>
         /// <remarks>
         /// This method retrieves and transforms a single IngredientSubstance entity into a DTO.
         /// Returns null if ingredientSubstanceId is null or the entity is not found in the database.
@@ -2564,12 +2685,67 @@ namespace MedRecPro.DataAccess
                 pkSecret,
                 logger);
 
+            var moieties = await buildActiveMoietiesDtoAsync(
+                db,
+                entity.IngredientSubstanceID,
+                pkSecret,
+                logger);
+
             // Transform entity to DTO with encrypted ID
             return new IngredientSubstanceDto
             {
                 IngredientSubstance = entity.ToEntityWithEncryptedId(pkSecret, logger),
-                IngredientInstances = substanceInstances ?? new List<IngredientInstanceDto>()
+                IngredientInstances = substanceInstances,
+                ActiveMoieties = moieties
             };
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Uses the ingredient substance ID to find active moieties. Retrieves 
+        /// active moiety records for a specified ingredient substance ID and 
+        /// transforms them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="ingredientSubstanceID">The unique identifier of the ingredient substance to find active moieties for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of ActiveMoietyDto objects representing the active moieties, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: IngredientSubstanceDto > ActiveMoietyDto
+        /// Active moieties represent the therapeutically active portions of ingredient substances.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var activeMoieties = await buildActiveMoietiesDtoAsync(dbContext, 579, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.ActiveMoiety"/>
+        /// <seealso cref="ActiveMoietyDto"/>
+        private static async Task<List<ActiveMoietyDto>> buildActiveMoietiesDtoAsync(ApplicationDbContext db, int? ingredientSubstanceID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no ingredient substance ID provided
+            if (ingredientSubstanceID == null)
+                return new List<ActiveMoietyDto>();
+
+            // Query active moieties for the specified ingredient substance using read-only tracking
+            var entity = await db.Set<Label.ActiveMoiety>()
+                .AsNoTracking()
+                .Where(e => e.IngredientSubstanceID == ingredientSubstanceID)
+                .ToListAsync();
+
+            // Return empty list if no active moieties found
+            if (entity == null || !entity.Any())
+                return new List<ActiveMoietyDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return entity
+                .Select(e => new ActiveMoietyDto { ActiveMoiety = e.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<ActiveMoietyDto>();
             #endregion
         }
 
@@ -3479,11 +3655,14 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="Label.PackagingLevel"/>
         /// <seealso cref="Label.ProductEvent"/>
         /// <seealso cref="Label.PackagingHierarchy"/>
+        /// <seealso cref="Label.MarketingStatus"/>
         /// <seealso cref="PackagingLevelDto"/>
         /// <seealso cref="ProductEventDto"/>
         /// <seealso cref="PackagingHierarchyDto"/>
+        /// <seealso cref="MarketingStatusDto"/>"/>
         /// <seealso cref="buildPackagingHierarchyDtoAsync"/>
         /// <seealso cref="buildProductEventsAsync"/>
+        /// <seealso cref="buildPackageMarketingStatusesAsync"/>
         /// <example>
         /// var packagingLevels = await buildPackagingLevelsAsync(dbContext, 123, "secretKey", logger);
         /// </example>
@@ -3511,11 +3690,14 @@ namespace MedRecPro.DataAccess
 
                 var events = await buildProductEventsAsync(db, item.PackagingLevelID, pkSecret, logger);
 
+                var marketingStatuses = await buildPackageMarketingStatusesAsync(db, item.PackagingLevelID, pkSecret, logger);
+
                 dtos.Add(new PackagingLevelDto
                 {
                     PackagingLevel = item.ToEntityWithEncryptedId(pkSecret, logger),
                     PackagingHierarchy = pack,
-                    ProductEvents = events
+                    ProductEvents = events,
+                    MarketingStatuses = marketingStatuses
                 });
             }
 
@@ -3558,6 +3740,53 @@ namespace MedRecPro.DataAccess
             {
                 PackagingLevel = entity.ToEntityWithEncryptedId(pkSecret, logger)
             }).ToList() ?? new List<PackagingLevelDto>();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves marketing status records for a specified packaging 
+        /// level ID and transforms them into DTOs with encrypted identifiers.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="packagingLevelID">The unique identifier of the packaging level to find marketing statuses for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of MarketingStatusDto objects representing the marketing statuses, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: PackagingLevelDto > MarketingStatusDto
+        /// Marketing statuses track the regulatory and commercial status of packaging levels in various markets.
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var marketingStatuses = await buildPackageMarketingStatusesAsync(dbContext, 396, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.MarketingStatus"/>
+        /// <seealso cref="MarketingStatusDto"/>
+        private static async Task<List<MarketingStatusDto>> buildPackageMarketingStatusesAsync(ApplicationDbContext db, int? packagingLevelID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no packaging level ID provided
+            if (packagingLevelID == null)
+                return new List<MarketingStatusDto>();
+
+            // Query marketing statuses for the specified packaging level using read-only tracking
+            var items = await db.Set<Label.MarketingStatus>()
+                .AsNoTracking()
+                .Where(e => e.PackagingLevelID == packagingLevelID)
+                .ToListAsync();
+
+            // Return empty list if no marketing statuses found
+            if (items == null || !items.Any())
+                return new List<MarketingStatusDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security, ensuring non-null result
+            return items
+                .Select(item => new MarketingStatusDto { MarketingStatus = item.ToEntityWithEncryptedId(pkSecret, logger) })
+                .ToList() ?? new List<MarketingStatusDto>();
             #endregion
         }
 
@@ -4576,7 +4805,7 @@ namespace MedRecPro.DataAccess
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();
 
-            if(items == null || !items.Any())
+            if (items == null || !items.Any())
                 return new List<FacilityProductLinkDto>();
 
             // Transform entities to DTOs with encrypted IDs
