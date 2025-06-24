@@ -312,17 +312,27 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
+        /// <summary>
+        /// Reads a paged set of "complete label" data, structured 
+        /// hierarchically starting from the Document entity. 
+        /// </summary>
+        /// <param name="pageNumber">Optional. The 1-based page number to retrieve.</param>
+        /// <param name="pageSize">Optional. The number of records per page.</param>
+        /// <returns>A list of dictionaries, where each dictionary represents a complete, hierarchical Document label.</returns>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="Label.Document"/>
         public virtual async Task<List<DocumentDto>> GetCompleteLabelsAsync(int? pageNumber, int? pageSize)
         {
+            #region implementation
             var results = await DtoLabelAccess.BuildDocumentsAsync(
-            _context,
-            getPkSecret(),
-            _logger,
-            pageNumber,
-            pageSize);
+                _context,
+                getPkSecret(),
+                _logger,
+                pageNumber,
+                pageSize);
 
             return results;
-
+            #endregion
         }
 
 

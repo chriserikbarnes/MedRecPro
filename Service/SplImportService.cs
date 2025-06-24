@@ -128,8 +128,11 @@ namespace MedRecPro.Service
                                 xmlContent = await reader.ReadToEndAsync();
                             }
 
-                            // Parse the XML content and save to database
                             var fileImportResult = await _xmlParser.ParseAndSaveSplDataAsync(xmlContent, entry.FullName);
+
+                            // Original call -- deprecated by above
+                            // Parse the XML content and save to database
+                            //var fileImportResult = await _xmlParser.ParseAndSaveSplDataAsync_original(xmlContent, entry.FullName);
 
                             zipResult.FileResults.Add(fileImportResult);
                         }

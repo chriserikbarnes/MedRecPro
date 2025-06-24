@@ -40,6 +40,74 @@ namespace MedRecPro.Helpers
         {
             _httpContextAccessor = httpContextAccessor;
         }
+        /**************************************************************/
+        /// <summary>
+        /// Safely parses a string to a nullable integer.
+        /// </summary>
+        /// <param name="value">String value to parse</param>
+        /// <returns>Parsed integer or null if parsing fails</returns>
+        public static int? ParseNullableInt(string value) => int.TryParse(value, out int result) ? result : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Safely parses a string to a nullable GUID.
+        /// </summary>
+        /// <param name="value">String value to parse</param>
+        /// <returns>Parsed GUID or null if parsing fails</returns>
+        public static Guid? ParseNullableGuid(string value) => Guid.TryParse(value, out Guid result) ? result : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Safely parses SPL date/time strings which can be in various formats.
+        /// </summary>
+        /// <param name="value">String value to parse</param>
+        /// <returns>Parsed DateTime or null if parsing fails</returns>
+        /// <remarks>
+        /// Handles SPL date formats: YYYY, YYYYMM, YYYYMMDD, YYYYMMDDHHMMSS, etc.
+        /// </remarks>
+        public static DateTime? ParseNullableDateTime(string value)
+        {
+            /**************************************************************/
+            #region implementation
+            if (string.IsNullOrWhiteSpace(value)) return null;
+
+            // Dates in SPL can be YYYY, YYYYMM, YYYYMMDD, YYYYMMDDHHMMSS etc.
+            // DateTime.Parse/TryParse might need specific format strings.
+            // For YYYYMMDD:
+            if (value.Length == 8 && int.TryParse(value.Substring(0, 4), out int year) &&
+                int.TryParse(value.Substring(4, 2), out int month) &&
+                int.TryParse(value.Substring(6, 2), out int day))
+            {
+                try { return new DateTime(year, month, day); }
+                catch { /* Fall through */ }
+            }
+            return DateTime.TryParse(value, out DateTime result) ? result : null;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Safely parses a string to a nullable decimal.
+        /// </summary>
+        /// <param name="value">String value to parse</param>
+        /// <returns>Parsed decimal or null if parsing fails</returns>
+        public static decimal? parseNullableDecimal(string value) => decimal.TryParse(value, out decimal result) ? result : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Safely parses a string to a nullable boolean.
+        /// </summary>
+        /// <param name="value">String value to parse</param>
+        /// <returns>Parsed boolean or null if parsing fails</returns>
+        public static bool? parseNullableBool(string value) => bool.TryParse(value, out bool result) ? result : (bool?)null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts a boolean value to nullable boolean (overload for direct bool input).
+        /// </summary>
+        /// <param name="value">Boolean value to convert</param>
+        /// <returns>The boolean value as nullable boolean</returns>
+        public static bool? ParseNullableBool(bool value) => value; // Overload for direct bool
 
         /******************************************************/
         /// <summary>

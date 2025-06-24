@@ -2,6 +2,8 @@
 {
     public static class Constant
     {
+        public static string XML_NAMESPACE = "urn:hl7-org:v3";
+
         public enum ActorType
         {
             Aggregator,
