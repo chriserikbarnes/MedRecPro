@@ -1,33 +1,78 @@
-﻿using MedRecPro.Data;
-using MedRecPro.DataAccess;
-using MedRecPro.Helpers;
-using MedRecPro.Models;
-using MedRecPro.Service.ParsingServices; // For SplConstants
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Threading.Tasks;
+﻿using Microsoft.EntityFrameworkCore;
 using System.Xml.Linq;
+using MedRecPro.Data;
+using MedRecPro.Helpers;
 using static MedRecPro.Models.Label;
 using c = MedRecPro.Models.Constant;
-using sc = MedRecPro.Service.ParsingServices.SplConstants; // Constant class for SPL elements and attributes
+using sc = MedRecPro.Models.SplConstants;
 
 namespace MedRecPro.Service.ParsingServices
 {
+    /**************************************************************/
     /// <summary>
-    /// Parses the <author> element, finds or creates the <representedOrganization>,
+    /// Parses the author element, finds or creates the representedOrganization,
     /// and links it to the document. Normalizes organization data to prevent duplicates.
     /// </summary>
+    /// <remarks>
+    /// This parser specifically handles the author section of SPL documents, extracting
+    /// organization information from the representedOrganization element and creating
+    /// appropriate database entities and relationships. It implements deduplication
+    /// logic to prevent duplicate organizations in the database.
+    /// </remarks>
+    /// <seealso cref="ISplSectionParser"/>
+    /// <seealso cref="SplParseContext"/>
+    /// <seealso cref="Organization"/>
+    /// <seealso cref="DocumentAuthor"/>
     public class AuthorSectionParser : ISplSectionParser
     {
-        // Use constants to avoid magic strings
+        #region implementation
+        /// <summary>
+        /// Gets the section name for this parser, using the constant for Author element.
+        /// </summary>
+        /// <seealso cref="MedRecPro.Models.SplConstants"/>
         public string SectionName => sc.E.Author;
-        private static readonly XNamespace ns = c.XML_NAMESPACE;
 
-        /*******************************************************************************/
+        /// <summary>
+        /// The XML namespace used for element parsing, derived from the constant configuration.
+        /// </summary>
+        /// <seealso cref="MedRecPro.Models.Constant"/>
+        private static readonly XNamespace ns = c.XML_NAMESPACE;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the author section of an SPL document, extracting organization information
+        /// and creating necessary database entities and relationships.
+        /// </summary>
+        /// <param name="element">The XElement representing the author section to parse.</param>
+        /// <param name="context">The current parsing context containing document and service information.</param>
+        /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
+        /// <example>
+        /// <code>
+        /// var parser = new AuthorSectionParser();
+        /// var result = await parser.ParseAsync(authorElement, parseContext);
+        /// if (result.Success)
+        /// {
+        ///     Console.WriteLine($"Organizations created: {result.OrganizationsCreated}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method performs the following operations:
+        /// 1. Validates the document context exists
+        /// 2. Extracts the representedOrganization element from the author structure
+        /// 3. Gets or creates the organization entity in the database
+        /// 4. Creates a DocumentAuthor link between the document and organization
+        /// </remarks>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElement"/>
         public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context)
         {
+            #region implementation
             var result = new SplParseResult();
+
+            // Validate that we have a valid document context to work with
             if (context.Document?.DocumentID == null)
             {
                 result.Success = false;
@@ -35,10 +80,12 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
-            // Use constants for element names
-            var authorOrgElement = element.Element(ns + sc.E.AssignedEntity)
-                                          ?.Element(ns + sc.E.RepresentedOrganization);
+            // Navigate to the organization element using the SPL structure constants
+            // Path: author/assignedEntity/representedOrganization
+            var authorOrgElement = element.GetSplElement(sc.E.AssignedEntity)
+                                          ?.GetSplElement(sc.E.RepresentedOrganization);
 
+            // If no organization element found, log warning and return successful result
             if (authorOrgElement == null)
             {
                 context.Logger.LogWarning("No <{OrganizationElement}> found within <{AuthorElement}> for file {FileName}",
@@ -48,9 +95,10 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
-                // Step 1: Get or Create the Organization
+                // Step 1: Get or Create the Organization entity
                 var (organization, orgCreated) = await getOrCreateOrganizationAsync(authorOrgElement, context);
 
+                // Validate that we successfully obtained an organization
                 if (organization?.OrganizationID == null)
                 {
                     result.Success = false;
@@ -58,6 +106,7 @@ namespace MedRecPro.Service.ParsingServices
                     return result;
                 }
 
+                // Log the organization creation or retrieval result
                 if (orgCreated)
                 {
                     result.OrganizationsCreated++;
@@ -70,9 +119,14 @@ namespace MedRecPro.Service.ParsingServices
                         organization.OrganizationName, organization.OrganizationID);
                 }
 
-                // Step 2: Get or Create the DocumentAuthor link
-                var (_, docAuthorCreated) = await getOrCreateDocumentAuthorAsync(context.Document.DocumentID.Value, organization.OrganizationID.Value, "Labeler", context);
+                // Step 2: Get or Create the DocumentAuthor link between document and organization
+                var (_, docAuthorCreated) = await getOrCreateDocumentAuthorAsync(
+                    context.Document.DocumentID.Value,
+                    organization.OrganizationID.Value,
+                    "Labeler",
+                    context);
 
+                // Log the document author link creation if it was newly created
                 if (docAuthorCreated)
                 {
                     context.Logger.LogInformation("Created DocumentAuthor link for DocumentID {DocumentID} and OrganizationID {OrganizationID}",
@@ -81,62 +135,89 @@ namespace MedRecPro.Service.ParsingServices
             }
             catch (Exception ex)
             {
+                // Handle any exceptions that occur during parsing
                 result.Success = false;
                 result.Errors.Add($"Error parsing author: {ex.Message}");
                 context.Logger.LogError(ex, "Error processing <{AuthorElement}> element.", sc.E.Author);
             }
+
             return result;
+            #endregion
         }
 
-        /*******************************************************************************/
+        /**************************************************************/
         /// <summary>
         /// Finds an existing organization by name or creates a new one if not found.
         /// This normalizes organization data, preventing duplicates.
         /// </summary>
-        /// <param name="orgElement">The XElement representing the organization (e.g., <representedOrganization>).</param>
+        /// <param name="orgElement">The XElement representing the organization (e.g., representedOrganization).</param>
         /// <param name="context">The current parsing context.</param>
         /// <returns>A tuple containing the Organization entity and a boolean indicating if it was newly created.</returns>
+        /// <example>
+        /// <code>
+        /// var (org, wasCreated) = await getOrCreateOrganizationAsync(orgElement, context);
+        /// if (wasCreated)
+        /// {
+        ///     Console.WriteLine($"Created new organization: {org.OrganizationName}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method implements deduplication logic by first checking if an organization
+        /// with the same name already exists in the database. If found, it returns the
+        /// existing entity. Otherwise, it creates a new organization with data extracted
+        /// from the XML element.
+        /// </remarks>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="XElementExtensions.GetSplElementVal(XElement, string)"/>
         private static async Task<(Organization? Organization, bool Created)> getOrCreateOrganizationAsync(XElement orgElement, SplParseContext context)
         {
-            // Use XElementExtensions helper to safely get values
-            var orgName = orgElement.GetChildVal(ns + sc.E.Name)?.Trim();
+            #region implementation
+            // Extract organization name using the helper extension method
+            var orgName = orgElement.GetSplElementVal(sc.E.Name)?.Trim();
 
+            // Validate that we have a valid organization name
             if (string.IsNullOrWhiteSpace(orgName))
             {
                 context.Logger.LogWarning("Organization name is missing in file {FileName}. Cannot create organization.", context.FileNameInZip);
                 return (null, false);
             }
 
-            // To query by a non-PK field, we need the DbContext directly.
+            // Get database context and repository for organization operations
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var orgRepo = context.GetRepository<Organization>();
             var orgDbSet = dbContext.Set<Organization>();
 
-            // Check if the organization already exists
+            // Check if the organization already exists in the database by name
             var existingOrg = await orgDbSet
                 .FirstOrDefaultAsync(o => o.OrganizationName == orgName);
 
+            // Return existing organization if found
             if (existingOrg != null)
             {
                 return (existingOrg, false); // Return existing organization
             }
 
-            // If not found, create a new one
+            // Create a new organization entity with extracted data
             var newOrganization = new Organization
             {
                 OrganizationName = orgName,
 
-                // Use XElementExtensions and constants for attributes
+                // Extract confidentiality information from XML attributes
+                // Check if the confidentiality code value equals "B" (confidential)
                 IsConfidential = orgElement
-                .GetChildAttrVal(ns + sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
+                .GetSplElementAttrVal(sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
             };
 
-            await orgRepo.CreateAsync(newOrganization); // CreateAsync populates the ID
+            // Save the new organization to the database (CreateAsync populates the ID)
+            await orgRepo.CreateAsync(newOrganization);
 
             return (newOrganization, true); // Return newly created organization
+            #endregion
         }
 
-        /*******************************************************************************/
+        /**************************************************************/
         /// <summary>
         /// Creates a link between a document and an authoring organization if it doesn't already exist.
         /// </summary>
@@ -145,23 +226,42 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="authorType">The type of the author (e.g., "Labeler").</param>
         /// <param name="context">The current parsing context.</param>
         /// <returns>A tuple containing the DocumentAuthor entity and a boolean indicating if it was newly created.</returns>
+        /// <example>
+        /// <code>
+        /// var (docAuthor, wasCreated) = await getOrCreateDocumentAuthorAsync(123, 456, "Labeler", context);
+        /// if (wasCreated)
+        /// {
+        ///     Console.WriteLine("Created new document author relationship");
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method implements deduplication logic for document-author relationships.
+        /// It first checks if a link between the specified document and organization already
+        /// exists. If not found, it creates a new DocumentAuthor entity to establish the relationship.
+        /// </remarks>
+        /// <seealso cref="DocumentAuthor"/>
+        /// <seealso cref="ApplicationDbContext"/>
         private static async Task<(DocumentAuthor? DocumentAuthor, bool Created)> getOrCreateDocumentAuthorAsync(int docId, int orgId, string authorType, SplParseContext context)
         {
+            #region implementation
+            // Get database context and repository for document author operations
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var docAuthorRepo = context.GetRepository<DocumentAuthor>();
             var docAuthorDbSet = dbContext.Set<DocumentAuthor>();
 
-            // Check if the link already exists
+            // Check if the document-author link already exists in the database
             var existingLink = await docAuthorDbSet
                 .FirstOrDefaultAsync(da =>
                 da.DocumentID == docId && da.OrganizationID == orgId);
 
+            // Return existing link if found
             if (existingLink != null)
             {
                 return (existingLink, false);
             }
 
-            // If not found, create a new link
+            // Create a new document author relationship entity
             var newDocAuthor = new DocumentAuthor
             {
                 DocumentID = docId,
@@ -169,9 +269,11 @@ namespace MedRecPro.Service.ParsingServices
                 AuthorType = authorType
             };
 
+            // Save the new document author link to the database
             await docAuthorRepo.CreateAsync(newDocAuthor);
 
             return (newDocAuthor, true);
+            #endregion
         }
     }
 }

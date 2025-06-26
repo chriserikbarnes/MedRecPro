@@ -15,6 +15,7 @@ namespace MedRecPro.Models
         // Add more counters as needed
         public int ProductsCreated { get; set; }
         public int SectionsCreated { get; set; }
+        public int IngredientsCreated { get; set; }
         public List<string> Errors { get; set; } = new List<string>();
     }
 
