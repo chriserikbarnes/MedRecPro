@@ -149,6 +149,8 @@
             public const string IngredientSubstance = "ingredientSubstance";
             public const string InactiveIngredientSubstance = "inactiveIngredientSubstance";
             public const string ActiveIngredientSubstance = "activeIngredientSubstance";
+            public const string NumeratorIngredientTranslation = "translation";
+            public const string DenominatorIngredientTranslation = "translation";
             public const string InactiveIngredient = "inactiveIngredient";
             public const string ActiveMoiety = "activeMoiety";
             public const string DefiningSubstance = "definingSubstance";
@@ -219,6 +221,7 @@
             public const string CodeValue = "code"; // Attribute name is "code"
             public const string CodeSystem = "codeSystem";
             public const string DisplayName = "displayName";
+            public const string CodeSystemName = "codeSystemName";
             public const string Value = "value";
             public const string Unit = "unit";
             public const string TypeCode = "typeCode";

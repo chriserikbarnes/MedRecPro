@@ -1079,7 +1079,7 @@ namespace MedRecPro.Models
             public string? UNII { get; set; } // Already nullable
 
             /// <summary>
-            /// Name of the substance (&lt;name&gt;).
+            /// Name of the substance (name).
             /// </summary>
             public string? SubstanceName { get; set; } // Made nullable
             #endregion properties
@@ -1166,6 +1166,11 @@ namespace MedRecPro.Models
             public int? IngredientSubstanceID { get; set; } // Made nullable
 
             /// <summary>
+            /// Foreign key for the SpecifiedSubstance table.
+            /// </summary>
+            public int? SpecifiedSubstanceID { get; set; } // Made nullable
+
+            /// <summary>
             /// Class code indicating ingredient type (e.g., ACTIB, ACTIM, ACTIR, IACT, INGR, COLR, CNTM, ADJV).
             /// </summary>
             public string? ClassCode { get; set; } // Made nullable
@@ -1181,9 +1186,49 @@ namespace MedRecPro.Models
             public string? QuantityNumeratorUnit { get; set; } // Already nullable
 
             /// <summary>
+            /// Translation attribute for the numerator (e.g., translation code="C28253")
+            /// </summary>
+            public string? NumeratorTranslationCode { get; set; }
+
+            /// <summary>
+            /// Translation attribute for the numerator (e.g., translation codeSystem="2.16.840.1.113883.3.26.1.1")
+            /// </summary>
+            public string? NumeratorCodeSystem { get; set; }
+
+            /// <summary>
+            /// Translation attribute for the numerator (e.g., translation displayName="MILLIGRAM")
+            /// </summary>
+            public string? NumeratorDisplayName { get; set; }
+
+            /// <summary>
+            /// Translation attribute for the numerator (e.g., translation value="50")
+            /// </summary>
+            public string? NumeratorValue { get; set; }
+
+            /// <summary>
             /// Corresponds to &lt;quantity&gt;&lt;denominator value&gt;.
             /// </summary>
             public decimal? QuantityDenominator { get; set; } // Already nullable
+
+            /// <summary>
+            /// Translation attribute for the numerator (e.g., translation code="C28253")
+            /// </summary>
+            public string? DenominatorTranslationCode { get; set; }
+
+            /// <summary>
+            /// Translation attribute for the numerator (e.g., translation codeSystem="2.16.840.1.113883.3.26.1.1")
+            /// </summary>
+            public string? DenominatorCodeSystem { get; set; }
+
+            /// <summary>
+            /// Translation attribute for the numerator (e.g., translation displayName="MILLIGRAM")
+            /// </summary>
+            public string? DenominatorDisplayName { get; set; }
+
+            /// <summary>
+            /// Translation attribute for the numerator (e.g., translation value="50")
+            /// </summary>
+            public string? DenominatorValue { get; set; }
 
             /// <summary>
             /// Corresponds to &lt;quantity&gt;&lt;denominator unit&gt;.
@@ -1204,6 +1249,11 @@ namespace MedRecPro.Models
             /// Order of the ingredient as listed in the SPL file (important for cosmetics).
             /// </summary>
             public int? SequenceNumber { get; set; } // Made nullable
+
+            /// <summary>
+            /// Display name (displayName="MILLIGRAM").
+            /// </summary>
+            public string? DisplayName { get; set; } // Made nullable
 
             /// <summary>
             /// FK to ProductConcept, used when the ingredient belongs to a Product Concept instead of a concrete Product. Null if linked via ProductID.
@@ -2797,24 +2847,19 @@ namespace MedRecPro.Models
             public int? SpecifiedSubstanceID { get; set; } // Made nullable
 
             /// <summary>
-            /// Foreign key to Ingredient (The ingredient being specified).
-            /// </summary>
-            public int? IngredientID { get; set; } // Made nullable
-
-            /// <summary>
-            /// The code assigned to the specified substance.
+            /// The code assigned to the specified substance.(Atribute code="70097M6I30")
             /// </summary>
             public string? SubstanceCode { get; set; } // Made nullable
 
             /// <summary>
-            /// Code system for the specified substance code (2.16.840.1.113883.3.6277).
+            /// Code system for the specified substance code (Atribute codeSystem="2.16.840.1.113883.4.9").
             /// </summary>
             public string? SubstanceCodeSystem { get; set; } // Made nullable
 
             /// <summary>
-            /// Display name matching the specified substance code.
+            /// Code name for the specified substance code (Atribute codeSystemName="FDA SRS").
             /// </summary>
-            public string? SubstanceDisplayName { get; set; } // Made nullable
+            public string? SubstanceCodeSystemName { get; set; } // Made nullable
             #endregion properties
         }
 
@@ -3459,7 +3504,7 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ResponsiblePersonOrgID { get; set; } // Made nullable
             #endregion properties
-        } 
+        }
         #endregion
     }
 }

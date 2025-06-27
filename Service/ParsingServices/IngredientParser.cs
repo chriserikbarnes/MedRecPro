@@ -6,6 +6,7 @@ using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants;
 using static MedRecPro.Models.Label;
 using MedRecPro.Helpers;
+using static Azure.Core.HttpHeader;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -76,6 +77,7 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             var result = new SplParseResult();
+            int specifiedSubstanceID = 0;
 
             // Validate that we have a valid product context to link ingredients to
             if (context.CurrentProduct?.ProductID == null)
@@ -106,12 +108,20 @@ namespace MedRecPro.Service.ParsingServices
                     throw new InvalidOperationException("Failed to get or create an IngredientSubstance.");
                 }
 
+                var specifiedSubstance = await createSpecifiedSubstanceAsync(ingredientSubstanceEl, context);
+                if (specifiedSubstance != null && specifiedSubstance.SpecifiedSubstanceID > 0)
+                {
+                    specifiedSubstanceID = specifiedSubstance.SpecifiedSubstanceID.Value;
+                }
+
                 // Step 2: Create the Ingredient link record between product and substance
                 var ingredient = new Ingredient
                 {
                     ProductID = context.CurrentProduct.ProductID,
 
                     IngredientSubstanceID = substance.IngredientSubstanceID,
+
+                    SpecifiedSubstanceID = specifiedSubstanceID,
 
                     // Extract class code from the ingredient element's classCode attribute
                     ClassCode = element.GetAttrVal(sc.A.ClassCode),
@@ -137,26 +147,41 @@ namespace MedRecPro.Service.ParsingServices
                     // Extract numerator unit from the unit attribute
                     ingredient.QuantityNumeratorUnit = numeratorEl?.GetAttrVal(sc.A.Unit);
 
+                    ingredient.NumeratorTranslationCode = numeratorEl
+                        ?.GetSplElementAttrVal(sc.E.NumeratorIngredientTranslation, sc.A.CodeValue);
+
+                    ingredient.NumeratorCodeSystem = numeratorEl
+                        ?.GetSplElementAttrVal(sc.E.NumeratorIngredientTranslation, sc.A.CodeSystem);
+
+                    ingredient.NumeratorDisplayName = numeratorEl
+                        ?.GetSplElementAttrVal(sc.E.NumeratorIngredientTranslation, sc.A.DisplayName);
+
                     // Parse and assign denominator value if it's a valid decimal
                     if (decimal.TryParse(denominatorEl?.GetAttrVal(sc.A.Value), out var denValue))
                         ingredient.QuantityDenominator = denValue;
 
                     // Extract denominator unit from the value attribute
                     ingredient.QuantityDenominatorUnit = denominatorEl?.GetAttrVal(sc.A.Value);
+
+                    ingredient.DenominatorTranslationCode = denominatorEl
+                     ?.GetSplElementAttrVal(sc.E.DenominatorIngredientTranslation, sc.A.CodeValue);
+
+                    ingredient.DenominatorCodeSystem = denominatorEl
+                        ?.GetSplElementAttrVal(sc.E.DenominatorIngredientTranslation, sc.A.CodeSystem);
+
+                    ingredient.DenominatorDisplayName = denominatorEl
+                        ?.GetSplElementAttrVal(sc.E.DenominatorIngredientTranslation, sc.A.DisplayName);
                 }
 
                 // Save the ingredient relationship to the database
                 var ingredientRepo = context.GetRepository<Ingredient>();
                 await ingredientRepo.CreateAsync(ingredient);
 
-                if(!ingredient.IngredientID.HasValue)
+                if (!ingredient.IngredientID.HasValue)
                 {
                     throw new InvalidOperationException("IngredientID was not populated by the database after creation.");
                 }
-
-                // Step 4: Create the specified substance entity and link it to the ingredient
-                await createSpecifiedSubstanceAsync(ingredientSubstanceEl, context, ingredient.IngredientID.Value);
-
+      
                 result.IngredientsCreated++;
 
                 // Step 5: (Optional) Parse Active Moiety if it exists
@@ -180,7 +205,6 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="substanceEl">The XML element containing substance information from the SPL document.</param>
         /// <param name="context">The parsing context providing access to services and shared state.</param>
-        /// <param name="ingredientID">The identifier of the ingredient this substance belongs to.</param>
         /// <returns>A task representing the asynchronous operation that returns the created SpecifiedSubstance, or null if creation fails.</returns>
         /// <remarks>
         /// This method extracts substance code, code system, and display name from the XML element,
@@ -197,7 +221,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SpecifiedSubstance"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="ApplicationDbContext"/>
-        private async Task<SpecifiedSubstance?> createSpecifiedSubstanceAsync(XElement substanceEl, SplParseContext context, int ingredientID)
+        private async Task<SpecifiedSubstance?> createSpecifiedSubstanceAsync(XElement substanceEl, SplParseContext context)
         {
             #region implementation
 
@@ -209,12 +233,27 @@ namespace MedRecPro.Service.ParsingServices
             var substanceCodeSystem = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem);
 
             // Extract the human-readable display name for the substance
-            var displayName = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName);
+            var codeName = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystemName);
             #endregion
 
             #region database operations
-            // Use the DbContext directly for the specification
+            // Use the DbContext directly for the specific 'find by UNII' query
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var substanceDbSet = dbContext.Set<SpecifiedSubstance>();
+
+            // Search for existing substance with the same UNII code
+            var existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s => s.SubstanceCode == substanceCode
+                && substanceCodeSystem != null
+                && !string.IsNullOrWhiteSpace(substanceCodeSystem)
+                && !string.IsNullOrWhiteSpace(s.SubstanceCodeSystem)
+                && substanceCodeSystem.ToLower() == s.SubstanceCodeSystem.ToLower());
+
+            // Return existing substance if found
+            if (existingSubstance != null)
+            {
+                context.Logger.LogDebug("Found existing SpecifiedSubstance '{Name}' with UNII {code}", codeName, substanceCode);
+                return existingSubstance;
+            }
 
             // Log the creation of the new substance for tracking purposes
             context.Logger.LogInformation("Creating new SpecifiedSubstance '{code}' with code system {system}", substanceCode, substanceCodeSystem);
@@ -224,21 +263,18 @@ namespace MedRecPro.Service.ParsingServices
             {
                 SubstanceCode = substanceCode,
                 SubstanceCodeSystem = substanceCodeSystem,
-                SubstanceDisplayName = displayName,
-                IngredientID = ingredientID
+                SubstanceCodeSystemName = codeName
             };
 
             // don't create empty items
             if (!string.IsNullOrWhiteSpace(substanceCode) && !string.IsNullOrWhiteSpace(substanceCodeSystem))
             {
-                // Get the DbSet for SpecifiedSubstance entities
-                var substanceDbSet = dbContext.Set<SpecifiedSubstance>();
 
                 // Add to DbSet and save immediately to get the new ID populated
                 substanceDbSet.Add(newSpecifiedSubstance);
 
                 // Save immediately to get the new ID for subsequent operations
-                await dbContext.SaveChangesAsync(); 
+                await dbContext.SaveChangesAsync();
             }
             #endregion
 
@@ -291,10 +327,15 @@ namespace MedRecPro.Service.ParsingServices
             var substanceDbSet = dbContext.Set<IngredientSubstance>();
 
             // Search for existing substance with the same UNII code
-            var existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s => s.UNII == unii 
-            || (name != null 
-                && !string.IsNullOrEmpty(name.Value) 
-                && name.Value.Equals(s.SubstanceName, StringComparison.InvariantCultureIgnoreCase)));
+            var existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s => s != null && s.UNII == unii);
+
+            // Search by name if UNII is not found or is empty
+            if ((existingSubstance == null || existingSubstance.IngredientSubstanceID <= 0)
+                && name != null && !string.IsNullOrWhiteSpace(name.Value))
+                existingSubstance = await substanceDbSet
+                    .FirstOrDefaultAsync(s => s != null
+                        && !string.IsNullOrEmpty(s.SubstanceName)
+                        && s.SubstanceName.ToString().ToLower() == name.Value.ToLower());
 
             // Return existing substance if found
             if (existingSubstance != null)

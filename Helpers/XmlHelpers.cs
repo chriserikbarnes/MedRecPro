@@ -46,7 +46,10 @@ namespace MedRecPro.Helpers
         {
             #region implementation
             // Get the direct child element and return its value if it exists
-            return element.Element(E)?.Value;
+            if (element != null && E != null)
+                return element.Element(E)?.Value;
+
+            return null;
             #endregion
         }
 

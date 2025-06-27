@@ -2567,7 +2567,7 @@ namespace MedRecPro.DataAccess
 
                 var specifiedSubstances = await buildSpecifiedSubstancesAsync(
                     db,
-                    ingredient.IngredientID,
+                    ingredient.SpecifiedSubstanceID,
                     pkSecret,
                     logger);
 
@@ -2594,7 +2594,7 @@ namespace MedRecPro.DataAccess
         /// into DTOs with encrypted identifiers.
         /// </summary>
         /// <param name="db">The application database context for data access operations</param>
-        /// <param name="ingredientID">The unique identifier of the ingredient to find specified substances for. Returns empty list if null</param>
+        /// <param name="specifiedSubstanceID">The unique identifier of the ingredient to find specified substances for. Returns empty list if null</param>
         /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
         /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
         /// <returns>A list of SpecifiedSubstanceDto objects representing the specified substances, or an empty list if none found</returns>
@@ -2611,17 +2611,17 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="Label.SpecifiedSubstance"/>
         /// <seealso cref="SpecifiedSubstanceDto"/>
-        private static async Task<List<SpecifiedSubstanceDto>> buildSpecifiedSubstancesAsync(ApplicationDbContext db, int? ingredientID, string pkSecret, ILogger logger)
+        private static async Task<List<SpecifiedSubstanceDto>> buildSpecifiedSubstancesAsync(ApplicationDbContext db, int? specifiedSubstanceID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Early return if no ingredient ID provided
-            if (ingredientID == null)
+            if (specifiedSubstanceID == null)
                 return new List<SpecifiedSubstanceDto>();
 
             // Query specified substances for the specified ingredient using read-only tracking
             var entity = await db.Set<Label.SpecifiedSubstance>()
                 .AsNoTracking()
-                .Where(e => e.IngredientID == ingredientID)
+                .Where(e => e.SpecifiedSubstanceID == specifiedSubstanceID)
                 .ToListAsync();
 
             // Return empty list if no specified substances found

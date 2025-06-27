@@ -475,7 +475,6 @@ namespace MedRecPro.DataAccess
             var textListItems = await _context.Set<Label.TextListItem>().AsNoTracking().Where(e => textListIds.Contains(e.TextListID)).ToListAsync();
             var textTableRows = await _context.Set<Label.TextTableRow>().AsNoTracking().Where(e => textTableIds.Contains(e.TextTableID)).ToListAsync();
             var ingredientSourceProducts = await _context.Set<Label.IngredientSourceProduct>().AsNoTracking().Where(e => ingredientIds.Contains(e.IngredientID)).ToListAsync();
-            var specifiedSubstances = await _context.Set<Label.SpecifiedSubstance>().AsNoTracking().Where(e => ingredientIds.Contains(e.IngredientID)).ToListAsync();
             var packageIdentifiers = await _context.Set<Label.PackageIdentifier>().AsNoTracking().Where(e => packagingLevelIds.Contains(e.PackagingLevelID)).ToListAsync();
             var packagingHierarchies = await _context.Set<Label.PackagingHierarchy>().AsNoTracking().Where(e => packagingLevelIds.Contains(e.OuterPackagingLevelID) || packagingLevelIds.Contains(e.InnerPackagingLevelID)).ToListAsync();
             var marketingStatusForPackage = await _context.Set<Label.MarketingStatus>().AsNoTracking().Where(e => packagingLevelIds.Contains(e.PackagingLevelID)).ToListAsync();
@@ -568,7 +567,6 @@ namespace MedRecPro.DataAccess
             var listItemsLookup = textListItems.ToLookup(e => e.TextListID);
             var tableRowsLookup = textTableRows.ToLookup(e => e.TextTableID);
             var ingredientSourcesLookup = ingredientSourceProducts.ToLookup(e => e.IngredientID);
-            var specifiedSubstancesLookup = specifiedSubstances.ToLookup(e => e.IngredientID);
             var packageIdentifiersLookup = packageIdentifiers.ToLookup(e => e.PackagingLevelID);
             var packagingHierarchyLookup = packagingHierarchies.ToLookup(e => e.OuterPackagingLevelID);
             var marketingStatusByPackageLookup = marketingStatusForPackage.ToLookup(e => e.PackagingLevelID);
@@ -796,8 +794,6 @@ namespace MedRecPro.DataAccess
 
                     ingDto["SourceProducts"] = ingredientSourcesLookup[ing.IngredientID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
-                    ingDto["SpecifiedSubstances"] = specifiedSubstancesLookup[ing.IngredientID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
-
                     ingDto["IngredientSubstance"] = ingredientSubstancesLookup[ing.IngredientSubstanceID]
                         .Select(sub => StitchIngredientSubstance(sub))
                         .FirstOrDefault();
@@ -934,8 +930,6 @@ namespace MedRecPro.DataAccess
                     var ingDto = ing.ToEntityWithEncryptedId(_encryptionKey, _logger);
 
                     ingDto["SourceProducts"] = ingredientSourcesLookup[ing.IngredientID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
-
-                    ingDto["SpecifiedSubstances"] = specifiedSubstancesLookup[ing.IngredientID].Select(e => e.ToEntityWithEncryptedId(_encryptionKey, _logger)).ToList();
 
                     ingDto["IngredientSubstance"] = ingredientSubstancesLookup[ing.IngredientSubstanceID]
                         .Select(sub => StitchIngredientSubstance(sub))
