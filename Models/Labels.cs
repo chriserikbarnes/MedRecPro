@@ -1082,6 +1082,11 @@ namespace MedRecPro.Models
             /// Name of the substance (name).
             /// </summary>
             public string? SubstanceName { get; set; } // Made nullable
+
+            /// <summary>
+            /// The name of the XML element this ingredient was parsed from (e.g., "inactiveIngredientSubstance").
+            /// </summary>
+            public string? OriginatingElement { get; set; }
             #endregion properties
         }
 
@@ -1171,6 +1176,16 @@ namespace MedRecPro.Models
             public int? SpecifiedSubstanceID { get; set; } // Made nullable
 
             /// <summary>
+            /// Link to ReferenceSubstance table if BasisOfStrength (ClassCode) is ACTIR.
+            /// </summary>
+            public int? ReferenceSubstanceID { get; set; } // Already nullable
+
+            /// <summary>
+            /// FK to ProductConcept, used when the ingredient belongs to a Product Concept instead of a concrete Product. Null if linked via ProductID.
+            /// </summary>
+            public int? ProductConceptID { get; set; } // Already nullable
+
+            /// <summary>
             /// Class code indicating ingredient type (e.g., ACTIB, ACTIM, ACTIR, IACT, INGR, COLR, CNTM, ADJV).
             /// </summary>
             public string? ClassCode { get; set; } // Made nullable
@@ -1234,12 +1249,7 @@ namespace MedRecPro.Models
             /// Corresponds to &lt;quantity&gt;&lt;denominator unit&gt;.
             /// </summary>
             public string? QuantityDenominatorUnit { get; set; } // Already nullable
-
-            /// <summary>
-            /// Link to ReferenceSubstance table if BasisOfStrength (ClassCode) is ACTIR.
-            /// </summary>
-            public int? ReferenceSubstanceID { get; set; } // Already nullable
-
+        
             /// <summary>
             /// Flag indicating if the inactive ingredient information is confidential (&lt;confidentialityCode code="B"&gt;).
             /// </summary>
@@ -1256,9 +1266,10 @@ namespace MedRecPro.Models
             public string? DisplayName { get; set; } // Made nullable
 
             /// <summary>
-            /// FK to ProductConcept, used when the ingredient belongs to a Product Concept instead of a concrete Product. Null if linked via ProductID.
+            /// The name of the XML element this ingredient was parsed from (e.g., "ingredient", "activeIngredient").
             /// </summary>
-            public int? ProductConceptID { get; set; } // Already nullable
+            public string? OriginatingElement { get; set; }
+
             #endregion properties
         }
 

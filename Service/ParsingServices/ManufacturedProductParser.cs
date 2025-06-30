@@ -3,6 +3,7 @@ using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants;
 using static MedRecPro.Models.Label;
 using MedRecPro.Helpers;
+using AngleSharp.Common;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -88,7 +89,7 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // Handle SPL variations where the main data is in a nested manufacturedMedicine element
                 // Use the nested element if it exists, otherwise use the main element
-                var mmEl = element.Element(ns + sc.E.ManufacturedMedicine) ?? element;
+                var mmEl = element.SplElement(sc.E.ManufacturedMedicine) ?? element;
 
                 // Create the Product entity with extracted metadata
                 var product = new Product
@@ -124,11 +125,23 @@ namespace MedRecPro.Service.ParsingServices
                     throw new InvalidOperationException("ProductID was not populated by the database after creation.");
                 }
 
+                // --- PARSE GENERIC MEDICINE ---
+                var genericMedicinesCreated = await parseAndSaveGenericMedicinesAsync(mmEl, product, context);
+                result.ProductElementsCreated += genericMedicinesCreated;
+
+                // --- PARSE EQUIVALENT ENTITIES ---
+                var equivCount = await parseAndSaveEquivalentEntitiesAsync(mmEl, product, context);
+                result.ProductElementsCreated += equivCount;
+
+                // --- PARSE IDENTIFIER ENTITIES ---
+                var idCount = await parseAndSaveProductIdentifiersAsync(mmEl, product, context);
+                result.ProductElementsCreated += idCount;
+
+
                 result.ProductsCreated++;
                 context.Logger.LogInformation("Created Product '{ProductName}' with ID {ProductID}", product.ProductName, product.ProductID);
 
                 // --- DELEGATION TO INGREDIENT PARSER ---
-
                 // Set the current product in the context so child parsers can access it
                 // Store the previous product context to restore later
                 var oldProduct = context.CurrentProduct;
@@ -139,9 +152,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 // Find all possible ingredient elements across different SPL naming conventions
                 // SPL documents may use ingredient, activeIngredient, or inactiveIngredient
-                var ingredientElements = mmEl.SplElements(sc.E.Ingredient)
-                    .Concat(mmEl.SplElements(sc.E.ActiveIngredient))
-                    .Concat(mmEl.SplElements(sc.E.InactiveIngredient));
+                var ingredientElements = mmEl.SplFindIngredients(excludingFieldsContaining: "substance");
 
                 // Process each ingredient element found
                 foreach (var ingredientEl in ingredientElements)
@@ -152,8 +163,7 @@ namespace MedRecPro.Service.ParsingServices
                     result.MergeFrom(ingredientResult); // Aggregate results from ingredient parsing
                 }
 
-                // TODO: Parse ProductIdentifier, GenericMedicine, SpecializedKind, EquivalentEntity, 
-                // PackagingLevel, MarketingCategory, Characteristic etc.
+                // TODO: Parse SpecializedKind, PackagingLevel, MarketingCategory, Characteristic etc.
 
                 // Restore the previous product context to avoid side effects on other parsers
                 context.CurrentProduct = oldProduct;
@@ -167,6 +177,276 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and creates ProductIdentifier entities from the manufacturedProduct XML element.
+        /// </summary>
+        /// <param name="mmEl">The manufacturedProduct or manufacturedMedicine XElement.</param>
+        /// <param name="product">The Product entity to link identifiers to.</param>
+        /// <param name="context">The parsing context for repository access and logging.</param>
+        /// <returns>The number of ProductIdentifier records created.</returns>
+        /// <remarks>
+        /// Handles all 'code' elements representing product/item codes (NDC, GTIN, etc.) under 'manufacturedProduct'
+        /// and 'subjectOf'/'approval' sections, supporting drugs, devices, and cosmetics.
+        /// </remarks>
+        private async Task<int> parseAndSaveProductIdentifiersAsync(XElement mmEl, Product product, SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // 1. Save product/package identifiers
+            var codes = getAllProductAndPackagingCodes(mmEl);
+            createdCount += await SaveProductIdentifiersAsync(codes, product, context);
+
+            // 2. Save approval/marketing identifiers
+            createdCount += await SaveApprovalIdentifiersAsync(mmEl, product, context);
+
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        private static string? inferIdentifierType(string? oid)
+        {
+            // Extend with additional mappings as needed
+            return oid switch
+            {
+                // Drug, Biologic, and Device Item Codes
+                "2.16.840.1.113883.6.69" => "NDC",          // National Drug Code
+                "2.16.840.1.113883.6.96" => "UNII",         // Unique Ingredient Identifier
+                "2.16.840.1.113883.6.43.1" => "SNOMED CT",  // SNOMED Clinical Terms
+                "2.16.840.1.113883.3.26.1.1" => "FDA",      // FDA Structured Product Labeling (for drug approval, etc.)
+                "2.16.840.1.113883.3.26.1.5" => "RxNorm",   // RxNorm
+                "2.16.840.1.113883.6.1" => "LOINC",         // LOINC codes
+                "2.16.840.1.113883.6.278" => "RxCUI",       // RxNorm Concept Unique Identifier
+
+                // Device Identifiers
+                "1.3.160" => "GS1",                         // GS1 Global Trade Item Number (GTIN)
+                "2.16.840.1.113883.6.40" => "HIBCC",        // Health Industry Barcode Council
+                "2.16.840.1.113883.6.18" => "ISBT 128",     // International Society of Blood Transfusion
+                "2.16.840.1.113883.6.301.5" => "UDI",       // Unique Device Identifier (used by FDA for UDI)
+
+                // Cosmetics
+                "2.16.840.1.113883.3.9848" => "CLN",        // Cosmetic Listing Number
+
+                // Special Purpose
+                "2.16.840.1.113883.6.3" => "ICD-9-CM",      // ICD-9-CM
+                "2.16.840.1.113883.6.4" => "ICD-10",        // ICD-10
+                "2.16.840.1.113883.6.42" => "UCUM",         // Unified Code for Units of Measure
+
+                // FDA SPL implementation (additional/fallback OIDs)
+                "2.16.840.1.113883.3.26.1.2" => "FDA Substance",
+                "2.16.840.1.113883.3.26.1.3" => "FDA Route",
+                "2.16.840.1.113883.3.26.1.4" => "FDA Dose Form",
+                "2.16.840.1.113883.3.26.1.6" => "FDA Packaging",
+                "2.16.840.1.113883.3.26.1.7" => "FDA Pharmaceutical",
+                "2.16.840.1.113883.3.26.1.8" => "FDA Status",
+
+                // Example: Custom OIDs (if needed, add here)
+                //"X.Y.Z..." => "CustomType",
+
+                _ => null
+            };
+        }
+
+        /**************************************************************/
+        private IEnumerable<XElement> getAllProductAndPackagingCodes(XElement element)
+        {
+            // 1. Product-level codes: <code> directly under <manufacturedProduct>
+            foreach (var code in element.Elements(ns + sc.E.Code))
+                yield return code;
+
+            // 2. Recurse into nested packaging: <asContent>/<containerPackagedProduct>/<code>
+            foreach (var container in element.Descendants(ns + sc.E.ContainerPackagedProduct))
+            {
+                foreach (var code in container.Elements(ns + sc.E.Code))
+                    yield return code;
+            }
+
+            // 3. Recurse into any nested <manufacturedProduct>
+            foreach (var nested in element.Elements(ns + sc.E.ManufacturedProduct))
+            {
+                foreach (var code in getAllProductAndPackagingCodes(nested))
+                    yield return code;
+            }
+        }
+
+        /**************************************************************/
+        private async Task<int> SaveProductIdentifiersAsync(IEnumerable<XElement> codeElements, Product product, SplParseContext context)
+        {
+            int count = 0;
+            var repo = context.GetRepository<ProductIdentifier>();
+            foreach (var codeEl in codeElements)
+            {
+                string? codeVal = codeEl.GetAttrVal(sc.A.CodeValue);
+                string? codeSystem = codeEl.GetAttrVal(sc.A.CodeSystem);
+                if (string.IsNullOrWhiteSpace(codeVal) || string.IsNullOrWhiteSpace(codeSystem))
+                    continue;
+
+                var identifier = new ProductIdentifier
+                {
+                    ProductID = product.ProductID,
+                    IdentifierValue = codeVal,
+                    IdentifierSystemOID = codeSystem,
+                    IdentifierType = inferIdentifierType(codeSystem)
+                };
+
+                await repo.CreateAsync(identifier);
+                count++;
+                context.Logger.LogInformation($"ProductIdentifier created: ProductID={product.ProductID} Value={codeVal} OID={codeSystem}");
+            }
+            return count;
+        }
+
+        /**************************************************************/
+        private async Task<int> SaveApprovalIdentifiersAsync(XElement mmEl, Product product, SplParseContext context)
+        {
+            int count = 0;
+            var repo = context.GetRepository<ProductIdentifier>();
+            foreach (var approvalCodeEl in mmEl.SplElements(sc.E.SubjectOf, sc.E.Approval, sc.E.Code))
+            {
+                string? codeVal = approvalCodeEl.GetAttrVal(sc.A.CodeValue);
+                string? codeSystem = approvalCodeEl.GetAttrVal(sc.A.CodeSystem);
+                if (string.IsNullOrWhiteSpace(codeVal) || string.IsNullOrWhiteSpace(codeSystem))
+                    continue;
+
+                var identifier = new ProductIdentifier
+                {
+                    ProductID = product.ProductID,
+                    IdentifierValue = codeVal,
+                    IdentifierSystemOID = codeSystem,
+                    IdentifierType = inferIdentifierType(codeSystem)
+                };
+
+                await repo.CreateAsync(identifier);
+                count++;
+                context.Logger.LogInformation("Approval ProductIdentifier created: ProductID={ProductID} Value={IdentifierValue} OID={IdentifierSystemOID}",
+                    product.ProductID, codeVal, codeSystem);
+            }
+            return count;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and creates GenericMedicine entities from the manufacturedProduct XML element.
+        /// </summary>
+        /// <param name="mmEl">The manufacturedProduct or manufacturedMedicine XElement.</param>
+        /// <param name="product">The Product entity to link generic medicines to.</param>
+        /// <param name="context">The parsing context (provides access to logger and repositories).</param>
+        /// <returns>A Task representing the asynchronous operation, returning the count of GenericMedicine records created.</returns>
+        /// <remarks>
+        /// Handles extraction of all genericMedicine elements under asEntityWithGeneric. For each genericMedicine,
+        /// extracts the main name and the optional phonetic name (use="PHON"). Links them to the provided product.
+        /// </remarks>
+        private async Task<int> parseAndSaveGenericMedicinesAsync(XElement mmEl, Product product, SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+            var repo = context.GetRepository<GenericMedicine>();
+
+            // Locate all <asEntityWithGeneric>/<genericMedicine> descendants
+            foreach (var genericMedicineEl in mmEl
+                .Descendants(ns + sc.E.AsEntityWithGeneric)
+                .Elements(ns + sc.E.GenericMedicine))
+            {
+                // Extract main name (where no "use" attribute or "use" != "PHON")
+                var nameEl = genericMedicineEl
+                    .SplElements(sc.E.Name)
+                    .FirstOrDefault(e =>
+                        !string.Equals((string?)e.Attribute("use"), "PHON", StringComparison.OrdinalIgnoreCase)
+                    );
+
+                var genericName = nameEl?.Value?.Trim();
+
+                // Extract phonetic name (where "use" == "PHON")
+                var phoneticEl = genericMedicineEl
+                    .SplElements(sc.E.Name)
+                    .FirstOrDefault(e =>
+                        string.Equals((string?)e.Attribute("use"), "PHON", StringComparison.OrdinalIgnoreCase)
+                    );
+
+                var phoneticName = phoneticEl?.Value?.Trim();
+
+                // If neither name is present, skip
+                if (string.IsNullOrWhiteSpace(genericName) && string.IsNullOrWhiteSpace(phoneticName))
+                    continue;
+
+                // Build the entity
+                var genMed = new GenericMedicine
+                {
+                    ProductID = product.ProductID,
+                    GenericName = genericName,
+                    PhoneticName = phoneticName
+                };
+
+                await repo.CreateAsync(genMed);
+                createdCount++;
+                context.Logger.LogInformation($"Created GenericMedicine '{genericName}' for ProductID {product.ProductID}");
+            }
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and creates EquivalentEntity records from the manufacturedProduct XML element.
+        /// </summary>
+        /// <param name="mmEl">The manufacturedProduct or manufacturedMedicine XElement.</param>
+        /// <param name="product">The Product entity to link equivalence relationships to.</param>
+        /// <param name="context">The parsing context for repository access and logging.</param>
+        /// <returns>The number of EquivalentEntity records created.</returns>
+        /// <remarks>
+        /// Extracts each 'asEquivalentEntity' under the element. Grabs code/codeSystem for the equivalence,
+        /// and definingMaterialKind/code/codeSystem for the referenced equivalent product.
+        /// </remarks>
+        private async Task<int> parseAndSaveEquivalentEntitiesAsync(XElement mmEl, Product product, SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+            var repo = context.GetRepository<EquivalentEntity>();
+
+            // Find all <asEquivalentEntity> descendants (may be more than one)
+            foreach (var equivEl in mmEl.Descendants(ns + sc.E.AsEquivalentEntity))
+            {
+                // Only process if classCode is "EQUIV" or not specified
+                var classCode = equivEl.GetAttrVal("classCode");
+                if (!string.IsNullOrEmpty(classCode) && !string.Equals(classCode, "EQUIV", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // --- Equivalence code and system from <code> child ---
+                var codeEl = equivEl.GetSplElement(sc.E.Code);
+                string? equivalenceCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+                string? equivalenceCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
+
+                // --- Defining material kind (referenced product) ---
+                var definingMatEl = equivEl.GetSplElement(sc.E.DefiningMaterialKind);
+                var definingMatCodeEl = definingMatEl?.GetSplElement(sc.E.Code);
+                string? definingMaterialKindCode = definingMatCodeEl?.GetAttrVal(sc.A.CodeValue);
+                string? definingMaterialKindSystem = definingMatCodeEl?.GetAttrVal(sc.A.CodeSystem);
+
+                // If nothing meaningful, skip
+                if (string.IsNullOrWhiteSpace(equivalenceCode) &&
+                    string.IsNullOrWhiteSpace(definingMaterialKindCode))
+                    continue;
+
+                var entity = new EquivalentEntity
+                {
+                    ProductID = product.ProductID,
+                    EquivalenceCode = equivalenceCode,
+                    EquivalenceCodeSystem = equivalenceCodeSystem,
+                    DefiningMaterialKindCode = definingMaterialKindCode,
+                    DefiningMaterialKindSystem = definingMaterialKindSystem
+                };
+
+                await repo.CreateAsync(entity);
+                createdCount++;
+                context.Logger.LogInformation($"Created EquivalentEntity for ProductID {product.ProductID}: EquivCode={equivalenceCode}, DefMatCode={definingMaterialKindCode}");
+            }
+
+            return createdCount;
             #endregion
         }
     }

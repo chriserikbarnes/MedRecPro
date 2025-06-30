@@ -14,9 +14,6 @@ using MedRecPro.Models; // Namespace for User model
 using MedRecPro.DataAccess;
 using MedRecPro.Security; // Namespace for BasicAuthenticationHandler
 
-using Microsoft.Extensions.Options;
-using Swashbuckle.AspNetCore.SwaggerUI;
-
 string? connectionString, googleClientId, googleClientSecret;
 
 var builder = WebApplication.CreateBuilder(args);

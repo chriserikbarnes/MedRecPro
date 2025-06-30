@@ -169,6 +169,7 @@ namespace MedRecPro.Service.ParsingServices
             FileResult.ProductsCreated += parseResult.ProductsCreated;
             FileResult.SectionsCreated += parseResult.SectionsCreated;
             FileResult.IngredientsCreated += parseResult.IngredientsCreated;
+            FileResult.GenericsCreated += parseResult.ProductElementsCreated;
 
 
             // Merge any errors encountered during parsing
@@ -243,6 +244,11 @@ namespace MedRecPro.Service.ParsingServices
         public int SectionsCreated { get; set; }
 
         /// <summary>
+        /// Gets or sets the number of generics created during this parsing operation.
+        /// </summary>
+        public int ProductElementsCreated { get; set; }
+
+        /// <summary>
         /// Gets or sets the current product being processed, if applicable.
         /// </summary>
         /// <seealso cref="Label"/>
@@ -283,6 +289,7 @@ namespace MedRecPro.Service.ParsingServices
             ProductsCreated += other.ProductsCreated;
             SectionsCreated += other.SectionsCreated;
             IngredientsCreated += other.IngredientsCreated;
+            ProductElementsCreated += other.ProductElementsCreated;
 
             #endregion
         }

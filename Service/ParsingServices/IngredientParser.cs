@@ -1,12 +1,12 @@
-﻿using MedRecPro.Data;
-using MedRecPro.Models;
-using System.Xml.Linq;
+﻿using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
 using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants;
 using static MedRecPro.Models.Label;
 using MedRecPro.Helpers;
-using static Azure.Core.HttpHeader;
+using MedRecPro.Data;
+using MedRecPro.Models;
+
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -25,19 +25,27 @@ namespace MedRecPro.Service.ParsingServices
     /// <seealso cref="Ingredient"/>
     /// <seealso cref="IngredientSubstance"/>
     /// <seealso cref="SplParseContext"/>
+    /// <seealso cref="Label"/>
     public class IngredientParser : ISplSectionParser
     {
         #region implementation
+
+        /**************************************************************/
         /// <summary>
         /// Gets the section name for this parser, representing the ingredient element.
         /// </summary>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="ISplSectionParser"/>
         public string SectionName => "ingredient";
 
+        /**************************************************************/
         /// <summary>
         /// The XML namespace used for element parsing, derived from the constant configuration.
         /// </summary>
         /// <seealso cref="MedRecPro.Models.Constant"/>
+        /// <seealso cref="Label"/>
         private static readonly XNamespace ns = c.XML_NAMESPACE;
+
         #endregion
 
         /**************************************************************/
@@ -73,131 +81,283 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Ingredient"/>
         /// <seealso cref="IngredientSubstance"/>
+        /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context)
         {
             #region implementation
             var result = new SplParseResult();
-            int specifiedSubstanceID = 0;
 
-            // Validate that we have a valid product context to link ingredients to
-            if (context.CurrentProduct?.ProductID == null)
+            // 1. Validate preconditions and find the core element
+            if (!tryValidatePreconditions(element, context, result, out var ingredientSubstanceEl))
             {
-                result.Success = false;
-                result.Errors.Add("Cannot parse ingredient because no product context exists.");
-                return result;
-            }
-
-            // Navigate to the ingredientSubstance element within the ingredient
-            var ingredientSubstanceEl = element.GetSplElement(sc.E.IngredientSubstance)
-                ?? element.GetSplElement(sc.E.InactiveIngredientSubstance)
-                ?? element.GetSplElement(sc.E.ActiveIngredientSubstance);
-
-            if (ingredientSubstanceEl == null)
-            {
-                result.Success = false;
-                result.Errors.Add($"Could not find <ingredientSubstance> for ProductID {context.CurrentProduct.ProductID}.");
-                return result;
+                return result; // Validation failed, result is already populated with errors
             }
 
             try
             {
-                // Step 1: Get or Create the normalized IngredientSubstance entity
-                var substance = await getOrCreateIngredientSubstanceAsync(ingredientSubstanceEl, context);
-                if (substance?.IngredientSubstanceID == null)
+                if (ingredientSubstanceEl == null)
+                {
+                    throw new InvalidOperationException("Ingredient substance element is null after validation.");
+                }
+
+                // 2. Get or create the required substance entities from the database
+                var (substance, specifiedSubstanceId) = await getOrCreateSubstanceEntitiesAsync(ingredientSubstanceEl, context, element.GetAttrVal(sc.A.ClassCode));
+
+                // Get the substance element name
+                string ingredientSubstanceEnclosingElement = ingredientSubstanceEl.Name.LocalName;
+
+                if (substance == null || substance.IngredientSubstanceID == null)
                 {
                     throw new InvalidOperationException("Failed to get or create an IngredientSubstance.");
                 }
 
-                var specifiedSubstance = await createSpecifiedSubstanceAsync(ingredientSubstanceEl, context);
-                if (specifiedSubstance != null && specifiedSubstance.SpecifiedSubstanceID > 0)
-                {
-                    specifiedSubstanceID = specifiedSubstance.SpecifiedSubstanceID.Value;
-                }
+                // 3. Build the Ingredient object from the XML data (no DB calls here)
+                var ingredient = buildIngredient(element, 
+                    context, 
+                    substance.IngredientSubstanceID.Value, 
+                    specifiedSubstanceId, 
+                    ingredientSubstanceEnclosingElement);
 
-                // Step 2: Create the Ingredient link record between product and substance
-                var ingredient = new Ingredient
-                {
-                    ProductID = context.CurrentProduct.ProductID,
+                // 4. Persist the new Ingredient to the database
+                await saveIngredientAsync(ingredient, context);
 
-                    IngredientSubstanceID = substance.IngredientSubstanceID,
-
-                    SpecifiedSubstanceID = specifiedSubstanceID,
-
-                    // Extract class code from the ingredient element's classCode attribute
-                    ClassCode = element.GetAttrVal(sc.A.ClassCode),
-
-                    // Determine confidentiality based on confidentiality code value
-                    IsConfidential = element.GetSplElementAttrVal(sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
-                };
-
-                // Step 3: Parse quantity information from the quantity element
-                var quantityEl = element.GetSplElement(sc.E.Quantity);
-                if (quantityEl != null)
-                {
-                    // Extract numerator information (amount value and unit)
-                    var numeratorEl = quantityEl.GetSplElement(sc.E.Numerator);
-
-                    // Extract denominator information (amount value and unit)
-                    var denominatorEl = quantityEl.GetSplElement(sc.E.Denominator);
-
-                    // Parse and assign numerator value if it's a valid decimal
-                    if (decimal.TryParse(numeratorEl?.GetAttrVal(sc.A.Value), out var numValue))
-                        ingredient.QuantityNumerator = numValue;
-
-                    // Extract numerator unit from the unit attribute
-                    ingredient.QuantityNumeratorUnit = numeratorEl?.GetAttrVal(sc.A.Unit);
-
-                    ingredient.NumeratorTranslationCode = numeratorEl
-                        ?.GetSplElementAttrVal(sc.E.NumeratorIngredientTranslation, sc.A.CodeValue);
-
-                    ingredient.NumeratorCodeSystem = numeratorEl
-                        ?.GetSplElementAttrVal(sc.E.NumeratorIngredientTranslation, sc.A.CodeSystem);
-
-                    ingredient.NumeratorDisplayName = numeratorEl
-                        ?.GetSplElementAttrVal(sc.E.NumeratorIngredientTranslation, sc.A.DisplayName);
-
-                    // Parse and assign denominator value if it's a valid decimal
-                    if (decimal.TryParse(denominatorEl?.GetAttrVal(sc.A.Value), out var denValue))
-                        ingredient.QuantityDenominator = denValue;
-
-                    // Extract denominator unit from the value attribute
-                    ingredient.QuantityDenominatorUnit = denominatorEl?.GetAttrVal(sc.A.Value);
-
-                    ingredient.DenominatorTranslationCode = denominatorEl
-                     ?.GetSplElementAttrVal(sc.E.DenominatorIngredientTranslation, sc.A.CodeValue);
-
-                    ingredient.DenominatorCodeSystem = denominatorEl
-                        ?.GetSplElementAttrVal(sc.E.DenominatorIngredientTranslation, sc.A.CodeSystem);
-
-                    ingredient.DenominatorDisplayName = denominatorEl
-                        ?.GetSplElementAttrVal(sc.E.DenominatorIngredientTranslation, sc.A.DisplayName);
-                }
-
-                // Save the ingredient relationship to the database
-                var ingredientRepo = context.GetRepository<Ingredient>();
-                await ingredientRepo.CreateAsync(ingredient);
-
-                if (!ingredient.IngredientID.HasValue)
-                {
-                    throw new InvalidOperationException("IngredientID was not populated by the database after creation.");
-                }
-      
                 result.IngredientsCreated++;
-
-                // Step 5: (Optional) Parse Active Moiety if it exists
-                // This would be another parser or private method call.
             }
             catch (Exception ex)
             {
-                // Handle any exceptions that occur during ingredient parsing
+                // Centralized error handling for the entire operation
                 result.Success = false;
-                result.Errors.Add($"Error parsing ingredient for ProductID {context.CurrentProduct.ProductID}: {ex.Message}");
-                context.Logger.LogError(ex, "Error processing <ingredient> element.");
+
+                result.Errors.Add($"Error parsing ingredient for ProductID {context?.CurrentProduct?.ProductID}: {ex.Message}");
+
+                context?.Logger.LogError(ex, "Error processing <ingredient> element for ProductID {ProductID}.", context?.CurrentProduct?.ProductID);
+
+                context?.Logger?.LogError(ex, "Error processing <ingredient> element for ProductID {ProductID}.", context.CurrentProduct?.ProductID ?? 0);
             }
 
             return result;
             #endregion
         }
+
+        #region Private Helper Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates that the necessary context and XML elements exist before parsing.
+        /// </summary>
+        /// <param name="element">The XElement containing the ingredient data.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="result">The result object to populate with errors if validation fails.</param>
+        /// <param name="ingredientSubstanceEl">The found ingredient substance element, or null if not found.</param>
+        /// <returns>True if validation succeeds, otherwise false.</returns>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private bool tryValidatePreconditions(XElement element, SplParseContext context, SplParseResult result, out XElement? ingredientSubstanceEl)
+        {
+            #region implementation
+            ingredientSubstanceEl = null;
+
+            // Validate that we have a valid product context
+            if (context.CurrentProduct?.ProductID == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Cannot parse ingredient because no product context exists.");
+                return false;
+            }
+
+            // Attempt to find the ingredient substance element using various possible names
+            ingredientSubstanceEl = element.GetSplElement(sc.E.IngredientSubstance)
+                ?? element.GetSplElement(sc.E.InactiveIngredientSubstance)
+                ?? element.GetSplElement(sc.E.ActiveIngredientSubstance)
+                ?? element.SplFindElements("substance").FirstOrDefault();
+
+            // Validate that we found the required element
+            if (ingredientSubstanceEl == null)
+            {
+                result.Success = false;
+                result.Errors.Add($"Could not find <ingredientSubstance> for ProductID {context.CurrentProduct.ProductID}, element {element.Name.LocalName}.");
+                return false;
+            }
+
+            return true;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Handles the retrieval or creation of substance-related entities from the database.
+        /// </summary>
+        /// <param name="ingredientSubstanceEl">The XML element containing ingredient substance data.</param>
+        /// <param name="context">The current parsing context containing database access services.</param>
+        /// <param name="ingredientClassCode">The class code for the ingredient e.g. classCode="IACT"</param>
+        /// <returns>A tuple containing the IngredientSubstance and the SpecifiedSubstanceID.</returns>
+        /// <seealso cref="IngredientSubstance"/>
+        /// <seealso cref="SpecifiedSubstance"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<(IngredientSubstance substance, int specifiedSubstanceId)> getOrCreateSubstanceEntitiesAsync(XElement ingredientSubstanceEl, SplParseContext context, string? ingredientClassCode)
+        {
+            #region implementation
+            // Get or create the main ingredient substance entity
+            var substance = await getOrCreateIngredientSubstanceAsync(ingredientSubstanceEl, context, ingredientClassCode);
+
+            if (substance?.IngredientSubstanceID == null)
+            {
+                throw new InvalidOperationException("Failed to get or create an IngredientSubstance.");
+            }
+
+            // Initialize specified substance ID to default value
+            int specifiedSubstanceId = 0;
+
+            // Attempt to get or create a specified substance entity if data exists
+            var specifiedSubstance = await getOrCreateSpecifiedSubstanceAsync(ingredientSubstanceEl, context);
+
+            if (specifiedSubstance?.SpecifiedSubstanceID > 0)
+            {
+                specifiedSubstanceId = specifiedSubstance.SpecifiedSubstanceID.Value;
+            }
+
+            return (substance, specifiedSubstanceId);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates and populates an Ingredient object from the XML element. This method is pure and has no side effects.
+        /// </summary>
+        /// <param name="element">The root ingredient XML element.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="ingredientSubstanceId">The ID of the associated ingredient substance.</param>
+        /// <param name="specifiedSubstanceId">The ID of the associated specified substance.</param>
+        /// <param name="ingredientSubElementName">Holds the name of the ingredient substance name</param>
+        /// <returns>A new Ingredient object.</returns>
+        /// <seealso cref="Ingredient"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private Ingredient buildIngredient(XElement element, SplParseContext context, int ingredientSubstanceId, int specifiedSubstanceId, string? ingredientSubElementName)
+        {
+            #region implementation
+
+            // For those products not marking an ingredient with IACT for inactive ingredients
+            string? classCode = !string.IsNullOrEmpty(ingredientSubElementName) 
+                    && ingredientSubElementName.Contains("inactive", StringComparison.OrdinalIgnoreCase)
+                    ? "IACT"
+                    : element.GetAttrVal(sc.A.ClassCode);
+
+            // Create the base ingredient object with core properties
+            var ingredient = new Ingredient
+            {
+                ProductID = context?.CurrentProduct?.ProductID,
+                IngredientSubstanceID = ingredientSubstanceId,
+                SpecifiedSubstanceID = specifiedSubstanceId,
+                OriginatingElement = element.Name.LocalName,
+                ClassCode = classCode,
+                IsConfidential = element.GetSplElementAttrVal(sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
+            };
+
+            // Parse quantity information if present
+            var quantityEl = element.GetSplElement(sc.E.Quantity);
+            if (quantityEl != null)
+            {
+                parseQuantity(quantityEl, ingredient);
+            }
+
+            return ingredient;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the 'quantity' element and populates the numerator/denominator fields of the ingredient.
+        /// </summary>
+        /// <param name="quantityEl">The XML element containing quantity information.</param>
+        /// <param name="ingredient">The ingredient object to populate with quantity data.</param>
+        /// <seealso cref="Ingredient"/>
+        /// <seealso cref="Label"/>
+        private void parseQuantity(XElement quantityEl, Ingredient ingredient)
+        {
+            #region implementation
+            // Parse Numerator portion of the quantity ratio
+            var numeratorEl = quantityEl.GetSplElement(sc.E.Numerator);
+            if (numeratorEl != null)
+            {
+                var (value, unit, code, system, displayName) = parseRatioPart(numeratorEl, sc.E.NumeratorIngredientTranslation);
+                ingredient.QuantityNumerator = value;
+                ingredient.QuantityNumeratorUnit = unit;
+                ingredient.NumeratorTranslationCode = code;
+                ingredient.NumeratorCodeSystem = system;
+                ingredient.NumeratorDisplayName = displayName;
+            }
+
+            // Parse Denominator portion of the quantity ratio
+            var denominatorEl = quantityEl.GetSplElement(sc.E.Denominator);
+            if (denominatorEl != null)
+            {
+                var (value, unit, code, system, displayName) = parseRatioPart(denominatorEl, sc.E.DenominatorIngredientTranslation);
+                ingredient.QuantityDenominator = value;
+                ingredient.QuantityDenominatorUnit = unit;
+                ingredient.DenominatorTranslationCode = code;
+                ingredient.DenominatorCodeSystem = system;
+                ingredient.DenominatorDisplayName = displayName;
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses a part of a ratio (numerator or denominator) from its XML element.
+        /// </summary>
+        /// <param name="ratioPartEl">The XML element representing either a numerator or denominator.</param>
+        /// <param name="translationElementName">The name of the translation element to extract code information from.</param>
+        /// <returns>A tuple containing the parsed values.</returns>
+        /// <seealso cref="Label"/>
+        private (decimal? Value, string Unit, string Code, string System, string DisplayName) parseRatioPart(XElement ratioPartEl, string translationElementName)
+        {
+            #region implementation
+            // Attempt to parse the numeric value from the element
+            decimal? parsedValue = null;
+            if (decimal.TryParse(ratioPartEl.GetAttrVal(sc.A.Value), out var val))
+            {
+                parsedValue = val;
+            }
+
+            // Extract unit and translation information, ensuring non-null values
+            var unit = ratioPartEl.GetAttrVal(sc.A.Unit) ?? string.Empty; // Ensure non-null value
+            var code = ratioPartEl.GetSplElementAttrVal(translationElementName, sc.A.CodeValue) ?? string.Empty; // Ensure non-null value
+            var system = ratioPartEl.GetSplElementAttrVal(translationElementName, sc.A.CodeSystem) ?? string.Empty; // Ensure non-null value
+            var displayName = ratioPartEl.GetSplElementAttrVal(translationElementName, sc.A.DisplayName) ?? string.Empty; // Ensure non-null value
+
+            return (parsedValue, unit, code, system, displayName);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Saves the ingredient to the database and validates the result.
+        /// </summary>
+        /// <param name="ingredient">The ingredient object to save to the database.</param>
+        /// <param name="context">The current parsing context containing repository access.</param>
+        /// <seealso cref="Ingredient"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task saveIngredientAsync(Ingredient ingredient, 
+            SplParseContext context)
+        {
+            #region implementation
+            // Get the ingredient repository from the context and save the entity
+            var ingredientRepo = context.GetRepository<Ingredient>();
+            await ingredientRepo.CreateAsync(ingredient);
+
+            // Validate that the database assigned an ID to the new ingredient
+            if (!ingredient.IngredientID.HasValue)
+            {
+                throw new InvalidOperationException("IngredientID was not populated by the database after creation.");
+            }
+            #endregion
+        }
+
+        #endregion
 
         /**************************************************************/
         /// <summary>
@@ -221,28 +381,27 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SpecifiedSubstance"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="ApplicationDbContext"/>
-        private async Task<SpecifiedSubstance?> createSpecifiedSubstanceAsync(XElement substanceEl, SplParseContext context)
+        private async Task<SpecifiedSubstance?> getOrCreateSpecifiedSubstanceAsync(XElement substanceEl, 
+            SplParseContext context)
         {
             #region implementation
 
             #region extract substance data from xml
-            // Extract the substance code from the XML element
+            // Extract substance identification codes from the XML element
             var substanceCode = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue);
-
-            // Extract the code system identifier for the substance
             var substanceCodeSystem = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem);
-
-            // Extract the human-readable display name for the substance
             var codeName = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystemName);
             #endregion
 
             #region database operations
-            // Use the DbContext directly for the specific 'find by UNII' query
+            // Get database context and specified substance repository
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var substanceDbSet = dbContext.Set<SpecifiedSubstance>();
 
-            // Search for existing substance with the same UNII code
-            var existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s => s.SubstanceCode == substanceCode
+            // Search for existing substance with matching code and code system
+            var existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s =>
+                s.SubstanceCode != null
+                && s.SubstanceCode == substanceCode
                 && substanceCodeSystem != null
                 && !string.IsNullOrWhiteSpace(substanceCodeSystem)
                 && !string.IsNullOrWhiteSpace(s.SubstanceCodeSystem)
@@ -255,10 +414,10 @@ namespace MedRecPro.Service.ParsingServices
                 return existingSubstance;
             }
 
-            // Log the creation of the new substance for tracking purposes
+            // Log creation of new substance
             context.Logger.LogInformation("Creating new SpecifiedSubstance '{code}' with code system {system}", substanceCode, substanceCodeSystem);
 
-            // Create new substance with extracted UNII and name
+            // Create new specified substance entity
             var newSpecifiedSubstance = new SpecifiedSubstance
             {
                 SubstanceCode = substanceCode,
@@ -266,14 +425,10 @@ namespace MedRecPro.Service.ParsingServices
                 SubstanceCodeSystemName = codeName
             };
 
-            // don't create empty items
+            // Save the new substance if it has valid identifying information
             if (!string.IsNullOrWhiteSpace(substanceCode) && !string.IsNullOrWhiteSpace(substanceCodeSystem))
             {
-
-                // Add to DbSet and save immediately to get the new ID populated
                 substanceDbSet.Add(newSpecifiedSubstance);
-
-                // Save immediately to get the new ID for subsequent operations
                 await dbContext.SaveChangesAsync();
             }
             #endregion
@@ -290,6 +445,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="substanceEl">The XElement representing the ingredientSubstance to process.</param>
         /// <param name="context">The current parsing context containing database access services.</param>
+        /// <param name="ingredientClassCode">The class code for the ingredient e.g. classCode="IACT"</param>
         /// <returns>An IngredientSubstance entity, either existing or newly created, or null if creation fails.</returns>
         /// <example>
         /// <code>
@@ -313,7 +469,10 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="IngredientSubstance"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="XElementExtensions.GetSplElementAttrVal(XElement, string, string)"/>
-        private async Task<IngredientSubstance?> getOrCreateIngredientSubstanceAsync(XElement substanceEl, SplParseContext context)
+        /// <seealso cref="Label"/>
+        private async Task<IngredientSubstance?> getOrCreateIngredientSubstanceAsync(XElement substanceEl, 
+            SplParseContext context, 
+            string? ingredientClassCode)
         {
             #region implementation
             // Extract UNII code from the code element's codeValue attribute
@@ -322,12 +481,19 @@ namespace MedRecPro.Service.ParsingServices
             // Extract substance name from the name element
             var name = substanceEl.GetSplElement(sc.E.Name);
 
+            // Enclosing field. 
+            var field = substanceEl.Name.LocalName;
+
             // Use the DbContext directly for the specific 'find by UNII' query
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Get the DbSet for IngredientSubstance
             var substanceDbSet = dbContext.Set<IngredientSubstance>();
 
             // Search for existing substance with the same UNII code
-            var existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s => s != null && s.UNII == unii);
+            var existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s => s != null
+                && s.UNII != null
+                && s.UNII == unii);
 
             // Search by name if UNII is not found or is empty
             if ((existingSubstance == null || existingSubstance.IngredientSubstanceID <= 0)
@@ -350,7 +516,11 @@ namespace MedRecPro.Service.ParsingServices
                 context.Logger.LogWarning("Ingredient substance '{Name}' is missing a UNII. It will not be normalized and a new record may be created.", name);
 
                 // Fallback: create a new substance record every time if UNII is missing
-                var nonNormalizedSubstance = new IngredientSubstance { SubstanceName = name?.Value };
+                var nonNormalizedSubstance = new IngredientSubstance
+                {
+                    SubstanceName = name?.Value?.ToLower(),
+                    OriginatingElement = field
+                };
 
                 var repo = context.GetRepository<IngredientSubstance>();
                 await repo.CreateAsync(nonNormalizedSubstance);
@@ -361,13 +531,78 @@ namespace MedRecPro.Service.ParsingServices
             context.Logger.LogInformation("Creating new IngredientSubstance '{Name}' with UNII {UNII}", name, unii);
 
             // Create new substance with extracted UNII and name
-            var newSubstance = new IngredientSubstance { UNII = unii, SubstanceName = name?.Value };
+            var newSubstance = new IngredientSubstance
+            {
+                UNII = unii,
+                SubstanceName = name?.Value?.ToLower(),
+                OriginatingElement = field
+            };
 
             // Add to DbSet and save immediately to get the new ID populated
             substanceDbSet.Add(newSubstance);
             await dbContext.SaveChangesAsync(); // Save immediately to get the new ID
 
+            // If the substance has an active moiety, create it
+            if (newSubstance != null && newSubstance.IngredientSubstanceID > 0)
+                await createActiveMoietyAsync(substanceEl, newSubstance.IngredientSubstanceID.Value, context);
+
             return newSubstance;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and creates ActiveMoiety records linked to a parent IngredientSubstance.
+        /// </summary>
+        /// <param name="substanceEl">The XML element containing the substance data with potential active moiety information.</param>
+        /// <param name="ingredientSubstanceId">The ID of the parent ingredient substance to link the active moiety to.</param>
+        /// <param name="context">The current parsing context containing database access and logging services.</param>
+        /// <seealso cref="ActiveMoiety"/>
+        /// <seealso cref="IngredientSubstance"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task createActiveMoietyAsync(XElement substanceEl, int ingredientSubstanceId, SplParseContext context)
+        {
+            #region implementation
+            // The XML can have a confusing <activeMoiety><activeMoiety>... structure.
+            // We need to find the inner-most one that contains the code and name.
+            var activeMoietyEl = substanceEl.GetSplElement(sc.E.ActiveMoiety)?.GetSplElement(sc.E.ActiveMoiety);
+
+            if (activeMoietyEl == null)
+            {
+                return; // No active moiety to parse
+            }
+
+            // Create the active moiety object with extracted data
+            var moiety = new ActiveMoiety
+            {
+                IngredientSubstanceID = ingredientSubstanceId,
+                MoietyUNII = activeMoietyEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
+                MoietyName = activeMoietyEl.GetSplElementVal(sc.E.Name)
+            };
+
+            // Validate that we have the required data before proceeding
+            if (string.IsNullOrWhiteSpace(moiety.MoietyUNII) || string.IsNullOrWhiteSpace(moiety.MoietyName))
+            {
+                context.Logger.LogWarning("Skipping ActiveMoiety for IngredientSubstanceID {ID} due to missing UNII or Name.", ingredientSubstanceId);
+                return;
+            }
+
+            // Check if this exact moiety link already exists to prevent duplicates
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var existingMoiety = await dbContext.Set<ActiveMoiety>().FirstOrDefaultAsync(m =>
+                m.IngredientSubstanceID == ingredientSubstanceId && m.MoietyUNII == moiety.MoietyUNII);
+
+            if (existingMoiety != null)
+            {
+                context.Logger.LogDebug("ActiveMoiety link for UNII {UNII} already exists for IngredientSubstanceID {ID}.", moiety.MoietyUNII, ingredientSubstanceId);
+                return;
+            }
+
+            // Create and save the new active moiety record
+            var moietyRepo = context.GetRepository<ActiveMoiety>();
+            await moietyRepo.CreateAsync(moiety);
+            context.Logger.LogInformation("Created ActiveMoiety '{Name}' for IngredientSubstanceID {ID}", moiety.MoietyName, ingredientSubstanceId);
             #endregion
         }
     }

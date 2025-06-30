@@ -1,5 +1,6 @@
 ﻿using System.Xml.Linq;
 using c = MedRecPro.Models.Constant;
+using sc = MedRecPro.Models.SplConstants;
 
 namespace MedRecPro.Helpers
 {
@@ -266,5 +267,35 @@ namespace MedRecPro.Helpers
             return currentElements.Any() ? currentElements : XElement.EmptySequence;
             #endregion
         }
+
+        /**************************************************************/
+        public static IEnumerable<XElement> SplFindElements(this XElement element, string search)
+        {
+            return element.Descendants()
+                .Where(e =>
+                    e.Name.LocalName.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    e.Value.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0
+                );
+        }
+
+        /**************************************************************/
+        public static IEnumerable<XElement> SplFindIngredients(this XElement element, string excludingFieldsContaining)
+        {
+            // Case-insensitive comparison for both search and exclusion
+            return element.Descendants()
+                .Where(e =>
+                    (
+                        e.Name.LocalName.IndexOf(sc.E.Ingredient, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        e.Value.IndexOf(sc.E.Ingredient, StringComparison.OrdinalIgnoreCase) >= 0
+                    )
+                    &&
+                    (
+                        // Exclude elements where the name or value contains the exclusion string
+                        e.Name.LocalName.IndexOf(excludingFieldsContaining, StringComparison.OrdinalIgnoreCase) < 0 &&
+                        e.Value.IndexOf(excludingFieldsContaining, StringComparison.OrdinalIgnoreCase) < 0
+                    )
+                );
+        }
+
     }
 }

@@ -98,6 +98,7 @@ BEGIN TRY
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'DenominatorDisplayName' AND Object_ID = Object_ID(N'dbo.Ingredient')) ALTER TABLE [dbo].[Ingredient] ADD [DenominatorDisplayName] VARCHAR(255) NULL;
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'DenominatorValue' AND Object_ID = Object_ID(N'dbo.Ingredient')) ALTER TABLE [dbo].[Ingredient] ADD [DenominatorValue] VARCHAR(255) NULL;
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'DisplayName' AND Object_ID = Object_ID(N'dbo.Ingredient')) ALTER TABLE [dbo].[Ingredient] ADD [DisplayName] VARCHAR(255) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'OriginatingElement' AND Object_ID = Object_ID(N'dbo.Ingredient')) ALTER TABLE [dbo].[Ingredient] ADD [OriginatingElement] VARCHAR(255) NULL;
 
     -- Alter IsConfidential to allow NULLs
     PRINT ' -> Altering column [IsConfidential] to allow NULLs in [dbo].[Ingredient].';
@@ -158,6 +159,8 @@ BEGIN TRY
     SET @ColumnName = N'DisplayName'; SET @PropValue = N'Display name (displayName="MILLIGRAM").';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName)) EXEC sp_updateextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName; ELSE EXEC sp_addextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
     SET @ColumnName = N'ProductConceptID'; SET @PropValue = N'FK to ProductConcept, used when the ingredient belongs to a Product Concept instead of a concrete Product. Null if linked via ProductID.';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName)) EXEC sp_updateextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName; ELSE EXEC sp_addextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
+     SET @ColumnName = N'OriginatingElement'; SET @PropValue = N' The name of the XML element this ingredient was parsed from (e.g., "ingredient", "activeIngredient").';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName)) EXEC sp_updateextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName; ELSE EXEC sp_addextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
 
     COMMIT TRANSACTION;
