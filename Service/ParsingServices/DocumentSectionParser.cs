@@ -105,10 +105,11 @@ namespace MedRecPro.Service.ParsingServices
                 context.Document = document;
                 result.DocumentsCreated = 1;
                 result.ParsedEntity = document;
+                result.DocumentCode = document?.DocumentCode;
 
                 // Log successful document creation
                 context.Logger.LogInformation("Created Document with ID {DocumentID} for file {FileName}",
-                    document.DocumentID, context.FileNameInZip);
+                    document?.DocumentID, context.FileNameInZip);
             }
             catch (Exception ex)
             {

@@ -4,6 +4,7 @@ using sc = MedRecPro.Models.SplConstants;
 using static MedRecPro.Models.Label;
 using MedRecPro.Helpers;
 using AngleSharp.Common;
+using MedRecPro.Models;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -137,6 +138,24 @@ namespace MedRecPro.Service.ParsingServices
                 var idCount = await parseAndSaveProductIdentifiersAsync(mmEl, product, context);
                 result.ProductElementsCreated += idCount;
 
+                // --- PARSE SPECIALIZED KINDS ---
+                var kindCount = await parseAndSaveSpecializedKindsAsync(mmEl, product, context, result.DocumentCode);
+                result.ProductElementsCreated += kindCount;
+
+                // --- PARSE MARKETING CATEGORY ---
+                var marketingCatCreated = await parseAndSaveMarketingCategoriesAsync(mmEl, product, context);
+                result.ProductElementsCreated += marketingCatCreated;
+
+                // --- PARSE PACKAGING LEVELS ---
+                var asContentEls = mmEl.SplFindElements(sc.E.AsContent);
+                // If asContent elements exist, parse and save packaging levels
+                if(asContentEls != null && asContentEls.Any())
+                {
+                    foreach (var asContentEl in asContentEls)
+                    {
+                        result.ProductElementsCreated += await parseAndSavePackagingLevelsAsync(asContentEl, product, context);
+                    }
+                }
 
                 result.ProductsCreated++;
                 context.Logger.LogInformation("Created Product '{ProductName}' with ID {ProductID}", product.ProductName, product.ProductID);
@@ -163,7 +182,7 @@ namespace MedRecPro.Service.ParsingServices
                     result.MergeFrom(ingredientResult); // Aggregate results from ingredient parsing
                 }
 
-                // TODO: Parse SpecializedKind, PackagingLevel, MarketingCategory, Characteristic etc.
+                // TODO: Parse  Characteristic etc.
 
                 // Restore the previous product context to avoid side effects on other parsers
                 context.CurrentProduct = oldProduct;
@@ -182,6 +201,218 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
+        /// Parses and saves all MarketingCategory entities under [subjectOf][approval] nodes for a given product.
+        /// </summary>
+        /// <param name="parentEl">XElement (either [manufacturedProduct] or [partProduct]) to scan for marketing categories.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of MarketingCategory records created.</returns>
+        /// <remarks>
+        /// Extracts marketing category information from approval nodes including category codes, 
+        /// application/monograph IDs, approval dates, and territory codes. Handles the complex
+        /// XML structure of subjectOf/approval elements according to SPL standards.
+        /// </remarks>
+        /// <seealso cref="MarketingCategory"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveMarketingCategoriesAsync(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+            var repo = context.GetRepository<MarketingCategory>();
+
+            // Find all <subjectOf><approval> nodes for processing
+            foreach (var subjOf in parentEl.SplElements(sc.E.SubjectOf))
+            {
+                var approvalEl = subjOf.SplElement(sc.E.Approval);
+                if (approvalEl == null)
+                    continue;
+
+                // 1. <id> - Application/monograph number and root
+                var idEl = approvalEl.SplElement(sc.E.Id);
+                string? idExtension = idEl?.GetAttrVal(sc.A.Extension);
+                string? idRoot = idEl?.GetAttrVal(sc.A.Root);
+
+                // 2. <code> - Marketing category code, codeSystem, displayName
+                var codeEl = approvalEl.Element(ns + sc.E.Code);
+                string? categoryCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+                string? categoryCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
+                string? categoryDisplayName = codeEl?.GetAttrVal(sc.A.DisplayName);
+
+                // 3. <effectiveTime><low value="YYYYMMDD"> - Parse with Util.ParseNullableDateTime
+                DateTime? approvalDate = null;
+                var effTimeEl = approvalEl.SplElement(sc.E.EffectiveTime);
+                var lowEl = effTimeEl?.SplElement(sc.E.Low);
+                string? dateStr = lowEl?.GetAttrVal(sc.A.Value);
+
+                if (!string.IsNullOrWhiteSpace(dateStr))
+                {
+                    approvalDate = MedRecPro.Helpers.Util.ParseNullableDateTime(dateStr);
+                }
+
+                // 4. <author><territorialAuthority><territory><code code="USA">
+                string? territoryCode = null;
+                var terrCodeEl = approvalEl
+                    .SplElement(sc.E.Author)?
+                    .SplElement(sc.E.TerritorialAuthority)?
+                    .SplElement(sc.E.Territory)?
+                    .SplElement(sc.E.Code);
+
+                if (terrCodeEl != null)
+                    territoryCode = terrCodeEl.GetAttrVal(sc.A.CodeValue);
+
+                // 5. Build and save the marketing category entity
+                var marketingCategory = new MarketingCategory
+                {
+                    ProductID = product.ProductID,
+                    CategoryCode = categoryCode,
+                    CategoryCodeSystem = categoryCodeSystem,
+                    CategoryDisplayName = categoryDisplayName,
+                    ApplicationOrMonographIDValue = idExtension,
+                    ApplicationOrMonographIDOID = idRoot,
+                    ApprovalDate = approvalDate,
+                    TerritoryCode = territoryCode,
+                    // ProductConceptID = null (if needed, add logic)
+                };
+
+                // Persist the marketing category to the database
+                await repo.CreateAsync(marketingCategory);
+                count++;
+                context.Logger.LogInformation($"MarketingCategory created: ProductID={product.ProductID}, Code={categoryCode}, ApplicationID={idExtension}");
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all PackagingLevel entities under a given 'asContent' node (including nested asContent/containerPackagedProduct nodes).
+        /// </summary>
+        /// <param name="asContentEl">Root <asContent> XElement.</param>
+        /// <param name="product">The Product entity associated (if outermost).</param>
+        /// <param name="context">The parsing context (repo, logger, docTypeCode, etc).</param>
+        /// <param name="parentProductInstanceId">For lot/container context (16.2.8), null otherwise.</param>
+        /// <returns>The count of PackagingLevel records created (recursively).</returns>
+        /// <remarks>
+        /// Handles both outermost and nested package levels; links product OR product instance as appropriate.
+        /// Recursively processes nested packaging structures to create hierarchical packaging relationships.
+        /// Extracts quantity information (numerator/denominator), package codes, and form codes from XML.
+        /// </remarks>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSavePackagingLevelsAsync(
+            XElement asContentEl,
+            Product? product,
+            SplParseContext context,
+            int? parentProductInstanceId = null)
+        {
+            #region implementation
+            int count = 0;
+            var repo = context.GetRepository<PackagingLevel>();
+
+            // 1. Extract <quantity>/<numerator> from current <asContent>
+            var quantityEl = asContentEl.Element(ns + sc.E.Quantity);
+            decimal? quantityValue = null;
+            decimal? quantityDenominator = null;
+            string? quantityUnit = null;
+
+            // Parse quantity information if present
+            if (quantityEl != null)
+            {
+                // Extract numerator value and unit
+                var numeratorEl = quantityEl.SplElement(sc.E.Numerator);
+                if (numeratorEl != null)
+                {
+                    quantityValue = numeratorEl.GetAttrDecimal(sc.A.Value);
+                    quantityUnit = numeratorEl.GetAttrVal(sc.A.Unit);
+                }
+
+                // Extract denominator value if present
+                var denominatorEl = quantityEl.SplElement(sc.E.Denominator);
+                if (denominatorEl != null)
+                {
+                    quantityDenominator = denominatorEl.GetAttrDecimal(sc.A.Value);
+                }
+            }
+
+            // 2. Extract <containerPackagedProduct> information
+            var cppEl = asContentEl.SplElement(sc.E.ContainerPackagedProduct);
+            string? packageFormCode = null,
+                packageFormCodeSystem = null,
+                packageFormDisplayName = null,
+                packageCode = null,
+                packageCodeSystem = null;
+
+            // Parse container package product details if present
+            if (cppEl != null)
+            {
+                // Extract form code information (e.g., bottle, blister pack)
+                var formCodeEl = cppEl.SplElement(sc.E.FormCode);
+                if (formCodeEl != null)
+                {
+                    packageFormCode = formCodeEl.GetAttrVal(sc.A.CodeValue);
+                    packageFormCodeSystem = formCodeEl.GetAttrVal(sc.A.CodeSystem);
+                    packageFormDisplayName = formCodeEl.GetAttrVal(sc.A.DisplayName);
+                }
+
+                // Extract package identification code
+                var codeEl = cppEl.SplElement(sc.E.Code);
+                if (codeEl != null)
+                {
+                    packageCode = codeEl.GetAttrVal(sc.A.CodeValue);
+                    packageCodeSystem = codeEl.GetAttrVal(sc.A.CodeSystem);
+                }
+            }
+
+            // 3. Create packaging level entity with extracted data
+            var packagingLevel = new PackagingLevel
+            {
+                // Link to product if this is the outermost level without parent instance
+                ProductID = (parentProductInstanceId == null && product != null) ? product.ProductID : null,
+                ProductInstanceID = parentProductInstanceId,
+                QuantityNumerator = quantityValue,
+                QuantityNumeratorUnit = quantityUnit,
+                QuantityDenominator = quantityDenominator,
+                PackageCode = packageCode,
+                PackageCodeSystem = packageCodeSystem,
+                PackageFormCode = packageFormCode,
+                PackageFormCodeSystem = packageFormCodeSystem,
+                PackageFormDisplayName = packageFormDisplayName,
+                // If part context: PartProductID should be set in part-specific parser.
+            };
+
+            // Save the packaging level to the database
+            await repo.CreateAsync(packagingLevel);
+            count++;
+            context.Logger.LogInformation($"PackagingLevel created: ProductID={packagingLevel.ProductID}, Quantity={quantityValue}{quantityUnit}, FormCode={packageFormCode}");
+
+            // 4. Recursively process nested <asContent> for child packaging levels
+            if (cppEl != null)
+            {
+                foreach (var nestedAsContent in cppEl.Elements(ns + sc.E.AsContent))
+                {
+                    count += await parseAndSavePackagingLevelsAsync(
+                        nestedAsContent,
+                        product,
+                        context,
+                        parentProductInstanceId // For packaging trees, this is usually null except in lot/instance context
+                    );
+                }
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Parses and creates ProductIdentifier entities from the manufacturedProduct XML element.
         /// </summary>
         /// <param name="mmEl">The manufacturedProduct or manufacturedMedicine XElement.</param>
@@ -192,25 +423,41 @@ namespace MedRecPro.Service.ParsingServices
         /// Handles all 'code' elements representing product/item codes (NDC, GTIN, etc.) under 'manufacturedProduct'
         /// and 'subjectOf'/'approval' sections, supporting drugs, devices, and cosmetics.
         /// </remarks>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
         private async Task<int> parseAndSaveProductIdentifiersAsync(XElement mmEl, Product product, SplParseContext context)
         {
             #region implementation
             int createdCount = 0;
 
-            // 1. Save product/package identifiers
+            // 1. Save product/package identifiers from direct code elements
             var codes = getAllProductAndPackagingCodes(mmEl);
-            createdCount += await SaveProductIdentifiersAsync(codes, product, context);
+            createdCount += await saveProductIdentifiersAsync(codes, product, context);
 
-            // 2. Save approval/marketing identifiers
-            createdCount += await SaveApprovalIdentifiersAsync(mmEl, product, context);
+            // 2. Save approval/marketing identifiers from subjectOf/approval sections
+            createdCount += await saveApprovalIdentifiersAsync(mmEl, product, context);
 
             return createdCount;
             #endregion
         }
 
         /**************************************************************/
+        /// <summary>
+        /// Infers the identifier type based on the OID (Object Identifier) of the code system.
+        /// </summary>
+        /// <param name="oid">The OID string representing the code system.</param>
+        /// <returns>A human-readable identifier type string, or null if the OID is not recognized.</returns>
+        /// <remarks>
+        /// Maps standard healthcare OIDs to their corresponding identifier types including NDC, GTIN, UDI, etc.
+        /// Supports drugs, biologics, devices, and cosmetics identifier systems.
+        /// </remarks>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="Label"/>
         private static string? inferIdentifierType(string? oid)
         {
+            #region implementation
             // Extend with additional mappings as needed
             return oid switch
             {
@@ -250,11 +497,26 @@ namespace MedRecPro.Service.ParsingServices
 
                 _ => null
             };
+            #endregion
         }
 
         /**************************************************************/
+        /// <summary>
+        /// Recursively retrieves all product and packaging code elements from the XML hierarchy.
+        /// </summary>
+        /// <param name="element">The XML element to search for code elements.</param>
+        /// <returns>An enumerable of XElement objects representing code elements found at all levels.</returns>
+        /// <remarks>
+        /// Searches for codes at multiple levels:
+        /// 1. Direct product-level codes under manufacturedProduct
+        /// 2. Packaging codes in nested containerPackagedProduct elements
+        /// 3. Codes in nested manufacturedProduct elements
+        /// </remarks>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
         private IEnumerable<XElement> getAllProductAndPackagingCodes(XElement element)
         {
+            #region implementation
             // 1. Product-level codes: <code> directly under <manufacturedProduct>
             foreach (var code in element.Elements(ns + sc.E.Code))
                 yield return code;
@@ -272,20 +534,43 @@ namespace MedRecPro.Service.ParsingServices
                 foreach (var code in getAllProductAndPackagingCodes(nested))
                     yield return code;
             }
+            #endregion
         }
 
         /**************************************************************/
-        private async Task<int> SaveProductIdentifiersAsync(IEnumerable<XElement> codeElements, Product product, SplParseContext context)
+        /// <summary>
+        /// Creates and saves ProductIdentifier entities from a collection of code XML elements.
+        /// </summary>
+        /// <param name="codeElements">The collection of XML code elements to process.</param>
+        /// <param name="product">The Product entity to associate identifiers with.</param>
+        /// <param name="context">The parsing context for repository access and logging.</param>
+        /// <returns>The number of ProductIdentifier records successfully created.</returns>
+        /// <remarks>
+        /// Validates that both code value and code system are present before creating identifiers.
+        /// Logs the creation of each identifier for audit purposes.
+        /// </remarks>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> saveProductIdentifiersAsync(IEnumerable<XElement> codeElements, Product product, SplParseContext context)
         {
+            #region implementation
             int count = 0;
             var repo = context.GetRepository<ProductIdentifier>();
+
+            // Process each code element to create identifiers
             foreach (var codeEl in codeElements)
             {
+                // Extract code value and system from XML attributes
                 string? codeVal = codeEl.GetAttrVal(sc.A.CodeValue);
                 string? codeSystem = codeEl.GetAttrVal(sc.A.CodeSystem);
+
+                // Skip elements that don't have required values
                 if (string.IsNullOrWhiteSpace(codeVal) || string.IsNullOrWhiteSpace(codeSystem))
                     continue;
 
+                // Create the identifier entity with inferred type
                 var identifier = new ProductIdentifier
                 {
                     ProductID = product.ProductID,
@@ -294,25 +579,49 @@ namespace MedRecPro.Service.ParsingServices
                     IdentifierType = inferIdentifierType(codeSystem)
                 };
 
+                // Save to database and track count
                 await repo.CreateAsync(identifier);
                 count++;
                 context.Logger.LogInformation($"ProductIdentifier created: ProductID={product.ProductID} Value={codeVal} OID={codeSystem}");
             }
             return count;
+            #endregion
         }
 
         /**************************************************************/
-        private async Task<int> SaveApprovalIdentifiersAsync(XElement mmEl, Product product, SplParseContext context)
+        /// <summary>
+        /// Creates and saves ProductIdentifier entities from approval/marketing code elements.
+        /// </summary>
+        /// <param name="mmEl">The manufacturedProduct XML element containing approval information.</param>
+        /// <param name="product">The Product entity to associate identifiers with.</param>
+        /// <param name="context">The parsing context for repository access and logging.</param>
+        /// <returns>The number of approval ProductIdentifier records successfully created.</returns>
+        /// <remarks>
+        /// Searches for approval codes in subjectOf/approval XML structures.
+        /// These typically contain regulatory approval numbers or marketing authorization codes.
+        /// </remarks>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> saveApprovalIdentifiersAsync(XElement mmEl, Product product, SplParseContext context)
         {
+            #region implementation
             int count = 0;
             var repo = context.GetRepository<ProductIdentifier>();
+
+            // Find all approval code elements in the XML structure
             foreach (var approvalCodeEl in mmEl.SplElements(sc.E.SubjectOf, sc.E.Approval, sc.E.Code))
             {
+                // Extract approval code details
                 string? codeVal = approvalCodeEl.GetAttrVal(sc.A.CodeValue);
                 string? codeSystem = approvalCodeEl.GetAttrVal(sc.A.CodeSystem);
+
+                // Skip if required values are missing
                 if (string.IsNullOrWhiteSpace(codeVal) || string.IsNullOrWhiteSpace(codeSystem))
                     continue;
 
+                // Create approval identifier entity
                 var identifier = new ProductIdentifier
                 {
                     ProductID = product.ProductID,
@@ -321,12 +630,107 @@ namespace MedRecPro.Service.ParsingServices
                     IdentifierType = inferIdentifierType(codeSystem)
                 };
 
+                // Save and log the approval identifier
                 await repo.CreateAsync(identifier);
                 count++;
                 context.Logger.LogInformation("Approval ProductIdentifier created: ProductID={ProductID} Value={IdentifierValue} OID={IdentifierSystemOID}",
                     product.ProductID, codeVal, codeSystem);
             }
             return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses, validates, and saves SpecializedKind entities from the manufacturedProduct XML element.
+        /// </summary>
+        /// <param name="mmEl">The manufacturedProduct XML element containing specialized kind information.</param>
+        /// <param name="product">The Product entity to associate specialized kinds with.</param>
+        /// <param name="context">The parsing context for repository access and logging.</param>
+        /// <param name="documentTypeCode">The document type code used for business rule validation.</param>
+        /// <returns>The number of SpecializedKind records successfully created after validation.</returns>
+        /// <remarks>
+        /// This method performs a three-step process:
+        /// 1. Parses all SpecializedKind entities from XML without saving
+        /// 2. Validates them against cosmetic category mutual exclusion business rules
+        /// 3. Saves only the validated entities to the database
+        /// 
+        /// Uses SpecializedKindValidator to enforce SPL Implementation Guide 3.4.3 rules.
+        /// </remarks>
+        /// <seealso cref="SpecializedKind"/>
+        /// <seealso cref="SpecializedKindValidator"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveSpecializedKindsAsync(
+        XElement mmEl,
+        Product product,
+        SplParseContext context,
+        string? documentTypeCode
+)
+        {
+            #region implementation
+            var repo = context.GetRepository<SpecializedKind>();
+            var allKinds = new List<SpecializedKind>();
+
+            // Step 1: Parse ALL SpecializedKind entities, but don't save yet
+            foreach (var asSpecializedKindEl in mmEl.SplElements(sc.E.AsSpecializedKind))
+            {
+                // Navigate to the code element within the specialized kind structure
+                var codeEl = asSpecializedKindEl
+                    .GetSplElement(sc.E.GeneralizedMaterialKind)?
+                    .GetSplElement(sc.E.Code);
+
+                if (codeEl == null)
+                {
+                    context.Logger.LogWarning("No <code> found under <generalizedMaterialKind> in <asSpecializedKind>; skipping.");
+                    continue;
+                }
+
+                // Extract and clean the code attributes
+                var kindCode = codeEl.GetAttrVal(sc.A.CodeValue)?.Trim();
+                var kindCodeSystem = codeEl.GetAttrVal(sc.A.CodeSystem)?.Trim();
+                var kindDisplayName = codeEl.GetAttrVal(sc.A.DisplayName)?.Trim();
+
+                // Validate required fields are present
+                if (string.IsNullOrWhiteSpace(kindCode) || string.IsNullOrWhiteSpace(kindCodeSystem))
+                {
+                    context.Logger.LogWarning("Missing code or codeSystem in <asSpecializedKind>/<code>; skipping.");
+                    continue;
+                }
+
+                // Create the specialized kind entity (not saved yet)
+                allKinds.Add(new SpecializedKind
+                {
+                    ProductID = product.ProductID,
+                    KindCode = kindCode,
+                    KindCodeSystem = kindCodeSystem,
+                    KindDisplayName = kindDisplayName
+                });
+            }
+
+            // Step 2: Validate with business rules for mutually exclusive cosmetic codes
+            var validatedKinds = SpecializedKindValidator.ValidateCosmeticCategoryRules(
+                allKinds,
+                documentTypeCode,
+                context.Logger,
+                out var rejectedKinds
+            );
+
+
+            // Step 3: Save validated entities to the database
+            int createdCount = 0;
+            foreach (var kind in validatedKinds)
+            {
+                await repo.CreateAsync(kind);
+                createdCount++;
+                context.Logger.LogInformation(
+                    $"Created SpecializedKind: code={kind.KindCode}, codeSystem={kind.KindCodeSystem}, displayName={kind.KindDisplayName} for ProductID {product.ProductID}"
+                );
+            }
+
+            return createdCount;
+            #endregion
         }
 
         /**************************************************************/

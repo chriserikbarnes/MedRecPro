@@ -169,7 +169,7 @@ namespace MedRecPro.Service.ParsingServices
             FileResult.ProductsCreated += parseResult.ProductsCreated;
             FileResult.SectionsCreated += parseResult.SectionsCreated;
             FileResult.IngredientsCreated += parseResult.IngredientsCreated;
-            FileResult.GenericsCreated += parseResult.ProductElementsCreated;
+            FileResult.ProductElementsCreated += parseResult.ProductElementsCreated;
 
 
             // Merge any errors encountered during parsing
@@ -215,6 +215,12 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <seealso cref="Label"/>
         public object? ParsedEntity { get; set; }
+
+        /// <summary>
+        /// Gets or sets the document code associated with the parsed entity, if applicable.
+        /// 
+        /// </summary>
+        public string? DocumentCode { get; set; } = null;
 
         /// <summary>
         /// Gets or sets the number of documents created during this parsing operation.

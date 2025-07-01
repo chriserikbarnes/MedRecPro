@@ -16,7 +16,7 @@ namespace MedRecPro.Models
         public int ProductsCreated { get; set; }
         public int SectionsCreated { get; set; }
         public int IngredientsCreated { get; set; }
-        public int GenericsCreated { get; set; }
+        public int ProductElementsCreated { get; set; }
         public List<string> Errors { get; set; } = new List<string>();
     }
 

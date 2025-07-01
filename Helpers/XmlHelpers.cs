@@ -128,6 +128,18 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Gets the decimal value of a specified attribute from an element.
+        /// </summary>
+        public static decimal? GetAttrDecimal(this XElement element, XName attributeName)
+        {
+            #region implementation
+            // Get the attribute and return its value if it exists
+            return Convert.ToDecimal(element.Attribute(attributeName)?.Value);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets the value of a specified attribute from a direct child element.
         /// This is a convenience method combining GetChild and GetAttributeValue.
         /// </summary>

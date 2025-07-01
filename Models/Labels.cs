@@ -1304,7 +1304,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents a level of packaging (&lt;asContent&gt;/&lt;containerPackagedProduct&gt;). Links to ProductID/PartProductID for definitions OR ProductInstanceID for lot distribution container data (16.2.8).
+        /// Represents a level of packaging (&lt;asContent&gt;/&lt;containerPackagedProduct&gt;). Links to ProductID/PartProductID for definitions OR ProductInstanceID for lot distribution container data (3.15 packaging, 16.2.8).
         /// </summary>
         public class PackagingLevel
         {
@@ -1330,9 +1330,24 @@ namespace MedRecPro.Models
             public decimal? QuantityNumerator { get; set; } // Made nullable
 
             /// <summary>
+            /// Corresponds to &lt;quantity&gt;&lt;denominator value&gt;.
+            /// </summary>
+            public decimal? QuantityDenominator { get; set; } // Made nullable
+
+            /// <summary>
             /// Corresponds to &lt;quantity&gt;&lt;numerator unit&gt;.
             /// </summary>
             public string? QuantityNumeratorUnit { get; set; } // Made nullable
+
+            /// <summary>
+            /// The package item code value (&lt;containerPackagedProduct&gt;&lt;code code="..." /&gt;).
+            /// </summary>
+            public string? PackageCode { get; set; }
+
+            /// <summary>
+            /// The code system OID for the package item code (&lt;containerPackagedProduct&gt;&lt;code codeSystem="..." /&gt;).
+            /// </summary>
+            public string? PackageCodeSystem { get; set; }
 
             /// <summary>
             /// Package type code, system, and display name (&lt;containerPackagedProduct&gt;&lt;formCode&gt;).

@@ -448,11 +448,7 @@ namespace MedRecPro.Helpers
                     continue;
                 }
 
-                // Check if the property is a foreign key (by naming convention '...ID')
-                // Skipping properties that end with 'GUID' to avoid confusion with GUIDs.
-                if (!prop.Name.EndsWith("GUID", StringComparison.OrdinalIgnoreCase)
-                    && (prop.Name.EndsWith("ID", StringComparison.OrdinalIgnoreCase)
-                    || prop.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase)))
+                if (isId(prop.Name))
                 {
                     // This is a foreign key property. Encrypt it.
                     object? fkValue = prop.GetValue(entity);
@@ -462,7 +458,7 @@ namespace MedRecPro.Helpers
                     {
                         try
                         {
-                            string encryptedFkString = StringCipher.Encrypt(fkValue.ToString()!, pkEncryptionSecret,StringCipher.EncryptionStrength.Fast);
+                            string encryptedFkString = StringCipher.Encrypt(fkValue.ToString()!, pkEncryptionSecret, StringCipher.EncryptionStrength.Fast);
                             dictionary[encryptedFkFieldName] = encryptedFkString;
                         }
                         catch (Exception ex)
@@ -491,6 +487,23 @@ namespace MedRecPro.Helpers
             return dictionary;
 
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Check if the property is a foreign key (by naming convention '...ID')
+        /// Skipping properties that end with 'GUID' to avoid confusion with GUIDs.
+        /// OID is also skipped to avoid confusion with SPL Object IDs.
+        /// </summary>
+        /// <param name="propName">prop.Name string</param>
+        /// <returns>True/False</returns>
+        private static bool isId(string propName)
+        {
+            // Check if the property name ends with 'ID' or 'Id' (case-insensitive)
+            return !propName.EndsWith("GUID", StringComparison.OrdinalIgnoreCase)
+                   && !propName.EndsWith("OID", StringComparison.Ordinal)
+                   && (propName.EndsWith("ID", StringComparison.OrdinalIgnoreCase)
+                       || propName.EndsWith("Id", StringComparison.OrdinalIgnoreCase));
         }
 
         /**************************************************************/
