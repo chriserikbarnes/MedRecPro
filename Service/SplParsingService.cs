@@ -59,6 +59,7 @@ namespace MedRecPro.Service
         /// </summary>
         /// <seealso cref="ISplSectionParser"/>
         private readonly Dictionary<string, ISplSectionParser> _sectionParsers = new();
+
         #endregion
 
         /**************************************************************/
@@ -144,6 +145,7 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="xmlContent">Raw XML content string to parse</param>
         /// <param name="fileNameInZip">Name of the file within the ZIP archive for logging</param>
+        /// <param name="reportProgress">Delegate for progress reporting</param>
         /// <returns>Import result containing success status, counts, and any errors encountered</returns>
         /// <example>
         /// <code>
@@ -169,7 +171,7 @@ namespace MedRecPro.Service
         /// <seealso cref="SplFileImportResult"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XDocument"/>
-        public async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent, string fileNameInZip)
+        public async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent, string fileNameInZip, Action<string>? reportProgress = null)
         {
             #region implementation
             var fileResult = new SplFileImportResult { FileName = fileNameInZip };
@@ -213,9 +215,13 @@ namespace MedRecPro.Service
             {
                 // --- Orchestration Logic ---
 
+                reportProgress?.Invoke($"Starting file {fileNameInZip}...");
+
                 // Step 1: Parse the root <document> element to establish parsing context
                 if (_sectionParsers.TryGetValue("document", out var documentParser))
                 {
+                    reportProgress?.Invoke("Parsing <document>...");
+
                     var docParseResult = await documentParser.ParseAsync(docEl, context);
                     context.UpdateFileResult(docParseResult);
 
@@ -235,6 +241,8 @@ namespace MedRecPro.Service
                 if (authorEl != null
                     && _sectionParsers.TryGetValue(sc.E.Author, out var authorParser))
                 {
+                    reportProgress?.Invoke("Parsing <author>...");
+
                     var authorParseResult = await authorParser.ParseAsync(authorEl, context);
                     context.UpdateFileResult(authorParseResult);
                 }
@@ -244,6 +252,8 @@ namespace MedRecPro.Service
                 if (structuredBodyEl != null
                     && _sectionParsers.TryGetValue(sc.E.StructuredBody.ToLower(), out var structuredBodyParser))
                 {
+                    reportProgress?.Invoke("Parsing <structuredBody>...");
+
                     var sbParseResult = await structuredBodyParser.ParseAsync(structuredBodyEl, context);
                     context.UpdateFileResult(sbParseResult);
                 }

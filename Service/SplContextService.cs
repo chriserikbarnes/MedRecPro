@@ -59,26 +59,26 @@ namespace MedRecPro.Service.ParsingServices
         /// Gets or sets the service provider for dependency injection.
         /// </summary>
         /// <seealso cref="Label"/>
-        public IServiceProvider ServiceProvider { get; set; }
+        public IServiceProvider? ServiceProvider { get; set; }
 
         /// <summary>
         /// Gets or sets the logger instance for recording parsing events and errors.
         /// </summary>
         /// <seealso cref="Label"/>
-        public ILogger Logger { get; set; }
+        public ILogger? Logger { get; set; }
 
         /// <summary>
         /// Gets or sets the cumulative result tracking for the current file import operation.
         /// </summary>
         /// <seealso cref="Label"/>
         /// <seealso cref="SplFileImportResult"/>
-        public SplFileImportResult FileResult { get; set; }
+        public SplFileImportResult? FileResult { get; set; }
 
         /// <summary>
         /// Gets or sets the name of the file being processed within the ZIP archive.
         /// </summary>
         /// <seealso cref="Label"/>
-        public string FileNameInZip { get; set; }
+        public string? FileNameInZip { get; set; }
 
         /// <summary>
         /// Gets or sets the current document being parsed from the SPL XML.
@@ -113,6 +113,13 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <seealso cref="Label"/>
         public int IngredientsCreated { get; set; }
+
+        /// <summary>
+        /// Optional delegate to post progress messages during parsing.
+        /// Parsers can use this to report their current activity.
+        /// </summary>
+        public Action<string>? ReportProgress { get; set; }
+
 
         #endregion
 

@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Reflection;
-
 using MedRecPro.Models; // From LabelClasses.cs
 using MedRecPro.DataAccess; // From LabelDataAccess.cs (Repository)
 using MedRecPro.Helpers;   // From DtoTransformer.cs (DtoTransformer, StringCipher)
@@ -64,6 +63,10 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         private readonly SplImportService _splImportService;
 
+        private readonly IBackgroundTaskQueueService _queue;
+
+        private readonly IOperationStatusStore _statusStore;
+
         #endregion
 
         /**************************************************************/
@@ -75,6 +78,8 @@ namespace MedRecPro.Api.Controllers
         /// <param name="logger">Logger instance for this controller</param>
         /// <param name="stringCipher">String cipher utility for encryption operations</param>
         /// <param name="splImportService">Service for importing zipped SPL files</param>
+        /// <param name="queue">Service for long running background tasks</param>
+        /// <param name="statusStore">Service for storing operation status</param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null</exception>
         /// <exception cref="InvalidOperationException">Thrown when PKSecret configuration is missing</exception>
         public LabelController(
@@ -82,7 +87,9 @@ namespace MedRecPro.Api.Controllers
             IConfiguration configuration,
             ILogger<LabelController> logger,
             StringCipher stringCipher,
-            SplImportService splImportService)
+            SplImportService splImportService,
+            IBackgroundTaskQueueService queue,
+            IOperationStatusStore statusStore)
         {
             #region implementation
 
@@ -96,6 +103,8 @@ namespace MedRecPro.Api.Controllers
             // Retrieve and validate the primary key encryption secret from configuration
             _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
+            _queue = queue;
+            _statusStore = statusStore;
 
             #endregion
         }
@@ -534,10 +543,10 @@ namespace MedRecPro.Api.Controllers
                 var dtoList = entities.Select(e => e.ToEntityWithEncryptedId(_pkEncryptionSecret, _logger)).ToList();
 
                 // Add pagination headers if paging was applied and total count is available
-                if (pageNumber.HasValue 
+                if (pageNumber.HasValue
                     && pageSize.HasValue)
                 {
-                    int totalCount = dtoList?.Count() ?? 0; 
+                    int totalCount = dtoList?.Count() ?? 0;
                     Response.Headers.Append("X-Page-Number", pageNumber.Value.ToString());
                     Response.Headers.Append("X-Page-Size", pageSize.Value.ToString());
                     Response.Headers.Append("X-Total-Count", totalCount.ToString());
@@ -892,17 +901,42 @@ namespace MedRecPro.Api.Controllers
         /// Each ZIP file should contain SPL XML files.
         /// </summary>
         /// <param name="files">List of ZIP files to import.</param>
+        /// <param name="cancellationToken">Disconnect cancelation</param>
         /// <returns>A summary of the import operation.</returns>
-        /// <response code="200">Import process completed. Check results for details.</response>
+        /// <response code="202">Import process queued. Check results for details.</response>
         /// <response code="400">If no files are provided or files are invalid.</response>
         /// <response code="500">If an unexpected error occurs during processing.</response>
+        /// <remarks>
+        /// This endpoint provides asynchronous processing of SPL ZIP file imports. The operation is queued
+        /// immediately and returns an operation ID that can be used to track progress. The ZIP files are
+        /// processed in background, extracting and parsing individual SPL XML files within each archive.
+        /// Progress updates and status changes are tracked via the status store and can be monitored
+        /// using the progress endpoint.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// POST /api/spl/import
+        /// Content-Type: multipart/form-data
+        /// 
+        /// // Upload multiple ZIP files containing SPL XML documents
+        /// // Returns: { "OperationId": "guid", "ProgressUrl": "/api/spl/import/progress/guid", ... }
+        /// </code>
+        /// </example>
+        /// <seealso cref="SplImportService"/>
+        /// <seealso cref="ImportOperationStatus"/>
+        /// <seealso cref="SplZipImportResult"/>
+        /// <seealso cref="Label"/>
         [HttpPost("import")]
-        [ProducesResponseType(typeof(List<SplZipImportResult>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ImportOperationStatus), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status499ClientClosedRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UploadSplZips(List<IFormFile> files)
+        public async Task<IActionResult> UploadSplZips(List<IFormFile> files, CancellationToken cancellationToken)
         {
             #region implementation
+            List<BufferedFile>? bufferedFiles = null;
+
+            // Validate that files were provided in the request
             if (files == null || !files.Any())
             {
                 return BadRequest("No files uploaded.");
@@ -910,18 +944,168 @@ namespace MedRecPro.Api.Controllers
 
             _logger.LogInformation("Received {FileCount} files for SPL import.", files.Count);
 
+            // Generate unique operation ID for tracking this import process
+            var operationId = Guid.NewGuid().ToString();
+            _logger.LogInformation("Queuing import for {FileCount} files, opId: {OpId}", files.Count, operationId);
+
+            CancellationToken disconnectedToken = HttpContext.RequestAborted;
+
+            CancellationTokenSource source = CancellationTokenSource
+                .CreateLinkedTokenSource(cancellationToken, disconnectedToken);
+
             try
             {
-                var results = await _splImportService.ProcessZipFilesAsync(files);
+                try
+                {
+                    bufferedFiles = await new BufferedFile().BufferFilesToTempAsync(files, cancellationToken);
 
-                return Ok(results);
+                    if (bufferedFiles == null || !bufferedFiles.Any())
+                    {
+                        _logger.LogWarning("No valid files were buffered for import.");
+                        return BadRequest("No valid files uploaded.");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Clean up any partially buffered files
+                    if (bufferedFiles != null)
+                    {
+                        foreach (var buffered in bufferedFiles)
+                        {
+                            try { System.IO.File.Delete(buffered.TempFilePath); } catch { }
+                        }
+                    }
+                    return StatusCode(StatusCodes.Status499ClientClosedRequest); // 499 (non-standard) = Client Closed Request
+                }
+
+                var progressUrl = Url.Action("GetImportProgress", new { operationId });
+
+                // Queue the background processing task
+                _queue.Enqueue(operationId, async token =>
+                {
+                    // Update status to indicate processing has started
+                    var status = new ImportOperationStatus {
+                        Status = "Queued",
+                        PercentComplete = 0,
+                        OperationId = operationId,
+                        ProgressUrl = progressUrl
+                    };
+
+                    _statusStore.Set(operationId, status);
+
+                    try
+                    {
+                        // Process ZIP files with progress and status callbacks
+                        List<SplZipImportResult> results = await _splImportService.ProcessZipFilesAsync(
+                            bufferedFiles,
+                            source.Token,
+                            progress =>
+                            {
+                                // Update progress percentage during processing
+                                status.PercentComplete = progress;
+                                status.OperationId = operationId;
+                                status.ProgressUrl = progressUrl;
+                                _statusStore.Set(operationId, status);
+                            },
+                            message =>
+                            {
+                                // Update status message during processing
+                                status.Status = message;
+                                status.OperationId = operationId;
+                                status.ProgressUrl = progressUrl;
+                                _statusStore.Set(operationId, status);
+                            },
+                            results =>
+                            {
+                                // Store results when processing is complete
+                                status.Results = results;
+                                status.OperationId = operationId;
+                                status.ProgressUrl = progressUrl;
+                                _statusStore.Set(operationId, status);
+                            }
+                        );
+
+                        // Mark operation as completed and store results
+                        status.Status = "Completed";
+                        status.PercentComplete = 100;
+                        status.Results = results; // fixed: assign the list
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Handle cancellation gracefully
+                        status.Status = "Canceled";
+                    }
+                    catch (Exception ex)
+                    {
+                        // Handle any processing errors
+                        status.Status = "Failed";
+                        status.Error = ex.Message;
+                    }
+                    finally
+                    {
+                        foreach (var buffered in bufferedFiles)
+                        {
+                            try { System.IO.File.Delete(buffered.TempFilePath); } catch { }
+                        }
+                    }
+
+                    // Persist final status regardless of outcome
+                    _statusStore.Set(operationId, status);
+                });
+
+                // Return accepted response with operation tracking information
+                return Accepted(new
+                {
+                    OperationId = operationId,
+                    ProgressUrl = Url.Action("GetImportProgress", new { operationId })
+                });
             }
             catch (System.Exception ex)
             {
+                // Handle any unexpected errors during queue setup
                 _logger.LogError(ex, "Unhandled exception during SPL ZIP import.");
-
                 return StatusCode(StatusCodes.Status500InternalServerError, "An unexpected error occurred during import.");
             }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the current progress and status of a previously queued SPL import operation.
+        /// </summary>
+        /// <param name="operationId">The unique identifier for the import operation to check.</param>
+        /// <returns>The current status and progress information for the specified operation.</returns>
+        /// <response code="200">Returns the current operation status and progress.</response>
+        /// <response code="404">If the operation ID is not found or has expired.</response>
+        /// <remarks>
+        /// This endpoint allows clients to poll for updates on long-running import operations.
+        /// The status includes completion percentage, current processing stage, any error messages,
+        /// and final results once the operation completes. Operation statuses include: Queued, 
+        /// Running, Completed, Canceled, and Failed.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/spl/import/progress/{operationId}
+        /// 
+        /// // Returns: ImportOperationStatus with current progress and status
+        /// // { "Status": "Running", "PercentComplete": 45, "Results": null, "Error": null }
+        /// </code>
+        /// </example>
+        /// <seealso cref="ImportOperationStatus"/>
+        /// <seealso cref="SplZipImportResult"/>
+        /// <seealso cref="Label"/>
+        [ProducesResponseType(typeof(ImportOperationStatus), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [HttpGet("import/progress/{operationId}")]
+        public IActionResult getImportProgress(string operationId)
+        {
+            #region implementation
+            // Attempt to retrieve the operation status from the store
+            if (_statusStore.TryGet(operationId, out var status))
+                return Ok(status);
+
+            // Return 404 if the operation ID is not found or has expired
+            return NotFound();
             #endregion
         }
 

@@ -22,41 +22,30 @@ namespace MedRecPro.Service
     public class SplImportService
     {
         #region private fields
-        /// <summary>
-        /// Service provider for dependency injection and service resolution.
-        /// </summary>
-        private readonly IServiceProvider _serviceProvider;
 
         /// <summary>
         /// Logger instance for tracking import operations and debugging issues.
         /// </summary>
         private readonly ILogger<SplImportService> _logger;
 
-        /// <summary>
-        /// XML parser service responsible for parsing SPL XML content and saving data to the database.
-        /// </summary>
-        private readonly SplXmlParser _xmlParser; // If SplXmlParser is registered as a service
-                                                  // Or: private readonly SplXmlParser _xmlParser = new SplXmlParser(...); if not DI
+        private readonly IServiceScopeFactory _scopeFactory;
         #endregion
 
         /**************************************************************/
         /// <summary>
         /// Initializes a new instance of the SplImportService with required dependencies.
         /// </summary>
-        /// <param name="serviceProvider">Service provider for dependency injection</param>
+        /// <param name="scopeFactory">Service provider for dependency injection</param>
         /// <param name="logger">Logger for tracking operations and errors</param>
-        /// <param name="xmlParser">XML parser service for processing SPL data</param>
         /// <example>
         /// // Typically injected via dependency injection container
         /// services.AddScoped&lt;SplImportService&gt;();
         /// </example>
-        public SplImportService(IServiceProvider serviceProvider, ILogger<SplImportService> logger, SplXmlParser xmlParser)
+        public SplImportService(IServiceScopeFactory scopeFactory, ILogger<SplImportService> logger)
         {
-            #region implementation
-            // Initialize all required dependencies for the service
-            _serviceProvider = serviceProvider;
+            #region implementation          
+            _scopeFactory = scopeFactory;
             _logger = logger;
-            _xmlParser = xmlParser; // Assumes SplXmlParser is registered
             #endregion
         }
 
@@ -65,28 +54,49 @@ namespace MedRecPro.Service
         /// Processes multiple ZIP files containing SPL XML data asynchronously.
         /// Each ZIP file is extracted and its XML entries are parsed and saved to the database.
         /// </summary>
-        /// <param name="zipFiles">Collection of uploaded ZIP files to process</param>
+        /// <param name="bufferedFiles">Collection of uploaded ZIP files to process</param>
+        /// <param name="token">Cancellation token from caller</param>
+        /// <param name="fileCounter">Delegate for tracking progress</param>
+        /// <param name="updateStatus">Delegate for tracking import status</param>
+        /// <param name="results">Delegate for tracking the results </param>
         /// <returns>A list of SplZipImportResult objects containing the results for each ZIP file processed</returns>
         /// <example>
+        /// <code>
         /// var zipFiles = Request.Form.Files.Where(f => f.FileName.EndsWith(".zip")).ToList();
         /// var results = await splImportService.ProcessZipFilesAsync(zipFiles);
         /// foreach(var result in results)
         /// {
         ///     Console.WriteLine($"Processed {result.ZipFileName}: {result.FileResults.Count} files");
         /// }
+        /// </code>
         /// </example>
         /// <remarks>
         /// This method handles errors gracefully and continues processing remaining files even if individual files fail.
         /// Empty ZIP files and non-XML entries are logged but do not stop the overall process.
+        /// Uses dependency injection scopes to ensure proper resource management for each XML parsing operation.
+        /// Progress reporting is calculated based on processed file count relative to total buffered files.
         /// </remarks>
-        public async Task<List<SplZipImportResult>> ProcessZipFilesAsync(List<IFormFile> zipFiles)
+        /// <seealso cref="SplZipImportResult"/>
+        /// <seealso cref="SplFileImportResult"/>
+        /// <seealso cref="BufferedFile"/>
+        /// <seealso cref="SplXmlParser"/>
+        /// <seealso cref="Label"/>
+        public async Task<List<SplZipImportResult>> processZipFilesAsync(
+            List<BufferedFile> bufferedFiles,
+            CancellationToken token,
+            Action<int> fileCounter,
+            Action<string>? updateStatus = null,
+            Action<List<SplZipImportResult>>? results = null)
         {
             #region implementation
             // Initialize collection to store results from all ZIP files
             var allZipResults = new List<SplZipImportResult>();
 
+            // Counter to track progress percentage across all files
+            int count = 0;
+
             // Process each ZIP file individually to ensure one failure doesn't affect others
-            foreach (var zipFile in zipFiles)
+            foreach (var zipFile in bufferedFiles)
             {
                 // Create result object for this specific ZIP file
                 var zipResult = new SplZipImportResult { ZipFileName = zipFile.FileName };
@@ -95,21 +105,24 @@ namespace MedRecPro.Service
 
                 _logger.LogInformation("Processing ZIP file: {ZipFileName}", zipFile.FileName);
 
-                // Check if ZIP file has content before attempting to process
-                if (zipFile.Length == 0)
-                {
-                    _logger.LogWarning("ZIP file {ZipFileName} is empty.", zipFile.FileName);
-                    // Add a file result indicating empty zip or handle as needed
-                    var emptyFileResult = new SplFileImportResult { FileName = "ZIP Archive", Success = false, Message = "ZIP file is empty or invalid." };
-                    zipResult.FileResults.Add(emptyFileResult);
-                    continue; // Skip to next ZIP file
-                }
-
                 try
                 {
-                    // Open and read the ZIP archive contents
-                    using var stream = zipFile.OpenReadStream();
+                    // Open and read the ZIP archive contents from temporary file path
+                    using var stream = new FileStream(zipFile.TempFilePath, FileMode.Open, FileAccess.Read);
 
+                    // Check if ZIP file has content before attempting to process
+                    if (stream.Length == 0)
+                    {
+                        _logger.LogWarning("ZIP file {ZipFileName} is empty.", zipFile.FileName);
+
+                        // Add a file result indicating empty zip or handle as needed
+                        var emptyFileResult = new SplFileImportResult { FileName = "ZIP Archive", Success = false, Message = "ZIP file is empty or invalid." };
+
+                        zipResult.FileResults.Add(emptyFileResult);
+                        continue; // Skip to next ZIP file
+                    }
+
+                    // Open the ZIP archive for reading entries
                     using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
 
                     // Process each entry in the ZIP archive
@@ -122,19 +135,39 @@ namespace MedRecPro.Service
 
                             // Extract XML content from the archive entry
                             string xmlContent;
+
+                            // Read the XML content using UTF-8 encoding
                             using (var entryStream = entry.Open())
                             using (var reader = new StreamReader(entryStream, Encoding.UTF8)) // Assuming UTF-8
                             {
                                 xmlContent = await reader.ReadToEndAsync();
                             }
 
-                            var fileImportResult = await _xmlParser.ParseAndSaveSplDataAsync(xmlContent, entry.FullName);
+                            // Create a new scope for dependency injection to ensure proper resource management
+                            using (var scope = _scopeFactory.CreateScope())
+                            {
+                                // Get the XML parser service from the scoped provider
+                                var xmlParser = scope.ServiceProvider
+                                    .GetRequiredService<SplXmlParser>();
 
-                            // Original call -- deprecated by above
-                            // Parse the XML content and save to database
-                            //var fileImportResult = await _xmlParser.ParseAndSaveSplDataAsync_original(xmlContent, entry.FullName);
+                                // Parse and save the SPL data from the XML content
+                                var fileImportResult = await xmlParser
+                                    .ParseAndSaveSplDataAsync(xmlContent,
+                                    entry.FullName,
+                                    updateStatus);
 
-                            zipResult.FileResults.Add(fileImportResult);
+                                // Add the result to the ZIP result collection
+                                zipResult.FileResults.Add(fileImportResult);
+
+                                // Invoke results callback if provided to update calling code
+                                results?.Invoke(allZipResults.ToList());
+                            }
+
+                            count++;
+
+                            // Report progress to the caller based on files processed
+                            int pct = (int)((count / (float)bufferedFiles.Count) * 100);
+                            fileCounter(pct);
                         }
                         else
                         {

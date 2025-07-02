@@ -57,6 +57,12 @@ builder.Services.AddScoped<SplImportService>();
 
 builder.Services.AddTransient<StringCipher>();
 
+builder.Services.AddSingleton<IBackgroundTaskQueueService, BackgroundTaskQueueService>();
+
+builder.Services.AddSingleton<IOperationStatusStore, InMemoryOperationStatusStore>();
+
+builder.Services.AddHostedService<ZipImportWorkerService>();
+
 builder.Services.AddEndpointsApiExplorer();
 
 #region User and Authentication
