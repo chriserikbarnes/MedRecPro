@@ -81,7 +81,7 @@ namespace MedRecPro.Service
         /// <seealso cref="BufferedFile"/>
         /// <seealso cref="SplXmlParser"/>
         /// <seealso cref="Label"/>
-        public async Task<List<SplZipImportResult>> processZipFilesAsync(
+        public async Task<List<SplZipImportResult>> ProcessZipFilesAsync(
             List<BufferedFile> bufferedFiles,
             CancellationToken token,
             Action<int> fileCounter,
