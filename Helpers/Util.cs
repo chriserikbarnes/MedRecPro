@@ -40,6 +40,7 @@ namespace MedRecPro.Helpers
         {
             _httpContextAccessor = httpContextAccessor;
         }
+
         /**************************************************************/
         /// <summary>
         /// Safely parses a string to a nullable integer.
@@ -47,6 +48,14 @@ namespace MedRecPro.Helpers
         /// <param name="value">String value to parse</param>
         /// <returns>Parsed integer or null if parsing fails</returns>
         public static int? ParseNullableInt(string value) => int.TryParse(value, out int result) ? result : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Safely parses a string to a nullable decimal.
+        /// </summary>
+        /// <param name="value">String value to parse</param>
+        /// <returns>Parsed decimal or null if parsing fails</returns>
+        public static decimal? ParseNullableDecimal(string value) => decimal.TryParse(value, out decimal result) ? result : null;
 
         /**************************************************************/
         /// <summary>
@@ -99,7 +108,7 @@ namespace MedRecPro.Helpers
         /// </summary>
         /// <param name="value">String value to parse</param>
         /// <returns>Parsed boolean or null if parsing fails</returns>
-        public static bool? parseNullableBool(string value) => bool.TryParse(value, out bool result) ? result : (bool?)null;
+        public static bool? ParseNullableBoolWithStringValue(string value) => bool.TryParse(value, out bool result) ? result : (bool?)null;
 
         /**************************************************************/
         /// <summary>

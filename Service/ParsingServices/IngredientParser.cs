@@ -55,7 +55,9 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="element">The XElement representing the ingredient section to parse.</param>
         /// <param name="context">The current parsing context containing the product to link ingredients to.</param>
+        /// <param name="sequenceNumber">Optional sequence number for ordering ingredients.</param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
         /// <example>
         /// <code>
         /// var parser = new IngredientParser();
@@ -82,10 +84,22 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Ingredient"/>
         /// <seealso cref="IngredientSubstance"/>
         /// <seealso cref="Label"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context)
+        public async Task<SplParseResult> ParseAsync(XElement element, 
+            SplParseContext context,
+            Action<string>? reportProgress)
         {
             #region implementation
             var result = new SplParseResult();
+
+            // Validate context
+            if (context == null || context.Logger == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Parsing context is null or logger is null.");
+                return result;
+            }
+
+            reportProgress?.Invoke($"Starting Ingredient XML Element {context.FileNameInZip}");
 
             // 1. Validate preconditions and find the core element
             if (!tryValidatePreconditions(element, context, result, out var ingredientSubstanceEl))
@@ -101,7 +115,10 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 // 2. Get or create the required substance entities from the database
-                var (substance, specifiedSubstanceId) = await getOrCreateSubstanceEntitiesAsync(ingredientSubstanceEl, context, element.GetAttrVal(sc.A.ClassCode));
+                var (substance, specifiedSubstanceId) = await getOrCreateSubstanceEntitiesAsync(ingredientSubstanceEl, 
+                    context, 
+                    element.GetAttrVal(sc.A.ClassCode),
+                    reportProgress);
 
                 // Get the substance element name
                 string ingredientSubstanceEnclosingElement = ingredientSubstanceEl.Name.LocalName;
@@ -112,16 +129,19 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 // 3. Build the Ingredient object from the XML data (no DB calls here)
-                var ingredient = buildIngredient(element, 
+                Ingredient ingredient = buildIngredient(element, 
                     context, 
                     substance.IngredientSubstanceID.Value, 
-                    specifiedSubstanceId, 
+                    specifiedSubstanceId,
+                    context.SeqNumber,
                     ingredientSubstanceEnclosingElement);
 
                 // 4. Persist the new Ingredient to the database
                 await saveIngredientAsync(ingredient, context);
 
                 result.IngredientsCreated++;
+
+                reportProgress?.Invoke($"Completed Ingredient XML Element {context.FileNameInZip}");
             }
             catch (Exception ex)
             {
@@ -191,16 +211,20 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="ingredientSubstanceEl">The XML element containing ingredient substance data.</param>
         /// <param name="context">The current parsing context containing database access services.</param>
         /// <param name="ingredientClassCode">The class code for the ingredient e.g. classCode="IACT"</param>
+        /// <param name="reportProgress">Report operational progress</param>
         /// <returns>A tuple containing the IngredientSubstance and the SpecifiedSubstanceID.</returns>
         /// <seealso cref="IngredientSubstance"/>
         /// <seealso cref="SpecifiedSubstance"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private async Task<(IngredientSubstance substance, int specifiedSubstanceId)> getOrCreateSubstanceEntitiesAsync(XElement ingredientSubstanceEl, SplParseContext context, string? ingredientClassCode)
+        private async Task<(IngredientSubstance substance, int specifiedSubstanceId)> getOrCreateSubstanceEntitiesAsync(XElement ingredientSubstanceEl, 
+            SplParseContext context, 
+            string? ingredientClassCode, 
+            Action<string>? reportProgress)
         {
             #region implementation
             // Get or create the main ingredient substance entity
-            var substance = await getOrCreateIngredientSubstanceAsync(ingredientSubstanceEl, context, ingredientClassCode);
+            var substance = await getOrCreateIngredientSubstanceAsync(ingredientSubstanceEl, context, ingredientClassCode, reportProgress);
 
             if (substance?.IngredientSubstanceID == null)
             {
@@ -230,12 +254,18 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="context">The current parsing context.</param>
         /// <param name="ingredientSubstanceId">The ID of the associated ingredient substance.</param>
         /// <param name="specifiedSubstanceId">The ID of the associated specified substance.</param>
+        /// <param name="sequenceNumber">Sequence number for ordering ingredients.</param>
         /// <param name="ingredientSubElementName">Holds the name of the ingredient substance name</param>
         /// <returns>A new Ingredient object.</returns>
         /// <seealso cref="Ingredient"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private Ingredient buildIngredient(XElement element, SplParseContext context, int ingredientSubstanceId, int specifiedSubstanceId, string? ingredientSubElementName)
+        private Ingredient buildIngredient(XElement element, 
+            SplParseContext context, 
+            int ingredientSubstanceId, 
+            int specifiedSubstanceId, 
+            int sequenceNumber,
+            string? ingredientSubElementName)
         {
             #region implementation
 
@@ -251,6 +281,7 @@ namespace MedRecPro.Service.ParsingServices
                 ProductID = context?.CurrentProduct?.ProductID,
                 IngredientSubstanceID = ingredientSubstanceId,
                 SpecifiedSubstanceID = specifiedSubstanceId,
+                SequenceNumber = sequenceNumber,
                 OriginatingElement = element.Name.LocalName,
                 ClassCode = classCode,
                 IsConfidential = element.GetSplElementAttrVal(sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
@@ -386,6 +417,14 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
 
+            if(substanceEl == null 
+                || context == null 
+                || context.Logger == null
+                || context.ServiceProvider == null)
+            {
+                return null;
+            }
+
             #region extract substance data from xml
             // Extract substance identification codes from the XML element
             var substanceCode = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue);
@@ -446,6 +485,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="substanceEl">The XElement representing the ingredientSubstance to process.</param>
         /// <param name="context">The current parsing context containing database access services.</param>
         /// <param name="ingredientClassCode">The class code for the ingredient e.g. classCode="IACT"</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param> 
         /// <returns>An IngredientSubstance entity, either existing or newly created, or null if creation fails.</returns>
         /// <example>
         /// <code>
@@ -472,9 +512,18 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private async Task<IngredientSubstance?> getOrCreateIngredientSubstanceAsync(XElement substanceEl, 
             SplParseContext context, 
-            string? ingredientClassCode)
+            string? ingredientClassCode,
+            Action<string>? reportProgress)
         {
             #region implementation
+            if(substanceEl == null
+                || context == null
+                || context.Logger == null
+                || context.ServiceProvider == null)
+            {
+                return null;
+            }
+
             // Extract UNII code from the code element's codeValue attribute
             var unii = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue);
 
@@ -507,6 +556,7 @@ namespace MedRecPro.Service.ParsingServices
             if (existingSubstance != null)
             {
                 context.Logger.LogDebug("Found existing IngredientSubstance '{Name}' with UNII {UNII}", name, unii);
+                reportProgress?.Invoke($"Skipped Existing Ingredient {existingSubstance.SubstanceName} for file {context.FileNameInZip}");
                 return existingSubstance;
             }
 
@@ -524,6 +574,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 var repo = context.GetRepository<IngredientSubstance>();
                 await repo.CreateAsync(nonNormalizedSubstance);
+                reportProgress?.Invoke($"Added Ingredient {nonNormalizedSubstance.SubstanceName} for file {context.FileNameInZip}");
                 return nonNormalizedSubstance;
             }
 
@@ -545,6 +596,8 @@ namespace MedRecPro.Service.ParsingServices
             // If the substance has an active moiety, create it
             if (newSubstance != null && newSubstance.IngredientSubstanceID > 0)
                 await createActiveMoietyAsync(substanceEl, newSubstance.IngredientSubstanceID.Value, context);
+
+            reportProgress?.Invoke($"Added Ingredient {newSubstance?.SubstanceName} for file {context.FileNameInZip}");
 
             return newSubstance;
             #endregion

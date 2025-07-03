@@ -134,6 +134,7 @@
             public const string Subject = "subject";
             public const string SubjectOf = "subjectOf";
             public const string ManufacturedProduct = "manufacturedProduct";
+            public const string ManufacturedMaterialKind = "manufacturedMaterialKind";
             public const string FormCode = "formCode";
             public const string Suffix = "suffix";
             public const string Desc = "desc";

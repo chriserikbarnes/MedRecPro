@@ -45,6 +45,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="element">The XElement representing the document section to parse.</param>
         /// <param name="context">The current parsing context that will be updated with the created document.</param>
+        /// <param name="reportProgress">Progress delegate reporter</param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
         /// <example>
         /// <code>
@@ -70,13 +71,24 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Document"/>
         /// <seealso cref="XElement"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null)
         {
             #region implementation
             var result = new SplParseResult();
 
+            // Validate context
+            if (context == null || context.Logger == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Parsing context is null or logger is null.");
+                return result;
+            }
+
             try
             {
+
+                reportProgress?.Invoke($"Starting Document XML Elements {context.FileNameInZip}");
+
                 // Extract document metadata from the XML element
                 var document = parseDocumentElement(element, context.Logger);
 
@@ -110,6 +122,8 @@ namespace MedRecPro.Service.ParsingServices
                 // Log successful document creation
                 context.Logger.LogInformation("Created Document with ID {DocumentID} for file {FileName}",
                     document?.DocumentID, context.FileNameInZip);
+
+                reportProgress?.Invoke($"Completed Document XML Elements {context.FileNameInZip}");
             }
             catch (Exception ex)
             {
@@ -166,7 +180,7 @@ namespace MedRecPro.Service.ParsingServices
                 var ce = docEl.Element(ns + sc.E.Code);
 
                 // Create and populate the Document entity with extracted metadata
-                return new Document
+                var document = new Document
                 {
                     // Extract document GUID from the id element's root attribute
                     DocumentGUID = Util.ParseNullableGuid(docEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root) ?? string.Empty),
@@ -192,6 +206,8 @@ namespace MedRecPro.Service.ParsingServices
                     // Extract and parse version number from the versionNumber element's value attribute
                     VersionNumber = Util.ParseNullableInt(docEl.GetSplElementAttrVal(sc.E.VersionNumber, sc.A.Value) ?? string.Empty),
                 };
+
+                return document;
             }
             catch (Exception ex)
             {

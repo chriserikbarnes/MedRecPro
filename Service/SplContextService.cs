@@ -33,11 +33,13 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="element">The XML element to parse from the SPL document.</param>
         /// <param name="context">The parsing context containing shared state and dependencies.</param>
+        /// <param name="reportProgress">Reporter for progress</param>
         /// <returns>A task representing the asynchronous parsing operation with the parse result.</returns>
         /// <seealso cref="Label"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseResult"/>
-        Task<SplParseResult> ParseAsync(XElement element, SplParseContext context);
+        Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress);
+
     }
 
     /**************************************************************/
@@ -54,6 +56,11 @@ namespace MedRecPro.Service.ParsingServices
     public class SplParseContext
     {
         #region implementation
+
+        /// <summary>
+        /// Gets or sets the sequence number for the current parsing operation.
+        /// </summary>
+        public int SeqNumber { get; set; } = 0;
 
         /// <summary>
         /// Gets or sets the service provider for dependency injection.

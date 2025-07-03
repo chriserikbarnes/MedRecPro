@@ -45,6 +45,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="xEl">The XElement representing the section element to parse.</param>
         /// <param name="context">The current parsing context containing the structuredBody to link sections to.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
         /// <example>
         /// <code>
@@ -74,10 +75,20 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Section"/>
         /// <seealso cref="ManufacturedProductParser"/>
-        public async Task<SplParseResult> ParseAsync(XElement xEl, SplParseContext context)
+        public async Task<SplParseResult> ParseAsync(XElement xEl, 
+            SplParseContext context, 
+            Action<string>? reportProgress = null)
         {
             #region implementation
             var result = new SplParseResult();
+
+            // Validate context
+            if (context == null || context.Logger == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Parsing context is null or logger is null.");
+                return result;
+            }
 
             // Validate that we have a valid structuredBody context to link sections to
             if (context.StructuredBody?.StructuredBodyID == null)
@@ -89,6 +100,9 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
+
+                reportProgress?.Invoke($"Starting Section XML Elements {context.FileNameInZip}");
+
                 // Create the Section entity with extracted metadata
                 var section = new Section
                 {
@@ -131,12 +145,14 @@ namespace MedRecPro.Service.ParsingServices
                 {
                     // Create and delegate to the manufacturedProduct parser
                     var productParser = new ManufacturedProductParser();
-                    var productResult = await productParser.ParseAsync(productEl, context);
+                    var productResult = await productParser.ParseAsync(productEl, context, reportProgress);
                     result.MergeFrom(productResult); // Aggregate results from product parsing
                 }
 
                 // Restore the previous section context to avoid side effects on other parsers
                 context.CurrentSection = oldSection;
+
+                reportProgress?.Invoke($"Completed Section XML Elements {context.FileNameInZip}");
             }
             catch (Exception ex)
             {

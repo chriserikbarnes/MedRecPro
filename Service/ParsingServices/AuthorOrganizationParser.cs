@@ -5,6 +5,7 @@ using MedRecPro.Helpers;
 using static MedRecPro.Models.Label;
 using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants;
+using MedRecPro.Models;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -46,6 +47,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="element">The XElement representing the author section to parse.</param>
         /// <param name="context">The current parsing context containing document and service information.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
         /// <example>
         /// <code>
@@ -67,10 +69,19 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XElement"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context)
+        public async Task<SplParseResult> ParseAsync(XElement element,
+            SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
             var result = new SplParseResult();
+
+            // Validate context
+            if (context == null || context.Logger == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Parsing context is null or logger is null.");
+                return result;
+            }
 
             // Validate that we have a valid document context to work with
             if (context.Document?.DocumentID == null)
@@ -80,10 +91,12 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
+            reportProgress?.Invoke($"Starting Author XML Elements {context.FileNameInZip}");
+
             // Navigate to the organization element using the SPL structure constants
             // Path: author/assignedEntity/representedOrganization
             var authorOrgElement = element.GetSplElement(sc.E.AssignedEntity)
-                                          ?.GetSplElement(sc.E.RepresentedOrganization);
+                ?.GetSplElement(sc.E.RepresentedOrganization);
 
             // If no organization element found, log warning and return successful result
             if (authorOrgElement == null)
@@ -95,7 +108,7 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
-                // Step 1: Get or Create the Organization entity
+                // --- PARSE ORGANIZATION ---
                 var (organization, orgCreated) = await getOrCreateOrganizationAsync(authorOrgElement, context);
 
                 // Validate that we successfully obtained an organization
@@ -110,7 +123,7 @@ namespace MedRecPro.Service.ParsingServices
                 if (orgCreated)
                 {
                     result.OrganizationsCreated++;
-                    context.Logger.LogInformation("Created new Organization (Author) '{OrgName}' with ID {OrganizationID}",
+                    context?.Logger?.LogInformation("Created new Organization (Author) '{OrgName}' with ID {OrganizationID}",
                         organization.OrganizationName, organization.OrganizationID);
                 }
                 else
@@ -119,9 +132,9 @@ namespace MedRecPro.Service.ParsingServices
                         organization.OrganizationName, organization.OrganizationID);
                 }
 
-                // Step 2: Get or Create the DocumentAuthor link between document and organization
+                // --- PARSE AUTHOR ---
                 var (_, docAuthorCreated) = await getOrCreateDocumentAuthorAsync(
-                    context.Document.DocumentID.Value,
+                    context!.Document.DocumentID.Value,
                     organization.OrganizationID.Value,
                     "Labeler",
                     context);
@@ -131,7 +144,15 @@ namespace MedRecPro.Service.ParsingServices
                 {
                     context.Logger.LogInformation("Created DocumentAuthor link for DocumentID {DocumentID} and OrganizationID {OrganizationID}",
                        context.Document.DocumentID.Value, organization.OrganizationID.Value);
+
+                    reportProgress?.Invoke($"Completed Author XML Elements {context.FileNameInZip}");
                 }
+
+
+                // --- PARSE DOCUMENT RELATIONSHIP ---
+                var relationshipsCount = await parseAndSaveDocumentRelationshipsAsync(
+                    element, context, context.Document.DocumentID.Value, organization.OrganizationID.Value);
+                result.OrganizationsCreated += relationshipsCount;
             }
             catch (Exception ex)
             {
@@ -144,6 +165,227 @@ namespace MedRecPro.Service.ParsingServices
             return result;
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Defines hierarchical relationships between organizations within a document header (e.g., Labeler → Registrant → Establishment).
+        /// Parses and saves all DocumentRelationship entities at the Author level 
+        /// by examining author/assignedEntity/representedOrganization hierarchies.
+        /// </summary>
+        /// <param name="authorEl">The author XML element containing organization hierarchy information.</param>
+        /// <param name="context">The parsing context providing database access and logging services.</param>
+        /// <param name="documentId">The document ID to associate relationships with.</param>
+        /// <param name="lablelerId">The labeler organization ID as the root of the hierarchy.</param>
+        /// <returns>The count of DocumentRelationship records created.</returns>
+        /// <remarks>
+        /// Describes the specific relationship types including:
+        /// - LabelerToRegistrant (4.1.3 [cite: 788])
+        /// - RegistrantToEstablishment (4.1.4 [cite: 791]) 
+        /// - EstablishmentToUSagent (6.1.4 [cite: 914])
+        /// - EstablishmentToImporter (6.1.5 [cite: 918])
+        /// - LabelerToDetails (5.1.3 [cite: 863])
+        /// - FacilityToParentCompany (35.1.6 [cite: 1695])
+        /// - LabelerToParentCompany (36.1.2.5 [cite: 1719])
+        /// - DocumentToBulkLotManufacturer (16.1.3)
+        /// 
+        /// Indicates the level in the hierarchy (e.g., 1 for Labeler, 2 for Registrant, 3 for Establishment).
+        /// Follows the SPL pattern: author → assignedEntity (labeler) → representedOrganization (registrant) → assignedEntity (establishment).
+        /// </remarks>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveDocumentRelationshipsAsync(
+            XElement authorEl,
+            SplParseContext context,
+            int documentId,
+            int lablelerId)
+        {
+            #region implementation
+            int count = 0;
+            var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
+
+            // Validate required context before proceeding
+            if (context == null || dbContext == null || context.Logger == null || context.Document?.DocumentID == null)
+                return count;
+
+            // Track the parent and all children for relationship building
+            Organization? labelerOrg = null;
+            Organization? registrantOrg = null;
+            List<Organization> establishmentOrgs = new List<Organization>();
+
+            // Helper: gets or creates an org from an assignedEntity/assignedOrganization element
+            async Task<Organization?> getOrgFromEntity(XElement entityEl)
+            {
+                #region implementation
+                // Look for either assignedOrganization or representedOrganization
+                var assignedOrgEl = entityEl.GetSplElement(sc.E.AssignedOrganization)
+                                     ?? entityEl.GetSplElement(sc.E.RepresentedOrganization);
+                if (assignedOrgEl == null)
+                    return null;
+
+                // Get or create the organization entity
+                var (org, _) = await getOrCreateOrganizationAsync(assignedOrgEl, context);
+                return org;
+                #endregion
+            }
+
+            // Traverse author/assignedEntity/representedOrganization tree
+            // Pattern: author → assignedEntity (labeler) → representedOrganization (registrant) → assignedEntity (establishment)
+            var labelerEntityEl = authorEl.GetSplElement(sc.E.AssignedEntity);
+            if (labelerEntityEl != null)
+            {
+                // Get the labeler organization from the assigned entity
+                labelerOrg = await getOrgFromEntity(labelerEntityEl);
+
+                // Registrant: Look for representedOrganization/assignedEntity under labeler
+                var registrantRepOrgEl = labelerEntityEl.GetSplElement(sc.E.RepresentedOrganization);
+                if (registrantRepOrgEl != null)
+                {
+                    var registrantEntityEl = registrantRepOrgEl.GetSplElement(sc.E.AssignedEntity);
+                    if (registrantEntityEl != null)
+                    {
+                        // Get the registrant organization
+                        registrantOrg = await getOrgFromEntity(registrantEntityEl);
+
+                        if (registrantOrg?.OrganizationID != null)
+                        {
+                            // Save Labeler → Registrant relationship
+                            await saveOrGetDocumentRelationshipAsync(
+                                dbContext,
+                                documentId,
+                               lablelerId,
+                                registrantOrg.OrganizationID,
+                                "LabelerToRegistrant",
+                                2
+                            );
+                            count++;
+                            context.Logger.LogInformation(
+                                $"DocumentRelationship: Labeler ({labelerOrg?.OrganizationID}) → Registrant ({registrantOrg.OrganizationID}) saved.");
+                        }
+
+                        // Establishment(s): Look for assignedOrganization(s) under registrant entity
+                        foreach (var establishmentEntityEl in registrantEntityEl.SplElements(sc.E.AssignedEntity))
+                        {
+                            var establishmentOrg = await getOrgFromEntity(establishmentEntityEl);
+                            if (establishmentOrg != null
+                                && registrantOrg != null
+                                && establishmentOrg?.OrganizationID != null
+                                && registrantOrg.OrganizationID != null)
+                            {
+                                establishmentOrgs.Add(establishmentOrg);
+
+                                // Save Registrant → Establishment relationship
+                                await saveOrGetDocumentRelationshipAsync(
+                                    dbContext,
+                                    documentId,
+                                    registrantOrg.OrganizationID,
+                                    establishmentOrg.OrganizationID,
+                                    "RegistrantToEstablishment",
+                                    3
+                                );
+                                count++;
+                                context.Logger.LogInformation(
+                                    $"DocumentRelationship: Registrant ({registrantOrg.OrganizationID}) → Establishment ({establishmentOrg.OrganizationID}) saved.");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Save relationship with null child when no registrant entity found
+                        await saveOrGetDocumentRelationshipAsync(
+                            dbContext,
+                            documentId,
+                            lablelerId,
+                            null,
+                            null,
+                            1
+                        );
+                    }
+                }
+            }
+
+            // If only a Labeler was found, optionally record a relationship to itself or log as a single org
+            if (labelerOrg != null && count == 0)
+            {
+                context.Logger.LogInformation(
+                    $"No Registrant/Establishment found; Labeler OrganizationID={labelerOrg.OrganizationID}");
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing DocumentRelationship or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="docId">The document ID to associate with the relationship.</param>
+        /// <param name="parentOrgId">The parent organization ID in the relationship hierarchy.</param>
+        /// <param name="childOrgId">The child organization ID in the relationship hierarchy.</param>
+        /// <param name="relationshipType">The type of relationship between the organizations.</param>
+        /// <param name="relationshipLevel">The hierarchical level of the relationship.</param>
+        /// <returns>The existing or newly created DocumentRelationship entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern with fallback search logic. First attempts to find
+        /// an exact match on all parameters, then falls back to matching by document and parent
+        /// organization if no exact match is found. This supports scenarios where relationship
+        /// details may vary while maintaining organizational hierarchy integrity.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">Thrown when required parameters are null.</exception>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<DocumentRelationship> saveOrGetDocumentRelationshipAsync(
+            ApplicationDbContext dbContext,
+            int? docId,
+            int? parentOrgId,
+            int? childOrgId,
+            string? relationshipType,
+            int? relationshipLevel)
+        {
+            #region implementation
+            // Validate inputs to ensure data integrity
+            if (dbContext == null || docId == null || parentOrgId == null)
+                throw new ArgumentNullException("A required argument for DocumentRelationship is null.");
+
+            // Try to find an existing relationship with exact parameter match
+            var existing = await dbContext.Set<DocumentRelationship>().FirstOrDefaultAsync(dr =>
+                dr.DocumentID == docId &&
+                dr.ParentOrganizationID == parentOrgId &&
+                dr.ChildOrganizationID == childOrgId &&
+                dr.RelationshipType == relationshipType);
+
+            // Fallback: search by document and parent organization only
+            if (existing == null)
+            {
+                existing = await dbContext.Set<DocumentRelationship>().FirstOrDefaultAsync(dr =>
+                    dr.DocumentID == docId &&
+                    dr.ParentOrganizationID == parentOrgId);
+            }
+
+            // Return existing relationship if found
+            if (existing != null)
+                return existing;
+
+            // Create new relationship entity with provided parameters
+            var newRel = new DocumentRelationship
+            {
+                DocumentID = docId,
+                ParentOrganizationID = parentOrgId,
+                ChildOrganizationID = childOrgId,
+                RelationshipType = relationshipType,
+                RelationshipLevel = relationshipLevel
+            };
+
+            // Save the new relationship to database
+            dbContext.Set<DocumentRelationship>().Add(newRel);
+            await dbContext.SaveChangesAsync();
+            return newRel;
+            #endregion
+        }
+
 
         /**************************************************************/
         /// <summary>
@@ -176,6 +418,13 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
             // Extract organization name using the helper extension method
             var orgName = orgElement.GetSplElementVal(sc.E.Name)?.Trim();
+
+            if (context == null
+                || context.Logger == null
+                || context.ServiceProvider == null)
+            {
+                throw new ArgumentNullException(nameof(context), "Parsing context, logger, and provider cannot be null.");
+            }
 
             // Validate that we have a valid organization name
             if (string.IsNullOrWhiteSpace(orgName))
@@ -245,6 +494,14 @@ namespace MedRecPro.Service.ParsingServices
         private static async Task<(DocumentAuthor? DocumentAuthor, bool Created)> getOrCreateDocumentAuthorAsync(int docId, int orgId, string authorType, SplParseContext context)
         {
             #region implementation
+
+            if (context == null
+               || context.Logger == null
+               || context.ServiceProvider == null)
+            {
+                throw new ArgumentNullException(nameof(context), "Parsing context, logger, and provider cannot be null.");
+            }
+
             // Get database context and repository for document author operations
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var docAuthorRepo = context.GetRepository<DocumentAuthor>();

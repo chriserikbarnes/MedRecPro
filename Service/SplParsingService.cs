@@ -171,7 +171,9 @@ namespace MedRecPro.Service
         /// <seealso cref="SplFileImportResult"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XDocument"/>
-        public async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent, string fileNameInZip, Action<string>? reportProgress = null)
+        public async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent, 
+            string fileNameInZip, 
+            Action<string>? reportProgress = null)
         {
             #region implementation
             var fileResult = new SplFileImportResult { FileName = fileNameInZip };
@@ -222,7 +224,7 @@ namespace MedRecPro.Service
                 {
                     reportProgress?.Invoke("Parsing <document>...");
 
-                    var docParseResult = await documentParser.ParseAsync(docEl, context);
+                    var docParseResult = await documentParser.ParseAsync(docEl, context, reportProgress);
                     context.UpdateFileResult(docParseResult);
 
                     // If the root document fails to parse, we cannot continue processing
@@ -243,7 +245,7 @@ namespace MedRecPro.Service
                 {
                     reportProgress?.Invoke("Parsing <author>...");
 
-                    var authorParseResult = await authorParser.ParseAsync(authorEl, context);
+                    var authorParseResult = await authorParser.ParseAsync(authorEl, context, reportProgress);
                     context.UpdateFileResult(authorParseResult);
                 }
 
@@ -254,7 +256,7 @@ namespace MedRecPro.Service
                 {
                     reportProgress?.Invoke("Parsing <structuredBody>...");
 
-                    var sbParseResult = await structuredBodyParser.ParseAsync(structuredBodyEl, context);
+                    var sbParseResult = await structuredBodyParser.ParseAsync(structuredBodyEl, context, reportProgress);
                     context.UpdateFileResult(sbParseResult);
                 }
 

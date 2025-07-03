@@ -1072,6 +1072,9 @@ namespace MedRecPro.Api.Controllers
         /**************************************************************/
         /// <summary>
         /// Retrieves the current progress and status of a previously queued SPL import operation.
+        /// The results include the operation's current status, completion percentage, errors, and
+        /// the file parsing outcomes during the import. The result summary is cached with a lifetime
+        /// of one hour i.e. the URL provided in the import operation is transient.
         /// </summary>
         /// <param name="operationId">The unique identifier for the import operation to check.</param>
         /// <returns>The current status and progress information for the specified operation.</returns>
@@ -1097,7 +1100,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(ImportOperationStatus), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [HttpGet("import/progress/{operationId}")]
-        public IActionResult getImportProgress(string operationId)
+        public IActionResult GetImportProgress(string operationId)
         {
             #region implementation
             // Attempt to retrieve the operation status from the store

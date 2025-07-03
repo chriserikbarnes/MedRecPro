@@ -5,6 +5,9 @@ using static MedRecPro.Models.Label;
 using MedRecPro.Helpers;
 using AngleSharp.Common;
 using MedRecPro.Models;
+using MedRecPro.DataAccess;
+using MedRecPro.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -44,6 +47,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="element">The XElement representing the manufacturedProduct section to parse.</param>
         /// <param name="context">The current parsing context containing the section to link products to.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
         /// <example>
         /// <code>
@@ -73,10 +77,31 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Product"/>
         /// <seealso cref="IngredientParser"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context)
+        /// <seealso cref="GenericMedicine"/>
+        /// <seealso cref="EquivalentEntity"/>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="SpecializedKind"/>  
+        /// <seealso cref="MarketingCategory"/>
+        /// <seealso cref="Characteristic"/> 
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="Ingredient"/>
+        /// <seealso cref="AdditionalIdentifier"/>
+        /// <seealso cref="MarketingStatus"/>
+        /// <seealso cref="Policy"/>
+        /// <seealso cref="ProductRouteOfAdministration"/>
+        /// <seealso cref="ProductWebLink"/>
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
             var result = new SplParseResult();
+
+            // Validate context
+            if (context == null || context.Logger == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Parsing context is null or logger is null.");
+                return result;
+            }
 
             // Validate that we have a valid section context to link products to
             if (context.CurrentSection?.SectionID == null)
@@ -88,6 +113,10 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
+                reportProgress?.Invoke($"Starting Manufactured Product XML Elements {context.FileNameInZip}");
+
+                int sequence = 1;
+
                 // Handle SPL variations where the main data is in a nested manufacturedMedicine element
                 // Use the nested element if it exists, otherwise use the main element
                 var mmEl = element.SplElement(sc.E.ManufacturedMedicine) ?? element;
@@ -127,29 +156,82 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 // --- PARSE GENERIC MEDICINE ---
+                reportProgress?.Invoke($"Starting Generic Medicine XML Elements {context.FileNameInZip}");
                 var genericMedicinesCreated = await parseAndSaveGenericMedicinesAsync(mmEl, product, context);
                 result.ProductElementsCreated += genericMedicinesCreated;
+                reportProgress?.Invoke($"Completed Generic Medicine XML Elements {context.FileNameInZip}");
 
                 // --- PARSE EQUIVALENT ENTITIES ---
+                reportProgress?.Invoke($"Starting Equivalent XML Elements {context.FileNameInZip}");
                 var equivCount = await parseAndSaveEquivalentEntitiesAsync(mmEl, product, context);
                 result.ProductElementsCreated += equivCount;
+                reportProgress?.Invoke($"Completed Equivalent XML Elements {context.FileNameInZip}");
 
                 // --- PARSE IDENTIFIER ENTITIES ---
+                reportProgress?.Invoke($"Starting Identifier XML Elements {context.FileNameInZip}");
                 var idCount = await parseAndSaveProductIdentifiersAsync(mmEl, product, context);
                 result.ProductElementsCreated += idCount;
+                reportProgress?.Invoke($"Completed Identifier XML Elements {context.FileNameInZip}");
 
                 // --- PARSE SPECIALIZED KINDS ---
+                reportProgress?.Invoke($"Starting Specialized Kind XML Elements {context.FileNameInZip}");
                 var kindCount = await parseAndSaveSpecializedKindsAsync(mmEl, product, context, result.DocumentCode);
                 result.ProductElementsCreated += kindCount;
+                reportProgress?.Invoke($"Completed Specialized Kind XML Elements {context.FileNameInZip}");
 
                 // --- PARSE MARKETING CATEGORY ---
+                reportProgress?.Invoke($"Starting Marketing Category XML Elements {context.FileNameInZip}");
                 var marketingCatCreated = await parseAndSaveMarketingCategoriesAsync(mmEl, product, context);
                 result.ProductElementsCreated += marketingCatCreated;
+                reportProgress?.Invoke($"Completed Marketing Category XML Elements {context.FileNameInZip}");
+
+                // --- PARSE CHARACTERISTIC ---
+                reportProgress?.Invoke($"Starting Characteristic XML Elements {context.FileNameInZip}");
+                var characteristicCt = await parseAndSaveCharacteristicsAsync(mmEl, product, context);
+                result.ProductElementsCreated += characteristicCt;
+                reportProgress?.Invoke($"Completed Characteristic XML Elements {context.FileNameInZip}");
+
+                // --- PARSE ADDITIONAL IDENTIFIER ---
+                reportProgress?.Invoke($"Starting Additional Identifier XML Elements {context.FileNameInZip}");
+                var identifiersCt = await parseAndSaveAdditionalIdentifiersAsync(mmEl, product, context);
+                result.ProductElementsCreated += identifiersCt;
+                reportProgress?.Invoke($"Completed Additional Identifier XML Elements {context.FileNameInZip}");
+
+                // --- PARSE MARKETING STATUS ---
+                reportProgress?.Invoke($"Starting Marketing Status XML Elements {context.FileNameInZip}");
+                var marketingCt = await parseAndSaveMarketingStatusesAsync(mmEl, product, context);
+                result.ProductElementsCreated += marketingCt;
+                reportProgress?.Invoke($"Completed Marketing Status XML Elements {context.FileNameInZip}");
+
+                // --- PARSE POLICY ---
+                reportProgress?.Invoke($"Starting Policy XML Elements {context.FileNameInZip}");
+                var policyCt = await parseAndSavePoliciesAsync(mmEl, product, context);
+                result.ProductElementsCreated += policyCt;
+                reportProgress?.Invoke($"Completed Policy XML Elements {context.FileNameInZip}");
+
+                // --- PARSE ROUTE OF ADMIN ---
+                reportProgress?.Invoke($"Starting Product Route Of Administration XML Elements {context.FileNameInZip}");
+                var routeCt = await parseAndSaveProductRoutesOfAdministrationAsync(mmEl, product, context);
+                result.ProductElementsCreated += routeCt;
+                reportProgress?.Invoke($"Completed Product Route Of Administration XML Elements {context.FileNameInZip}");
+
+                // --- PARSE WEB LINK ---
+                reportProgress?.Invoke($"Starting Web Link XML Elements {context.FileNameInZip}");
+                var webCt = await parseAndSaveProductWebLinksAsync(mmEl, product, context);
+                result.ProductElementsCreated += webCt;
+                reportProgress?.Invoke($"Completed Web Link XML Elements {context.FileNameInZip}");
+
+                // --- PARSE BUSINESS OPERATION ---
+                reportProgress?.Invoke($"Starting Business Operation XML Elements {context.FileNameInZip}");
+                var opsCt = await parseAndSaveBusinessOperationAndLinksAsync(mmEl, product, context);
+                result.ProductElementsCreated += opsCt;
+                reportProgress?.Invoke($"CompletedBusiness Operation XML Elements {context.FileNameInZip}");
 
                 // --- PARSE PACKAGING LEVELS ---
+                reportProgress?.Invoke($"Starting Packaging Level XML Elements {context.FileNameInZip}");
                 var asContentEls = mmEl.SplFindElements(sc.E.AsContent);
                 // If asContent elements exist, parse and save packaging levels
-                if(asContentEls != null && asContentEls.Any())
+                if (asContentEls != null && asContentEls.Any())
                 {
                     foreach (var asContentEl in asContentEls)
                     {
@@ -159,6 +241,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 result.ProductsCreated++;
                 context.Logger.LogInformation("Created Product '{ProductName}' with ID {ProductID}", product.ProductName, product.ProductID);
+                reportProgress?.Invoke($"Completed Packaging Level XML Elements {context.FileNameInZip}");
 
                 // --- DELEGATION TO INGREDIENT PARSER ---
                 // Set the current product in the context so child parsers can access it
@@ -173,19 +256,23 @@ namespace MedRecPro.Service.ParsingServices
                 // SPL documents may use ingredient, activeIngredient, or inactiveIngredient
                 var ingredientElements = mmEl.SplFindIngredients(excludingFieldsContaining: "substance");
 
+                reportProgress?.Invoke($"Starting Ingredient Level XML Elements {context.FileNameInZip}");
+
+                context.SeqNumber = 0; // Reset sequence number for ingredients
+
                 // Process each ingredient element found
                 foreach (var ingredientEl in ingredientElements)
                 {
                     // The ingredient element itself might have a classCode like 'ACTIB' or 'IACT'
                     // which the ingredient parser can use for classification
-                    var ingredientResult = await ingredientParser.ParseAsync(ingredientEl, context);
+                    var ingredientResult = await ingredientParser.ParseAsync(ingredientEl, context, reportProgress);
                     result.MergeFrom(ingredientResult); // Aggregate results from ingredient parsing
+                    context.SeqNumber++; // Increment sequence for next ingredient
                 }
-
-                // TODO: Parse  Characteristic etc.
 
                 // Restore the previous product context to avoid side effects on other parsers
                 context.CurrentProduct = oldProduct;
+                reportProgress?.Invoke($"Completed Ingredient Level XML Elements {context.FileNameInZip}");
             }
             catch (Exception ex)
             {
@@ -195,7 +282,1049 @@ namespace MedRecPro.Service.ParsingServices
                 context.Logger.LogError(ex, "Error processing <manufacturedProduct> element.");
             }
 
+            reportProgress?.Invoke($"Completed Manufactured Product XML Elements {context.FileNameInZip}");
+
             return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing DocumentRelationship or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="docId">The document ID to associate with the relationship.</param>
+        /// <param name="parentOrgId">The parent organization ID in the relationship.</param>
+        /// <param name="childOrgId">The child organization ID in the relationship.</param>
+        /// <param name="relationshipType">The type of relationship between organizations.</param>
+        /// <param name="relationshipLevel">The hierarchical level of the relationship.</param>
+        /// <returns>The existing or newly created DocumentRelationship entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern to prevent duplicate relationship records.
+        /// Uses a composite key match on all relationship parameters for uniqueness.
+        /// </remarks>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<DocumentRelationship> saveOrGetDocumentRelationshipAsync(
+            ApplicationDbContext dbContext,
+            int? docId,
+            int? parentOrgId,
+            int? childOrgId,
+            string? relationshipType,
+            int? relationshipLevel)
+        {
+            #region implementation
+            // Search for existing relationship with matching parameters
+            var existing = await dbContext.Set<DocumentRelationship>().FirstOrDefaultAsync(dr =>
+                dr.DocumentID == docId &&
+                dr.ParentOrganizationID == parentOrgId &&
+                dr.ChildOrganizationID == childOrgId &&
+                dr.RelationshipType == relationshipType &&
+                dr.RelationshipLevel == relationshipLevel);
+
+            // Return existing relationship if found
+            if (existing != null)
+                return existing;
+
+            // Create new relationship entity with provided parameters
+            var rel = new DocumentRelationship
+            {
+                DocumentID = docId,
+                ParentOrganizationID = parentOrgId,
+                ChildOrganizationID = childOrgId,
+                RelationshipType = relationshipType,
+                RelationshipLevel = relationshipLevel
+            };
+
+            // Save the new relationship to database
+            dbContext.Set<DocumentRelationship>().Add(rel);
+            await dbContext.SaveChangesAsync();
+            return rel;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing BusinessOperation or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="documentRelationshipId">The document relationship ID to associate with the operation.</param>
+        /// <param name="operationCode">The operation code identifying the business operation type.</param>
+        /// <param name="operationCodeSystem">The code system for the operation code.</param>
+        /// <param name="operationDisplayName">The display name for the operation.</param>
+        /// <returns>The existing or newly created BusinessOperation entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern to prevent duplicate operation records.
+        /// Uses a composite key match on document relationship ID and operation details.
+        /// </remarks>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<BusinessOperation> saveOrGetBusinessOperationAsync(
+            ApplicationDbContext dbContext,
+            int? documentRelationshipId,
+            string? operationCode,
+            string? operationCodeSystem,
+            string? operationDisplayName)
+        {
+            #region implementation
+            // Search for existing operation with matching parameters
+            var existing = await dbContext.Set<BusinessOperation>().FirstOrDefaultAsync(op =>
+                op.DocumentRelationshipID == documentRelationshipId &&
+                op.OperationCode == operationCode &&
+                op.OperationCodeSystem == operationCodeSystem &&
+                op.OperationDisplayName == operationDisplayName);
+
+            // Return existing operation if found
+            if (existing != null)
+                return existing;
+
+            // Create new business operation entity with provided parameters
+            var newOp = new BusinessOperation
+            {
+                DocumentRelationshipID = documentRelationshipId,
+                OperationCode = operationCode,
+                OperationCodeSystem = operationCodeSystem,
+                OperationDisplayName = operationDisplayName
+            };
+
+            // Save the new operation to database
+            dbContext.Set<BusinessOperation>().Add(newOp);
+            await dbContext.SaveChangesAsync();
+            return newOp;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all BusinessOperation and BusinessOperationProductLink entities,
+        /// connecting each operation to the appropriate DocumentRelationship for the org performing it,
+        /// and linking to all referenced Products.
+        /// </summary>
+        /// <param name="parentEl">The parent XML element to search for performance elements.</param>
+        /// <param name="product"> The product to link business operations to.</param>
+        /// <param name="context">The parsing context containing document and service provider access.</param>
+        /// <returns>The total count of business operation product links created.</returns>
+        /// <remarks>
+        /// This method orchestrates the parsing of business operations by:
+        /// 1. Validating the parsing context and retrieving the labeler organization
+        /// 2. Getting all document relationships for the current document
+        /// 3. Processing performance elements for each document relationship
+        /// 4. Creating business operations and their product links
+        /// </remarks>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="BusinessOperationProductLink"/>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveBusinessOperationAndLinksAsync(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            // Validate context before proceeding
+            if (!isDocumentContextValid(context))
+                return 0;
+
+            var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
+            int? docId = context?.Document?.DocumentID;
+
+            // Ensure we have a valid database context and document ID
+            if (dbContext == null || context == null || docId == null || context.Logger == null)
+            {
+                return 0;
+            }
+
+            // Get the labeler organization ID for this document
+            var labelerOrgId = await getLabelerOrganizationIdAsync(dbContext, docId, context.Logger);
+            if (labelerOrgId == null) return 0;
+
+            // Get all document relationships for processing
+            var docRels = await getDocumentRelationshipsAsync(dbContext, docId, context.Logger);
+            if (!docRels.Any()) return 0;
+
+            int createdCount = 0;
+
+            // Process business operations for each document relationship
+            foreach (var docRel in docRels)
+            {
+                // Ensure the document relationship exists or create it
+                var thisDocRel = await saveOrGetDocumentRelationshipAsync(
+                    dbContext, docId, labelerOrgId, docRel.ChildOrganizationID, docRel.RelationshipType, docRel.RelationshipLevel);
+
+                // Parse performance elements and create business operation links
+                createdCount += await parsePerformanceElementsAsync(
+                    parentEl, dbContext, product, thisDocRel.DocumentRelationshipID, context.Logger);
+            }
+
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates that the parsing context contains all required dependencies.
+        /// </summary>
+        /// <param name="context">The parsing context to validate.</param>
+        /// <returns>True if the context is valid, false otherwise.</returns>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private bool isDocumentContextValid(SplParseContext? context)
+        {
+            #region implementation
+            return context != null &&
+                   context.Logger != null &&
+                   context.Document != null &&
+                   context.ServiceProvider != null;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the labeler organization ID for the specified document.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying.</param>
+        /// <param name="docId">The document ID to search for.</param>
+        /// <param name="logger">Logger for warning messages.</param>
+        /// <returns>The labeler organization ID, or null if not found.</returns>
+        /// <seealso cref="DocumentAuthor"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int?> getLabelerOrganizationIdAsync(
+            ApplicationDbContext dbContext, int? docId, ILogger logger)
+        {
+            #region implementation
+            // Find the labeler document author for this document
+            var labeler = await dbContext.Set<DocumentAuthor>()
+                .FirstOrDefaultAsync(a => a.DocumentID == docId && a.AuthorType == "Labeler");
+            if (labeler == null)
+            {
+                logger.LogWarning("Labeler DocumentAuthor not found for this document.");
+                return null;
+            }
+
+            // Validate that the labeler has an organization ID
+            if (labeler.OrganizationID == null)
+            {
+                logger.LogWarning("Labeler OrganizationID not found for this document.");
+                return null;
+            }
+
+            return labeler.OrganizationID;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves all document relationships for the specified document.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying.</param>
+        /// <param name="docId">The document ID to search for.</param>
+        /// <param name="logger">Logger for warning messages.</param>
+        /// <returns>A list of document relationships, or empty list if none found.</returns>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<List<DocumentRelationship>> getDocumentRelationshipsAsync(
+            ApplicationDbContext dbContext, int? docId, ILogger logger)
+        {
+            #region implementation
+            // Query for all document relationships for this document
+            var docRels = await dbContext.Set<DocumentRelationship>()
+                .Where(r => r.DocumentID == docId)
+                .ToListAsync();
+
+            // Log warning if no relationships found
+            if (!docRels.Any())
+                logger.LogWarning("No DocumentRelationships found for this document.");
+
+            return docRels;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses performance elements and creates business operations with product links.
+        /// </summary>
+        /// <param name="parentEl">The parent XML element to search for performance elements.</param>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="product">The product to link business operations to.</param>
+        /// <param name="documentRelationshipId">The document relationship ID to associate operations with.</param>
+        /// <param name="logger">Logger for information and warning messages.</param>
+        /// <returns>The number of product links created.</returns>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="BusinessOperationProductLink"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parsePerformanceElementsAsync(
+            XElement parentEl,
+            ApplicationDbContext dbContext,
+            Product product,
+            int? documentRelationshipId,
+            ILogger logger)
+        {
+            #region implementation
+            int createdLinks = 0;
+
+            // Process each performance element
+            foreach (var perfEl in parentEl.SplElements(sc.E.Performance))
+            {
+                foreach (var actDefEl in perfEl.SplElements(sc.E.ActDefinition))
+                {
+                    // Parse or create the operation for this document relationship
+                    var bizOp = await parseBusinessOperationAsync(dbContext, documentRelationshipId, actDefEl);
+
+                    // Parse and save any product links for this operation
+                    createdLinks += await parseAndSaveProductLinksAsync(dbContext, bizOp, actDefEl, product, logger);
+                }
+            }
+
+            return createdLinks;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses a business operation from an act definition XML element.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="docRelId">The document relationship ID to associate with the operation.</param>
+        /// <param name="actDefEl">The act definition XML element to parse.</param>
+        /// <returns>The existing or newly created BusinessOperation entity.</returns>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Label"/>
+        private async Task<BusinessOperation> parseBusinessOperationAsync(
+            ApplicationDbContext dbContext, int? docRelId, XElement actDefEl)
+        {
+            #region implementation
+            // Extract operation code details from the XML element
+            var opCodeEl = actDefEl.GetSplElement(sc.E.Code);
+            string? opCode = opCodeEl?.GetAttrVal(sc.A.CodeValue);
+            string? opCodeSystem = opCodeEl?.GetAttrVal(sc.A.CodeSystem);
+            string? opDisplayName = opCodeEl?.GetAttrVal(sc.A.DisplayName);
+
+            // Always use the helper to get or create the operation
+            return await saveOrGetBusinessOperationAsync(
+                dbContext, docRelId, opCode, opCodeSystem, opDisplayName);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves product links for a business operation.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="bizOp">The business operation to create links for.</param>
+        /// <param name="actDefEl">The act definition XML element containing product references.</param>
+        /// <param name="product">The product to link to the business operation.</param>
+        /// <param name="logger">Logger for information and warning messages.</param>
+        /// <returns>The number of product links created.</returns>
+        /// <seealso cref="BusinessOperationProductLink"/>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveProductLinksAsync(
+            ApplicationDbContext dbContext,
+            BusinessOperation bizOp,
+            XElement actDefEl,
+            Product product,
+            ILogger logger)
+        {
+            #region implementation
+            int linksCreated = 0;
+
+            // Validate business operation before proceeding
+            if (bizOp == null || bizOp.BusinessOperationID == null)
+            {
+                logger.LogWarning("Business operation is null or has no ID, skipping product link creation.");
+                return linksCreated;
+            }
+
+            // Process each product reference in the act definition
+            foreach (var productEl in actDefEl.SplElements(sc.E.Product))
+            {
+                // Extract product item code from the XML structure
+                string? itemCode = parseProductItemCode(productEl);
+                if (string.IsNullOrWhiteSpace(itemCode))
+                {
+                    logger.LogWarning("Missing product item code for business operation link.");
+                    continue;
+                }
+
+                if (product == null)
+                {
+                    logger.LogWarning($"No Product found for item code {itemCode} (op={bizOp.OperationCode}).");
+                    continue;
+                }
+
+                // Create link if it doesn't already exist
+                if (bizOp != null && bizOp.BusinessOperationID != null && product.ProductID != null)
+                    if (!await businessOperationProductLinkExistsAsync(dbContext, bizOp.BusinessOperationID, product.ProductID))
+                    {
+                        await saveBusinessOperationProductLinkAsync(dbContext, bizOp.BusinessOperationID, product.ProductID);
+                        logger.LogInformation($"BusinessOperationProductLink created: OperationID={bizOp.BusinessOperationID}, ProductID={product.ProductID} (item code={itemCode})");
+                        linksCreated++;
+                    }
+            }
+
+            return linksCreated;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the product item code from a product XML element.
+        /// </summary>
+        /// <param name="productEl">The product XML element to parse.</param>
+        /// <returns>The product item code, or null if not found.</returns>
+        /// <seealso cref="Label"/>
+        private string? parseProductItemCode(XElement productEl)
+        {
+            #region implementation
+            // Navigate the XML hierarchy to find the product code
+            var manuProdEl = productEl.GetSplElement(sc.E.ManufacturedProduct);
+            var matKindEl = manuProdEl?.GetSplElement(sc.E.ManufacturedMaterialKind);
+            var codeEl = matKindEl?.GetSplElement(sc.E.Code);
+            return codeEl?.GetAttrVal(sc.A.CodeValue);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks if a business operation product link already exists.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying.</param>
+        /// <param name="businessOperationId">The business operation ID.</param>
+        /// <param name="productId">The product ID.</param>
+        /// <returns>True if the link exists, false otherwise.</returns>
+        /// <seealso cref="BusinessOperationProductLink"/>
+        /// <seealso cref="Label"/>
+        private async Task<bool> businessOperationProductLinkExistsAsync(
+            ApplicationDbContext dbContext, int? businessOperationId, int? productId)
+        {
+            #region implementation
+            return await dbContext.Set<BusinessOperationProductLink>().AnyAsync(link =>
+                link.BusinessOperationID == businessOperationId && link.ProductID == productId);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Saves a new business operation product link to the database.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="businessOperationId">The business operation ID.</param>
+        /// <param name="productId">The product ID.</param>
+        /// <seealso cref="BusinessOperationProductLink"/>
+        /// <seealso cref="Label"/>
+        private async Task saveBusinessOperationProductLinkAsync(
+            ApplicationDbContext dbContext, int? businessOperationId, int? productId)
+        {
+            #region implementation
+            // Create and save the new business operation product link
+            dbContext.Set<BusinessOperationProductLink>().Add(new BusinessOperationProductLink
+            {
+                BusinessOperationID = businessOperationId,
+                ProductID = productId
+            });
+            await dbContext.SaveChangesAsync();
+            #endregion
+        }
+
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all ProductWebLink entities under [subjectOf][document][text][reference] nodes for a given product.
+        /// </summary>
+        /// <param name="parentEl">XElement (usually [manufacturedProduct] or similar) to scan for product web links.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of ProductWebLink records created.</returns>
+        /// <remarks>
+        /// Handles absolute web URLs (http/https) per SPL IG Section 3.4.7.
+        /// Only processes references without mediaType attributes to focus on web URLs.
+        /// Validates URL format and filters out non-web references.
+        /// </remarks>
+        /// <seealso cref="ProductWebLink"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveProductWebLinksAsync(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+            var repo = context.GetRepository<ProductWebLink>();
+
+            // Validate required dependencies before processing
+            if (context == null || repo == null || context.Logger == null)
+                return count;
+
+            // Process all subjectOf/document/text/reference structures
+            foreach (var subjOf in parentEl.SplElements(sc.E.SubjectOf))
+            {
+                foreach (var docEl in subjOf.SplElements(sc.E.Document))
+                {
+                    var textEl = docEl.GetSplElement(sc.E.Text);
+                    if (textEl == null)
+                        continue;
+
+                    var refEl = textEl.GetSplElement(sc.E.Reference);
+                    if (refEl == null)
+                        continue;
+
+                    // Only use reference if it has no mediaType and has a valid URL
+                    var url = refEl.GetAttrVal(sc.A.Value);
+                    var hasMediaType = refEl.GetAttrVal(sc.A.MediaType);
+
+                    // Validate URL format (must be http or https)
+                    if (string.IsNullOrWhiteSpace(url) ||
+                        !(url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                          url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    // Skip if mediaType is present (not a web URL reference)
+                    if (!string.IsNullOrEmpty(hasMediaType))
+                        continue; // skip if mediaType is present
+
+                    // Create and save the product web link
+                    var productWebLink = new ProductWebLink
+                    {
+                        ProductID = product.ProductID,
+                        WebURL = url
+                    };
+
+                    await repo.CreateAsync(productWebLink);
+                    count++;
+                    context.Logger.LogInformation(
+                        $"ProductWebLink created: ProductID={product.ProductID}, WebURL={url}");
+                }
+            }
+
+            return count;
+            #endregion
+        }
+
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all ProductRouteOfAdministration entities from [consumedIn][substanceAdministration][routeCode] nodes for a given product.
+        /// </summary>
+        /// <param name="parentEl">XElement (usually [manufacturedProduct] or [part]) to scan for routes of administration.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of ProductRouteOfAdministration records created.</returns>
+        /// <remarks>
+        /// Handles route code, code system, display name, and nullFlavor according to SPL IG Section 3.2.20.
+        /// Enforces SPL specification: accepts either correct code system (2.16.840.1.113883.3.26.1.1) or nullFlavor.
+        /// Validates route codes against FDA SPL standards for pharmaceutical products.
+        /// </remarks>
+        /// <seealso cref="ProductRouteOfAdministration"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveProductRoutesOfAdministrationAsync(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+            var repo = context.GetRepository<ProductRouteOfAdministration>();
+
+            // Validate required dependencies before processing
+            if (context == null || repo == null || context.Logger == null)
+                return count;
+
+            // Process all consumedIn/substanceAdministration structures
+            foreach (var consumedInEl in parentEl.SplElements(sc.E.ConsumedIn))
+            {
+                foreach (var substAdminEl in consumedInEl.SplElements(sc.E.SubstanceAdministration))
+                {
+                    var routeCodeEl = substAdminEl.GetSplElement(sc.E.RouteCode);
+
+                    if (routeCodeEl == null)
+                        continue;
+
+                    // Parse route attributes from the XML element
+                    string? routeCode = routeCodeEl.GetAttrVal(sc.A.CodeValue);
+                    string? routeCodeSystem = routeCodeEl.GetAttrVal(sc.A.CodeSystem);
+                    string? displayName = routeCodeEl.GetAttrVal(sc.A.DisplayName);
+                    string? nullFlavor = routeCodeEl.GetAttrVal(sc.A.NullFlavor);
+
+                    // Enforce SPL spec: Either code system is correct or nullFlavor is set
+                    if (string.IsNullOrWhiteSpace(nullFlavor))
+                    {
+                        // Only accept route codes with the proper FDA SPL code system
+                        if (routeCodeSystem != "2.16.840.1.113883.3.26.1.1")
+                            continue;
+                    }
+
+                    // Build and save the ProductRouteOfAdministration entity
+                    var route = new ProductRouteOfAdministration
+                    {
+                        ProductID = product.ProductID,
+                        RouteCode = routeCode,
+                        RouteCodeSystem = routeCodeSystem,
+                        RouteDisplayName = displayName,
+                        RouteNullFlavor = nullFlavor
+                    };
+
+                    await repo.CreateAsync(route);
+                    count++;
+                    context.Logger.LogInformation(
+                        $"ProductRouteOfAdministration created: ProductID={product.ProductID}, RouteCode={routeCode}, DisplayName={displayName}, NullFlavor={nullFlavor}");
+                }
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all DEA Policy entities under [subjectOf][policy] nodes for a given product.
+        /// </summary>
+        /// <param name="parentEl">XElement (usually [manufacturedProduct]) to scan for DEA schedule policies.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of Policy records created.</returns>
+        /// <remarks>
+        /// Handles DEA schedule code, system, display name, and class code according to SPL IG Section 3.2.11.
+        /// Only processes policies with classCode="DEADrugSchedule" and correct FDA code system.
+        /// Requires both policy code and display name to be present for data integrity.
+        /// </remarks>
+        /// <seealso cref="Policy"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSavePoliciesAsync(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+            var repo = context.GetRepository<Policy>();
+
+            // Validate required dependencies before processing
+            if (context == null || repo == null || context.Logger == null)
+                return count;
+
+            // Process all subjectOf/policy structures
+            foreach (var subjOf in parentEl.SplElements(sc.E.SubjectOf))
+            {
+                foreach (var policyEl in subjOf.SplElements(sc.E.Policy))
+                {
+                    // <policy> must have classCode="DEADrugSchedule"
+                    string? classCode = policyEl.GetAttrVal(sc.A.ClassCode);
+                    if (!string.Equals(classCode, "DEADrugSchedule", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // <code> is required for DEA schedule identification
+                    var codeEl = policyEl.GetSplElement(sc.E.Code);
+                    string? policyCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+                    string? policyCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
+                    string? displayName = codeEl?.GetAttrVal(sc.A.DisplayName);
+
+                    // Only allow correct FDA SPL code system
+                    if (policyCodeSystem != "2.16.840.1.113883.3.26.1.1")
+                        continue;
+
+                    // Display name must be present and match code (for safety, allow override if needed)
+                    if (string.IsNullOrWhiteSpace(policyCode) || string.IsNullOrWhiteSpace(displayName))
+                        continue;
+
+                    // Build and save the Policy entity
+                    var policy = new Policy
+                    {
+                        ProductID = product.ProductID,
+                        PolicyClassCode = classCode,
+                        PolicyCode = policyCode,
+                        PolicyCodeSystem = policyCodeSystem,
+                        PolicyDisplayName = displayName
+                    };
+
+                    await repo.CreateAsync(policy);
+                    count++;
+                    context.Logger.LogInformation(
+                        $"Policy (DEA Schedule) created: ProductID={product.ProductID}, PolicyCode={policyCode}, DisplayName={displayName}");
+                }
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all MarketingStatus entities under [subjectOf][marketingAct] nodes for a given product.
+        /// </summary>
+        /// <param name="parentEl">XElement (usually [manufacturedProduct] or [containerPackagedProduct]) to scan for marketing status.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of MarketingStatus records created.</returns>
+        /// <remarks>
+        /// Handles activity codes, status codes, and effective time periods according to SPL IG Section 3.1.8.
+        /// Validates marketing activity codes against FDA SPL code system (2.16.840.1.113883.3.26.1.1).
+        /// Accepts only permitted status codes: active, completed, new, cancelled.
+        /// Parses effective time intervals with low and high date boundaries.
+        /// </remarks>
+        /// <seealso cref="MarketingStatus"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveMarketingStatusesAsync(
+        XElement parentEl,
+        Product product,
+        SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+            var repo = context.GetRepository<MarketingStatus>();
+
+            // Validate required dependencies before processing
+            if (context == null || repo == null || context.Logger == null)
+                return count;
+
+            // Process all subjectOf/marketingAct structures
+            foreach (var subjOf in parentEl.SplElements(sc.E.SubjectOf))
+            {
+                foreach (var mktAct in subjOf.SplElements(sc.E.MarketingAct))
+                {
+                    // <code> (activity of marketing/sample)
+                    var codeEl = mktAct.GetSplElement(sc.E.Code);
+                    string? actCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+                    string? actCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
+
+                    // Only accept act codes for marketing or drug sample (per SPL Table)
+                    if (actCodeSystem != "2.16.840.1.113883.3.26.1.1")
+                        continue;
+
+                    // <statusCode> (active, completed, new, cancelled)
+                    var statusCodeEl = mktAct.GetSplElement(sc.E.StatusCode);
+                    string? statusCode = statusCodeEl?.GetAttrVal(sc.A.CodeValue);
+
+                    // Accept only permitted status codes according to SPL standards
+                    if (statusCode == null ||
+                        !(statusCode.Equals("active", StringComparison.OrdinalIgnoreCase) ||
+                          statusCode.Equals("completed", StringComparison.OrdinalIgnoreCase) ||
+                          statusCode.Equals("new", StringComparison.OrdinalIgnoreCase) ||
+                          statusCode.Equals("cancelled", StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    // <effectiveTime> block - parse start and end dates
+                    var effTimeEl = mktAct.GetSplElement(sc.E.EffectiveTime);
+                    DateTime? effectiveStartDate = null;
+                    DateTime? effectiveEndDate = null;
+
+                    if (effTimeEl != null)
+                    {
+                        // Parse low (start) date
+                        var lowEl = effTimeEl.GetSplElement(sc.E.Low);
+                        if (lowEl != null)
+                        {
+                            var lowValue = lowEl.GetAttrVal(sc.A.Value);
+                            if (!string.IsNullOrEmpty(lowValue))
+                            {
+                                effectiveStartDate = Util.ParseNullableDateTime(lowValue);
+                            }
+                        }
+
+                        // Parse high (end) date
+                        var highEl = effTimeEl.GetSplElement(sc.E.High);
+                        if (highEl != null)
+                        {
+                            var highValue = highEl.GetAttrVal(sc.A.Value);
+                            if (!string.IsNullOrEmpty(highValue))
+                            {
+                                effectiveEndDate = Util.ParseNullableDateTime(highValue);
+                            }
+                        }
+                    }
+
+                    // Build and save the MarketingStatus entity
+                    var marketingStatus = new MarketingStatus
+                    {
+                        ProductID = product.ProductID,
+                        MarketingActCode = actCode,
+                        MarketingActCodeSystem = actCodeSystem,
+                        StatusCode = statusCode,
+                        EffectiveStartDate = effectiveStartDate,
+                        EffectiveEndDate = effectiveEndDate
+                    };
+
+                    await repo.CreateAsync(marketingStatus);
+                    count++;
+                    context.Logger.LogInformation(
+                        $"MarketingStatus created: ProductID={product.ProductID}, ActCode={actCode}, Status={statusCode}, Start={effectiveStartDate:yyyy-MM-dd}, End={effectiveEndDate:yyyy-MM-dd}");
+                }
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all AdditionalIdentifier entities under [asIdentifiedEntity classCode="IDENT"] nodes for a given product.
+        /// </summary>
+        /// <param name="parentEl">XElement (usually [manufacturedProduct], [partProduct], or [product]) to scan for additional identifiers.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of AdditionalIdentifier records created.</returns>
+        /// <remarks>
+        /// Handles identifier types Model Number (C99286), Catalog Number (C99285), Reference Number (C99287), and related.
+        /// Only processes entities with classCode="IDENT" and validates against NCI Thesaurus code system.
+        /// Requires both identifier value and root OID to be present for data integrity.
+        /// </remarks>
+        /// <seealso cref="AdditionalIdentifier"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveAdditionalIdentifiersAsync(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+            var repo = context.GetRepository<AdditionalIdentifier>();
+
+            // Validate required dependencies before processing
+            if (context == null || repo == null || context.Logger == null)
+                return count;
+
+            // Find all <asIdentifiedEntity> nodes with classCode="IDENT"
+            foreach (var idEnt in parentEl.SplElements(sc.E.AsIdentifiedEntity))
+            {
+                // Only process if classCode="IDENT"
+                string? classCode = idEnt.GetAttrVal(sc.A.ClassCode);
+                if (!string.Equals(classCode, "IDENT", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Parse the <id> child for identifier value and root
+                var idEl = idEnt.GetSplElement(sc.E.Id);
+                string? identifierValue = idEl?.GetAttrVal(sc.A.Extension);
+                string? identifierRootOID = idEl?.GetAttrVal(sc.A.Root);
+
+                // Parse the <code> child (type of identifier)
+                var codeEl = idEnt.GetSplElement(sc.E.Code);
+                string? typeCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+                string? typeCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
+                string? typeDisplayName = codeEl?.GetAttrVal(sc.A.DisplayName);
+
+                // Validation: Only accept NCI Thesaurus code system for type (per Table 3)
+                if (string.IsNullOrWhiteSpace(typeCodeSystem) ||
+                    typeCodeSystem != "2.16.840.1.113883.3.26.1.1")
+                    continue;
+
+                // At least one id (extension/root) must be present, and a recognized code type
+                if (string.IsNullOrWhiteSpace(identifierValue) || string.IsNullOrWhiteSpace(identifierRootOID))
+                    continue;
+
+                // Recognized identifier codes (per Table 3)
+                bool recognized = typeCode == "C99286" // Model Number
+                               || typeCode == "C99285" // Catalog Number
+                               || typeCode == "C99287"; // Reference Number
+
+                if (!recognized)
+                    continue;
+
+                // Build and save the AdditionalIdentifier entity
+                var additionalIdentifier = new AdditionalIdentifier
+                {
+                    ProductID = product.ProductID,
+                    IdentifierTypeCode = typeCode,
+                    IdentifierTypeCodeSystem = typeCodeSystem,
+                    IdentifierTypeDisplayName = typeDisplayName,
+                    IdentifierValue = identifierValue,
+                    IdentifierRootOID = identifierRootOID
+                };
+
+                await repo.CreateAsync(additionalIdentifier);
+                count++;
+                context.Logger.LogInformation($"AdditionalIdentifier created: ProductID={product.ProductID}, TypeCode={typeCode}, Value={identifierValue}, Root={identifierRootOID}");
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all Characteristic entities under [subjectOf][characteristic] nodes for a given product.
+        /// </summary>
+        /// <param name="parentEl">XElement (usually [manufacturedProduct] or [partProduct]) to scan for characteristics.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of Characteristic records created.</returns>
+        /// <remarks>
+        /// Handles characteristic value types PQ, INT, IVL_PQ, CV, ST, ED, and BL according to SPL IG.
+        /// Supports complex value types including intervals, coded values, and multimedia references.
+        /// Each characteristic includes both the code identifying the characteristic type and the
+        /// appropriately typed value based on the xsi:type attribute.
+        /// </remarks>
+        /// <seealso cref="Characteristic"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveCharacteristicsAsync(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+            var repo = context.GetRepository<Characteristic>();
+
+            // Validate required dependencies before processing
+            if (context == null || repo == null || context.Logger == null)
+                return count;
+
+            // Process all subjectOf/characteristic structures
+            foreach (var subjOf in parentEl.SplElements(sc.E.SubjectOf))
+            {
+                foreach (var charEl in subjOf.SplElements(sc.E.Characteristic))
+                {
+                    // --- Parse Characteristic code & codeSystem ---
+                    var codeEl = charEl.GetSplElement(sc.E.Code);
+                    string? charCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+                    string? charCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
+
+                    // --- Parse <value> node and its type ---
+                    var valueEl = charEl.GetSplElement(sc.E.Value);
+                    string? valueType = valueEl?.GetAttrVal(sc.A.XsiType);
+
+                    // Initialize all possible value fields to null
+                    decimal? valuePQ_Value = null;
+                    string? valuePQ_Unit = null;
+                    int? valueINT = null;
+                    string? valueNullFlavor = null;
+                    string? valueCV_Code = null;
+                    string? valueCV_CodeSystem = null;
+                    string? valueCV_DisplayName = null;
+                    string? valueST = null;
+                    bool? valueBL = null;
+                    decimal? valueIVLPQ_LowValue = null;
+                    string? valueIVLPQ_LowUnit = null;
+                    decimal? valueIVLPQ_HighValue = null;
+                    string? valueIVLPQ_HighUnit = null;
+                    string? valueED_MediaType = null;
+                    string? valueED_FileName = null;
+
+                    // --- Parse based on xsi:type to populate appropriate value fields ---
+                    if (!string.IsNullOrWhiteSpace(valueType))
+                    {
+                        switch (valueType.ToUpperInvariant())
+                        {
+                            case "PQ":
+                            case "REAL": // treat as decimal/quantity
+                                if (valueEl != null)
+                                {
+                                    // Parse physical quantity with value and unit
+                                    var valueAttr = valueEl.GetAttrVal(sc.A.Value);
+                                    valuePQ_Value = valueAttr != null ? Util.ParseNullableDecimal(valueAttr) : null;
+                                    valuePQ_Unit = valueEl.GetAttrVal(sc.A.Unit);
+                                }
+                                break;
+
+                            case "INT":
+                                if (valueEl != null)
+                                {
+                                    // Parse integer value with optional null flavor
+                                    valueNullFlavor = valueEl.GetAttrVal(sc.A.NullFlavor);
+                                    var intAttr = valueEl.GetAttrVal(sc.A.Value);
+                                    valueINT = intAttr != null ? Util.ParseNullableInt(intAttr) : null;
+                                }
+                                break;
+
+                            case "CV":
+                            case "CE": // Handle CV and CE the same way
+                                       // Parse coded value with code, system, and display name
+                                valueCV_Code = valueEl?.GetAttrVal(sc.A.CodeValue);
+                                valueCV_CodeSystem = valueEl?.GetAttrVal(sc.A.CodeSystem);
+                                valueCV_DisplayName = valueEl?.GetAttrVal(sc.A.DisplayName);
+                                break;
+
+                            case "ST":
+                                // Parse string value from element text content
+                                valueST = valueEl?.Value;
+                                break;
+
+                            case "IVL_PQ":
+                                // Parse interval of physical quantities (low and high values)
+                                var lowEl = valueEl?.GetSplElement(sc.E.Low);
+                                if (lowEl != null)
+                                {
+                                    var lowValueAttr = lowEl.GetAttrVal(sc.A.Value);
+                                    valueIVLPQ_LowValue = lowValueAttr != null ? Util.ParseNullableDecimal(lowValueAttr) : null;
+                                    valueIVLPQ_LowUnit = lowEl.GetAttrVal(sc.A.Unit);
+                                }
+
+                                var highEl = valueEl?.GetSplElement(sc.E.High);
+                                if (highEl != null)
+                                {
+                                    var highValueAttr = highEl.GetAttrVal(sc.A.Value);
+                                    valueIVLPQ_HighValue = highValueAttr != null ? Util.ParseNullableDecimal(highValueAttr) : null;
+                                    valueIVLPQ_HighUnit = highEl.GetAttrVal(sc.A.Unit);
+                                }
+                                break;
+
+                            case "ED":
+                                // Parse encapsulated data (multimedia references)
+                                valueED_MediaType = valueEl?.GetAttrVal(sc.A.MediaType);
+                                valueED_FileName = valueEl?.GetAttrVal(sc.A.DisplayName);
+                                break;
+
+                            case "BL":
+                                if (valueEl != null)
+                                {
+                                    // Parse boolean value from string representation
+                                    var boolAttr = valueEl.GetAttrVal(sc.A.Value);
+                                    valueBL = boolAttr != null ? Util.ParseNullableBoolWithStringValue(boolAttr) : null;
+                                }
+                                break;
+                        }
+                    }
+
+                    // --- Build and save the Characteristic entity ---
+                    var characteristic = new Characteristic
+                    {
+                        ProductID = product.ProductID,
+                        // PackagingLevelID is not handled here, add logic if needed
+                        CharacteristicCode = charCode,
+                        CharacteristicCodeSystem = charCodeSystem,
+                        ValueType = valueType,
+                        ValuePQ_Value = valuePQ_Value,
+                        ValuePQ_Unit = valuePQ_Unit,
+                        ValueINT = valueINT,
+                        ValueCV_Code = valueCV_Code,
+                        ValueCV_CodeSystem = valueCV_CodeSystem,
+                        ValueCV_DisplayName = valueCV_DisplayName,
+                        ValueST = valueST,
+                        ValueBL = valueBL,
+                        ValueIVLPQ_LowValue = valueIVLPQ_LowValue,
+                        ValueIVLPQ_LowUnit = valueIVLPQ_LowUnit,
+                        ValueIVLPQ_HighValue = valueIVLPQ_HighValue,
+                        ValueIVLPQ_HighUnit = valueIVLPQ_HighUnit,
+                        ValueED_MediaType = valueED_MediaType,
+                        ValueED_FileName = valueED_FileName,
+                        ValueNullFlavor = valueNullFlavor
+                    };
+
+                    // Save the characteristic entity to the database
+                    await repo.CreateAsync(characteristic);
+                    count++;
+                    context.Logger.LogInformation($"Characteristic created: ProductID={product.ProductID}, Code={charCode}, ValueType={valueType}");
+                }
+            }
+
+            return count;
             #endregion
         }
 
@@ -224,6 +1353,11 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
             int count = 0;
             var repo = context.GetRepository<MarketingCategory>();
+
+            if (context == null || repo == null || context.Logger == null)
+            {
+                return count;
+            }
 
             // Find all <subjectOf><approval> nodes for processing
             foreach (var subjOf in parentEl.SplElements(sc.E.SubjectOf))
