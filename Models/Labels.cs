@@ -1,4 +1,5 @@
-﻿using Microsoft.OpenApi.Models;
+﻿using MedRecPro.Helpers;
+using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -57,25 +58,45 @@ namespace MedRecPro.Models
             /// </summary>
             public Guid? DocumentGUID { get; set; } // Made nullable
 
+            private string? _documentCode;
             /// <summary>
             /// LOINC code identifying the document type (&lt;code&gt; code).
             /// </summary>
-            public string? DocumentCode { get; set; } // Made nullable
+            public string? DocumentCode
+            {
+                get => _documentCode;
+                set => _documentCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _documentCodeSystem;
             /// <summary>
             /// Code system for the document type code (&lt;code&gt; codeSystem), typically 2.16.840.1.113883.6.1.
             /// </summary>
-            public string? DocumentCodeSystem { get; set; } // Made nullable
+            public string? DocumentCodeSystem
+            {
+                get => _documentCodeSystem;
+                set => _documentCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _documentDisplayName;
             /// <summary>
             /// Display name matching the document type code (&lt;code&gt; displayName).
             /// </summary>
-            public string? DocumentDisplayName { get; set; } // Made nullable
+            public string? DocumentDisplayName
+            {
+                get => _documentDisplayName;
+                set => _documentDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _title;
             /// <summary>
             /// Document title (&lt;title&gt;), if provided.
             /// </summary>
-            public string? Title { get; set; } // Already nullable
+            public string? Title
+            {
+                get => _title;
+                set => _title = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Date reference for the SPL version (&lt;effectiveTime value&gt;).
@@ -92,10 +113,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? VersionNumber { get; set; } // Made nullable
 
+            private string? _submissionFileName;
             /// <summary>
             /// Name of the submitted XML file (e.g., DocumentGUID.xml).
             /// </summary>
-            public string? SubmissionFileName { get; set; } // Already nullable
+            public string? SubmissionFileName
+            {
+                get => _submissionFileName;
+                set => _submissionFileName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -111,10 +137,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? OrganizationID { get; set; } // Made nullable
 
+            private string? _organizationName;
             /// <summary>
             /// Name of the organization (&lt;name&gt;).
             /// </summary>
-            public string? OrganizationName { get; set; } // Already nullable
+            public string? OrganizationName
+            {
+                get => _organizationName;
+                set => _organizationName = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Flag indicating if the organization information is confidential (&lt;confidentialityCode code="B"&gt;).
@@ -135,40 +166,75 @@ namespace MedRecPro.Models
             /// </summary>
             public int? AddressID { get; set; } // Made nullable
 
+            private string? _streetAddressLine1;
             /// <summary>
             /// First line of the street address (&lt;streetAddressLine&gt;).
             /// </summary>
-            public string? StreetAddressLine1 { get; set; } // Made nullable
+            public string? StreetAddressLine1
+            {
+                get => _streetAddressLine1;
+                set => _streetAddressLine1 = value?.RemoveHtmlXss();
+            }
 
+            private string? _streetAddressLine2;
             /// <summary>
             /// Second line of the street address (&lt;streetAddressLine&gt;), optional.
             /// </summary>
-            public string? StreetAddressLine2 { get; set; } // Already nullable
+            public string? StreetAddressLine2
+            {
+                get => _streetAddressLine2;
+                set => _streetAddressLine2 = value?.RemoveHtmlXss();
+            }
 
+            private string? _city;
             /// <summary>
             /// City name (&lt;city&gt;).
             /// </summary>
-            public string? City { get; set; } // Made nullable
+            public string? City
+            {
+                get => _city;
+                set => _city = value?.RemoveHtmlXss();
+            }
 
+            private string? _stateProvince;
             /// <summary>
             /// State or province (&lt;state&gt;), required if country is USA.
             /// </summary>
-            public string? StateProvince { get; set; } // Already nullable
+            public string? StateProvince
+            {
+                get => _stateProvince;
+                set => _stateProvince = value?.RemoveHtmlXss();
+            }
 
+            private string? _postalCode;
             /// <summary>
             /// Postal or ZIP code (&lt;postalCode&gt;), required if country is USA.
             /// </summary>
-            public string? PostalCode { get; set; } // Already nullable
+            public string? PostalCode
+            {
+                get => _postalCode;
+                set => _postalCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _countryCode;
             /// <summary>
             /// ISO 3166-1 alpha-3 country code (&lt;country code&gt;).
             /// </summary>
-            public string? CountryCode { get; set; } // Made nullable
+            public string? CountryCode
+            {
+                get => _countryCode;
+                set => _countryCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _countryName;
             /// <summary>
             /// Full country name (&lt;country&gt; name).
             /// </summary>
-            public string? CountryName { get; set; } // Made nullable
+            public string? CountryName
+            {
+                get => _countryName;
+                set => _countryName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -184,15 +250,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? TelecomID { get; set; } // Made nullable
 
+            private string? _telecomType;
             /// <summary>
             /// Type of telecommunication: "tel", "mailto", or "fax".
             /// </summary>
-            public string? TelecomType { get; set; } // Made nullable
+            public string? TelecomType
+            {
+                get => _telecomType;
+                set => _telecomType = value?.RemoveHtmlXss();
+            }
 
+            private string? _telecomValue;
             /// <summary>
             /// The telecommunication value, prefixed with type (e.g., "tel:+1-...", "mailto:...", "fax:+1-...").
             /// </summary>
-            public string? TelecomValue { get; set; } // Made nullable
+            public string? TelecomValue
+            {
+                get => _telecomValue;
+                set => _telecomValue = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -208,10 +284,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ContactPersonID { get; set; } // Made nullable
 
+            private string? _contactPersonName;
             /// <summary>
             /// Name of the contact person (&lt;contactPerson&gt;&lt;name&gt;).
             /// </summary>
-            public string? ContactPersonName { get; set; } // Made nullable
+            public string? ContactPersonName
+            {
+                get => _contactPersonName;
+                set => _contactPersonName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -314,10 +395,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? OrganizationID { get; set; } // Made nullable
 
+            private string? _authorType;
             /// <summary>
             /// Identifies the type or role of the author, e.g., Labeler (4.1.2 [cite: 785]), FDA (8.1.2[cite: 945], 15.1.2[cite: 1030], 20.1.2[cite: 1295], 21.1.2[cite: 1330], 30.1.2[cite: 1553], 31.1.2[cite: 1580], 32.1.2[cite: 1607], 33.1.2 [cite: 1643]), NCPDP (12.1.2 [cite: 995]).
             /// </summary>
-            public string? AuthorType { get; set; } // Made nullable (Default is 'Labeler' in SQL)
+            public string? AuthorType
+            {
+                get => _authorType;
+                set => _authorType = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -338,10 +424,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SourceDocumentID { get; set; } // Made nullable
 
+            private string? _relationshipTypeCode;
             /// <summary>
             /// Code indicating the type of relationship (e.g., APND for core doc, RPLC for predecessor, DRIV for reference labeling, SUBJ for subject, XCRPT for excerpt).
             /// </summary>
-            public string? RelationshipTypeCode { get; set; } // Made nullable
+            public string? RelationshipTypeCode
+            {
+                get => _relationshipTypeCode;
+                set => _relationshipTypeCode = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Set GUID of the related/referenced document (&lt;setId root&gt;).
@@ -358,20 +449,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ReferencedVersionNumber { get; set; } // Already nullable
 
+            private string? _referencedDocumentCode;
             /// <summary>
             /// Document type code, system, and display name of the related/referenced document (&lt;code&gt;), used for RPLC relationship.
             /// </summary>
-            public string? ReferencedDocumentCode { get; set; } // Already nullable
+            public string? ReferencedDocumentCode
+            {
+                get => _referencedDocumentCode;
+                set => _referencedDocumentCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _referencedDocumentCodeSystem;
             /// <summary>
             /// Corresponds to &lt;code&gt; codeSystem of the referenced document (used in RPLC).
             /// </summary>
-            public string? ReferencedDocumentCodeSystem { get; set; } // Already nullable
+            public string? ReferencedDocumentCodeSystem
+            {
+                get => _referencedDocumentCodeSystem;
+                set => _referencedDocumentCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _referencedDocumentDisplayName;
             /// <summary>
             /// Corresponds to &lt;code&gt; displayName of the referenced document (used in RPLC).
             /// </summary>
-            public string? ReferencedDocumentDisplayName { get; set; } // Already nullable
+            public string? ReferencedDocumentDisplayName
+            {
+                get => _referencedDocumentDisplayName;
+                set => _referencedDocumentDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -402,10 +508,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ChildOrganizationID { get; set; } // Made nullable
 
+            private string? _relationshipType;
             /// <summary>
             /// Describes the specific relationship, e.g., LabelerToRegistrant (4.1.3 [cite: 788]), RegistrantToEstablishment (4.1.4 [cite: 791]), EstablishmentToUSagent (6.1.4 [cite: 914]), EstablishmentToImporter (6.1.5 [cite: 918]), LabelerToDetails (5.1.3 [cite: 863]), FacilityToParentCompany (35.1.6 [cite: 1695]), LabelerToParentCompany (36.1.2.5 [cite: 1719]), DocumentToBulkLotManufacturer (16.1.3).
             /// </summary>
-            public string? RelationshipType { get; set; } // Made nullable
+            public string? RelationshipType
+            {
+                get => _relationshipType;
+                set => _relationshipType = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Indicates the level in the hierarchy (e.g., 1 for Labeler, 2 for Registrant, 3 for Establishment).
@@ -455,25 +566,45 @@ namespace MedRecPro.Models
             /// </summary>
             public Guid? SectionGUID { get; set; } // Made nullable
 
+            private string? _sectionCode;
             /// <summary>
             /// LOINC code for the section type (&lt;code&gt; code).
             /// </summary>
-            public string? SectionCode { get; set; } // Made nullable
+            public string? SectionCode
+            {
+                get => _sectionCode;
+                set => _sectionCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _sectionCodeSystem;
             /// <summary>
             /// Code system for the section code (&lt;code&gt; codeSystem), typically 2.16.840.1.113883.6.1.
             /// </summary>
-            public string? SectionCodeSystem { get; set; } // Made nullable
+            public string? SectionCodeSystem
+            {
+                get => _sectionCodeSystem;
+                set => _sectionCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _sectionDisplayName;
             /// <summary>
             /// Display name matching the section code (&lt;code&gt; displayName).
             /// </summary>
-            public string? SectionDisplayName { get; set; } // Made nullable
+            public string? SectionDisplayName
+            {
+                get => _sectionDisplayName;
+                set => _sectionDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _title;
             /// <summary>
             /// Title of the section (&lt;title&gt;), may include numbering.
             /// </summary>
-            public string? Title { get; set; } // Already nullable
+            public string? Title
+            {
+                get => _title;
+                set => _title = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Effective time for the section (&lt;effectiveTime value&gt;). For Compounded Drug Labels (Sec 4.2.2), low/high represent the reporting period.
@@ -528,20 +659,30 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _contentType;
             /// <summary>
             /// Type of content block: Paragraph, List, Table, BlockImage (for &lt;renderMultimedia&gt; as direct child of &lt;text&gt;).
             /// </summary>
-            public string? ContentType { get; set; } // Made nullable
+            public string? ContentType
+            {
+                get => _contentType;
+                set => _contentType = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Order of this content block within the parent section's &lt;text&gt; element.
             /// </summary>
             public int? SequenceNumber { get; set; } // Made nullable
 
+            private string? _contentText;
             /// <summary>
             /// Actual text for Paragraphs. For List/Table types, details are in related tables. Inline markup (bold, italic, links etc) handled separately.
             /// </summary>
-            public string? ContentText { get; set; } // Already nullable
+            public string? ContentText
+            {
+                get => _contentText;
+                set => _contentText = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -562,15 +703,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionTextContentID { get; set; } // Made nullable
 
+            private string? _listType;
             /// <summary>
             /// Attribute identifying the list as ordered or unordered (&lt;list listType=&gt;).
             /// </summary>
-            public string? ListType { get; set; } // Made nullable
+            public string? ListType
+            {
+                get => _listType;
+                set => _listType = value?.RemoveHtmlXss();
+            }
 
+            private string? _styleCode;
             /// <summary>
             /// Optional style code for numbering/bullet style (&lt;list styleCode=&gt;).
             /// </summary>
-            public string? StyleCode { get; set; } // Already nullable
+            public string? StyleCode
+            {
+                get => _styleCode;
+                set => _styleCode = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -596,15 +747,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SequenceNumber { get; set; } // Made nullable
 
+            private string? _itemCaption;
             /// <summary>
             /// Optional custom marker specified using &lt;caption&gt; within &lt;item&gt;.
             /// </summary>
-            public string? ItemCaption { get; set; } // Already nullable
+            public string? ItemCaption
+            {
+                get => _itemCaption;
+                set => _itemCaption = value?.RemoveHtmlXss();
+            }
 
+            private string? _itemText;
             /// <summary>
             /// Text content of the list item &lt;item&gt;.
             /// </summary>
-            public string? ItemText { get; set; } // Made nullable
+            public string? ItemText
+            {
+                get => _itemText;
+                set => _itemText = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -625,10 +786,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionTextContentID { get; set; } // Made nullable
 
+            private string? _width;
             /// <summary>
             /// Optional width attribute specified on the &lt;table&gt; element.
             /// </summary>
-            public string? Width { get; set; } // Already nullable
+            public string? Width
+            {
+                get => _width;
+                set => _width = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Indicates if the table included a &lt;thead&gt; element.
@@ -659,20 +825,30 @@ namespace MedRecPro.Models
             /// </summary>
             public int? TextTableID { get; set; } // Made nullable
 
+            private string? _rowGroupType;
             /// <summary>
             /// 'Header', 'Body', 'Footer' (corresponding to thead, tbody, tfoot).
             /// </summary>
-            public string? RowGroupType { get; set; } // Made nullable
+            public string? RowGroupType
+            {
+                get => _rowGroupType;
+                set => _rowGroupType = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Order of the row within its group (thead, tbody, tfoot).
             /// </summary>
             public int? SequenceNumber { get; set; } // Made nullable
 
+            private string? _styleCode;
             /// <summary>
             /// Optional styleCode attribute on &lt;tr&gt; (e.g., Botrule).
             /// </summary>
-            public string? StyleCode { get; set; } // Already nullable
+            public string? StyleCode
+            {
+                get => _styleCode;
+                set => _styleCode = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -693,20 +869,30 @@ namespace MedRecPro.Models
             /// </summary>
             public int? TextTableRowID { get; set; } // Made nullable
 
+            private string? _cellType;
             /// <summary>
             /// 'td' or 'th'.
             /// </summary>
-            public string? CellType { get; set; } // Made nullable
+            public string? CellType
+            {
+                get => _cellType;
+                set => _cellType = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Order of the cell within the row (column number).
             /// </summary>
             public int? SequenceNumber { get; set; } // Made nullable
 
+            private string? _cellText;
             /// <summary>
             /// Text content of the table cell (&lt;td&gt; or &lt;th&gt;).
             /// </summary>
-            public string? CellText { get; set; } // Made nullable
+            public string? CellText
+            {
+                get => _cellText;
+                set => _cellText = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Optional rowspan attribute on &lt;td&gt; or &lt;th&gt;.
@@ -718,20 +904,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ColSpan { get; set; } // Already nullable
 
+            private string? _styleCode;
             /// <summary>
             /// Optional styleCode attribute for cell rules (Lrule, Rrule, Toprule, Botrule).
             /// </summary>
-            public string? StyleCode { get; set; } // Already nullable
+            public string? StyleCode
+            {
+                get => _styleCode;
+                set => _styleCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _align;
             /// <summary>
             /// Optional align attribute for horizontal alignment.
             /// </summary>
-            public string? Align { get; set; } // Already nullable
+            public string? Align
+            {
+                get => _align;
+                set => _align = value?.RemoveHtmlXss();
+            }
 
+            private string? _vAlign;
             /// <summary>
             /// Optional valign attribute for vertical alignment.
             /// </summary>
-            public string? VAlign { get; set; } // Already nullable
+            public string? VAlign
+            {
+                get => _vAlign;
+                set => _vAlign = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -752,25 +953,45 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _mediaID;
             /// <summary>
             /// Identifier for the media object (&lt;observationMedia ID=&gt;), referenced by &lt;renderMultimedia&gt;.
             /// </summary>
-            public string? MediaID { get; set; } // Made nullable
+            public string? MediaID
+            {
+                get => _mediaID;
+                set => _mediaID = value?.RemoveHtmlXss();
+            }
 
+            private string? _descriptionText;
             /// <summary>
             /// Text description of the image (&lt;text&gt; child of observationMedia), used by screen readers.
             /// </summary>
-            public string? DescriptionText { get; set; } // Already nullable
+            public string? DescriptionText
+            {
+                get => _descriptionText;
+                set => _descriptionText = value?.RemoveHtmlXss();
+            }
 
+            private string? _mediaType;
             /// <summary>
             /// Media type of the file (&lt;value mediaType=&gt;), e.g., image/jpeg.
             /// </summary>
-            public string? MediaType { get; set; } // Made nullable
+            public string? MediaType
+            {
+                get => _mediaType;
+                set => _mediaType = value?.RemoveHtmlXss();
+            }
 
+            private string? _fileName;
             /// <summary>
             /// File name of the image (&lt;reference value=&gt;).
             /// </summary>
-            public string? FileName { get; set; } // Made nullable
+            public string? FileName
+            {
+                get => _fileName;
+                set => _fileName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -825,10 +1046,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _highlightText;
             /// <summary>
             /// Text content from &lt;excerpt&gt;&lt;highlight&gt;&lt;text&gt;.
             /// </summary>
-            public string? HighlightText { get; set; } // Made nullable
+            public string? HighlightText
+            {
+                get => _highlightText;
+                set => _highlightText = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -849,35 +1075,65 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Already nullable
 
+            private string? _productName;
             /// <summary>
             /// Proprietary name or product name (&lt;name&gt;).
             /// </summary>
-            public string? ProductName { get; set; } // Already nullable
+            public string? ProductName
+            {
+                get => _productName;
+                set => _productName = value?.RemoveHtmlXss();
+            }
 
+            private string? _productSuffix;
             /// <summary>
             /// Suffix to the proprietary name (&lt;suffix&gt;), e.g., "XR".
             /// </summary>
-            public string? ProductSuffix { get; set; } // Already nullable
+            public string? ProductSuffix
+            {
+                get => _productSuffix;
+                set => _productSuffix = value?.RemoveHtmlXss();
+            }
 
+            private string? _formCode;
             /// <summary>
             /// Dosage form code, system, and display name (&lt;formCode&gt;).
             /// </summary>
-            public string? FormCode { get; set; } // Already nullable
+            public string? FormCode
+            {
+                get => _formCode;
+                set => _formCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _formCodeSystem;
             /// <summary>
             /// Corresponds to &lt;formCode codeSystem&gt;.
             /// </summary>
-            public string? FormCodeSystem { get; set; } // Already nullable
+            public string? FormCodeSystem
+            {
+                get => _formCodeSystem;
+                set => _formCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _formDisplayName;
             /// <summary>
             /// Corresponds to &lt;formCode displayName&gt;.
             /// </summary>
-            public string? FormDisplayName { get; set; } // Already nullable
+            public string? FormDisplayName
+            {
+                get => _formDisplayName;
+                set => _formDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _descriptionText;
             /// <summary>
             /// Brief description of the product (&lt;desc&gt;), mainly used for devices.
             /// </summary>
-            public string? DescriptionText { get; set; } // Already nullable
+            public string? DescriptionText
+            {
+                get => _descriptionText;
+                set => _descriptionText = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -898,20 +1154,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _identifierValue;
             /// <summary>
             /// The item code value (&lt;code code=&gt;).
             /// </summary>
-            public string? IdentifierValue { get; set; } // Made nullable
+            public string? IdentifierValue
+            {
+                get => _identifierValue;
+                set => _identifierValue = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierSystemOID;
             /// <summary>
             /// OID for the identifier system (&lt;code codeSystem=&gt;).
             /// </summary>
-            public string? IdentifierSystemOID { get; set; } // Made nullable
+            public string? IdentifierSystemOID
+            {
+                get => _identifierSystemOID;
+                set => _identifierSystemOID = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierType;
             /// <summary>
             /// Type classification of the identifier based on the OID.
             /// </summary>
-            public string? IdentifierType { get; set; } // Made nullable
+            public string? IdentifierType
+            {
+                get => _identifierType;
+                set => _identifierType = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -932,15 +1203,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _genericName;
             /// <summary>
             /// Non-proprietary name of the product (&lt;genericMedicine&gt;&lt;name&gt;).
             /// </summary>
-            public string? GenericName { get; set; } // Made nullable
+            public string? GenericName
+            {
+                get => _genericName;
+                set => _genericName = value?.RemoveHtmlXss();
+            }
 
+            private string? _phoneticName;
             /// <summary>
             /// Phonetic spelling of the generic name (&lt;name use="PHON"&gt;), optional.
             /// </summary>
-            public string? PhoneticName { get; set; } // Already nullable
+            public string? PhoneticName
+            {
+                get => _phoneticName;
+                set => _phoneticName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -961,20 +1242,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _kindCode;
             /// <summary>
             /// Code for the specialized kind (e.g., device product classification, cosmetic category).
             /// </summary>
-            public string? KindCode { get; set; } // Made nullable
+            public string? KindCode
+            {
+                get => _kindCode;
+                set => _kindCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _kindCodeSystem;
             /// <summary>
             /// Code system for the specialized kind code (typically 2.16.840.1.113883.6.303).
             /// </summary>
-            public string? KindCodeSystem { get; set; } // Made nullable
+            public string? KindCodeSystem
+            {
+                get => _kindCodeSystem;
+                set => _kindCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _kindDisplayName;
             /// <summary>
             /// Display name matching the specialized kind code.
             /// </summary>
-            public string? KindDisplayName { get; set; } // Made nullable
+            public string? KindDisplayName
+            {
+                get => _kindDisplayName;
+                set => _kindDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -995,25 +1291,45 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _equivalenceCode;
             /// <summary>
             /// Code indicating the type of equivalence relationship, e.g., C64637 (Same), pending (Predecessor).
             /// </summary>
-            public string? EquivalenceCode { get; set; } // Made nullable
+            public string? EquivalenceCode
+            {
+                get => _equivalenceCode;
+                set => _equivalenceCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _equivalenceCodeSystem;
             /// <summary>
             /// Code system for EquivalenceCode.
             /// </summary>
-            public string? EquivalenceCodeSystem { get; set; } // Made nullable
+            public string? EquivalenceCodeSystem
+            {
+                get => _equivalenceCodeSystem;
+                set => _equivalenceCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _definingMaterialKindCode;
             /// <summary>
             /// Item code of the equivalent product (e.g., source NDC product code).
             /// </summary>
-            public string? DefiningMaterialKindCode { get; set; } // Made nullable
+            public string? DefiningMaterialKindCode
+            {
+                get => _definingMaterialKindCode;
+                set => _definingMaterialKindCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _definingMaterialKindSystem;
             /// <summary>
             /// Code system for the equivalent product's item code.
             /// </summary>
-            public string? DefiningMaterialKindSystem { get; set; } // Made nullable
+            public string? DefiningMaterialKindSystem
+            {
+                get => _definingMaterialKindSystem;
+                set => _definingMaterialKindSystem = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1034,30 +1350,55 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _identifierTypeCode;
             /// <summary>
             /// Code for the type of identifier (e.g., C99286 Model Number, C99285 Catalog Number, C99287 Reference Number).
             /// </summary>
-            public string? IdentifierTypeCode { get; set; } // Made nullable
+            public string? IdentifierTypeCode
+            {
+                get => _identifierTypeCode;
+                set => _identifierTypeCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierTypeCodeSystem;
             /// <summary>
             /// Code system for IdentifierTypeCode.
             /// </summary>
-            public string? IdentifierTypeCodeSystem { get; set; } // Made nullable
+            public string? IdentifierTypeCodeSystem
+            {
+                get => _identifierTypeCodeSystem;
+                set => _identifierTypeCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierTypeDisplayName;
             /// <summary>
             /// Display name for IdentifierTypeCode.
             /// </summary>
-            public string? IdentifierTypeDisplayName { get; set; } // Made nullable
+            public string? IdentifierTypeDisplayName
+            {
+                get => _identifierTypeDisplayName;
+                set => _identifierTypeDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierValue;
             /// <summary>
             /// The actual identifier value (&lt;id extension&gt;).
             /// </summary>
-            public string? IdentifierValue { get; set; } // Made nullable
+            public string? IdentifierValue
+            {
+                get => _identifierValue;
+                set => _identifierValue = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierRootOID;
             /// <summary>
             /// The root OID associated with the identifier (&lt;id root&gt;).
             /// </summary>
-            public string? IdentifierRootOID { get; set; } // Made nullable
+            public string? IdentifierRootOID
+            {
+                get => _identifierRootOID;
+                set => _identifierRootOID = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1073,20 +1414,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? IngredientSubstanceID { get; set; } // Made nullable
 
+            private string? _unii;
             /// <summary>
             /// Unique Ingredient Identifier (&lt;code code=&gt; where codeSystem="2.16.840.1.113883.4.9"). Optional for cosmetics.
             /// </summary>
-            public string? UNII { get; set; } // Already nullable
+            public string? UNII
+            {
+                get => _unii;
+                set => _unii = value?.RemoveHtmlXss();
+            }
 
+            private string? _substanceName;
             /// <summary>
             /// Name of the substance (name).
             /// </summary>
-            public string? SubstanceName { get; set; } // Made nullable
+            public string? SubstanceName
+            {
+                get => _substanceName;
+                set => _substanceName = value?.RemoveHtmlXss();
+            }
 
+            private string? _originatingElement;
             /// <summary>
             /// The name of the XML element this ingredient was parsed from (e.g., "inactiveIngredientSubstance").
             /// </summary>
-            public string? OriginatingElement { get; set; }
+            public string? OriginatingElement
+            {
+                get => _originatingElement;
+                set => _originatingElement = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1107,15 +1463,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? IngredientSubstanceID { get; set; } // Made nullable
 
+            private string? _moietyUNII;
             /// <summary>
             /// UNII code of the active moiety (&lt;activeMoiety&gt;&lt;code&gt; code).
             /// </summary>
-            public string? MoietyUNII { get; set; } // Made nullable
+            public string? MoietyUNII
+            {
+                get => _moietyUNII;
+                set => _moietyUNII = value?.RemoveHtmlXss();
+            }
 
+            private string? _moietyName;
             /// <summary>
             /// Name of the active moiety (&lt;activeMoiety&gt;&lt;name&gt;).
             /// </summary>
-            public string? MoietyName { get; set; } // Made nullable
+            public string? MoietyName
+            {
+                get => _moietyName;
+                set => _moietyName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1136,15 +1502,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? IngredientSubstanceID { get; set; } // Made nullable
 
+            private string? _refSubstanceUNII;
             /// <summary>
             /// UNII code of the reference substance (&lt;definingSubstance&gt;&lt;code&gt; code).
             /// </summary>
-            public string? RefSubstanceUNII { get; set; } // Made nullable
+            public string? RefSubstanceUNII
+            {
+                get => _refSubstanceUNII;
+                set => _refSubstanceUNII = value?.RemoveHtmlXss();
+            }
 
+            private string? _refSubstanceName;
             /// <summary>
             /// Name of the reference substance (&lt;definingSubstance&gt;&lt;name&gt;).
             /// </summary>
-            public string? RefSubstanceName { get; set; } // Made nullable
+            public string? RefSubstanceName
+            {
+                get => _refSubstanceName;
+                set => _refSubstanceName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1185,71 +1561,126 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductConceptID { get; set; } // Already nullable
 
+            private string? _classCode;
             /// <summary>
             /// Class code indicating ingredient type (e.g., ACTIB, ACTIM, ACTIR, IACT, INGR, COLR, CNTM, ADJV).
             /// </summary>
-            public string? ClassCode { get; set; } // Made nullable
+            public string? ClassCode
+            {
+                get => _classCode;
+                set => _classCode = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Strength expressed as numerator/denominator value and unit (&lt;quantity&gt;). Null for CNTM unless zero numerator.
             /// </summary>
             public decimal? QuantityNumerator { get; set; } // Already nullable
 
+            private string? _quantityNumeratorUnit;
             /// <summary>
             /// Corresponds to &lt;quantity&gt;&lt;numerator unit&gt;.
             /// </summary>
-            public string? QuantityNumeratorUnit { get; set; } // Already nullable
+            public string? QuantityNumeratorUnit
+            {
+                get => _quantityNumeratorUnit;
+                set => _quantityNumeratorUnit = value?.RemoveHtmlXss();
+            }
 
+            private string? _numeratorTranslationCode;
             /// <summary>
             /// Translation attribute for the numerator (e.g., translation code="C28253")
             /// </summary>
-            public string? NumeratorTranslationCode { get; set; }
+            public string? NumeratorTranslationCode
+            {
+                get => _numeratorTranslationCode;
+                set => _numeratorTranslationCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _numeratorCodeSystem;
             /// <summary>
             /// Translation attribute for the numerator (e.g., translation codeSystem="2.16.840.1.113883.3.26.1.1")
             /// </summary>
-            public string? NumeratorCodeSystem { get; set; }
+            public string? NumeratorCodeSystem
+            {
+                get => _numeratorCodeSystem;
+                set => _numeratorCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _numeratorDisplayName;
             /// <summary>
             /// Translation attribute for the numerator (e.g., translation displayName="MILLIGRAM")
             /// </summary>
-            public string? NumeratorDisplayName { get; set; }
+            public string? NumeratorDisplayName
+            {
+                get => _numeratorDisplayName;
+                set => _numeratorDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _numeratorValue;
             /// <summary>
             /// Translation attribute for the numerator (e.g., translation value="50")
             /// </summary>
-            public string? NumeratorValue { get; set; }
+            public string? NumeratorValue
+            {
+                get => _numeratorValue;
+                set => _numeratorValue = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Corresponds to &lt;quantity&gt;&lt;denominator value&gt;.
             /// </summary>
             public decimal? QuantityDenominator { get; set; } // Already nullable
 
+            private string? _denominatorTranslationCode;
             /// <summary>
             /// Translation attribute for the numerator (e.g., translation code="C28253")
             /// </summary>
-            public string? DenominatorTranslationCode { get; set; }
+            public string? DenominatorTranslationCode
+            {
+                get => _denominatorTranslationCode;
+                set => _denominatorTranslationCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _denominatorCodeSystem;
             /// <summary>
             /// Translation attribute for the numerator (e.g., translation codeSystem="2.16.840.1.113883.3.26.1.1")
             /// </summary>
-            public string? DenominatorCodeSystem { get; set; }
+            public string? DenominatorCodeSystem
+            {
+                get => _denominatorCodeSystem;
+                set => _denominatorCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _denominatorDisplayName;
             /// <summary>
             /// Translation attribute for the numerator (e.g., translation displayName="MILLIGRAM")
             /// </summary>
-            public string? DenominatorDisplayName { get; set; }
+            public string? DenominatorDisplayName
+            {
+                get => _denominatorDisplayName;
+                set => _denominatorDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _denominatorValue;
             /// <summary>
             /// Translation attribute for the numerator (e.g., translation value="50")
             /// </summary>
-            public string? DenominatorValue { get; set; }
+            public string? DenominatorValue
+            {
+                get => _denominatorValue;
+                set => _denominatorValue = value?.RemoveHtmlXss();
+            }
 
+            private string? _quantityDenominatorUnit;
             /// <summary>
             /// Corresponds to &lt;quantity&gt;&lt;denominator unit&gt;.
             /// </summary>
-            public string? QuantityDenominatorUnit { get; set; } // Already nullable
-        
+            public string? QuantityDenominatorUnit
+            {
+                get => _quantityDenominatorUnit;
+                set => _quantityDenominatorUnit = value?.RemoveHtmlXss();
+            }
+
             /// <summary>
             /// Flag indicating if the inactive ingredient information is confidential (&lt;confidentialityCode code="B"&gt;).
             /// </summary>
@@ -1260,15 +1691,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SequenceNumber { get; set; } // Made nullable
 
+            private string? _displayName;
             /// <summary>
             /// Display name (displayName="MILLIGRAM").
             /// </summary>
-            public string? DisplayName { get; set; } // Made nullable
+            public string? DisplayName
+            {
+                get => _displayName;
+                set => _displayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _originatingElement;
             /// <summary>
             /// The name of the XML element this ingredient was parsed from (e.g., "ingredient", "activeIngredient").
             /// </summary>
-            public string? OriginatingElement { get; set; }
+            public string? OriginatingElement
+            {
+                get => _originatingElement;
+                set => _originatingElement = value?.RemoveHtmlXss();
+            }
 
             #endregion properties
         }
@@ -1290,15 +1731,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? IngredientID { get; set; } // Made nullable
 
+            private string? _sourceProductNDC;
             /// <summary>
             /// NDC Product Code of the source product used for the ingredient.
             /// </summary>
-            public string? SourceProductNDC { get; set; } // Made nullable
+            public string? SourceProductNDC
+            {
+                get => _sourceProductNDC;
+                set => _sourceProductNDC = value?.RemoveHtmlXss();
+            }
 
+            private string? _sourceProductNDCSysten;
             /// <summary>
             /// Code system for Source NDC.
             /// </summary>
-            public string? SourceProductNDCSysten { get; set; } // Made nullable (Default is '2.16.840.1.113883.6.69' in SQL)
+            public string? SourceProductNDCSysten
+            {
+                get => _sourceProductNDCSysten;
+                set => _sourceProductNDCSysten = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1334,35 +1785,65 @@ namespace MedRecPro.Models
             /// </summary>
             public decimal? QuantityDenominator { get; set; } // Made nullable
 
+            private string? _quantityNumeratorUnit;
             /// <summary>
             /// Corresponds to &lt;quantity&gt;&lt;numerator unit&gt;.
             /// </summary>
-            public string? QuantityNumeratorUnit { get; set; } // Made nullable
+            public string? QuantityNumeratorUnit
+            {
+                get => _quantityNumeratorUnit;
+                set => _quantityNumeratorUnit = value?.RemoveHtmlXss();
+            }
 
+            private string? _packageCode;
             /// <summary>
             /// The package item code value (&lt;containerPackagedProduct&gt;&lt;code code="..." /&gt;).
             /// </summary>
-            public string? PackageCode { get; set; }
+            public string? PackageCode
+            {
+                get => _packageCode;
+                set => _packageCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _packageCodeSystem;
             /// <summary>
             /// The code system OID for the package item code (&lt;containerPackagedProduct&gt;&lt;code codeSystem="..." /&gt;).
             /// </summary>
-            public string? PackageCodeSystem { get; set; }
+            public string? PackageCodeSystem
+            {
+                get => _packageCodeSystem;
+                set => _packageCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _packageFormCode;
             /// <summary>
             /// Package type code, system, and display name (&lt;containerPackagedProduct&gt;&lt;formCode&gt;).
             /// </summary>
-            public string? PackageFormCode { get; set; } // Made nullable
+            public string? PackageFormCode
+            {
+                get => _packageFormCode;
+                set => _packageFormCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _packageFormCodeSystem;
             /// <summary>
             /// Corresponds to &lt;containerPackagedProduct&gt;&lt;formCode codeSystem&gt;.
             /// </summary>
-            public string? PackageFormCodeSystem { get; set; } // Made nullable
+            public string? PackageFormCodeSystem
+            {
+                get => _packageFormCodeSystem;
+                set => _packageFormCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _packageFormDisplayName;
             /// <summary>
             /// Corresponds to &lt;containerPackagedProduct&gt;&lt;formCode displayName&gt;.
             /// </summary>
-            public string? PackageFormDisplayName { get; set; } // Made nullable
+            public string? PackageFormDisplayName
+            {
+                get => _packageFormDisplayName;
+                set => _packageFormDisplayName = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// FK to ProductInstance, used when the packaging details describe a container linked to a specific Label Lot instance (Lot Distribution).
@@ -1388,20 +1869,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? PackagingLevelID { get; set; } // Made nullable
 
+            private string? _identifierValue;
             /// <summary>
             /// The package item code value (&lt;containerPackagedProduct&gt;&lt;code&gt; code).
             /// </summary>
-            public string? IdentifierValue { get; set; } // Made nullable
+            public string? IdentifierValue
+            {
+                get => _identifierValue;
+                set => _identifierValue = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierSystemOID;
             /// <summary>
             /// OID for the package identifier system (&lt;containerPackagedProduct&gt;&lt;code&gt; codeSystem).
             /// </summary>
-            public string? IdentifierSystemOID { get; set; } // Made nullable
+            public string? IdentifierSystemOID
+            {
+                get => _identifierSystemOID;
+                set => _identifierSystemOID = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierType;
             /// <summary>
             /// e.g., 'NDCPackage', 'NHRICPackage', 'GS1Package', 'HIBCCPackage', 'ISBTPackage'.
             /// </summary>
-            public string? IdentifierType { get; set; } // Made nullable
+            public string? IdentifierType
+            {
+                get => _identifierType;
+                set => _identifierType = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1451,40 +1947,70 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Already nullable
 
+            private string? _categoryCode;
             /// <summary>
             /// Code identifying the marketing category (e.g., NDA, ANDA, OTC Monograph Drug).
             /// </summary>
-            public string? CategoryCode { get; set; } // Made nullable
+            public string? CategoryCode
+            {
+                get => _categoryCode;
+                set => _categoryCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _categoryCodeSystem;
             /// <summary>
             /// Marketing Category code system (&lt;approval&gt;&lt;code&gt; codeSystem).
             /// </summary>
-            public string? CategoryCodeSystem { get; set; } // Made nullable
+            public string? CategoryCodeSystem
+            {
+                get => _categoryCodeSystem;
+                set => _categoryCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _categoryDisplayName;
             /// <summary>
             /// Marketing Category display name (&lt;approval&gt;&lt;code&gt; displayName).
             /// </summary>
-            public string? CategoryDisplayName { get; set; } // Made nullable
+            public string? CategoryDisplayName
+            {
+                get => _categoryDisplayName;
+                set => _categoryDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _applicationOrMonographIDValue;
             /// <summary>
             /// Application number, monograph ID, or citation (&lt;id extension&gt;).
             /// </summary>
-            public string? ApplicationOrMonographIDValue { get; set; } // Already nullable
+            public string? ApplicationOrMonographIDValue
+            {
+                get => _applicationOrMonographIDValue;
+                set => _applicationOrMonographIDValue = value?.RemoveHtmlXss();
+            }
 
+            private string? _applicationOrMonographIDOID;
             /// <summary>
             /// Root OID for the application number or monograph ID system (&lt;id root&gt;).
             /// </summary>
-            public string? ApplicationOrMonographIDOID { get; set; } // Already nullable
+            public string? ApplicationOrMonographIDOID
+            {
+                get => _applicationOrMonographIDOID;
+                set => _applicationOrMonographIDOID = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Date of application approval, if applicable (&lt;effectiveTime&gt;&lt;low value&gt;).
             /// </summary>
             public DateTime? ApprovalDate { get; set; } // Already nullable
 
+            private string? _territoryCode;
             /// <summary>
             /// Territory code, typically USA (&lt;territory&gt;&lt;code&gt;).
             /// </summary>
-            public string? TerritoryCode { get; set; } // Already nullable
+            public string? TerritoryCode
+            {
+                get => _territoryCode;
+                set => _territoryCode = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// FK to ProductConcept, used when the marketing category applies to an Application Product Concept instead of a concrete Product. Null if linked via ProductID.
@@ -1515,20 +2041,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? PackagingLevelID { get; set; } // Already nullable
 
+            private string? _marketingActCode;
             /// <summary>
             /// Code for the marketing activity (e.g., C53292 Marketing, C96974 Drug Sample).
             /// </summary>
-            public string? MarketingActCode { get; set; } // Made nullable
+            public string? MarketingActCode
+            {
+                get => _marketingActCode;
+                set => _marketingActCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _marketingActCodeSystem;
             /// <summary>
             /// Code system for MarketingActCode.
             /// </summary>
-            public string? MarketingActCodeSystem { get; set; } // Made nullable
+            public string? MarketingActCodeSystem
+            {
+                get => _marketingActCodeSystem;
+                set => _marketingActCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _statusCode;
             /// <summary>
             /// Status code: active, completed, new, cancelled.
             /// </summary>
-            public string? StatusCode { get; set; } // Made nullable
+            public string? StatusCode
+            {
+                get => _statusCode;
+                set => _statusCode = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Marketing start date (&lt;effectiveTime&gt;&lt;low value&gt;).
@@ -1564,55 +2105,95 @@ namespace MedRecPro.Models
             /// </summary>
             public int? PackagingLevelID { get; set; } // Already nullable
 
+            private string? _characteristicCode;
             /// <summary>
             /// Code identifying the characteristic property (e.g., SPLCOLOR, SPLSHAPE, SPLSIZE, SPLIMPRINT, SPLFLAVOR, SPLSCORE, SPLIMAGE, SPLCMBPRDTP, SPLPRODUCTIONAMOUNT, SPLUSE, SPLSTERILEUSE, SPLPROFESSIONALUSE, SPLSMALLBUSINESS).
             /// </summary>
-            public string? CharacteristicCode { get; set; } // Made nullable
+            public string? CharacteristicCode
+            {
+                get => _characteristicCode;
+                set => _characteristicCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _characteristicCodeSystem;
             /// <summary>
             /// Code system for CharacteristicCode.
             /// </summary>
-            public string? CharacteristicCodeSystem { get; set; } // Made nullable
+            public string? CharacteristicCodeSystem
+            {
+                get => _characteristicCodeSystem;
+                set => _characteristicCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _valueType;
             /// <summary>
             /// Indicates the XML Schema instance type of the &lt;value&gt; element (e.g., PQ, INT, CV, ST, BL, IVL_PQ, ED).
             /// </summary>
-            public string? ValueType { get; set; } // Made nullable
+            public string? ValueType
+            {
+                get => _valueType;
+                set => _valueType = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Value for PQ type.
             /// </summary>
             public decimal? ValuePQ_Value { get; set; } // Already nullable
 
+            private string? _valuePQ_Unit;
             /// <summary>
             /// Unit for PQ type.
             /// </summary>
-            public string? ValuePQ_Unit { get; set; } // Already nullable
+            public string? ValuePQ_Unit
+            {
+                get => _valuePQ_Unit;
+                set => _valuePQ_Unit = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Value for INT type.
             /// </summary>
             public int? ValueINT { get; set; } // Already nullable
 
+            private string? _valueCV_Code;
             /// <summary>
             /// Code for CV type.
             /// </summary>
-            public string? ValueCV_Code { get; set; } // Already nullable
+            public string? ValueCV_Code
+            {
+                get => _valueCV_Code;
+                set => _valueCV_Code = value?.RemoveHtmlXss();
+            }
 
+            private string? _valueCV_CodeSystem;
             /// <summary>
             /// Code system for CV type.
             /// </summary>
-            public string? ValueCV_CodeSystem { get; set; } // Already nullable
+            public string? ValueCV_CodeSystem
+            {
+                get => _valueCV_CodeSystem;
+                set => _valueCV_CodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _valueCV_DisplayName;
             /// <summary>
             /// Display name for CV type.
             /// </summary>
-            public string? ValueCV_DisplayName { get; set; } // Already nullable
+            public string? ValueCV_DisplayName
+            {
+                get => _valueCV_DisplayName;
+                set => _valueCV_DisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _valueST;
             /// <summary>
             /// Value for ST type.
             /// </summary>
-            public string? ValueST { get; set; } // Already nullable
+            public string? ValueST
+            {
+                get => _valueST;
+                set => _valueST = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Value for BL type.
@@ -1624,35 +2205,60 @@ namespace MedRecPro.Models
             /// </summary>
             public decimal? ValueIVLPQ_LowValue { get; set; } // Already nullable
 
+            private string? _valueIVLPQ_LowUnit;
             /// <summary>
             /// Low unit for IVL_PQ type.
             /// </summary>
-            public string? ValueIVLPQ_LowUnit { get; set; } // Already nullable
+            public string? ValueIVLPQ_LowUnit
+            {
+                get => _valueIVLPQ_LowUnit;
+                set => _valueIVLPQ_LowUnit = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// High value for IVL_PQ type.
             /// </summary>
             public decimal? ValueIVLPQ_HighValue { get; set; } // Already nullable
 
+            private string? _valueIVLPQ_HighUnit;
             /// <summary>
             /// High unit for IVL_PQ type.
             /// </summary>
-            public string? ValueIVLPQ_HighUnit { get; set; } // Already nullable
+            public string? ValueIVLPQ_HighUnit
+            {
+                get => _valueIVLPQ_HighUnit;
+                set => _valueIVLPQ_HighUnit = value?.RemoveHtmlXss();
+            }
 
+            private string? _valueED_MediaType;
             /// <summary>
             /// Media type for ED type.
             /// </summary>
-            public string? ValueED_MediaType { get; set; } // Already nullable
+            public string? ValueED_MediaType
+            {
+                get => _valueED_MediaType;
+                set => _valueED_MediaType = value?.RemoveHtmlXss();
+            }
 
+            private string? _valueED_FileName;
             /// <summary>
             /// File name for ED type.
             /// </summary>
-            public string? ValueED_FileName { get; set; } // Already nullable
+            public string? ValueED_FileName
+            {
+                get => _valueED_FileName;
+                set => _valueED_FileName = value?.RemoveHtmlXss();
+            }
 
+            private string? _valueNullFlavor;
             /// <summary>
             /// Used for INT type with nullFlavor="PINF" (e.g., SPLUSE, SPLPRODUCTIONAMOUNT).
             /// </summary>
-            public string? ValueNullFlavor { get; set; } // Already nullable
+            public string? ValueNullFlavor
+            {
+                get => _valueNullFlavor;
+                set => _valueNullFlavor = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1683,10 +2289,15 @@ namespace MedRecPro.Models
             /// </summary>
             public decimal? PartQuantityNumerator { get; set; } // Made nullable
 
+            private string? _partQuantityNumeratorUnit;
             /// <summary>
             /// Unit for the part quantity (&lt;quantity&gt;&lt;numerator unit&gt;).
             /// </summary>
-            public string? PartQuantityNumeratorUnit { get; set; } // Made nullable
+            public string? PartQuantityNumeratorUnit
+            {
+                get => _partQuantityNumeratorUnit;
+                set => _partQuantityNumeratorUnit = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1731,25 +2342,45 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _policyClassCode;
             /// <summary>
             /// Class code for the policy, e.g., DEADrugSchedule.
             /// </summary>
-            public string? PolicyClassCode { get; set; } // Made nullable
+            public string? PolicyClassCode
+            {
+                get => _policyClassCode;
+                set => _policyClassCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _policyCode;
             /// <summary>
             /// Code representing the specific policy value (e.g., DEA Schedule C-II).
             /// </summary>
-            public string? PolicyCode { get; set; } // Made nullable
+            public string? PolicyCode
+            {
+                get => _policyCode;
+                set => _policyCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _policyCodeSystem;
             /// <summary>
             /// Code system for the policy code (e.g., 2.16.840.1.113883.3.26.1.1 for DEA schedule).
             /// </summary>
-            public string? PolicyCodeSystem { get; set; } // Made nullable
+            public string? PolicyCodeSystem
+            {
+                get => _policyCodeSystem;
+                set => _policyCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _policyDisplayName;
             /// <summary>
             /// Display name matching the policy code.
             /// </summary>
-            public string? PolicyDisplayName { get; set; } // Made nullable
+            public string? PolicyDisplayName
+            {
+                get => _policyDisplayName;
+                set => _policyDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1770,25 +2401,45 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _routeCode;
             /// <summary>
             /// Code identifying the route of administration.
             /// </summary>
-            public string? RouteCode { get; set; } // Made nullable
+            public string? RouteCode
+            {
+                get => _routeCode;
+                set => _routeCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _routeCodeSystem;
             /// <summary>
             /// Code system for the route code (typically 2.16.840.1.113883.3.26.1.1).
             /// </summary>
-            public string? RouteCodeSystem { get; set; } // Made nullable
+            public string? RouteCodeSystem
+            {
+                get => _routeCodeSystem;
+                set => _routeCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _routeDisplayName;
             /// <summary>
             /// Display name matching the route code.
             /// </summary>
-            public string? RouteDisplayName { get; set; } // Made nullable
+            public string? RouteDisplayName
+            {
+                get => _routeDisplayName;
+                set => _routeDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _routeNullFlavor;
             /// <summary>
             /// Stores nullFlavor attribute value (e.g., NA) when route code is not applicable.
             /// </summary>
-            public string? RouteNullFlavor { get; set; } // Already nullable
+            public string? RouteNullFlavor
+            {
+                get => _routeNullFlavor;
+                set => _routeNullFlavor = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1809,10 +2460,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _webURL;
             /// <summary>
             /// Absolute URL for the product web page, starting with http:// or https://.
             /// </summary>
-            public string? WebURL { get; set; } // Made nullable
+            public string? WebURL
+            {
+                get => _webURL;
+                set => _webURL = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1833,20 +2489,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? OrganizationID { get; set; } // Made nullable
 
+            private string? _identifierValue;
             /// <summary>
             /// The identifier value (&lt;id extension&gt;).
             /// </summary>
-            public string? IdentifierValue { get; set; } // Made nullable
+            public string? IdentifierValue
+            {
+                get => _identifierValue;
+                set => _identifierValue = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierSystemOID;
             /// <summary>
             /// OID for the identifier system (&lt;id root&gt;).
             /// </summary>
-            public string? IdentifierSystemOID { get; set; } // Made nullable
+            public string? IdentifierSystemOID
+            {
+                get => _identifierSystemOID;
+                set => _identifierSystemOID = value?.RemoveHtmlXss();
+            }
 
+            private string? _identifierType;
             /// <summary>
             /// Type classification of the identifier based on the OID and context.
             /// </summary>
-            public string? IdentifierType { get; set; } // Made nullable
+            public string? IdentifierType
+            {
+                get => _identifierType;
+                set => _identifierType = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1867,20 +2538,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? DocumentRelationshipID { get; set; } // Made nullable
 
+            private string? _operationCode;
             /// <summary>
             /// Code identifying the business operation.
             /// </summary>
-            public string? OperationCode { get; set; } // Made nullable
+            public string? OperationCode
+            {
+                get => _operationCode;
+                set => _operationCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _operationCodeSystem;
             /// <summary>
             /// Code system for the operation code (typically 2.16.840.1.113883.3.26.1.1).
             /// </summary>
-            public string? OperationCodeSystem { get; set; } // Made nullable
+            public string? OperationCodeSystem
+            {
+                get => _operationCodeSystem;
+                set => _operationCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _operationDisplayName;
             /// <summary>
             /// Display name matching the operation code.
             /// </summary>
-            public string? OperationDisplayName { get; set; } // Made nullable
+            public string? OperationDisplayName
+            {
+                get => _operationDisplayName;
+                set => _operationDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1901,20 +2587,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? BusinessOperationID { get; set; } // Made nullable
 
+            private string? _qualifierCode;
             /// <summary>
             /// Code qualifying the business operation.
             /// </summary>
-            public string? QualifierCode { get; set; } // Made nullable
+            public string? QualifierCode
+            {
+                get => _qualifierCode;
+                set => _qualifierCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _qualifierCodeSystem;
             /// <summary>
             /// Code system for the qualifier code (typically 2.16.840.1.113883.3.26.1.1).
             /// </summary>
-            public string? QualifierCodeSystem { get; set; } // Made nullable
+            public string? QualifierCodeSystem
+            {
+                get => _qualifierCodeSystem;
+                set => _qualifierCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _qualifierDisplayName;
             /// <summary>
             /// Display name matching the qualifier code.
             /// </summary>
-            public string? QualifierDisplayName { get; set; } // Made nullable
+            public string? QualifierDisplayName
+            {
+                get => _qualifierDisplayName;
+                set => _qualifierDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -1959,25 +2660,40 @@ namespace MedRecPro.Models
             /// </summary>
             public int? DocumentID { get; set; } // Made nullable
 
+            private string? _noteText;
             /// <summary>
             /// Optional signing statement provided in &lt;noteText&gt;.
             /// </summary>
-            public string? NoteText { get; set; } // Already nullable
+            public string? NoteText
+            {
+                get => _noteText;
+                set => _noteText = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Timestamp of the signature (&lt;time value&gt;).
             /// </summary>
             public DateTime? TimeValue { get; set; } // Made nullable
 
+            private string? _signatureText;
             /// <summary>
             /// The electronic signature text (&lt;signatureText&gt;).
             /// </summary>
-            public string? SignatureText { get; set; } // Made nullable
+            public string? SignatureText
+            {
+                get => _signatureText;
+                set => _signatureText = value?.RemoveHtmlXss();
+            }
 
+            private string? _assignedPersonName;
             /// <summary>
             /// Name of the person signing (&lt;assignedPerson&gt;&lt;name&gt;).
             /// </summary>
-            public string? AssignedPersonName { get; set; } // Made nullable
+            public string? AssignedPersonName
+            {
+                get => _assignedPersonName;
+                set => _assignedPersonName = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Link to the signing Organization, used for FDA signers in Labeler Code Inactivation (Sec 5.1.6).
@@ -2003,20 +2719,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _subjectType;
             /// <summary>
             /// Indicates whether the identified substance represents an Active Moiety (8.2.2) or a Pharmacologic Class being defined (8.2.3).
             /// </summary>
-            public string? SubjectType { get; set; } // Made nullable
+            public string? SubjectType
+            {
+                get => _subjectType;
+                set => _subjectType = value?.RemoveHtmlXss();
+            }
 
+            private string? _substanceIdentifierValue;
             /// <summary>
             /// Identifier value - UNII for Active Moiety, MED-RT/MeSH code for Pharm Class.
             /// </summary>
-            public string? SubstanceIdentifierValue { get; set; } // Made nullable
+            public string? SubstanceIdentifierValue
+            {
+                get => _substanceIdentifierValue;
+                set => _substanceIdentifierValue = value?.RemoveHtmlXss();
+            }
 
+            private string? _substanceIdentifierSystemOID;
             /// <summary>
             /// Identifier system OID - UNII (2.16.840.1.113883.4.9), MED-RT (2.16.840.1.113883.6.345), or MeSH (2.16.840.1.113883.6.177).
             /// </summary>
-            public string? SubstanceIdentifierSystemOID { get; set; } // Made nullable
+            public string? SubstanceIdentifierSystemOID
+            {
+                get => _substanceIdentifierSystemOID;
+                set => _substanceIdentifierSystemOID = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Indicates if this row defines the substance/class (8.2.3) or references it (8.2.2).
@@ -2042,20 +2773,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? IdentifiedSubstanceID { get; set; } // Made nullable
 
+            private string? _classCode;
             /// <summary>
             /// The MED-RT or MeSH code for the pharmacologic class.
             /// </summary>
-            public string? ClassCode { get; set; } // Made nullable
+            public string? ClassCode
+            {
+                get => _classCode;
+                set => _classCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _classCodeSystem;
             /// <summary>
             /// Code system (&lt;code&gt; codeSystem).
             /// </summary>
-            public string? ClassCodeSystem { get; set; } // Made nullable
+            public string? ClassCodeSystem
+            {
+                get => _classCodeSystem;
+                set => _classCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _classDisplayName;
             /// <summary>
             /// The display name for the class code, including the type suffix like [EPC] or [CS].
             /// </summary>
-            public string? ClassDisplayName { get; set; } // Made nullable
+            public string? ClassDisplayName
+            {
+                get => _classDisplayName;
+                set => _classDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2077,15 +2823,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? PharmacologicClassID { get; set; } // Made nullable
 
+            private string? _nameValue;
             /// <summary>
             /// The text of the preferred or alternate name.
             /// </summary>
-            public string? NameValue { get; set; } // Made nullable
+            public string? NameValue
+            {
+                get => _nameValue;
+                set => _nameValue = value?.RemoveHtmlXss();
+            }
 
+            private string? _nameUse;
             /// <summary>
             /// Indicates if the name is preferred (L) or alternate (A).
             /// </summary>
-            public string? NameUse { get; set; } // Made nullable (CHAR(1) in SQL)
+            public string? NameUse
+            {
+                get => _nameUse;
+                set => _nameUse = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2156,25 +2912,45 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _packageNDCValue;
             /// <summary>
             /// The NDC Package Code being linked (&lt;containerPackagedProduct&gt;&lt;code&gt; code).
             /// </summary>
-            public string? PackageNDCValue { get; set; } // Made nullable
+            public string? PackageNDCValue
+            {
+                get => _packageNDCValue;
+                set => _packageNDCValue = value?.RemoveHtmlXss();
+            }
 
+            private string? _packageNDCSystemOID;
             /// <summary>
             /// System for NDC.
             /// </summary>
-            public string? PackageNDCSystemOID { get; set; } // Made nullable (Default is '2.16.840.1.113883.6.69' in SQL)
+            public string? PackageNDCSystemOID
+            {
+                get => _packageNDCSystemOID;
+                set => _packageNDCSystemOID = value?.RemoveHtmlXss();
+            }
 
+            private string? _billingUnitCode;
             /// <summary>
             /// The NCPDP Billing Unit Code associated with the NDC package (GM, ML, or EA).
             /// </summary>
-            public string? BillingUnitCode { get; set; } // Made nullable
+            public string? BillingUnitCode
+            {
+                get => _billingUnitCode;
+                set => _billingUnitCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _billingUnitCodeSystemOID;
             /// <summary>
             /// Code system OID for the NCPDP Billing Unit Code (2.16.840.1.113883.2.13).
             /// </summary>
-            public string? BillingUnitCodeSystemOID { get; set; } // Made nullable (Default is '2.16.840.1.113883.2.13' in SQL)
+            public string? BillingUnitCodeSystemOID
+            {
+                get => _billingUnitCodeSystemOID;
+                set => _billingUnitCodeSystemOID = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2195,35 +2971,65 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _conceptCode;
             /// <summary>
             /// The computed MD5 hash code identifying the product concept (&lt;code&gt; code).
             /// </summary>
-            public string? ConceptCode { get; set; } // Made nullable (VARCHAR(36) in SQL)
+            public string? ConceptCode
+            {
+                get => _conceptCode;
+                set => _conceptCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _conceptCodeSystem;
             /// <summary>
             /// OID for Product Concept Codes.
             /// </summary>
-            public string? ConceptCodeSystem { get; set; } // Made nullable (Default is '2.16.840.1.113883.3.3389' in SQL)
+            public string? ConceptCodeSystem
+            {
+                get => _conceptCodeSystem;
+                set => _conceptCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _conceptType;
             /// <summary>
             /// Distinguishes Abstract Product/Kit concepts from Application-specific Product/Kit concepts.
             /// </summary>
-            public string? ConceptType { get; set; } // Made nullable
+            public string? ConceptType
+            {
+                get => _conceptType;
+                set => _conceptType = value?.RemoveHtmlXss();
+            }
 
+            private string? _formCode;
             /// <summary>
             /// Dosage Form details, applicable only for Abstract Product concepts.
             /// </summary>
-            public string? FormCode { get; set; } // Already nullable
+            public string? FormCode
+            {
+                get => _formCode;
+                set => _formCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _formCodeSystem;
             /// <summary>
             /// Code system for FormCode.
             /// </summary>
-            public string? FormCodeSystem { get; set; } // Already nullable
+            public string? FormCodeSystem
+            {
+                get => _formCodeSystem;
+                set => _formCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _formDisplayName;
             /// <summary>
             /// Display name for FormCode.
             /// </summary>
-            public string? FormDisplayName { get; set; } // Already nullable
+            public string? FormDisplayName
+            {
+                get => _formDisplayName;
+                set => _formDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2249,15 +3055,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? AbstractProductConceptID { get; set; } // Made nullable
 
+            private string? _equivalenceCode;
             /// <summary>
             /// Code indicating the relationship type between Application and Abstract concepts (A, B, OTC, N).
             /// </summary>
-            public string? EquivalenceCode { get; set; } // Made nullable
+            public string? EquivalenceCode
+            {
+                get => _equivalenceCode;
+                set => _equivalenceCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _equivalenceCodeSystem;
             /// <summary>
             /// OID for this code system.
             /// </summary>
-            public string? EquivalenceCodeSystem { get; set; } // Made nullable (Default is '2.16.840.1.113883.3.2964' in SQL)
+            public string? EquivalenceCodeSystem
+            {
+                get => _equivalenceCodeSystem;
+                set => _equivalenceCodeSystem = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2273,15 +3089,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? LotIdentifierID { get; set; } // Made nullable
 
+            private string? _lotNumber;
             /// <summary>
             /// The lot number string.
             /// </summary>
-            public string? LotNumber { get; set; } // Made nullable
+            public string? LotNumber
+            {
+                get => _lotNumber;
+                set => _lotNumber = value?.RemoveHtmlXss();
+            }
 
+            private string? _lotRootOID;
             /// <summary>
             /// The computed globally unique root OID for the lot number.
             /// </summary>
-            public string? LotRootOID { get; set; } // Made nullable
+            public string? LotRootOID
+            {
+                get => _lotRootOID;
+                set => _lotRootOID = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2302,10 +3128,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _instanceType;
             /// <summary>
             /// Type of lot instance: FillLot, LabelLot, PackageLot (for kits), SalvagedLot.
             /// </summary>
-            public string? InstanceType { get; set; } // Made nullable
+            public string? InstanceType
+            {
+                get => _instanceType;
+                set => _instanceType = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Foreign key to LotIdentifier.
@@ -2336,30 +3167,50 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductID { get; set; } // Made nullable
 
+            private string? _routeCode;
             /// <summary>
             /// Route of administration associated with the dose.
             /// </summary>
-            public string? RouteCode { get; set; } // Already nullable
+            public string? RouteCode
+            {
+                get => _routeCode;
+                set => _routeCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _routeCodeSystem;
             /// <summary>
             /// Code system for RouteCode.
             /// </summary>
-            public string? RouteCodeSystem { get; set; } // Already nullable
+            public string? RouteCodeSystem
+            {
+                get => _routeCodeSystem;
+                set => _routeCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _routeDisplayName;
             /// <summary>
             /// Display name for RouteCode.
             /// </summary>
-            public string? RouteDisplayName { get; set; } // Already nullable
+            public string? RouteDisplayName
+            {
+                get => _routeDisplayName;
+                set => _routeDisplayName = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Quantity and unit representing a single dose.
             /// </summary>
             public decimal? DoseQuantityValue { get; set; } // Already nullable
 
+            private string? _doseQuantityUnit;
             /// <summary>
             /// Dose quantity unit (&lt;doseQuantity unit&gt;).
             /// </summary>
-            public string? DoseQuantityUnit { get; set; } // Already nullable
+            public string? DoseQuantityUnit
+            {
+                get => _doseQuantityUnit;
+                set => _doseQuantityUnit = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2438,30 +3289,50 @@ namespace MedRecPro.Models
             /// </summary>
             public int? PackagingLevelID { get; set; } // Made nullable
 
+            private string? _eventCode;
             /// <summary>
             /// Code identifying the type of event (e.g., C106325 Distributed, C106328 Returned).
             /// </summary>
-            public string? EventCode { get; set; } // Made nullable
+            public string? EventCode
+            {
+                get => _eventCode;
+                set => _eventCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _eventCodeSystem;
             /// <summary>
             /// Code system for EventCode.
             /// </summary>
-            public string? EventCodeSystem { get; set; } // Made nullable
+            public string? EventCodeSystem
+            {
+                get => _eventCodeSystem;
+                set => _eventCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _eventDisplayName;
             /// <summary>
             /// Display name for EventCode.
             /// </summary>
-            public string? EventDisplayName { get; set; } // Made nullable
+            public string? EventDisplayName
+            {
+                get => _eventDisplayName;
+                set => _eventDisplayName = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Integer quantity associated with the event (e.g., number of containers distributed/returned).
             /// </summary>
             public int? QuantityValue { get; set; } // Made nullable
 
+            private string? _quantityUnit;
             /// <summary>
             /// Unit for quantity (usually '1' or null).
             /// </summary>
-            public string? QuantityUnit { get; set; } // Already nullable
+            public string? QuantityUnit
+            {
+                get => _quantityUnit;
+                set => _quantityUnit = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Effective date (low value), used for Initial Distribution Date.
@@ -2487,30 +3358,55 @@ namespace MedRecPro.Models
             /// </summary>
             public int? OrganizationID { get; set; } // Made nullable
 
+            private string? _entityTypeCode;
             /// <summary>
             /// Code identifying the type of named entity, e.g., C117113 for "doing business as".
             /// </summary>
-            public string? EntityTypeCode { get; set; } // Made nullable
+            public string? EntityTypeCode
+            {
+                get => _entityTypeCode;
+                set => _entityTypeCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _entityTypeCodeSystem;
             /// <summary>
             /// Code system for EntityTypeCode.
             /// </summary>
-            public string? EntityTypeCodeSystem { get; set; } // Made nullable
+            public string? EntityTypeCodeSystem
+            {
+                get => _entityTypeCodeSystem;
+                set => _entityTypeCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _entityTypeDisplayName;
             /// <summary>
             /// Display name for EntityTypeCode.
             /// </summary>
-            public string? EntityTypeDisplayName { get; set; } // Made nullable
+            public string? EntityTypeDisplayName
+            {
+                get => _entityTypeDisplayName;
+                set => _entityTypeDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _entityName;
             /// <summary>
             /// The name of the entity, e.g., the DBA name.
             /// </summary>
-            public string? EntityName { get; set; } // Made nullable
+            public string? EntityName
+            {
+                get => _entityName;
+                set => _entityName = value?.RemoveHtmlXss();
+            }
 
+            private string? _entitySuffix;
             /// <summary>
             /// Optional suffix used with DBA names in WDD/3PL reports to indicate business type ([WDD] or [3PL]).
             /// </summary>
-            public string? EntitySuffix { get; set; } // Already nullable
+            public string? EntitySuffix
+            {
+                get => _entitySuffix;
+                set => _entitySuffix = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2526,15 +3422,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? TerritorialAuthorityID { get; set; } // Made nullable
 
+            private string? _territoryCode;
             /// <summary>
             /// ISO 3166-2 State code (e.g., US-MD) or ISO 3166-1 Country code (e.g., USA).
             /// </summary>
-            public string? TerritoryCode { get; set; } // Made nullable
+            public string? TerritoryCode
+            {
+                get => _territoryCode;
+                set => _territoryCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _territoryCodeSystem;
             /// <summary>
             /// Code system (e.g., '1.0.3166.2' for state, '1.0.3166.1.2.3' for country).
             /// </summary>
-            public string? TerritoryCodeSystem { get; set; } // Made nullable
+            public string? TerritoryCodeSystem
+            {
+                get => _territoryCodeSystem;
+                set => _territoryCodeSystem = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Link to the Organization representing the federal governing agency, if applicable.
@@ -2560,35 +3466,65 @@ namespace MedRecPro.Models
             /// </summary>
             public int? BusinessOperationID { get; set; } // Made nullable
 
+            private string? _licenseNumber;
             /// <summary>
             /// The license number string.
             /// </summary>
-            public string? LicenseNumber { get; set; } // Made nullable
+            public string? LicenseNumber
+            {
+                get => _licenseNumber;
+                set => _licenseNumber = value?.RemoveHtmlXss();
+            }
 
+            private string? _licenseRootOID;
             /// <summary>
             /// The root OID identifying the issuing authority and context.
             /// </summary>
-            public string? LicenseRootOID { get; set; } // Made nullable
+            public string? LicenseRootOID
+            {
+                get => _licenseRootOID;
+                set => _licenseRootOID = value?.RemoveHtmlXss();
+            }
 
+            private string? _licenseTypeCode;
             /// <summary>
             /// Code indicating the type of approval/license (e.g., C118777 licensing).
             /// </summary>
-            public string? LicenseTypeCode { get; set; } // Made nullable
+            public string? LicenseTypeCode
+            {
+                get => _licenseTypeCode;
+                set => _licenseTypeCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _licenseTypeCodeSystem;
             /// <summary>
             /// Code system for LicenseTypeCode.
             /// </summary>
-            public string? LicenseTypeCodeSystem { get; set; } // Made nullable
+            public string? LicenseTypeCodeSystem
+            {
+                get => _licenseTypeCodeSystem;
+                set => _licenseTypeCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _licenseTypeDisplayName;
             /// <summary>
             /// Display name for LicenseTypeCode.
             /// </summary>
-            public string? LicenseTypeDisplayName { get; set; } // Made nullable
+            public string? LicenseTypeDisplayName
+            {
+                get => _licenseTypeDisplayName;
+                set => _licenseTypeDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _statusCode;
             /// <summary>
             /// Status of the license: active, suspended, aborted (revoked), completed (expired).
             /// </summary>
-            public string? StatusCode { get; set; } // Made nullable
+            public string? StatusCode
+            {
+                get => _statusCode;
+                set => _statusCode = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Expiration date of the license.
@@ -2614,25 +3550,40 @@ namespace MedRecPro.Models
             /// </summary>
             public int? AttachedDocumentID { get; set; } // Made nullable
 
+            private string? _parentEntityType;
             /// <summary>
             /// Identifies the type of the parent element containing the document reference.
             /// </summary>
-            public string? ParentEntityType { get; set; } // Made nullable
+            public string? ParentEntityType
+            {
+                get => _parentEntityType;
+                set => _parentEntityType = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// FK to the parent table (e.g., DisciplinaryActionID).
             /// </summary>
             public int? ParentEntityID { get; set; } // Made nullable
 
+            private string? _mediaType;
             /// <summary>
             /// MIME type of the attached document.
             /// </summary>
-            public string? MediaType { get; set; } // Made nullable
+            public string? MediaType
+            {
+                get => _mediaType;
+                set => _mediaType = value?.RemoveHtmlXss();
+            }
 
+            private string? _fileName;
             /// <summary>
             /// File name of the attached document.
             /// </summary>
-            public string? FileName { get; set; } // Made nullable
+            public string? FileName
+            {
+                get => _fileName;
+                set => _fileName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2653,30 +3604,50 @@ namespace MedRecPro.Models
             /// </summary>
             public int? LicenseID { get; set; } // Made nullable
 
+            private string? _actionCode;
             /// <summary>
             /// Code identifying the disciplinary action type (e.g., suspension, revocation, activation).
             /// </summary>
-            public string? ActionCode { get; set; } // Made nullable
+            public string? ActionCode
+            {
+                get => _actionCode;
+                set => _actionCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _actionCodeSystem;
             /// <summary>
             /// Code system for ActionCode.
             /// </summary>
-            public string? ActionCodeSystem { get; set; } // Made nullable
+            public string? ActionCodeSystem
+            {
+                get => _actionCodeSystem;
+                set => _actionCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _actionDisplayName;
             /// <summary>
             /// Display name for ActionCode.
             /// </summary>
-            public string? ActionDisplayName { get; set; } // Made nullable
+            public string? ActionDisplayName
+            {
+                get => _actionDisplayName;
+                set => _actionDisplayName = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Date the disciplinary action became effective.
             /// </summary>
             public DateTime? EffectiveTime { get; set; } // Made nullable
 
+            private string? _actionText;
             /// <summary>
             /// Text description used when the action code is 'other'.
             /// </summary>
-            public string? ActionText { get; set; } // Already nullable
+            public string? ActionText
+            {
+                get => _actionText;
+                set => _actionText = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2697,30 +3668,55 @@ namespace MedRecPro.Models
             /// </summary>
             public int? IdentifiedSubstanceID { get; set; } // Made nullable
 
+            private string? _specCode;
             /// <summary>
             /// Specification code, format 40-CFR-...
             /// </summary>
-            public string? SpecCode { get; set; } // Made nullable
+            public string? SpecCode
+            {
+                get => _specCode;
+                set => _specCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _specCodeSystem;
             /// <summary>
             /// Code system (2.16.840.1.113883.3.149).
             /// </summary>
-            public string? SpecCodeSystem { get; set; } // Made nullable
+            public string? SpecCodeSystem
+            {
+                get => _specCodeSystem;
+                set => _specCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _enforcementMethodCode;
             /// <summary>
             /// Code for the Enforcement Analytical Method used (&lt;observation&gt;&lt;code&gt;).
             /// </summary>
-            public string? EnforcementMethodCode { get; set; } // Already nullable
+            public string? EnforcementMethodCode
+            {
+                get => _enforcementMethodCode;
+                set => _enforcementMethodCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _enforcementMethodCodeSystem;
             /// <summary>
             /// Code system for Enforcement Analytical Method.
             /// </summary>
-            public string? EnforcementMethodCodeSystem { get; set; } // Already nullable
+            public string? EnforcementMethodCodeSystem
+            {
+                get => _enforcementMethodCodeSystem;
+                set => _enforcementMethodCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _enforcementMethodDisplayName;
             /// <summary>
             /// Display name for Enforcement Analytical Method.
             /// </summary>
-            public string? EnforcementMethodDisplayName { get; set; } // Already nullable
+            public string? EnforcementMethodDisplayName
+            {
+                get => _enforcementMethodDisplayName;
+                set => _enforcementMethodDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2760,25 +3756,45 @@ namespace MedRecPro.Models
             /// </summary>
             public int? CommodityID { get; set; } // Made nullable
 
+            private string? _commodityCode;
             /// <summary>
             /// Code identifying the commodity.
             /// </summary>
-            public string? CommodityCode { get; set; } // Made nullable
+            public string? CommodityCode
+            {
+                get => _commodityCode;
+                set => _commodityCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _commodityCodeSystem;
             /// <summary>
             /// Code system for CommodityCode (2.16.840.1.113883.6.275.1).
             /// </summary>
-            public string? CommodityCodeSystem { get; set; } // Made nullable
+            public string? CommodityCodeSystem
+            {
+                get => _commodityCodeSystem;
+                set => _commodityCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _commodityDisplayName;
             /// <summary>
             /// Display name for CommodityCode.
             /// </summary>
-            public string? CommodityDisplayName { get; set; } // Made nullable
+            public string? CommodityDisplayName
+            {
+                get => _commodityDisplayName;
+                set => _commodityDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _commodityName;
             /// <summary>
             /// Optional name (&lt;presentSubstance&gt;&lt;name&gt;).
             /// </summary>
-            public string? CommodityName { get; set; } // Already nullable
+            public string? CommodityName
+            {
+                get => _commodityName;
+                set => _commodityName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2794,20 +3810,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ApplicationTypeID { get; set; } // Made nullable
 
+            private string? _appTypeCode;
             /// <summary>
             /// Code identifying the application type (e.g., General Tolerance).
             /// </summary>
-            public string? AppTypeCode { get; set; } // Made nullable
+            public string? AppTypeCode
+            {
+                get => _appTypeCode;
+                set => _appTypeCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _appTypeCodeSystem;
             /// <summary>
             /// Code system for AppTypeCode (2.16.840.1.113883.6.275.1).
             /// </summary>
-            public string? AppTypeCodeSystem { get; set; } // Made nullable
+            public string? AppTypeCodeSystem
+            {
+                get => _appTypeCodeSystem;
+                set => _appTypeCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _appTypeDisplayName;
             /// <summary>
             /// Display name for AppTypeCode.
             /// </summary>
-            public string? AppTypeDisplayName { get; set; } // Made nullable
+            public string? AppTypeDisplayName
+            {
+                get => _appTypeDisplayName;
+                set => _appTypeDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2833,10 +3864,15 @@ namespace MedRecPro.Models
             /// </summary>
             public decimal? ToleranceHighValue { get; set; } // Made nullable
 
+            private string? _toleranceHighUnit;
             /// <summary>
             /// Tolerance unit (&lt;value&gt;&lt;high unit&gt;).
             /// </summary>
-            public string? ToleranceHighUnit { get; set; } // Made nullable (Default is '[ppm]' in SQL)
+            public string? ToleranceHighUnit
+            {
+                get => _toleranceHighUnit;
+                set => _toleranceHighUnit = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Optional link to the specific commodity the tolerance applies to.
@@ -2853,10 +3889,15 @@ namespace MedRecPro.Models
             /// </summary>
             public DateTime? ExpirationDate { get; set; } // Already nullable
 
+            private string? _textNote;
             /// <summary>
             /// Optional text annotation about the tolerance.
             /// </summary>
-            public string? TextNote { get; set; } // Already nullable
+            public string? TextNote
+            {
+                get => _textNote;
+                set => _textNote = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2872,20 +3913,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SpecifiedSubstanceID { get; set; } // Made nullable
 
+            private string? _substanceCode;
             /// <summary>
             /// The code assigned to the specified substance.(Atribute code="70097M6I30")
             /// </summary>
-            public string? SubstanceCode { get; set; } // Made nullable
+            public string? SubstanceCode
+            {
+                get => _substanceCode;
+                set => _substanceCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _substanceCodeSystem;
             /// <summary>
             /// Code system for the specified substance code (Atribute codeSystem="2.16.840.1.113883.4.9").
             /// </summary>
-            public string? SubstanceCodeSystem { get; set; } // Made nullable
+            public string? SubstanceCodeSystem
+            {
+                get => _substanceCodeSystem;
+                set => _substanceCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _substanceCodeSystemName;
             /// <summary>
             /// Code name for the specified substance code (Atribute codeSystemName="FDA SRS").
             /// </summary>
-            public string? SubstanceCodeSystemName { get; set; } // Made nullable
+            public string? SubstanceCodeSystemName
+            {
+                get => _substanceCodeSystemName;
+                set => _substanceCodeSystemName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -2906,40 +3962,75 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _productName;
             /// <summary>
             /// Proprietary name of the product referenced in the warning letter.
             /// </summary>
-            public string? ProductName { get; set; } // Already nullable
+            public string? ProductName
+            {
+                get => _productName;
+                set => _productName = value?.RemoveHtmlXss();
+            }
 
+            private string? _genericName;
             /// <summary>
             /// Generic name of the product referenced in the warning letter.
             /// </summary>
-            public string? GenericName { get; set; } // Made nullable
+            public string? GenericName
+            {
+                get => _genericName;
+                set => _genericName = value?.RemoveHtmlXss();
+            }
 
+            private string? _formCode;
             /// <summary>
             /// Dosage form code of the product referenced in the warning letter.
             /// </summary>
-            public string? FormCode { get; set; } // Made nullable
+            public string? FormCode
+            {
+                get => _formCode;
+                set => _formCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _formCodeSystem;
             /// <summary>
             /// Dosage Form code system.
             /// </summary>
-            public string? FormCodeSystem { get; set; } // Made nullable
+            public string? FormCodeSystem
+            {
+                get => _formCodeSystem;
+                set => _formCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _formDisplayName;
             /// <summary>
             /// Dosage Form display name.
             /// </summary>
-            public string? FormDisplayName { get; set; } // Made nullable
+            public string? FormDisplayName
+            {
+                get => _formDisplayName;
+                set => _formDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _strengthText;
             /// <summary>
             /// Text description of the ingredient strength(s).
             /// </summary>
-            public string? StrengthText { get; set; } // Already nullable
+            public string? StrengthText
+            {
+                get => _strengthText;
+                set => _strengthText = value?.RemoveHtmlXss();
+            }
 
+            private string? _itemCodesText;
             /// <summary>
             /// Text description of the product item code(s) (e.g., NDC).
             /// </summary>
-            public string? ItemCodesText { get; set; } // Already nullable
+            public string? ItemCodesText
+            {
+                get => _itemCodesText;
+                set => _itemCodesText = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -3013,20 +4104,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _protocolCode;
             /// <summary>
             /// Code identifying the REMS protocol type.
             /// </summary>
-            public string? ProtocolCode { get; set; } // Made nullable
+            public string? ProtocolCode
+            {
+                get => _protocolCode;
+                set => _protocolCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _protocolCodeSystem;
             /// <summary>
             /// Code system for ProtocolCode.
             /// </summary>
-            public string? ProtocolCodeSystem { get; set; } // Made nullable
+            public string? ProtocolCodeSystem
+            {
+                get => _protocolCodeSystem;
+                set => _protocolCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _protocolDisplayName;
             /// <summary>
             /// Display name for ProtocolCode.
             /// </summary>
-            public string? ProtocolDisplayName { get; set; } // Made nullable
+            public string? ProtocolDisplayName
+            {
+                get => _protocolDisplayName;
+                set => _protocolDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -3042,20 +4148,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? StakeholderID { get; set; } // Made nullable
 
+            private string? _stakeholderCode;
             /// <summary>
             /// Code identifying the stakeholder role (e.g., prescriber, patient).
             /// </summary>
-            public string? StakeholderCode { get; set; } // Made nullable
+            public string? StakeholderCode
+            {
+                get => _stakeholderCode;
+                set => _stakeholderCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _stakeholderCodeSystem;
             /// <summary>
             /// Code system for StakeholderCode.
             /// </summary>
-            public string? StakeholderCodeSystem { get; set; } // Made nullable
+            public string? StakeholderCodeSystem
+            {
+                get => _stakeholderCodeSystem;
+                set => _stakeholderCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _stakeholderDisplayName;
             /// <summary>
             /// Display name for StakeholderCode.
             /// </summary>
-            public string? StakeholderDisplayName { get; set; } // Made nullable
+            public string? StakeholderDisplayName
+            {
+                get => _stakeholderDisplayName;
+                set => _stakeholderDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -3081,15 +4202,25 @@ namespace MedRecPro.Models
             /// </summary>
             public Guid? MaterialDocumentGUID { get; set; } // Made nullable
 
+            private string? _title;
             /// <summary>
             /// Title of the material (&lt;document&gt;&lt;title&gt;).
             /// </summary>
-            public string? Title { get; set; } // Made nullable
+            public string? Title
+            {
+                get => _title;
+                set => _title = value?.RemoveHtmlXss();
+            }
 
+            private string? _titleReference;
             /// <summary>
             /// Internal link ID (#...) embedded within the title, potentially linking to descriptive text.
             /// </summary>
-            public string? TitleReference { get; set; } // Already nullable
+            public string? TitleReference
+            {
+                get => _titleReference;
+                set => _titleReference = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Link to the AttachedDocument table if the material is provided as an attachment (e.g., PDF).
@@ -3130,40 +4261,70 @@ namespace MedRecPro.Models
             /// </summary>
             public decimal? PauseQuantityValue { get; set; } // Already nullable
 
+            private string? _pauseQuantityUnit;
             /// <summary>
             /// Optional delay unit (&lt;pauseQuantity unit&gt;).
             /// </summary>
-            public string? PauseQuantityUnit { get; set; } // Already nullable
+            public string? PauseQuantityUnit
+            {
+                get => _pauseQuantityUnit;
+                set => _pauseQuantityUnit = value?.RemoveHtmlXss();
+            }
 
+            private string? _requirementCode;
             /// <summary>
             /// Code identifying the specific requirement or monitoring observation.
             /// </summary>
-            public string? RequirementCode { get; set; } // Made nullable
+            public string? RequirementCode
+            {
+                get => _requirementCode;
+                set => _requirementCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _requirementCodeSystem;
             /// <summary>
             /// Code system for RequirementCode.
             /// </summary>
-            public string? RequirementCodeSystem { get; set; } // Made nullable
+            public string? RequirementCodeSystem
+            {
+                get => _requirementCodeSystem;
+                set => _requirementCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _requirementDisplayName;
             /// <summary>
             /// Display name for RequirementCode.
             /// </summary>
-            public string? RequirementDisplayName { get; set; } // Made nullable
+            public string? RequirementDisplayName
+            {
+                get => _requirementDisplayName;
+                set => _requirementDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _originalTextReference;
             /// <summary>
             /// Link ID (#...) pointing to the corresponding text description in the REMS Summary or REMS Participant Requirements section.
             /// </summary>
-            public string? OriginalTextReference { get; set; } // Made nullable
+            public string? OriginalTextReference
+            {
+                get => _originalTextReference;
+                set => _originalTextReference = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Optional repetition period for the requirement/observation.
             /// </summary>
             public decimal? PeriodValue { get; set; } // Already nullable
 
+            private string? _periodUnit;
             /// <summary>
             /// Optional repetition period unit (&lt;effectiveTime&gt;&lt;period unit&gt;).
             /// </summary>
-            public string? PeriodUnit { get; set; } // Already nullable
+            public string? PeriodUnit
+            {
+                get => _periodUnit;
+                set => _periodUnit = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Link to the stakeholder responsible for fulfilling the requirement.
@@ -3194,30 +4355,50 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProtocolID { get; set; } // Made nullable
 
+            private string? _approvalCode;
             /// <summary>
             /// Code for REMS Approval (C128899).
             /// </summary>
-            public string? ApprovalCode { get; set; } // Made nullable
+            public string? ApprovalCode
+            {
+                get => _approvalCode;
+                set => _approvalCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _approvalCodeSystem;
             /// <summary>
             /// Code system for ApprovalCode.
             /// </summary>
-            public string? ApprovalCodeSystem { get; set; } // Made nullable
+            public string? ApprovalCodeSystem
+            {
+                get => _approvalCodeSystem;
+                set => _approvalCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _approvalDisplayName;
             /// <summary>
             /// Display name for ApprovalCode.
             /// </summary>
-            public string? ApprovalDisplayName { get; set; } // Made nullable
+            public string? ApprovalDisplayName
+            {
+                get => _approvalDisplayName;
+                set => _approvalDisplayName = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Date of the initial REMS program approval.
             /// </summary>
             public DateTime? ApprovalDate { get; set; } // Made nullable
 
+            private string? _territoryCode;
             /// <summary>
             /// Territory code ('USA').
             /// </summary>
-            public string? TerritoryCode { get; set; } // Made nullable
+            public string? TerritoryCode
+            {
+                get => _territoryCode;
+                set => _territoryCode = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -3243,20 +4424,35 @@ namespace MedRecPro.Models
             /// </summary>
             public Guid? ResourceDocumentGUID { get; set; } // Made nullable
 
+            private string? _title;
             /// <summary>
             /// Title of the resource (&lt;document&gt;&lt;title&gt;).
             /// </summary>
-            public string? Title { get; set; } // Made nullable
+            public string? Title
+            {
+                get => _title;
+                set => _title = value?.RemoveHtmlXss();
+            }
 
+            private string? _titleReference;
             /// <summary>
             /// Internal link ID (#...) embedded within the title, potentially linking to descriptive text.
             /// </summary>
-            public string? TitleReference { get; set; } // Already nullable
+            public string? TitleReference
+            {
+                get => _titleReference;
+                set => _titleReference = value?.RemoveHtmlXss();
+            }
 
+            private string? _resourceReferenceValue;
             /// <summary>
             /// The URI (URL or URN) of the electronic resource.
             /// </summary>
-            public string? ResourceReferenceValue { get; set; } // Made nullable
+            public string? ResourceReferenceValue
+            {
+                get => _resourceReferenceValue;
+                set => _resourceReferenceValue = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -3311,20 +4507,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? DocumentRelationshipID { get; set; } // Already nullable
 
+            private string? _actionCode;
             /// <summary>
             /// Code for the compliance action (e.g., C162847 Inactivated).
             /// </summary>
-            public string? ActionCode { get; set; } // Made nullable
+            public string? ActionCode
+            {
+                get => _actionCode;
+                set => _actionCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _actionCodeSystem;
             /// <summary>
             /// Code system for ActionCode.
             /// </summary>
-            public string? ActionCodeSystem { get; set; } // Made nullable
+            public string? ActionCodeSystem
+            {
+                get => _actionCodeSystem;
+                set => _actionCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _actionDisplayName;
             /// <summary>
             /// Display name for ActionCode.
             /// </summary>
-            public string? ActionDisplayName { get; set; } // Made nullable
+            public string? ActionDisplayName
+            {
+                get => _actionDisplayName;
+                set => _actionDisplayName = value?.RemoveHtmlXss();
+            }
 
             /// <summary>
             /// Date the inactivation begins.
@@ -3355,20 +4566,35 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _interactionCode;
             /// <summary>
             /// Code identifying an interaction issue (C54708).
             /// </summary>
-            public string? InteractionCode { get; set; } // Made nullable
+            public string? InteractionCode
+            {
+                get => _interactionCode;
+                set => _interactionCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _interactionCodeSystem;
             /// <summary>
             /// Code system.
             /// </summary>
-            public string? InteractionCodeSystem { get; set; } // Made nullable
+            public string? InteractionCodeSystem
+            {
+                get => _interactionCodeSystem;
+                set => _interactionCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _interactionDisplayName;
             /// <summary>
             /// Display name ('INTERACTION').
             /// </summary>
-            public string? InteractionDisplayName { get; set; } // Made nullable
+            public string? InteractionDisplayName
+            {
+                get => _interactionDisplayName;
+                set => _interactionDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -3413,35 +4639,65 @@ namespace MedRecPro.Models
             /// </summary>
             public int? InteractionIssueID { get; set; } // Made nullable
 
+            private string? _consequenceTypeCode;
             /// <summary>
             /// Code indicating the type of consequence: Pharmacokinetic effect (C54386) or Medical problem (44100-6).
             /// </summary>
-            public string? ConsequenceTypeCode { get; set; } // Made nullable
+            public string? ConsequenceTypeCode
+            {
+                get => _consequenceTypeCode;
+                set => _consequenceTypeCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _consequenceTypeCodeSystem;
             /// <summary>
             /// Code system.
             /// </summary>
-            public string? ConsequenceTypeCodeSystem { get; set; } // Made nullable
+            public string? ConsequenceTypeCodeSystem
+            {
+                get => _consequenceTypeCodeSystem;
+                set => _consequenceTypeCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _consequenceTypeDisplayName;
             /// <summary>
             /// Display name.
             /// </summary>
-            public string? ConsequenceTypeDisplayName { get; set; } // Made nullable
+            public string? ConsequenceTypeDisplayName
+            {
+                get => _consequenceTypeDisplayName;
+                set => _consequenceTypeDisplayName = value?.RemoveHtmlXss();
+            }
 
+            private string? _consequenceValueCode;
             /// <summary>
             /// Code for the specific pharmacokinetic effect or medical problem.
             /// </summary>
-            public string? ConsequenceValueCode { get; set; } // Made nullable
+            public string? ConsequenceValueCode
+            {
+                get => _consequenceValueCode;
+                set => _consequenceValueCode = value?.RemoveHtmlXss();
+            }
 
+            private string? _consequenceValueCodeSystem;
             /// <summary>
             /// Code system for the value code (NCI Thesaurus 2.16.840.1.113883.3.26.1.1 or SNOMED CT 2.16.840.1.113883.6.96).
             /// </summary>
-            public string? ConsequenceValueCodeSystem { get; set; } // Made nullable
+            public string? ConsequenceValueCodeSystem
+            {
+                get => _consequenceValueCodeSystem;
+                set => _consequenceValueCodeSystem = value?.RemoveHtmlXss();
+            }
 
+            private string? _consequenceValueDisplayName;
             /// <summary>
             /// Display name for the value code.
             /// </summary>
-            public string? ConsequenceValueDisplayName { get; set; } // Made nullable
+            public string? ConsequenceValueDisplayName
+            {
+                get => _consequenceValueDisplayName;
+                set => _consequenceValueDisplayName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -3462,15 +4718,25 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            private string? _nctNumber;
             /// <summary>
             /// The National Clinical Trials number (id extension).
             /// </summary>
-            public string? NCTNumber { get; set; } // Made nullable
+            public string? NCTNumber
+            {
+                get => _nctNumber;
+                set => _nctNumber = value?.RemoveHtmlXss();
+            }
 
+            private string? _nctRootOID;
             /// <summary>
             /// The root OID for NCT numbers (id root).
             /// </summary>
-            public string? NCTRootOID { get; set; } // Made nullable (Default is '2.16.840.1.113883.3.1077' in SQL)
+            public string? NCTRootOID
+            {
+                get => _nctRootOID;
+                set => _nctRootOID = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 
@@ -3501,10 +4767,15 @@ namespace MedRecPro.Models
             /// </summary>
             public int? ProductIdentifierID { get; set; } // Already nullable
 
+            private string? _productName;
             /// <summary>
             /// Link via Product Name (used if CLN not yet assigned).
             /// </summary>
-            public string? ProductName { get; set; } // Already nullable
+            public string? ProductName
+            {
+                get => _productName;
+                set => _productName = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 

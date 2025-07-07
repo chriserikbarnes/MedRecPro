@@ -128,6 +128,18 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Gets the value of the xsi:type attribute for an element, handling namespaces.
+        /// </summary>
+        /// <param name="element">The XElement to check.</param>
+        /// <returns>The value of the xsi:type attribute, or null if not found.</returns>
+        public static string? GetXsiType(this XElement element)
+        {
+            XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
+            return element.Attribute(xsi + "type")?.Value;
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets the decimal value of a specified attribute from an element.
         /// </summary>
         public static decimal? GetAttrDecimal(this XElement element, XName attributeName)

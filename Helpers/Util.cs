@@ -75,8 +75,7 @@ namespace MedRecPro.Helpers
         /// Handles SPL date formats: YYYY, YYYYMM, YYYYMMDD, YYYYMMDDHHMMSS, etc.
         /// </remarks>
         public static DateTime? ParseNullableDateTime(string value)
-        {
-            /**************************************************************/
+        {          
             #region implementation
             if (string.IsNullOrWhiteSpace(value)) return null;
 
@@ -163,6 +162,7 @@ namespace MedRecPro.Helpers
         public static string GetBearerToken(Enum type, IHttpContextAccessor? httpContextAccessor = null, Guid? employeeGuid = null)
         {
 
+            #region implementation
             string token = string.Empty; ;
             string? tokenKey;
 
@@ -215,7 +215,8 @@ namespace MedRecPro.Helpers
             {
                 ErrorHelper.AddErrorMsg($"Util.GetBearerToken: {e.Message}");
                 throw e;
-            }
+            } 
+            #endregion
         }
 
         /******************************************************/
@@ -232,6 +233,7 @@ namespace MedRecPro.Helpers
         /// </returns>
         public static string? GetLoginName(string? callingMethod = null)
         {
+            #region implementation
             string? result = null;
             try
             {
@@ -286,7 +288,8 @@ namespace MedRecPro.Helpers
                 return result;
             }
 
-            return result;
+            return result; 
+            #endregion
         }
 
         /******************************************************/

@@ -1198,7 +1198,7 @@ namespace MedRecPro.Service.ParsingServices
 
                     // --- Parse <value> node and its type ---
                     var valueEl = charEl.GetSplElement(sc.E.Value);
-                    string? valueType = valueEl?.GetAttrVal(sc.A.XsiType);
+                    string? valueType = valueEl?.GetXsiType();
 
                     // Initialize all possible value fields to null
                     decimal? valuePQ_Value = null;

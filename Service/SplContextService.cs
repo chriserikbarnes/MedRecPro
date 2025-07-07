@@ -250,6 +250,18 @@ namespace MedRecPro.Service.ParsingServices
         public int OrganizationsCreated { get; set; }
 
         /// <summary>
+        /// Gets or sets the number of contacts created during this parsing operation.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public int ContactPartiesCreated { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number of Telecoms created during this parsing operation.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public int TelecomsCreated { get; set; }
+
+        /// <summary>
         /// Gets or sets the number of products created during this parsing operation.
         /// </summary>
         /// <seealso cref="Label"/>

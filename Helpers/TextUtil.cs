@@ -26,7 +26,8 @@ namespace MedRecPro.Helpers
     {
         const int HOURS_TO_ROUND_DAYS = 14;
         const int TAB_SPACES = 8;
-
+        private static readonly HtmlSanitizer _htmlSanitizer = new HtmlSanitizer();
+        private static object _lock = new object();
 
 
         #region private methods
@@ -1759,16 +1760,21 @@ namespace MedRecPro.Helpers
         /// <param name="htmlIn">This string (html)</param>
         /// <param name="baseUrl">Optional url param</param>
         /// <returns>Sanitized HTML string</returns>
-        public static string RemoveHtmlXss(this string htmlIn, string baseUrl = null)
+        public static string? RemoveHtmlXss(this string htmlIn, string? baseUrl = null)
         {
             #region implementation
+            string? ret = null;
             if (htmlIn == null)
             {
-                return null;
+                return ret;
             }
 
-            var sanitizer = new HtmlSanitizer();
-            return sanitizer.Sanitize(htmlIn, baseUrl);
+            lock (_lock)
+            {
+                var sanitizer = _htmlSanitizer;
+                ret = sanitizer.Sanitize(htmlIn, baseUrl!);
+            }
+            return ret;
             #endregion
         }
 
@@ -1990,7 +1996,7 @@ namespace MedRecPro.Helpers
             #endregion
         }
 
-     
+
 
         #region openai.com generated methods
         //https://beta.openai.com/playground/p/XFlvDAbPLd9Qs6io6vAsq519
