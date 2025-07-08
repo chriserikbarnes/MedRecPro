@@ -1,10 +1,12 @@
 ﻿using MedRecPro.Helpers;
+using Microsoft.OpenApi.Attributes;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json.Serialization;
 
 namespace MedRecPro.Models
 {
@@ -54,13 +56,13 @@ namespace MedRecPro.Models
             public int? DocumentID { get; set; } // Made nullable
 
             /// <summary>
-            /// Globally Unique Identifier for this specific document version (&lt;id root&gt;).
+            /// Globally Unique Identifier for this specific document version ([id root]).
             /// </summary>
             public Guid? DocumentGUID { get; set; } // Made nullable
 
             private string? _documentCode;
             /// <summary>
-            /// LOINC code identifying the document type (&lt;code&gt; code).
+            /// LOINC code identifying the document type ([code] code).
             /// </summary>
             public string? DocumentCode
             {
@@ -70,7 +72,7 @@ namespace MedRecPro.Models
 
             private string? _documentCodeSystem;
             /// <summary>
-            /// Code system for the document type code (&lt;code&gt; codeSystem), typically 2.16.840.1.113883.6.1.
+            /// Code system for the document type code ([code] codeSystem), typically 2.16.840.1.113883.6.1.
             /// </summary>
             public string? DocumentCodeSystem
             {
@@ -80,7 +82,7 @@ namespace MedRecPro.Models
 
             private string? _documentDisplayName;
             /// <summary>
-            /// Display name matching the document type code (&lt;code&gt; displayName).
+            /// Display name matching the document type code ([code] displayName).
             /// </summary>
             public string? DocumentDisplayName
             {
@@ -90,7 +92,7 @@ namespace MedRecPro.Models
 
             private string? _title;
             /// <summary>
-            /// Document title (&lt;title&gt;), if provided.
+            /// Document title ([title]), if provided.
             /// </summary>
             public string? Title
             {
@@ -99,17 +101,17 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Date reference for the SPL version (&lt;effectiveTime value&gt;).
+            /// Date reference for the SPL version ([effectiveTime value]).
             /// </summary>
             public DateTime? EffectiveTime { get; set; } // Made nullable
 
             /// <summary>
-            /// Globally Unique Identifier for the document set, constant across versions (&lt;setId root&gt;).
+            /// Globally Unique Identifier for the document set, constant across versions ([setId root]).
             /// </summary>
             public Guid? SetGUID { get; set; } // Made nullable
 
             /// <summary>
-            /// Sequential integer for the document version (&lt;versionNumber value&gt;).
+            /// Sequential integer for the document version ([versionNumber value]).
             /// </summary>
             public int? VersionNumber { get; set; } // Made nullable
 
@@ -139,7 +141,7 @@ namespace MedRecPro.Models
 
             private string? _organizationName;
             /// <summary>
-            /// Name of the organization (&lt;name&gt;).
+            /// Name of the organization ([name]).
             /// </summary>
             public string? OrganizationName
             {
@@ -148,7 +150,7 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Flag indicating if the organization information is confidential (&lt;confidentialityCode code="B"&gt;).
+            /// Flag indicating if the organization information is confidential ([confidentialityCode code="B"]).
             /// </summary>
             public bool? IsConfidential { get; set; } = false;// Made nullable (Default is 0 (false) in SQL)
             #endregion properties
@@ -168,7 +170,7 @@ namespace MedRecPro.Models
 
             private string? _streetAddressLine1;
             /// <summary>
-            /// First line of the street address (&lt;streetAddressLine&gt;).
+            /// First line of the street address ([streetAddressLine]).
             /// </summary>
             public string? StreetAddressLine1
             {
@@ -178,7 +180,7 @@ namespace MedRecPro.Models
 
             private string? _streetAddressLine2;
             /// <summary>
-            /// Second line of the street address (&lt;streetAddressLine&gt;), optional.
+            /// Second line of the street address ([streetAddressLine]), optional.
             /// </summary>
             public string? StreetAddressLine2
             {
@@ -188,7 +190,7 @@ namespace MedRecPro.Models
 
             private string? _city;
             /// <summary>
-            /// City name (&lt;city&gt;).
+            /// City name ([city]).
             /// </summary>
             public string? City
             {
@@ -198,7 +200,7 @@ namespace MedRecPro.Models
 
             private string? _stateProvince;
             /// <summary>
-            /// State or province (&lt;state&gt;), required if country is USA.
+            /// State or province ([state]), required if country is USA.
             /// </summary>
             public string? StateProvince
             {
@@ -208,7 +210,7 @@ namespace MedRecPro.Models
 
             private string? _postalCode;
             /// <summary>
-            /// Postal or ZIP code (&lt;postalCode&gt;), required if country is USA.
+            /// Postal or ZIP code ([postalCode]), required if country is USA.
             /// </summary>
             public string? PostalCode
             {
@@ -218,7 +220,7 @@ namespace MedRecPro.Models
 
             private string? _countryCode;
             /// <summary>
-            /// ISO 3166-1 alpha-3 country code (&lt;country code&gt;).
+            /// ISO 3166-1 alpha-3 country code ([country code]).
             /// </summary>
             public string? CountryCode
             {
@@ -228,7 +230,7 @@ namespace MedRecPro.Models
 
             private string? _countryName;
             /// <summary>
-            /// Full country name (&lt;country&gt; name).
+            /// Full country name ([country] name).
             /// </summary>
             public string? CountryName
             {
@@ -286,7 +288,7 @@ namespace MedRecPro.Models
 
             private string? _contactPersonName;
             /// <summary>
-            /// Name of the contact person (&lt;contactPerson&gt;&lt;name&gt;).
+            /// Name of the contact person ([contactPerson][name]).
             /// </summary>
             public string? ContactPersonName
             {
@@ -298,7 +300,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents the &lt;contactParty&gt; element, linking Organization, Address, Telecom, and ContactPerson. Based on Section 2.1.8.
+        /// Represents the [contactParty] element, linking Organization, Address, Telecom, and ContactPerson. Based on Section 2.1.8.
         /// </summary>
         public class ContactParty
         {
@@ -435,23 +437,23 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Set GUID of the related/referenced document (&lt;setId root&gt;).
+            /// Set GUID of the related/referenced document ([setId root]).
             /// </summary>
             public Guid? ReferencedSetGUID { get; set; } // Made nullable
 
             /// <summary>
-            /// Document GUID of the related/referenced document (&lt;id root&gt;), used for RPLC relationship.
+            /// Document GUID of the related/referenced document ([id root]), used for RPLC relationship.
             /// </summary>
             public Guid? ReferencedDocumentGUID { get; set; } // Already nullable
 
             /// <summary>
-            /// Version number of the related/referenced document (&lt;versionNumber value&gt;).
+            /// Version number of the related/referenced document ([versionNumber value]).
             /// </summary>
             public int? ReferencedVersionNumber { get; set; } // Already nullable
 
             private string? _referencedDocumentCode;
             /// <summary>
-            /// Document type code, system, and display name of the related/referenced document (&lt;code&gt;), used for RPLC relationship.
+            /// Document type code, system, and display name of the related/referenced document ([code]), used for RPLC relationship.
             /// </summary>
             public string? ReferencedDocumentCode
             {
@@ -461,7 +463,7 @@ namespace MedRecPro.Models
 
             private string? _referencedDocumentCodeSystem;
             /// <summary>
-            /// Corresponds to &lt;code&gt; codeSystem of the referenced document (used in RPLC).
+            /// Corresponds to [code] codeSystem of the referenced document (used in RPLC).
             /// </summary>
             public string? ReferencedDocumentCodeSystem
             {
@@ -471,7 +473,7 @@ namespace MedRecPro.Models
 
             private string? _referencedDocumentDisplayName;
             /// <summary>
-            /// Corresponds to &lt;code&gt; displayName of the referenced document (used in RPLC).
+            /// Corresponds to [code] displayName of the referenced document (used in RPLC).
             /// </summary>
             public string? ReferencedDocumentDisplayName
             {
@@ -483,7 +485,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Defines hierarchical relationships between organizations within a document header (e.g., Labeler -&gt; Registrant -&gt; Establishment).
+        /// Defines hierarchical relationships between organizations within a document header (e.g., Labeler -] Registrant -] Establishment).
         /// </summary>
         public class DocumentRelationship
         {
@@ -527,7 +529,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents the main &lt;structuredBody&gt; container within a Document. Based on Section 2.2.
+        /// Represents the main [structuredBody] container within a Document. Based on Section 2.2.
         /// </summary>
         public class StructuredBody
         {
@@ -546,7 +548,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores details for each &lt;section&gt; within the StructuredBody. Based on Section 2.2.1.
+        /// Stores details for each [section] within the StructuredBody. Based on Section 2.2.1.
         /// </summary>
         public class Section
         {
@@ -562,13 +564,13 @@ namespace MedRecPro.Models
             public int? StructuredBodyID { get; set; } // Made nullable
 
             /// <summary>
-            /// Unique identifier for the section (&lt;id root&gt;).
+            /// Unique identifier for the section ([id root]).
             /// </summary>
             public Guid? SectionGUID { get; set; } // Made nullable
 
             private string? _sectionCode;
             /// <summary>
-            /// LOINC code for the section type (&lt;code&gt; code).
+            /// LOINC code for the section type ([code] code).
             /// </summary>
             public string? SectionCode
             {
@@ -578,7 +580,7 @@ namespace MedRecPro.Models
 
             private string? _sectionCodeSystem;
             /// <summary>
-            /// Code system for the section code (&lt;code&gt; codeSystem), typically 2.16.840.1.113883.6.1.
+            /// Code system for the section code ([code] codeSystem), typically 2.16.840.1.113883.6.1.
             /// </summary>
             public string? SectionCodeSystem
             {
@@ -588,7 +590,7 @@ namespace MedRecPro.Models
 
             private string? _sectionDisplayName;
             /// <summary>
-            /// Display name matching the section code (&lt;code&gt; displayName).
+            /// Display name matching the section code ([code] displayName).
             /// </summary>
             public string? SectionDisplayName
             {
@@ -598,7 +600,7 @@ namespace MedRecPro.Models
 
             private string? _title;
             /// <summary>
-            /// Title of the section (&lt;title&gt;), may include numbering.
+            /// Title of the section ([title]), may include numbering.
             /// </summary>
             public string? Title
             {
@@ -607,7 +609,7 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Effective time for the section (&lt;effectiveTime value&gt;). For Compounded Drug Labels (Sec 4.2.2), low/high represent the reporting period.
+            /// Effective time for the section ([effectiveTime value]). For Compounded Drug Labels (Sec 4.2.2), low/high represent the reporting period.
             /// </summary>
             public DateTime? EffectiveTime { get; set; } // Made nullable
             #endregion properties
@@ -615,7 +617,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Manages the nested structure (parent-child relationships) of sections using &lt;component&gt;&lt;section&gt;. Based on Section 2.2.1.
+        /// Manages the nested structure (parent-child relationships) of sections using [component][section]. Based on Section 2.2.1.
         /// </summary>
         public class SectionHierarchy
         {
@@ -644,7 +646,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores the main content blocks (&lt;paragraph&gt;, &lt;list&gt;, &lt;table&gt;, block &lt;renderMultimedia&gt;) within a section's &lt;text&gt; element. Based on Section 2.2.2.
+        /// Stores the main content blocks ([paragraph], [list], [table], block [renderMultimedia]) within a section's [text] element. Based on Section 2.2.2.
         /// </summary>
         public class SectionTextContent
         {
@@ -659,9 +661,14 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            /// <summary>
+            /// Parent SectionTextContent for hierarchy (e.g., a paragraph inside a highlight inside an excerpt)
+            /// </summary>
+            public int? ParentSectionTextContentID { get; set; } // nullable for top-level blocks
+
             private string? _contentType;
             /// <summary>
-            /// Type of content block: Paragraph, List, Table, BlockImage (for &lt;renderMultimedia&gt; as direct child of &lt;text&gt;).
+            /// Type of content block: Paragraph, List, Table, BlockImage (for [renderMultimedia] as direct child of [text]).
             /// </summary>
             public string? ContentType
             {
@@ -669,8 +676,20 @@ namespace MedRecPro.Models
                 set => _contentType = value?.RemoveHtmlXss();
             }
 
+            private string? _styleCode;
             /// <summary>
-            /// Order of this content block within the parent section's &lt;text&gt; element.
+            /// The values for [styleCode] for font effect are bold, italics and underline. 
+            /// To assist people who are visually impaired, the [styleCode=”emphasis”] 
+            /// e.g. bold, italics and underline
+            /// </summary>
+            public string? StyleCode
+            {
+                get => _styleCode;
+                set => _styleCode = value?.RemoveHtmlXss();
+            }
+
+            /// <summary>
+            /// Order of this content block within the parent section's [text] element.
             /// </summary>
             public int? SequenceNumber { get; set; } // Made nullable
 
@@ -688,7 +707,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores details specific to &lt;list&gt; elements. Based on Section 2.2.2.4.
+        /// Stores details specific to [list] elements. Based on Section 2.2.2.4.
         /// </summary>
         public class TextList
         {
@@ -705,7 +724,7 @@ namespace MedRecPro.Models
 
             private string? _listType;
             /// <summary>
-            /// Attribute identifying the list as ordered or unordered (&lt;list listType=&gt;).
+            /// Attribute identifying the list as ordered or unordered ([list listType=]).
             /// </summary>
             public string? ListType
             {
@@ -715,7 +734,7 @@ namespace MedRecPro.Models
 
             private string? _styleCode;
             /// <summary>
-            /// Optional style code for numbering/bullet style (&lt;list styleCode=&gt;).
+            /// Optional style code for numbering/bullet style ([list styleCode=]).
             /// </summary>
             public string? StyleCode
             {
@@ -727,7 +746,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores individual &lt;item&gt; elements within a &lt;list&gt;. Based on Section 2.2.2.4.
+        /// Stores individual [item] elements within a [list]. Based on Section 2.2.2.4.
         /// </summary>
         public class TextListItem
         {
@@ -749,7 +768,7 @@ namespace MedRecPro.Models
 
             private string? _itemCaption;
             /// <summary>
-            /// Optional custom marker specified using &lt;caption&gt; within &lt;item&gt;.
+            /// Optional custom marker specified using [caption] within [item].
             /// </summary>
             public string? ItemCaption
             {
@@ -759,7 +778,7 @@ namespace MedRecPro.Models
 
             private string? _itemText;
             /// <summary>
-            /// Text content of the list item &lt;item&gt;.
+            /// Text content of the list item [item].
             /// </summary>
             public string? ItemText
             {
@@ -771,7 +790,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores details specific to &lt;table&gt; elements. Based on Section 2.2.2.5.
+        /// Stores details specific to [table] elements. Based on Section 2.2.2.5.
         /// </summary>
         public class TextTable
         {
@@ -788,7 +807,7 @@ namespace MedRecPro.Models
 
             private string? _width;
             /// <summary>
-            /// Optional width attribute specified on the &lt;table&gt; element.
+            /// Optional width attribute specified on the [table] element.
             /// </summary>
             public string? Width
             {
@@ -797,12 +816,12 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Indicates if the table included a &lt;thead&gt; element.
+            /// Indicates if the table included a [thead] element.
             /// </summary>
             public bool? HasHeader { get; set; } // Made nullable (Default is 0 (false) in SQL)
 
             /// <summary>
-            /// Indicates if the table included a &lt;tfoot&gt; element.
+            /// Indicates if the table included a [tfoot] element.
             /// </summary>
             public bool? HasFooter { get; set; } // Made nullable (Default is 0 (false) in SQL)
             #endregion properties
@@ -810,7 +829,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores individual &lt;tr&gt; elements within a &lt;table&gt; (header, body, or footer). Based on Section 2.2.2.5.
+        /// Stores individual [tr] elements within a [table] (header, body, or footer). Based on Section 2.2.2.5.
         /// </summary>
         public class TextTableRow
         {
@@ -842,7 +861,7 @@ namespace MedRecPro.Models
 
             private string? _styleCode;
             /// <summary>
-            /// Optional styleCode attribute on &lt;tr&gt; (e.g., Botrule).
+            /// Optional styleCode attribute on [tr] (e.g., Botrule).
             /// </summary>
             public string? StyleCode
             {
@@ -854,7 +873,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores individual &lt;td&gt; or &lt;th&gt; elements within a &lt;tr&gt;. Based on Section 2.2.2.5.
+        /// Stores individual [td] or [th] elements within a [tr]. Based on Section 2.2.2.5.
         /// </summary>
         public class TextTableCell
         {
@@ -886,7 +905,7 @@ namespace MedRecPro.Models
 
             private string? _cellText;
             /// <summary>
-            /// Text content of the table cell (&lt;td&gt; or &lt;th&gt;).
+            /// Text content of the table cell ([td] or [th]).
             /// </summary>
             public string? CellText
             {
@@ -895,12 +914,12 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Optional rowspan attribute on &lt;td&gt; or &lt;th&gt;.
+            /// Optional rowspan attribute on [td] or [th].
             /// </summary>
             public int? RowSpan { get; set; } // Already nullable
 
             /// <summary>
-            /// Optional colspan attribute on &lt;td&gt; or &lt;th&gt;.
+            /// Optional colspan attribute on [td] or [th].
             /// </summary>
             public int? ColSpan { get; set; } // Already nullable
 
@@ -938,7 +957,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores metadata for images (&lt;observationMedia&gt;). Based on Section 2.2.3.
+        /// Stores metadata for images ([observationMedia]). Based on Section 2.2.3.
         /// </summary>
         public class ObservationMedia
         {
@@ -955,7 +974,7 @@ namespace MedRecPro.Models
 
             private string? _mediaID;
             /// <summary>
-            /// Identifier for the media object (&lt;observationMedia ID=&gt;), referenced by &lt;renderMultimedia&gt;.
+            /// Identifier for the media object ([observationMedia ID=]), referenced by [renderMultimedia].
             /// </summary>
             public string? MediaID
             {
@@ -965,7 +984,7 @@ namespace MedRecPro.Models
 
             private string? _descriptionText;
             /// <summary>
-            /// Text description of the image (&lt;text&gt; child of observationMedia), used by screen readers.
+            /// Text description of the image ([text] child of observationMedia), used by screen readers.
             /// </summary>
             public string? DescriptionText
             {
@@ -975,7 +994,7 @@ namespace MedRecPro.Models
 
             private string? _mediaType;
             /// <summary>
-            /// Media type of the file (&lt;value mediaType=&gt;), e.g., image/jpeg.
+            /// Media type of the file ([value mediaType=]), e.g., image/jpeg.
             /// </summary>
             public string? MediaType
             {
@@ -985,7 +1004,7 @@ namespace MedRecPro.Models
 
             private string? _fileName;
             /// <summary>
-            /// File name of the image (&lt;reference value=&gt;).
+            /// File name of the image ([reference value=]).
             /// </summary>
             public string? FileName
             {
@@ -997,7 +1016,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents the &lt;renderMultimedia&gt; tag, linking text content to an ObservationMedia entry. Based on Section 2.2.3.
+        /// Represents the [renderMultimedia] tag, linking text content to an ObservationMedia entry. Based on Section 2.2.3.
         /// </summary>
         public class RenderedMedia
         {
@@ -1023,7 +1042,7 @@ namespace MedRecPro.Models
             public int? SequenceInContent { get; set; } // Made nullable
 
             /// <summary>
-            /// Indicates if the image is inline (within a paragraph) or block level (direct child of &lt;text&gt;).
+            /// Indicates if the image is inline (within a paragraph) or block level (direct child of [text]).
             /// </summary>
             public bool? IsInline { get; set; } // Made nullable
             #endregion properties
@@ -1048,19 +1067,20 @@ namespace MedRecPro.Models
 
             private string? _highlightText;
             /// <summary>
-            /// Text content from &lt;excerpt&gt;&lt;highlight&gt;&lt;text&gt;.
+            /// Text content from [excerpt][highlight][text].
             /// </summary>
             public string? HighlightText
             {
                 get => _highlightText;
-                set => _highlightText = value?.RemoveHtmlXss();
+                set => _highlightText = value?.RemoveUnwantedTags(preserveTags: new List<string>
+                { "paragraph", "list", "item", "caption", "linkHtml" });
             }
             #endregion properties
         }
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores core product information (&lt;manufacturedProduct&gt;). Based on Section 3.1.
+        /// Stores core product information ([manufacturedProduct]). Based on Section 3.1.
         /// </summary>
         public class Product
         {
@@ -1077,7 +1097,7 @@ namespace MedRecPro.Models
 
             private string? _productName;
             /// <summary>
-            /// Proprietary name or product name (&lt;name&gt;).
+            /// Proprietary name or product name ([name]).
             /// </summary>
             public string? ProductName
             {
@@ -1087,7 +1107,7 @@ namespace MedRecPro.Models
 
             private string? _productSuffix;
             /// <summary>
-            /// Suffix to the proprietary name (&lt;suffix&gt;), e.g., "XR".
+            /// Suffix to the proprietary name ([suffix]), e.g., "XR".
             /// </summary>
             public string? ProductSuffix
             {
@@ -1097,7 +1117,7 @@ namespace MedRecPro.Models
 
             private string? _formCode;
             /// <summary>
-            /// Dosage form code, system, and display name (&lt;formCode&gt;).
+            /// Dosage form code, system, and display name ([formCode]).
             /// </summary>
             public string? FormCode
             {
@@ -1107,7 +1127,7 @@ namespace MedRecPro.Models
 
             private string? _formCodeSystem;
             /// <summary>
-            /// Corresponds to &lt;formCode codeSystem&gt;.
+            /// Corresponds to [formCode codeSystem].
             /// </summary>
             public string? FormCodeSystem
             {
@@ -1117,7 +1137,7 @@ namespace MedRecPro.Models
 
             private string? _formDisplayName;
             /// <summary>
-            /// Corresponds to &lt;formCode displayName&gt;.
+            /// Corresponds to [formCode displayName].
             /// </summary>
             public string? FormDisplayName
             {
@@ -1127,7 +1147,7 @@ namespace MedRecPro.Models
 
             private string? _descriptionText;
             /// <summary>
-            /// Brief description of the product (&lt;desc&gt;), mainly used for devices.
+            /// Brief description of the product ([desc]), mainly used for devices.
             /// </summary>
             public string? DescriptionText
             {
@@ -1156,7 +1176,7 @@ namespace MedRecPro.Models
 
             private string? _identifierValue;
             /// <summary>
-            /// The item code value (&lt;code code=&gt;).
+            /// The item code value ([code code=]).
             /// </summary>
             public string? IdentifierValue
             {
@@ -1166,7 +1186,7 @@ namespace MedRecPro.Models
 
             private string? _identifierSystemOID;
             /// <summary>
-            /// OID for the identifier system (&lt;code codeSystem=&gt;).
+            /// OID for the identifier system ([code codeSystem=]).
             /// </summary>
             public string? IdentifierSystemOID
             {
@@ -1205,7 +1225,7 @@ namespace MedRecPro.Models
 
             private string? _genericName;
             /// <summary>
-            /// Non-proprietary name of the product (&lt;genericMedicine&gt;&lt;name&gt;).
+            /// Non-proprietary name of the product ([genericMedicine][name]).
             /// </summary>
             public string? GenericName
             {
@@ -1215,7 +1235,7 @@ namespace MedRecPro.Models
 
             private string? _phoneticName;
             /// <summary>
-            /// Phonetic spelling of the generic name (&lt;name use="PHON"&gt;), optional.
+            /// Phonetic spelling of the generic name ([name use="PHON"]), optional.
             /// </summary>
             public string? PhoneticName
             {
@@ -1382,7 +1402,7 @@ namespace MedRecPro.Models
 
             private string? _identifierValue;
             /// <summary>
-            /// The actual identifier value (&lt;id extension&gt;).
+            /// The actual identifier value ([id extension]).
             /// </summary>
             public string? IdentifierValue
             {
@@ -1392,7 +1412,7 @@ namespace MedRecPro.Models
 
             private string? _identifierRootOID;
             /// <summary>
-            /// The root OID associated with the identifier (&lt;id root&gt;).
+            /// The root OID associated with the identifier ([id root]).
             /// </summary>
             public string? IdentifierRootOID
             {
@@ -1416,7 +1436,7 @@ namespace MedRecPro.Models
 
             private string? _unii;
             /// <summary>
-            /// Unique Ingredient Identifier (&lt;code code=&gt; where codeSystem="2.16.840.1.113883.4.9"). Optional for cosmetics.
+            /// Unique Ingredient Identifier ([code code=] where codeSystem="2.16.840.1.113883.4.9"). Optional for cosmetics.
             /// </summary>
             public string? UNII
             {
@@ -1465,7 +1485,7 @@ namespace MedRecPro.Models
 
             private string? _moietyUNII;
             /// <summary>
-            /// UNII code of the active moiety (&lt;activeMoiety&gt;&lt;code&gt; code).
+            /// UNII code of the active moiety ([activeMoiety][code] code).
             /// </summary>
             public string? MoietyUNII
             {
@@ -1475,7 +1495,7 @@ namespace MedRecPro.Models
 
             private string? _moietyName;
             /// <summary>
-            /// Name of the active moiety (&lt;activeMoiety&gt;&lt;name&gt;).
+            /// Name of the active moiety ([activeMoiety][name]).
             /// </summary>
             public string? MoietyName
             {
@@ -1504,7 +1524,7 @@ namespace MedRecPro.Models
 
             private string? _refSubstanceUNII;
             /// <summary>
-            /// UNII code of the reference substance (&lt;definingSubstance&gt;&lt;code&gt; code).
+            /// UNII code of the reference substance ([definingSubstance][code] code).
             /// </summary>
             public string? RefSubstanceUNII
             {
@@ -1514,7 +1534,7 @@ namespace MedRecPro.Models
 
             private string? _refSubstanceName;
             /// <summary>
-            /// Name of the reference substance (&lt;definingSubstance&gt;&lt;name&gt;).
+            /// Name of the reference substance ([definingSubstance][name]).
             /// </summary>
             public string? RefSubstanceName
             {
@@ -1572,13 +1592,13 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Strength expressed as numerator/denominator value and unit (&lt;quantity&gt;). Null for CNTM unless zero numerator.
+            /// Strength expressed as numerator/denominator value and unit ([quantity]). Null for CNTM unless zero numerator.
             /// </summary>
             public decimal? QuantityNumerator { get; set; } // Already nullable
 
             private string? _quantityNumeratorUnit;
             /// <summary>
-            /// Corresponds to &lt;quantity&gt;&lt;numerator unit&gt;.
+            /// Corresponds to [quantity][numerator unit].
             /// </summary>
             public string? QuantityNumeratorUnit
             {
@@ -1627,7 +1647,7 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Corresponds to &lt;quantity&gt;&lt;denominator value&gt;.
+            /// Corresponds to [quantity][denominator value].
             /// </summary>
             public decimal? QuantityDenominator { get; set; } // Already nullable
 
@@ -1673,7 +1693,7 @@ namespace MedRecPro.Models
 
             private string? _quantityDenominatorUnit;
             /// <summary>
-            /// Corresponds to &lt;quantity&gt;&lt;denominator unit&gt;.
+            /// Corresponds to [quantity][denominator unit].
             /// </summary>
             public string? QuantityDenominatorUnit
             {
@@ -1682,7 +1702,7 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Flag indicating if the inactive ingredient information is confidential (&lt;confidentialityCode code="B"&gt;).
+            /// Flag indicating if the inactive ingredient information is confidential ([confidentialityCode code="B"]).
             /// </summary>
             public bool? IsConfidential { get; set; } = false; // Made nullable (Default is 0 (false) in SQL)
 
@@ -1755,7 +1775,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents a level of packaging (&lt;asContent&gt;/&lt;containerPackagedProduct&gt;). Links to ProductID/PartProductID for definitions OR ProductInstanceID for lot distribution container data (3.15 packaging, 16.2.8).
+        /// Represents a level of packaging ([asContent]/[containerPackagedProduct]). Links to ProductID/PartProductID for definitions OR ProductInstanceID for lot distribution container data (3.15 packaging, 16.2.8).
         /// </summary>
         public class PackagingLevel
         {
@@ -1776,18 +1796,18 @@ namespace MedRecPro.Models
             public int? PartProductID { get; set; } // Already nullable
 
             /// <summary>
-            /// Quantity and unit of the item contained within this package level (&lt;quantity&gt;).
+            /// Quantity and unit of the item contained within this package level ([quantity]).
             /// </summary>
             public decimal? QuantityNumerator { get; set; } // Made nullable
 
             /// <summary>
-            /// Corresponds to &lt;quantity&gt;&lt;denominator value&gt;.
+            /// Corresponds to [quantity][denominator value].
             /// </summary>
             public decimal? QuantityDenominator { get; set; } // Made nullable
 
             private string? _quantityNumeratorUnit;
             /// <summary>
-            /// Corresponds to &lt;quantity&gt;&lt;numerator unit&gt;.
+            /// Corresponds to [quantity][numerator unit].
             /// </summary>
             public string? QuantityNumeratorUnit
             {
@@ -1797,7 +1817,7 @@ namespace MedRecPro.Models
 
             private string? _packageCode;
             /// <summary>
-            /// The package item code value (&lt;containerPackagedProduct&gt;&lt;code code="..." /&gt;).
+            /// The package item code value ([containerPackagedProduct][code code="..." /]).
             /// </summary>
             public string? PackageCode
             {
@@ -1807,7 +1827,7 @@ namespace MedRecPro.Models
 
             private string? _packageCodeSystem;
             /// <summary>
-            /// The code system OID for the package item code (&lt;containerPackagedProduct&gt;&lt;code codeSystem="..." /&gt;).
+            /// The code system OID for the package item code ([containerPackagedProduct][code codeSystem="..." /]).
             /// </summary>
             public string? PackageCodeSystem
             {
@@ -1817,7 +1837,7 @@ namespace MedRecPro.Models
 
             private string? _packageFormCode;
             /// <summary>
-            /// Package type code, system, and display name (&lt;containerPackagedProduct&gt;&lt;formCode&gt;).
+            /// Package type code, system, and display name ([containerPackagedProduct][formCode]).
             /// </summary>
             public string? PackageFormCode
             {
@@ -1827,7 +1847,7 @@ namespace MedRecPro.Models
 
             private string? _packageFormCodeSystem;
             /// <summary>
-            /// Corresponds to &lt;containerPackagedProduct&gt;&lt;formCode codeSystem&gt;.
+            /// Corresponds to [containerPackagedProduct][formCode codeSystem].
             /// </summary>
             public string? PackageFormCodeSystem
             {
@@ -1837,7 +1857,7 @@ namespace MedRecPro.Models
 
             private string? _packageFormDisplayName;
             /// <summary>
-            /// Corresponds to &lt;containerPackagedProduct&gt;&lt;formCode displayName&gt;.
+            /// Corresponds to [containerPackagedProduct][formCode displayName].
             /// </summary>
             public string? PackageFormDisplayName
             {
@@ -1871,7 +1891,7 @@ namespace MedRecPro.Models
 
             private string? _identifierValue;
             /// <summary>
-            /// The package item code value (&lt;containerPackagedProduct&gt;&lt;code&gt; code).
+            /// The package item code value ([containerPackagedProduct][code] code).
             /// </summary>
             public string? IdentifierValue
             {
@@ -1881,7 +1901,7 @@ namespace MedRecPro.Models
 
             private string? _identifierSystemOID;
             /// <summary>
-            /// OID for the package identifier system (&lt;containerPackagedProduct&gt;&lt;code&gt; codeSystem).
+            /// OID for the package identifier system ([containerPackagedProduct][code] codeSystem).
             /// </summary>
             public string? IdentifierSystemOID
             {
@@ -1959,7 +1979,7 @@ namespace MedRecPro.Models
 
             private string? _categoryCodeSystem;
             /// <summary>
-            /// Marketing Category code system (&lt;approval&gt;&lt;code&gt; codeSystem).
+            /// Marketing Category code system ([approval][code] codeSystem).
             /// </summary>
             public string? CategoryCodeSystem
             {
@@ -1969,7 +1989,7 @@ namespace MedRecPro.Models
 
             private string? _categoryDisplayName;
             /// <summary>
-            /// Marketing Category display name (&lt;approval&gt;&lt;code&gt; displayName).
+            /// Marketing Category display name ([approval][code] displayName).
             /// </summary>
             public string? CategoryDisplayName
             {
@@ -1979,7 +1999,7 @@ namespace MedRecPro.Models
 
             private string? _applicationOrMonographIDValue;
             /// <summary>
-            /// Application number, monograph ID, or citation (&lt;id extension&gt;).
+            /// Application number, monograph ID, or citation ([id extension]).
             /// </summary>
             public string? ApplicationOrMonographIDValue
             {
@@ -1989,7 +2009,7 @@ namespace MedRecPro.Models
 
             private string? _applicationOrMonographIDOID;
             /// <summary>
-            /// Root OID for the application number or monograph ID system (&lt;id root&gt;).
+            /// Root OID for the application number or monograph ID system ([id root]).
             /// </summary>
             public string? ApplicationOrMonographIDOID
             {
@@ -1998,13 +2018,13 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Date of application approval, if applicable (&lt;effectiveTime&gt;&lt;low value&gt;).
+            /// Date of application approval, if applicable ([effectiveTime][low value]).
             /// </summary>
             public DateTime? ApprovalDate { get; set; } // Already nullable
 
             private string? _territoryCode;
             /// <summary>
-            /// Territory code, typically USA (&lt;territory&gt;&lt;code&gt;).
+            /// Territory code, typically USA ([territory][code]).
             /// </summary>
             public string? TerritoryCode
             {
@@ -2021,7 +2041,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores marketing status information for a product or package (&lt;subjectOf&gt;&lt;marketingAct&gt;). Based on Section 3.1.8.
+        /// Stores marketing status information for a product or package ([subjectOf][marketingAct]). Based on Section 3.1.8.
         /// </summary>
         public class MarketingStatus
         {
@@ -2072,12 +2092,12 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Marketing start date (&lt;effectiveTime&gt;&lt;low value&gt;).
+            /// Marketing start date ([effectiveTime][low value]).
             /// </summary>
             public DateTime? EffectiveStartDate { get; set; } // Already nullable
 
             /// <summary>
-            /// Marketing end date (&lt;effectiveTime&gt;&lt;high value&gt;).
+            /// Marketing end date ([effectiveTime][high value]).
             /// </summary>
             public DateTime? EffectiveEndDate { get; set; } // Already nullable
             #endregion properties
@@ -2085,7 +2105,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores characteristics of a product or package (&lt;subjectOf&gt;&lt;characteristic&gt;). Based on Section 3.1.9.
+        /// Stores characteristics of a product or package ([subjectOf][characteristic]). Based on Section 3.1.9.
         /// </summary>
         public class Characteristic
         {
@@ -2127,7 +2147,7 @@ namespace MedRecPro.Models
 
             private string? _valueType;
             /// <summary>
-            /// Indicates the XML Schema instance type of the &lt;value&gt; element (e.g., PQ, INT, CV, ST, BL, IVL_PQ, ED).
+            /// Indicates the XML Schema instance type of the [value] element (e.g., PQ, INT, CV, ST, BL, IVL_PQ, ED).
             /// </summary>
             public string? ValueType
             {
@@ -2285,13 +2305,13 @@ namespace MedRecPro.Models
             public int? PartProductID { get; set; } // Made nullable
 
             /// <summary>
-            /// Quantity and unit of this part contained within the parent kit product (&lt;part&gt;&lt;quantity&gt;).
+            /// Quantity and unit of this part contained within the parent kit product ([part][quantity]).
             /// </summary>
             public decimal? PartQuantityNumerator { get; set; } // Made nullable
 
             private string? _partQuantityNumeratorUnit;
             /// <summary>
-            /// Unit for the part quantity (&lt;quantity&gt;&lt;numerator unit&gt;).
+            /// Unit for the part quantity ([quantity][numerator unit]).
             /// </summary>
             public string? PartQuantityNumeratorUnit
             {
@@ -2303,7 +2323,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links products sold separately but intended for use together (&lt;asPartOfAssembly&gt;). Based on Section 3.1.6, 3.3.8.
+        /// Links products sold separately but intended for use together ([asPartOfAssembly]). Based on Section 3.1.6, 3.3.8.
         /// </summary>
         public class PartOfAssembly
         {
@@ -2319,7 +2339,7 @@ namespace MedRecPro.Models
             public int? PrimaryProductID { get; set; } // Made nullable
 
             /// <summary>
-            /// Foreign key to Product (The other product in the assembly, referenced via &lt;part&gt;&lt;partProduct&gt; inside &lt;asPartOfAssembly&gt;).
+            /// Foreign key to Product (The other product in the assembly, referenced via [part][partProduct] inside [asPartOfAssembly]).
             /// </summary>
             public int? AccessoryProductID { get; set; } // Made nullable
             #endregion properties
@@ -2327,7 +2347,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores policy information related to a product, like DEA Schedule (&lt;subjectOf&gt;&lt;policy&gt;). Based on Section 3.2.11.
+        /// Stores policy information related to a product, like DEA Schedule ([subjectOf][policy]). Based on Section 3.2.11.
         /// </summary>
         public class Policy
         {
@@ -2386,7 +2406,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links a product (or part) to its route(s) of administration (&lt;consumedIn&gt;&lt;substanceAdministration&gt;). Based on Section 3.2.20.
+        /// Links a product (or part) to its route(s) of administration ([consumedIn][substanceAdministration]). Based on Section 3.2.20.
         /// </summary>
         public class ProductRouteOfAdministration
         {
@@ -2445,7 +2465,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores the web page link for a cosmetic product (&lt;subjectOf&gt;&lt;document&gt;&lt;text&gt;&lt;reference value=&gt;). Based on Section 3.4.7.
+        /// Stores the web page link for a cosmetic product ([subjectOf][document][text][reference value=]). Based on Section 3.4.7.
         /// </summary>
         public class ProductWebLink
         {
@@ -2475,6 +2495,7 @@ namespace MedRecPro.Models
         /*******************************************************************************/
         /// <summary>
         /// Stores various identifiers associated with an Organization (DUNS, FEI, Labeler Code, License Number, etc.).
+        /// Section 2.1.4 Author Information and 2.1.5 Identified Organizations
         /// </summary>
         public class OrganizationIdentifier
         {
@@ -2491,7 +2512,7 @@ namespace MedRecPro.Models
 
             private string? _identifierValue;
             /// <summary>
-            /// The identifier value (&lt;id extension&gt;).
+            /// The identifier value ([id extension]) pg 14 2.1.4 Author Information.
             /// </summary>
             public string? IdentifierValue
             {
@@ -2501,7 +2522,7 @@ namespace MedRecPro.Models
 
             private string? _identifierSystemOID;
             /// <summary>
-            /// OID for the identifier system (&lt;id root&gt;).
+            /// OID for the identifier system ([id root]).
             /// </summary>
             public string? IdentifierSystemOID
             {
@@ -2523,7 +2544,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores business operation details for an establishment or labeler (&lt;performance&gt;&lt;actDefinition&gt;). Based on Section 4.1.4, 5.1.5, 6.1.6.
+        /// Stores business operation details for an establishment or labeler ([performance][actDefinition]). Based on Section 4.1.4, 5.1.5, 6.1.6.
         /// </summary>
         public class BusinessOperation
         {
@@ -2572,7 +2593,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores qualifier details for a specific Business Operation (&lt;actDefinition&gt;&lt;subjectOf&gt;&lt;approval&gt;&lt;code&gt;). Based on Section 5.1.5, 6.1.7.
+        /// Stores qualifier details for a specific Business Operation ([actDefinition][subjectOf][approval][code]). Based on Section 5.1.5, 6.1.7.
         /// </summary>
         public class BusinessOperationQualifier
         {
@@ -2621,7 +2642,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links a Business Operation performed by an establishment to a specific product (&lt;actDefinition&gt;&lt;product&gt;). Based on Section 4.1.5.
+        /// Links a Business Operation performed by an establishment to a specific product ([actDefinition][product]). Based on Section 4.1.5.
         /// </summary>
         public class BusinessOperationProductLink
         {
@@ -2645,7 +2666,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores legal authenticator (signature) information for a document (&lt;legalAuthenticator&gt;). Based on Section 5.1.6, 35.1.3, 36.1.7.
+        /// Stores legal authenticator (signature) information for a document ([legalAuthenticator]). Based on Section 5.1.6, 35.1.3, 36.1.7.
         /// </summary>
         public class LegalAuthenticator
         {
@@ -2662,7 +2683,7 @@ namespace MedRecPro.Models
 
             private string? _noteText;
             /// <summary>
-            /// Optional signing statement provided in &lt;noteText&gt;.
+            /// Optional signing statement provided in [noteText].
             /// </summary>
             public string? NoteText
             {
@@ -2671,13 +2692,13 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Timestamp of the signature (&lt;time value&gt;).
+            /// Timestamp of the signature ([time value]).
             /// </summary>
             public DateTime? TimeValue { get; set; } // Made nullable
 
             private string? _signatureText;
             /// <summary>
-            /// The electronic signature text (&lt;signatureText&gt;).
+            /// The electronic signature text ([signatureText]).
             /// </summary>
             public string? SignatureText
             {
@@ -2687,7 +2708,7 @@ namespace MedRecPro.Models
 
             private string? _assignedPersonName;
             /// <summary>
-            /// Name of the person signing (&lt;assignedPerson&gt;&lt;name&gt;).
+            /// Name of the person signing ([assignedPerson][name]).
             /// </summary>
             public string? AssignedPersonName
             {
@@ -2704,7 +2725,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores substance details (e.g., active moiety, pharmacologic class identifier) used in Indexing contexts (&lt;subject&gt;&lt;identifiedSubstance&gt;). Based on Section 8.2.2, 8.2.3.
+        /// Stores substance details (e.g., active moiety, pharmacologic class identifier) used in Indexing contexts ([subject][identifiedSubstance]). Based on Section 8.2.2, 8.2.3.
         /// </summary>
         public class IdentifiedSubstance
         {
@@ -2785,7 +2806,7 @@ namespace MedRecPro.Models
 
             private string? _classCodeSystem;
             /// <summary>
-            /// Code system (&lt;code&gt; codeSystem).
+            /// Code system ([code] codeSystem).
             /// </summary>
             public string? ClassCodeSystem
             {
@@ -2807,7 +2828,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores preferred (L) and alternate (A) names for a Pharmacologic Class (&lt;identifiedSubstance&gt;&lt;name use=&gt;). Based on Section 8.2.3.
+        /// Stores preferred (L) and alternate (A) names for a Pharmacologic Class ([identifiedSubstance][name use=]). Based on Section 8.2.3.
         /// </summary>
         public class PharmacologicClassName
         {
@@ -2847,7 +2868,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links an active moiety (IdentifiedSubstance) to its associated Pharmacologic Class (&lt;asSpecializedKind&gt; under moiety). Based on Section 8.2.2.
+        /// Links an active moiety (IdentifiedSubstance) to its associated Pharmacologic Class ([asSpecializedKind] under moiety). Based on Section 8.2.2.
         /// </summary>
         public class PharmacologicClassLink
         {
@@ -2872,7 +2893,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Defines the hierarchy between Pharmacologic Classes (&lt;asSpecializedKind&gt; under class definition). Based on Section 8.2.3.
+        /// Defines the hierarchy between Pharmacologic Classes ([asSpecializedKind] under class definition). Based on Section 8.2.3.
         /// </summary>
         public class PharmacologicClassHierarchy
         {
@@ -2914,7 +2935,7 @@ namespace MedRecPro.Models
 
             private string? _packageNDCValue;
             /// <summary>
-            /// The NDC Package Code being linked (&lt;containerPackagedProduct&gt;&lt;code&gt; code).
+            /// The NDC Package Code being linked ([containerPackagedProduct][code] code).
             /// </summary>
             public string? PackageNDCValue
             {
@@ -2973,7 +2994,7 @@ namespace MedRecPro.Models
 
             private string? _conceptCode;
             /// <summary>
-            /// The computed MD5 hash code identifying the product concept (&lt;code&gt; code).
+            /// The computed MD5 hash code identifying the product concept ([code] code).
             /// </summary>
             public string? ConceptCode
             {
@@ -3035,7 +3056,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links an Application Product Concept to its corresponding Abstract Product Concept (&lt;asEquivalentEntity&gt;). Based on Section 15.2.6.
+        /// Links an Application Product Concept to its corresponding Abstract Product Concept ([asEquivalentEntity]). Based on Section 15.2.6.
         /// </summary>
         public class ProductConceptEquivalence
         {
@@ -3152,7 +3173,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores dosing specification for Lot Distribution calculations (&lt;consumedIn&gt;&lt;substanceAdministration1&gt;). Based on Section 16.2.4.
+        /// Stores dosing specification for Lot Distribution calculations ([consumedIn][substanceAdministration1]). Based on Section 16.2.4.
         /// </summary>
         public class DosingSpecification
         {
@@ -3204,7 +3225,7 @@ namespace MedRecPro.Models
 
             private string? _doseQuantityUnit;
             /// <summary>
-            /// Dose quantity unit (&lt;doseQuantity unit&gt;).
+            /// Dose quantity unit ([doseQuantity unit]).
             /// </summary>
             public string? DoseQuantityUnit
             {
@@ -3216,7 +3237,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents Bulk Lot information in Lot Distribution Reports (&lt;productInstance&gt;&lt;ingredient&gt;). Based on Section 16.2.6.
+        /// Represents Bulk Lot information in Lot Distribution Reports ([productInstance][ingredient]). Based on Section 16.2.6.
         /// </summary>
         public class IngredientInstance
         {
@@ -3250,7 +3271,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Defines the relationship between Fill/Package Lots and Label Lots (&lt;productInstance&gt;&lt;member&gt;&lt;memberProductInstance&gt;). Based on Section 16.2.7, 16.2.11.
+        /// Defines the relationship between Fill/Package Lots and Label Lots ([productInstance][member][memberProductInstance]). Based on Section 16.2.7, 16.2.11.
         /// </summary>
         public class LotHierarchy
         {
@@ -3274,7 +3295,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores product events like distribution or return quantities (&lt;subjectOf&gt;&lt;productEvent&gt;). Based on Section 16.2.9, 16.2.10.
+        /// Stores product events like distribution or return quantities ([subjectOf][productEvent]). Based on Section 16.2.9, 16.2.10.
         /// </summary>
         public class ProductEvent
         {
@@ -3343,7 +3364,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores "Doing Business As" (DBA) names or other named entity types associated with an Organization (&lt;asNamedEntity&gt;). Based on Section 2.1.9, 18.1.3.
+        /// Stores "Doing Business As" (DBA) names or other named entity types associated with an Organization ([asNamedEntity]). Based on Section 2.1.9, 18.1.3. 18.1.4
         /// </summary>
         public class NamedEntity
         {
@@ -3412,7 +3433,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents the issuing authority (State or Federal Agency like DEA) for licenses (&lt;author&gt;&lt;territorialAuthority&gt;). Based on Section 18.1.5.
+        /// Represents the issuing authority (State or Federal Agency like DEA) for licenses ([author][territorialAuthority]). Based on Section 18.1.5.
         /// </summary>
         public class TerritorialAuthority
         {
@@ -3451,7 +3472,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores license information for WDD/3PL facilities (&lt;subjectOf&gt;&lt;approval&gt;). Based on Section 18.1.5.
+        /// Stores license information for WDD/3PL facilities ([subjectOf][approval]). Based on Section 18.1.5.
         /// </summary>
         public class License
         {
@@ -3589,7 +3610,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores disciplinary action details related to a License (&lt;approval&gt;&lt;subjectOf&gt;&lt;action&gt;). Based on Section 18.1.7.
+        /// Stores disciplinary action details related to a License ([approval][subjectOf][action]). Based on Section 18.1.7.
         /// </summary>
         public class DisciplinaryAction
         {
@@ -3653,7 +3674,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores substance specification details for tolerance documents (&lt;subjectOf&gt;&lt;substanceSpecification&gt;). Based on Section 19.2.3.
+        /// Stores substance specification details for tolerance documents ([subjectOf][substanceSpecification]). Based on Section 19.2.3.
         /// </summary>
         public class SubstanceSpecification
         {
@@ -3690,7 +3711,7 @@ namespace MedRecPro.Models
 
             private string? _enforcementMethodCode;
             /// <summary>
-            /// Code for the Enforcement Analytical Method used (&lt;observation&gt;&lt;code&gt;).
+            /// Code for the Enforcement Analytical Method used ([observation][code]).
             /// </summary>
             public string? EnforcementMethodCode
             {
@@ -3722,7 +3743,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links a Substance Specification to the analyte(s) being measured (&lt;analyte&gt;&lt;identifiedSubstance&gt;). Based on Section 19.2.3.
+        /// Links a Substance Specification to the analyte(s) being measured ([analyte][identifiedSubstance]). Based on Section 19.2.3.
         /// </summary>
         public class Analyte
         {
@@ -3746,7 +3767,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores commodity details referenced in tolerance specifications (&lt;subject&gt;&lt;presentSubstance&gt;&lt;presentSubstance&gt;). Based on Section 19.2.4.
+        /// Stores commodity details referenced in tolerance specifications ([subject][presentSubstance][presentSubstance]). Based on Section 19.2.4.
         /// </summary>
         public class Commodity
         {
@@ -3788,7 +3809,7 @@ namespace MedRecPro.Models
 
             private string? _commodityName;
             /// <summary>
-            /// Optional name (&lt;presentSubstance&gt;&lt;name&gt;).
+            /// Optional name ([presentSubstance][name]).
             /// </summary>
             public string? CommodityName
             {
@@ -3800,7 +3821,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores application type details referenced in tolerance specifications (&lt;subjectOf&gt;&lt;approval&gt;&lt;code&gt;). Based on Section 19.2.4.
+        /// Stores application type details referenced in tolerance specifications ([subjectOf][approval][code]). Based on Section 19.2.4.
         /// </summary>
         public class ApplicationType
         {
@@ -3844,7 +3865,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores the tolerance range and related details (&lt;referenceRange&gt;&lt;observationCriterion&gt;). Based on Section 19.2.4.
+        /// Stores the tolerance range and related details ([referenceRange][observationCriterion]). Based on Section 19.2.4.
         /// </summary>
         public class ObservationCriterion
         {
@@ -3866,7 +3887,7 @@ namespace MedRecPro.Models
 
             private string? _toleranceHighUnit;
             /// <summary>
-            /// Tolerance unit (&lt;value&gt;&lt;high unit&gt;).
+            /// Tolerance unit ([value][high unit]).
             /// </summary>
             public string? ToleranceHighUnit
             {
@@ -4065,7 +4086,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores the Application Holder organization linked to a Marketing Category for REMS products (&lt;holder&gt;&lt;role&gt;&lt;playingOrganization&gt;). Based on Section 23.2.3.
+        /// Stores the Application Holder organization linked to a Marketing Category for REMS products ([holder][role][playingOrganization]). Based on Section 23.2.3.
         /// </summary>
         public class Holder
         {
@@ -4089,7 +4110,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents a REMS protocol defined within a section (&lt;protocol&gt; element). Based on Section 23.2.6.
+        /// Represents a REMS protocol defined within a section ([protocol] element). Based on Section 23.2.6.
         /// </summary>
         public class Protocol
         {
@@ -4138,7 +4159,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Lookup table for REMS stakeholder types (&lt;stakeholder&gt;). Based on Section 23.2.7.
+        /// Lookup table for REMS stakeholder types ([stakeholder]). Based on Section 23.2.7.
         /// </summary>
         public class Stakeholder
         {
@@ -4182,7 +4203,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores references to REMS materials, linking to attached documents if applicable (&lt;subjectOf&gt;&lt;document&gt;). Based on Section 23.2.9.
+        /// Stores references to REMS materials, linking to attached documents if applicable ([subjectOf][document]). Based on Section 23.2.9.
         /// </summary>
         public class REMSMaterial
         {
@@ -4204,7 +4225,7 @@ namespace MedRecPro.Models
 
             private string? _title;
             /// <summary>
-            /// Title of the material (&lt;document&gt;&lt;title&gt;).
+            /// Title of the material ([document][title]).
             /// </summary>
             public string? Title
             {
@@ -4231,7 +4252,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents a REMS requirement or monitoring observation within a protocol (&lt;component&gt;&lt;requirement&gt; or &lt;monitoringObservation&gt;). Based on Section 23.2.7.
+        /// Represents a REMS requirement or monitoring observation within a protocol ([component][requirement] or [monitoringObservation]). Based on Section 23.2.7.
         /// </summary>
         public class Requirement
         {
@@ -4252,7 +4273,7 @@ namespace MedRecPro.Models
             public int? RequirementSequenceNumber { get; set; } // Made nullable
 
             /// <summary>
-            /// Flag: True if &lt;monitoringObservation&gt;, False if &lt;requirement&gt;.
+            /// Flag: True if [monitoringObservation], False if [requirement].
             /// </summary>
             public bool? IsMonitoringObservation { get; set; } // Made nullable (Default is 0 (false) in SQL)
 
@@ -4263,7 +4284,7 @@ namespace MedRecPro.Models
 
             private string? _pauseQuantityUnit;
             /// <summary>
-            /// Optional delay unit (&lt;pauseQuantity unit&gt;).
+            /// Optional delay unit ([pauseQuantity unit]).
             /// </summary>
             public string? PauseQuantityUnit
             {
@@ -4318,7 +4339,7 @@ namespace MedRecPro.Models
 
             private string? _periodUnit;
             /// <summary>
-            /// Optional repetition period unit (&lt;effectiveTime&gt;&lt;period unit&gt;).
+            /// Optional repetition period unit ([effectiveTime][period unit]).
             /// </summary>
             public string? PeriodUnit
             {
@@ -4340,7 +4361,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores the REMS approval details associated with the first protocol mention (&lt;subjectOf&gt;&lt;approval&gt;). Based on Section 23.2.8.
+        /// Stores the REMS approval details associated with the first protocol mention ([subjectOf][approval]). Based on Section 23.2.8.
         /// </summary>
         public class REMSApproval
         {
@@ -4404,7 +4425,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores references to REMS electronic resources (URLs or URNs) (&lt;subjectOf&gt;&lt;document&gt;). Based on Section 23.2.10.
+        /// Stores references to REMS electronic resources (URLs or URNs) ([subjectOf][document]). Based on Section 23.2.10.
         /// </summary>
         public class REMSElectronicResource
         {
@@ -4426,7 +4447,7 @@ namespace MedRecPro.Models
 
             private string? _title;
             /// <summary>
-            /// Title of the resource (&lt;document&gt;&lt;title&gt;).
+            /// Title of the resource ([document][title]).
             /// </summary>
             public string? Title
             {
@@ -4458,7 +4479,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links an establishment (within a Blanket No Changes Certification doc) to a product being certified (&lt;performance&gt;&lt;actDefinition&gt;&lt;product&gt;). Based on Section 28.1.3.
+        /// Links an establishment (within a Blanket No Changes Certification doc) to a product being certified ([performance][actDefinition][product]). Based on Section 28.1.3.
         /// </summary>
         public class CertificationProductLink
         {
@@ -4551,7 +4572,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents a drug interaction issue within a specific section (&lt;subjectOf&gt;&lt;issue&gt;). Based on Section 32.2.3.
+        /// Represents a drug interaction issue within a specific section ([subjectOf][issue]). Based on Section 32.2.3.
         /// </summary>
         public class InteractionIssue
         {
@@ -4600,7 +4621,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links an InteractionIssue to the contributing substance/class (&lt;issue&gt;&lt;subject&gt;&lt;substanceAdministrationCriterion&gt;). Based on Section 32.2.4.
+        /// Links an InteractionIssue to the contributing substance/class ([issue][subject][substanceAdministrationCriterion]). Based on Section 32.2.4.
         /// </summary>
         public class ContributingFactor
         {
@@ -4624,7 +4645,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores the consequence (pharmacokinetic effect or medical problem) of an InteractionIssue (&lt;risk&gt;&lt;consequenceObservation&gt;). Based on Section 32.2.5.
+        /// Stores the consequence (pharmacokinetic effect or medical problem) of an InteractionIssue ([risk][consequenceObservation]). Based on Section 32.2.5.
         /// </summary>
         public class InteractionConsequence
         {
@@ -4703,7 +4724,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores the link between an indexing section and a National Clinical Trials number (&lt;protocol&gt;&lt;id&gt;). Based on Section 33.2.2.
+        /// Stores the link between an indexing section and a National Clinical Trials number ([protocol][id]). Based on Section 33.2.2.
         /// </summary>
         public class NCTLink
         {
@@ -4742,7 +4763,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links a Facility (in Registration or Listing docs) to a Cosmetic Product (&lt;performance&gt;&lt;actDefinition&gt;&lt;product&gt;). Link via ProductID, ProductIdentifierID (CLN), or ProductName. Based on Section 35.2.2, 36.1.6.
+        /// Links a Facility (in Registration or Listing docs) to a Cosmetic Product ([performance][actDefinition][product]). Link via ProductID, ProductIdentifierID (CLN), or ProductName. Based on Section 35.2.2, 36.1.6.
         /// </summary>
         public class FacilityProductLink
         {
@@ -4781,7 +4802,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links a Cosmetic Product (in Facility Reg doc) to its Responsible Person organization (&lt;manufacturerOrganization&gt;). Based on Section 35.2.3.
+        /// Links a Cosmetic Product (in Facility Reg doc) to its Responsible Person organization ([manufacturerOrganization]). Based on Section 35.2.3.
         /// </summary>
         public class ResponsiblePersonLink
         {

@@ -4,6 +4,9 @@ using static MedRecPro.Models.Label;
 using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants;
 using MedRecPro.Helpers;
+using MedRecPro.Data;
+using MedRecPro.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -75,6 +78,7 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             var result = new SplParseResult();
+            int docID = 0;
 
             // Validate context
             if (context == null || context.Logger == null)
@@ -113,6 +117,8 @@ namespace MedRecPro.Service.ParsingServices
                     throw new InvalidOperationException("DocumentID was not populated by the database after creation.");
                 }
 
+                docID = document.DocumentID.Value;
+
                 // Update the parsing context with the newly created document
                 context.Document = document;
                 result.DocumentsCreated = 1;
@@ -121,7 +127,11 @@ namespace MedRecPro.Service.ParsingServices
 
                 // Log successful document creation
                 context.Logger.LogInformation("Created Document with ID {DocumentID} for file {FileName}",
-                    document?.DocumentID, context.FileNameInZip);
+                    docID, context.FileNameInZip);
+
+                // --- PARSE RELATED DOCUMENTS ---
+                var relatedDocs = await getOrCreateRelatedDocumentsAsync(element, docID, context);
+                result.DocumentAttributesCreated += relatedDocs.Count;
 
                 reportProgress?.Invoke($"Completed Document XML Elements {context.FileNameInZip}");
             }
@@ -134,6 +144,119 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds or creates RelatedDocument records for all [relatedDocument] elements under a parent element.
+        /// Handles APND, RPLC, DRIV, SUBJ, XCRPT, etc. relationships, supporting multiple/nested related documents.
+        /// </summary>
+        /// <param name="parentElement">The root XElement to search under (e.g., [document]).</param>
+        /// <param name="sourceDocumentId">The Source Document ID (current document's primary key).</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>List of RelatedDocument entities (created or found).</returns>
+        /// <seealso cref="RelatedDocument"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<RelatedDocument>> getOrCreateRelatedDocumentsAsync(
+            XElement parentElement,
+            int sourceDocumentId,
+            SplParseContext context)
+        {
+            #region implementation
+            var relatedDocs = new List<RelatedDocument>();
+
+            // Validate required input parameters
+            if (parentElement == null || sourceDocumentId <= 0)
+                return relatedDocs;
+
+            // Validate required context dependencies
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+                return relatedDocs;
+
+            // Get database context and repository for related document operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var repo = context.GetRepository<RelatedDocument>();
+            var dbSet = dbContext.Set<RelatedDocument>();
+
+            // Find all <relatedDocument> elements that have a typeCode attribute (relationship type)
+            // Process outer related document elements that define the relationship type
+            foreach (var outerRelDocEl in parentElement.Descendants(sc.E.RelatedDocument).Where(e => e.Attribute(sc.A.TypeCode) != null))
+            {
+                // Extract the relationship type (APND, RPLC, DRIV, SUBJ, XCRPT, etc.)
+                var relationshipType = outerRelDocEl.Attribute(sc.A.TypeCode)?.Value?.Trim();
+
+                // One or more nested <relatedDocument> (can be direct or deeper descendants)
+                // Process inner related document elements containing the actual document references
+                foreach (var innerRelDocEl in outerRelDocEl.SplElements(sc.E.RelatedDocument))
+                {
+                    // -- Parse SetID (always required) --
+                    // Extract the document set identifier which groups related document versions
+                    var setIdStr = innerRelDocEl.SplElement(sc.E.SetId)?.Attribute(sc.A.Root)?.Value?.Trim();
+                    Guid? referencedSetGuid = null;
+                    if (!string.IsNullOrWhiteSpace(setIdStr) && Guid.TryParse(setIdStr, out var setGuid))
+                        referencedSetGuid = setGuid;
+
+                    // -- Parse ID (for RPLC/predecessor; optional, must be GUID if present) --
+                    // Extract specific document identifier, primarily used for replacement relationships
+                    var docIdStr = innerRelDocEl.SplElement(sc.E.Id)?.Attribute(sc.A.Root)?.Value?.Trim();
+                    Guid? referencedDocGuid = null;
+                    if (!string.IsNullOrWhiteSpace(docIdStr) && Guid.TryParse(docIdStr, out var docGuid))
+                        referencedDocGuid = docGuid;
+
+                    // -- Parse versionNumber (optional) --
+                    // Extract version number to identify specific document version
+                    int? versionNumber = null;
+                    var versionStr = innerRelDocEl.SplElement(sc.E.VersionNumber)?.Attribute(sc.A.Value)?.Value?.Trim();
+                    if (!string.IsNullOrWhiteSpace(versionStr) && int.TryParse(versionStr, out var ver) && ver > 0)
+                        versionNumber = ver;
+
+                    // -- Parse code (optional, used for RPLC) --
+                    // Extract document code information for additional document classification
+                    var codeEl = innerRelDocEl.SplElement(sc.E.Code);
+                    var refDocCode = codeEl?.Attribute(sc.A.CodeValue)?.Value?.Trim();
+                    var refDocCodeSystem = codeEl?.Attribute(sc.A.CodeSystem)?.Value?.Trim();
+                    var refDocDisplayName = codeEl?.Attribute(sc.A.DisplayName)?.Value?.Trim();
+
+                    // --- Deduplication (same source, set, doc, version, and type) ---
+                    // Search for existing related document with matching relationship attributes
+                    var existing = await dbSet.FirstOrDefaultAsync(rd =>
+                        rd.SourceDocumentID == sourceDocumentId &&
+                        rd.RelationshipTypeCode == relationshipType &&
+                        rd.ReferencedSetGUID == referencedSetGuid &&
+                        rd.ReferencedDocumentGUID == referencedDocGuid &&
+                        rd.ReferencedVersionNumber == versionNumber &&
+                        rd.ReferencedDocumentCode == refDocCode);
+
+                    // Return existing related document if found to avoid duplicates
+                    if (existing != null)
+                    {
+                        relatedDocs.Add(existing);
+                        continue;
+                    }
+
+                    // Create new related document entity with all extracted attributes
+                    var newRelated = new RelatedDocument
+                    {
+                        SourceDocumentID = sourceDocumentId,
+                        RelationshipTypeCode = relationshipType,
+                        ReferencedSetGUID = referencedSetGuid,
+                        ReferencedDocumentGUID = referencedDocGuid,
+                        ReferencedVersionNumber = versionNumber,
+                        ReferencedDocumentCode = refDocCode,
+                        ReferencedDocumentCodeSystem = refDocCodeSystem,
+                        ReferencedDocumentDisplayName = refDocDisplayName
+                    };
+
+                    // Persist new related document to database
+                    await repo.CreateAsync(newRelated);
+                    relatedDocs.Add(newRelated);
+                }
+            }
+
+            return relatedDocs;
             #endregion
         }
 
@@ -177,7 +300,7 @@ namespace MedRecPro.Service.ParsingServices
             try
             {
                 // Find the 'code' element once to reuse it for multiple attribute extractions
-                var ce = docEl.Element(ns + sc.E.Code);
+                var ce = docEl.SplElement(sc.E.Code);
 
                 // Create and populate the Document entity with extracted metadata
                 var document = new Document

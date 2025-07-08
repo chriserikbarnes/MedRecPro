@@ -430,7 +430,7 @@ namespace MedRecPro.Helpers
         /// <param name="preserveTags">list of allowed tags</param>
         /// <param name="cleanAll">default = true</param>
         /// <returns>Sanitized HTML string</returns>
-        public static string RemoveUnwantedTags(this string html, List<string> preserveTags, bool cleanAll = false)
+        public static string? RemoveUnwantedTags(this string html, List<string> preserveTags, bool cleanAll = false)
         {
             #region implementation
             HtmlDocument document;
@@ -444,10 +444,10 @@ namespace MedRecPro.Helpers
             {
                 document = new HtmlDocument();
                 document.LoadHtml(html);
-                HtmlNodeCollection tryGetNodes = document.DocumentNode.SelectNodes("./*|./text()");
+                HtmlNodeCollection? tryGetNodes = document?.DocumentNode?.SelectNodes("./*|./text()");
 
                 //remove all tags
-                if (cleanAll)
+                if (tryGetNodes != null && cleanAll)
                 {
                     char[] array = new char[html.Length];
                     int arrayIndex = 0;
@@ -511,7 +511,7 @@ namespace MedRecPro.Helpers
                     }
                 }
 
-                return document.DocumentNode.InnerHtml;
+                return document?.DocumentNode.InnerHtml;
             }
             catch (Exception e)
             {

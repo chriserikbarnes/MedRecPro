@@ -244,22 +244,22 @@ namespace MedRecPro.Service.ParsingServices
         public int DocumentsCreated { get; set; }
 
         /// <summary>
+        /// Gets or sets the number document elements created during this parsing operation.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public int DocumentAttributesCreated { get; set; }
+
+        /// <summary>
         /// Gets or sets the number of organizations created during this parsing operation.
         /// </summary>
         /// <seealso cref="Label"/>
         public int OrganizationsCreated { get; set; }
 
         /// <summary>
-        /// Gets or sets the number of contacts created during this parsing operation.
+        /// Gets or sets the number organization elements created during this parsing operation.
         /// </summary>
         /// <seealso cref="Label"/>
-        public int ContactPartiesCreated { get; set; }
-
-        /// <summary>
-        /// Gets or sets the number of Telecoms created during this parsing operation.
-        /// </summary>
-        /// <seealso cref="Label"/>
-        public int TelecomsCreated { get; set; }
+        public int OrganizationAttributesCreated { get; set; }
 
         /// <summary>
         /// Gets or sets the number of products created during this parsing operation.
@@ -274,6 +274,12 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         /// <seealso cref="Section"/>
         public int SectionsCreated { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number section elements created during this parsing operation.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public int SectionAttributesCreated { get; set; }
 
         /// <summary>
         /// Gets or sets the number of generics created during this parsing operation.

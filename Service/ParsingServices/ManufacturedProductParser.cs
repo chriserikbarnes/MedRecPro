@@ -1372,7 +1372,7 @@ namespace MedRecPro.Service.ParsingServices
                 string? idRoot = idEl?.GetAttrVal(sc.A.Root);
 
                 // 2. <code> - Marketing category code, codeSystem, displayName
-                var codeEl = approvalEl.Element(ns + sc.E.Code);
+                var codeEl = approvalEl.SplElement(sc.E.Code);
                 string? categoryCode = codeEl?.GetAttrVal(sc.A.CodeValue);
                 string? categoryCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
                 string? categoryDisplayName = codeEl?.GetAttrVal(sc.A.DisplayName);
@@ -1452,7 +1452,7 @@ namespace MedRecPro.Service.ParsingServices
             var repo = context.GetRepository<PackagingLevel>();
 
             // 1. Extract <quantity>/<numerator> from current <asContent>
-            var quantityEl = asContentEl.Element(ns + sc.E.Quantity);
+            var quantityEl = asContentEl.SplElement(sc.E.Quantity);
             decimal? quantityValue = null;
             decimal? quantityDenominator = null;
             string? quantityUnit = null;
@@ -1530,7 +1530,7 @@ namespace MedRecPro.Service.ParsingServices
             // 4. Recursively process nested <asContent> for child packaging levels
             if (cppEl != null)
             {
-                foreach (var nestedAsContent in cppEl.Elements(ns + sc.E.AsContent))
+                foreach (var nestedAsContent in cppEl.SplElements(sc.E.AsContent))
                 {
                     count += await parseAndSavePackagingLevelsAsync(
                         nestedAsContent,
@@ -1652,18 +1652,18 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             // 1. Product-level codes: <code> directly under <manufacturedProduct>
-            foreach (var code in element.Elements(ns + sc.E.Code))
+            foreach (var code in element.SplElements(sc.E.Code))
                 yield return code;
 
             // 2. Recurse into nested packaging: <asContent>/<containerPackagedProduct>/<code>
             foreach (var container in element.Descendants(ns + sc.E.ContainerPackagedProduct))
             {
-                foreach (var code in container.Elements(ns + sc.E.Code))
+                foreach (var code in container.SplElements(sc.E.Code))
                     yield return code;
             }
 
             // 3. Recurse into any nested <manufacturedProduct>
-            foreach (var nested in element.Elements(ns + sc.E.ManufacturedProduct))
+            foreach (var nested in element.SplElements(sc.E.ManufacturedProduct))
             {
                 foreach (var code in getAllProductAndPackagingCodes(nested))
                     yield return code;

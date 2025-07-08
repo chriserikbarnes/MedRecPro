@@ -1,4 +1,5 @@
 ﻿using System.Xml.Linq;
+using MedRecPro.Models;
 using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants;
 
@@ -293,32 +294,124 @@ namespace MedRecPro.Helpers
         }
 
         /**************************************************************/
+        /// <summary>
+        /// Searches for XElements within the current element's descendants that match the specified search term.
+        /// Performs case-insensitive matching against both element names and element values.
+        /// </summary>
+        /// <param name="element">The root XElement to search within.</param>
+        /// <param name="search">The search term to match against element names and values.</param>
+        /// <returns>IEnumerable of XElements that contain the search term in their name or value.</returns>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
         public static IEnumerable<XElement> SplFindElements(this XElement element, string search)
         {
+            #region implementation
+            // Search through all descendant elements for matches in name or value
             return element.Descendants()
                 .Where(e =>
+                    // Check if element name contains the search term (case-insensitive)
                     e.Name.LocalName.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    // Check if element value contains the search term (case-insensitive)
                     e.Value.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0
                 );
+            #endregion
         }
 
         /**************************************************************/
+        /// <summary>
+        /// Recursively builds a tree of supported SPL content blocks from within a section's text element.
+        /// Supported blocks include [paragraph], [list], [table], [renderMultimedia], [excerpt], and [highlight].
+        /// This preserves the document order and nested structure for round-trip fidelity.
+        /// </summary>
+        /// <param name="textEl">The [text] XElement to search for nested content blocks.</param>
+        /// <returns>A list of XElement trees representing the top-level blocks and their nested children.</returns>
+        /// <example>
+        /// var tree = sectionTextEl.SplBuildSectionContentTree();
+        /// </example>
+        /// <remarks>
+        /// This method is useful when preserving the original nesting of highlights and excerpts.
+        /// Use when reconstructing the section content hierarchy for SPL serialization.
+        /// </remarks>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
+        public static List<XElement> SplBuildSectionContentTree(this XElement textEl)
+        {
+            #region implementation
+
+            // Define the set of supported content block types
+            var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                sc.E.Paragraph, sc.E.List, sc.E.Table, sc.E.RenderMultimedia, sc.E.Excerpt, sc.E.Highlight
+            };
+
+            // Recursive helper to extract tree structure
+            List<XElement> extractBlocks(XElement parent)
+            {
+                var blocks = new List<XElement>();
+
+                foreach (var el in parent.Elements())
+                {
+                    // Only include allowed block types
+                    if (allowed.Contains(el.Name.LocalName))
+                    {
+                        // Clone the element to avoid modifying original DOM
+                        var cloned = new XElement(el.Name, el.Attributes());
+
+                        // Recursively process nested children
+                        var childBlocks = extractBlocks(el);
+
+                        if (childBlocks.Any())
+                            cloned.Add(childBlocks);
+
+                        blocks.Add(cloned);
+                    }
+                    else
+                    {
+                        // Dive deeper to find allowed nested content within non-matching wrappers
+                        blocks.AddRange(extractBlocks(el));
+                    }
+                }
+
+                return blocks;
+            }
+
+            return extractBlocks(textEl);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches for ingredient-related XElements while excluding elements that contain specified exclusion terms.
+        /// Performs case-insensitive matching for both ingredient detection and exclusion filtering.
+        /// </summary>
+        /// <param name="element">The root XElement to search within.</param>
+        /// <param name="excludingFieldsContaining">Text to exclude from results (elements containing this text will be filtered out).</param>
+        /// <returns>IEnumerable of XElements that contain ingredient information but do not contain the exclusion term.</returns>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
         public static IEnumerable<XElement> SplFindIngredients(this XElement element, string excludingFieldsContaining)
         {
+            #region implementation
             // Case-insensitive comparison for both search and exclusion
             return element.Descendants()
                 .Where(e =>
                     (
+                        // Check if element name contains "ingredient" (case-insensitive)
                         e.Name.LocalName.IndexOf(sc.E.Ingredient, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        // Check if element value contains "ingredient" (case-insensitive)
                         e.Value.IndexOf(sc.E.Ingredient, StringComparison.OrdinalIgnoreCase) >= 0
                     )
                     &&
                     (
                         // Exclude elements where the name or value contains the exclusion string
+                        // Ensure element name does not contain exclusion term
                         e.Name.LocalName.IndexOf(excludingFieldsContaining, StringComparison.OrdinalIgnoreCase) < 0 &&
+                        // Ensure element value does not contain exclusion term
                         e.Value.IndexOf(excludingFieldsContaining, StringComparison.OrdinalIgnoreCase) < 0
                     )
                 );
+            #endregion
         }
 
     }

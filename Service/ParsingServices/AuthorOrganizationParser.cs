@@ -164,12 +164,20 @@ namespace MedRecPro.Service.ParsingServices
 
                 // --- PARSE CONTACT PARTIES ---
                 var (partiesCreated, telecomsCreated) = await parseAndSaveContactPartiesAsync(element, context, orgID);
-                result.ContactPartiesCreated += partiesCreated;
-                result.TelecomsCreated += telecomsCreated;
+                result.OrganizationAttributesCreated += partiesCreated;
+                result.OrganizationAttributesCreated += telecomsCreated;
 
                 // --- PARSE TELECOMS ---
                 var telecomCt = await parseAndSaveOrganizationTelecomsAsync(authorOrgElement, orgID, context);
-                result.TelecomsCreated += telecomCt;
+                result.OrganizationAttributesCreated += telecomCt;
+
+                // --- PARSE ORGANIZATION IDENTIFIERS ---
+                var identifiers = await getOrCreateOrganizationIdentifierAsync(authorOrgElement, orgID, context);
+                result.OrganizationAttributesCreated += identifiers?.Count ?? 0;
+
+                // --- PARSE ORGANIZATION NAMED ENTITIES ---
+                var namedEntities = await getOrCreateNamedEntitiesAsync(authorOrgElement, orgID, context);
+                result.OrganizationAttributesCreated += namedEntities?.Count ?? 0;
 
             }
             catch (Exception ex)
@@ -186,10 +194,214 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses all &lt;telecom&gt; elements under the given parent (usually &lt;contactParty&gt;), creates Telecom records,
+        /// Finds or creates NamedEntity records for all [asNamedEntity] elements under orgElement.
+        /// Handles DBA (Doing Business As) names per Section 2.1.9, 18.1.3, and 18.1.4.
+        /// </summary>
+        /// <param name="orgElement">The XElement representing [assignedOrganization] or similar.</param>
+        /// <param name="organizationId">The parent OrganizationID.</param>
+        /// <param name="context">Parsing context.</param>
+        /// <returns>List of NamedEntity (both created and found).</returns>
+        /// <seealso cref="NamedEntity"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<NamedEntity>> getOrCreateNamedEntitiesAsync(
+            XElement orgElement,
+            int organizationId,
+            SplParseContext context)
+        {
+            #region implementation
+            var entities = new List<NamedEntity>();
+
+            // Validate required input parameters
+            if (orgElement == null || organizationId <= 0)
+                return entities;
+
+            // Validate required context dependencies
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+                return entities;
+
+            // Get database context and repository for named entity operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var repo = context.GetRepository<NamedEntity>();
+            var dbSet = dbContext.Set<NamedEntity>();
+
+            // Find all <asNamedEntity> elements (direct children of org)
+            foreach (var asNamedEntityEl in orgElement.SplElements(sc.E.AsNamedEntity))
+            {
+                // <code> sub element (required for DBA)
+                // Extract entity type code information from the code element
+                var codeEl = asNamedEntityEl.SplElement(sc.E.Code);
+                var entityTypeCode = codeEl?.Attribute(sc.A.CodeValue)?.Value?.Trim();
+                var entityTypeCodeSystem = codeEl?.Attribute(sc.A.CodeSystem)?.Value?.Trim();
+                var entityTypeDisplayName = codeEl?.Attribute(sc.A.DisplayName)?.Value?.Trim();
+
+                // Validation: Must be code="C117113" and codeSystem="2.16.840.1.113883.3.26.1.1" for DBA
+                // Only process legitimate DBA (Doing Business As) entries per specification
+                if (entityTypeCode != "C117113" || entityTypeCodeSystem != "2.16.840.1.113883.3.26.1.1")
+                    continue; // Only capture true DBA names
+
+                // <name> is required for DBA
+                // Extract the entity name which is mandatory for DBA entries
+                var entityName = asNamedEntityEl.SplElement(sc.E.Name)?.Value?.Trim();
+                if (string.IsNullOrWhiteSpace(entityName))
+                    continue;
+
+                // Optional: <suffix> (used in WDD/3PL only)
+                // Extract optional suffix used in specific workflow scenarios
+                var entitySuffix = asNamedEntityEl.SplElement(sc.E.Suffix)?.Value?.Trim();
+
+                // Deduplicate on OrganizationID + EntityName + EntityTypeCode + Suffix
+                // Search for existing named entity with matching organization and attributes
+                var existing = await dbSet.FirstOrDefaultAsync(e =>
+                    e.OrganizationID == organizationId &&
+                    e.EntityName == entityName &&
+                    e.EntityTypeCode == entityTypeCode &&
+                    e.EntitySuffix == entitySuffix);
+
+                // Return existing entity if found to avoid duplicates
+                if (existing != null)
+                {
+                    entities.Add(existing);
+                    continue;
+                }
+
+                // Create new NamedEntity
+                // Build new named entity with all extracted attributes
+                var newEntity = new NamedEntity
+                {
+                    OrganizationID = organizationId,
+                    EntityTypeCode = entityTypeCode,
+                    EntityTypeCodeSystem = entityTypeCodeSystem,
+                    EntityTypeDisplayName = entityTypeDisplayName,
+                    EntityName = entityName,
+                    EntitySuffix = entitySuffix
+                };
+
+                // Persist new named entity to database
+                await repo.CreateAsync(newEntity);
+                entities.Add(newEntity);
+            }
+
+            return entities;
+            #endregion
+        }
+
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds or creates OrganizationIdentifier(s) for all [id] elements under the orgElement.
+        /// Handles DUNS, FEI, Labeler Code, etc. per Section 2.1.4/2.1.5.
+        /// </summary>
+        /// <param name="orgElement">The XElement representing [representedOrganization] or [assignedOrganization].</param>
+        /// <param name="organizationId">The parent OrganizationID.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>List of OrganizationIdentifier (both created and found).</returns>
+        /// <remarks>
+        /// Processes all direct [id] child elements to extract organization identifiers including:
+        /// - DUNS numbers (validated as 9-digit format)
+        /// - FEI (FDA Establishment Identifier) numbers
+        /// - NDC Labeler Codes
+        /// - Other identifier types based on OID root values
+        /// 
+        /// Implements deduplication logic to prevent duplicate identifier records for the same
+        /// organization. Validates DUNS numbers against the required 9-digit format per SPL standards.
+        /// Maps identifier types based on standard healthcare OID roots.
+        /// </remarks>
+        /// <seealso cref="OrganizationIdentifier"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<OrganizationIdentifier>> getOrCreateOrganizationIdentifierAsync(
+            XElement orgElement,
+            int organizationId,
+            SplParseContext context)
+        {
+            #region implementation
+            var identifiers = new List<OrganizationIdentifier>();
+
+            // Validate input parameters before proceeding
+            if (orgElement == null || organizationId <= 0)
+                return identifiers;
+
+            // Validate required context before proceeding
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+                return identifiers;
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var repo = context.GetRepository<OrganizationIdentifier>();
+            var dbSet = dbContext.Set<OrganizationIdentifier>();
+
+            // Find all <id> child elements (direct only)
+            foreach (var idEl in orgElement.SplElements(sc.E.Id))
+            {
+                // Extract identifier value and system root from XML attributes
+                var extension = idEl.Attribute(sc.A.Extension)?.Value?.Trim();
+                var root = idEl.Attribute(sc.A.Root)?.Value?.Trim();
+
+                // Spec: must have a DUNS root unless cosmetic/animal/other types
+                if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(extension))
+                    continue;
+
+                // --- Infer type by OID ---
+                // (Extend as needed: add other roots for FEI, NDC, etc.)
+                string identifierType = root switch
+                {
+                    "1.3.6.1.4.1.519.1" => "DUNS",                   // Data Universal Numbering System
+                    "2.16.840.1.113883.4.82" => "FEI",               // FDA Establishment Identifier
+                    "2.16.840.1.113883.6.69" => "NDC Labeler Code",  // National Drug Code Labeler
+                                                                     // Add more OIDs as needed here:
+                    _ => "Other"
+                };
+
+                // --- DUNS number validation: must be 9 digits if type is DUNS ---
+                if (identifierType == "DUNS" && !System.Text.RegularExpressions.Regex.IsMatch(extension, @"^\d{9}$"))
+                {
+                    context.Logger?.LogWarning("DUNS identifier '{Value}' is not 9 digits.", extension);
+                    continue;
+                }
+
+                // --- Deduplication: check if identifier already exists ---
+                var existing = await dbSet.FirstOrDefaultAsync(oi =>
+                    oi.OrganizationID == organizationId &&
+                    oi.IdentifierValue == extension &&
+                    oi.IdentifierSystemOID == root);
+
+                if (existing != null)
+                {
+                    // Add existing identifier to result list
+                    identifiers.Add(existing);
+                    continue;
+                }
+
+                // --- Create new identifier ---
+                var newIdentifier = new OrganizationIdentifier
+                {
+                    OrganizationID = organizationId,
+                    IdentifierValue = extension,
+                    IdentifierSystemOID = root,
+                    IdentifierType = identifierType
+                };
+
+                // Save the new identifier to database
+                await repo.CreateAsync(newIdentifier);
+                identifiers.Add(newIdentifier);
+
+                context.Logger?.LogInformation("OrganizationIdentifier created: OrganizationID={OrganizationID}, Type={Type}, Value={Value}",
+                    organizationId, identifierType, extension);
+            }
+
+            return identifiers;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all [telecom] elements under the given parent (usually [contactParty]), creates Telecom records,
         /// and links them via ContactPartyTelecom. Returns count of new telecoms created.
         /// </summary>
-        /// <param name="parentEl">XElement containing &lt;telecom&gt; elements.</param>
+        /// <param name="parentEl">XElement containing [telecom] elements.</param>
         /// <param name="contactPartyId">The owning ContactPartyID.</param>
         /// <param name="context">The parsing context.</param>
         /// <returns>Count of new Telecoms created and linked.</returns>
@@ -208,7 +420,7 @@ namespace MedRecPro.Service.ParsingServices
             int createdCount = 0;
 
             // Find all direct <telecom> children elements
-            var telecomEls = parentEl.Elements(sc.E.Telecom).ToList();
+            var telecomEls = parentEl.SplElements(sc.E.Telecom).ToList();
             if (telecomEls == null || !telecomEls.Any())
                 return 0;
 
@@ -299,11 +511,11 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses all &lt;telecom&gt; elements under the given parent (usually &lt;assignedOrganization&gt;),
+        /// Parses all [telecom] elements under the given parent (usually [assignedOrganization]),
         /// creates Telecom records, and links them via OrganizationTelecom.
         /// Returns count of new telecoms created and linked.
         /// </summary>
-        /// <param name="parentEl">XElement containing &lt;telecom&gt; elements.</param>
+        /// <param name="parentEl">XElement containing [telecom] elements.</param>
         /// <param name="organizationId">Owning OrganizationID.</param>
         /// <param name="context">The parsing context.</param>
         /// <returns>Count of new Telecoms created and linked.</returns>
@@ -322,7 +534,7 @@ namespace MedRecPro.Service.ParsingServices
             int createdCount = 0;
 
             // Find all direct <telecom> children elements
-            var telecomEls = parentEl.Elements(sc.E.Telecom).ToList();
+            var telecomEls = parentEl.SplElements(sc.E.Telecom).ToList();
             if (telecomEls == null || !telecomEls.Any())
                 return 0;
 
@@ -616,7 +828,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Finds an existing Address by all normalized fields or creates a new one.
         /// Validates per Section 2.1.6.
         /// </summary>
-        /// <param name="addrEl">XElement for &lt;addr&gt; (may be null).</param>
+        /// <param name="addrEl">XElement for [addr] (may be null).</param>
         /// <param name="context">Parsing context.</param>
         /// <returns>(Address entity, wasCreated)</returns>
         /// <seealso cref="Address"/>
@@ -634,13 +846,13 @@ namespace MedRecPro.Service.ParsingServices
                 return (null, false);
 
             // Extract and normalize address field values from XML elements
-            var streetLines = addrEl.Elements(sc.E.StreetAddressLine).Select(x => x.Value?.Trim()).ToList();
-            var city = addrEl.Element(sc.E.City)?.Value?.Trim();
-            var state = addrEl.Element(sc.E.State)?.Value?.Trim();
-            var postalCode = addrEl.Element(sc.E.PostalCode)?.Value?.Trim();
+            var streetLines = addrEl.SplElements(sc.E.StreetAddressLine).Select(x => x.Value?.Trim()).ToList();
+            var city = addrEl.SplElement(sc.E.City)?.Value?.Trim();
+            var state = addrEl.SplElement(sc.E.State)?.Value?.Trim();
+            var postalCode = addrEl.SplElement(sc.E.PostalCode)?.Value?.Trim();
 
             // Extract country information from nested country element
-            var countryEl = addrEl.Element(sc.E.Country);
+            var countryEl = addrEl.SplElement(sc.E.Country);
             var countryCode = countryEl?.Attribute(sc.A.CodeValue)?.Value?.Trim();
             var countryName = countryEl?.Value?.Trim();
             var countryCodeSystem = countryEl?.Attribute(sc.A.CodeSystem)?.Value?.Trim();
@@ -720,7 +932,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Extracts and persists a ContactParty and related entities (Address, ContactPerson) from XML.
         /// Follows Sections 2.1.6 and 2.1.8, validates address per specification, and enforces deduplication.
         /// </summary>
-        /// <param name="contactPartyEl">XElement representing &lt;contactParty&gt;.</param>
+        /// <param name="contactPartyEl">XElement representing [contactParty].</param>
         /// <param name="organizationId">Owning OrganizationID (nullable, but must be provided).</param>
         /// <param name="context">The current parsing context (repo, logger, etc).</param>
         /// <returns>Tuple: (ContactParty entity, wasCreated), or (null, false) if not created.</returns>
@@ -746,12 +958,12 @@ namespace MedRecPro.Service.ParsingServices
 
             // --- ADDRESS ---
             // Extract and process address element if present
-            var addrEl = contactPartyEl.Element(sc.E.Addr);
+            var addrEl = contactPartyEl.SplElement(sc.E.Addr);
             var (address, addrCreated) = await getOrCreateAddressAsync(addrEl, context);
 
             // --- CONTACT PERSON ---
             // Extract and process contact person element if present
-            var contactPersonEl = contactPartyEl.Element(sc.E.ContactPerson);
+            var contactPersonEl = contactPartyEl.SplElement(sc.E.ContactPerson);
             var (contactPerson, personCreated) = await getOrCreateContactPersonAsync(contactPersonEl, context);
 
             // --- CONTACT PARTY DEDUPLICATION ---
@@ -798,7 +1010,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Finds or creates a ContactPerson by normalized name. For Section 2.1.8.
         /// </summary>
-        /// <param name="contactPersonEl">XElement for &lt;contactPerson&gt; (may be null).</param>
+        /// <param name="contactPersonEl">XElement for [contactPerson] (may be null).</param>
         /// <param name="context">Parsing context.</param>
         /// <returns>(ContactPerson entity, wasCreated)</returns>
         /// <seealso cref="ContactPerson"/>
@@ -816,7 +1028,7 @@ namespace MedRecPro.Service.ParsingServices
                 return (null, false);
 
             // Extract and normalize contact person name
-            var name = contactPersonEl.Element(sc.E.Name)?.Value?.Trim();
+            var name = contactPersonEl.SplElement(sc.E.Name)?.Value?.Trim();
             if (string.IsNullOrWhiteSpace(name))
                 return (null, false);
 

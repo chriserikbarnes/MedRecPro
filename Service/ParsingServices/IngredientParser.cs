@@ -55,7 +55,6 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="element">The XElement representing the ingredient section to parse.</param>
         /// <param name="context">The current parsing context containing the product to link ingredients to.</param>
-        /// <param name="sequenceNumber">Optional sequence number for ordering ingredients.</param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
         /// <example>
