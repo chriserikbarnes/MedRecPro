@@ -323,7 +323,7 @@ namespace MedRecPro.Helpers
         /// Supported blocks include [paragraph], [list], [table], [renderMultimedia], [excerpt], and [highlight].
         /// This preserves the document order and nested structure for round-trip fidelity.
         /// </summary>
-        /// <param name="textEl">The [text] XElement to search for nested content blocks.</param>
+        /// <param name="parentEl">The [text] XElement to search for nested content blocks.</param>
         /// <returns>A list of XElement trees representing the top-level blocks and their nested children.</returns>
         /// <example>
         /// var tree = sectionTextEl.SplBuildSectionContentTree();
@@ -334,48 +334,27 @@ namespace MedRecPro.Helpers
         /// </remarks>
         /// <seealso cref="XElement"/>
         /// <seealso cref="Label"/>
-        public static List<XElement> SplBuildSectionContentTree(this XElement textEl)
+        public static List<XElement> SplBuildSectionContentTree(this XElement parentEl)
         {
             #region implementation
 
             // Define the set of supported content block types
             var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                sc.E.Paragraph, sc.E.List, sc.E.Table, sc.E.RenderMultimedia, sc.E.Excerpt, sc.E.Highlight
+                sc.E.Paragraph, sc.E.List, sc.E.Table, sc.E.RenderMultimedia,
+                sc.E.Excerpt, sc.E.Highlight
             };
 
-            // Recursive helper to extract tree structure
-            List<XElement> extractBlocks(XElement parent)
+            // The only thing this method needs to do is return the direct child elements
+            // that are valid content blocks. The recursive parsing is handled by the calling method.
+            if (parentEl == null)
             {
-                var blocks = new List<XElement>();
-
-                foreach (var el in parent.Elements())
-                {
-                    // Only include allowed block types
-                    if (allowed.Contains(el.Name.LocalName))
-                    {
-                        // Clone the element to avoid modifying original DOM
-                        var cloned = new XElement(el.Name, el.Attributes());
-
-                        // Recursively process nested children
-                        var childBlocks = extractBlocks(el);
-
-                        if (childBlocks.Any())
-                            cloned.Add(childBlocks);
-
-                        blocks.Add(cloned);
-                    }
-                    else
-                    {
-                        // Dive deeper to find allowed nested content within non-matching wrappers
-                        blocks.AddRange(extractBlocks(el));
-                    }
-                }
-
-                return blocks;
+                return new List<XElement>();
             }
 
-            return extractBlocks(textEl);
+            return parentEl.Elements()
+                .Where(el => allowed.Contains(el.Name.LocalName))
+                .ToList();
 
             #endregion
         }

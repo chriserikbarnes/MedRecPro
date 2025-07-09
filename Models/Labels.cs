@@ -700,7 +700,8 @@ namespace MedRecPro.Models
             public string? ContentText
             {
                 get => _contentText;
-                set => _contentText = value?.RemoveHtmlXss();
+                set => _contentText = value?.RemoveUnwantedTags(preserveTags: new List<string>
+                { "paragraph", "list", "item", "caption", "linkHtml", "sup", "sub" });
             }
             #endregion properties
         }

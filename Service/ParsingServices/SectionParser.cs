@@ -31,7 +31,7 @@ namespace MedRecPro.Service.ParsingServices
     /// <seealso cref="SplParseContext"/>
     public class SectionParser : ISplSectionParser
     {
-        #region implementation
+        #region private vars
         /// <summary>
         /// Gets the section name for this parser, representing the section element.
         /// </summary>
@@ -44,10 +44,41 @@ namespace MedRecPro.Service.ParsingServices
         private static readonly XNamespace ns = c.XML_NAMESPACE;
         #endregion
 
+        #region properties
+        /**************************************************************/
+        /// <summary>
+        /// Helper class to encapsulate the results of processing a single content block.
+        /// Contains the main content entity, nested content, and count of grandchild entities.
+        /// </summary>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="Label"/>
+        private class ProcessBlockResult
+        {
+            #region implementation
+            /// <summary>
+            /// The primary SectionTextContent entity created for this content block.
+            /// </summary>
+            /// <seealso cref="SectionTextContent"/>
+            public SectionTextContent MainContent { get; set; }
+
+            /// <summary>
+            /// Collection of nested SectionTextContent entities within this block.
+            /// </summary>
+            /// <seealso cref="SectionTextContent"/>
+            public List<SectionTextContent> NestedContent { get; set; } = new List<SectionTextContent>();
+
+            /// <summary>
+            /// Count of grandchild entities created (list items, table cells, etc.).
+            /// </summary>
+            public int GrandchildEntityCount { get; set; }
+            #endregion
+        }
+        #endregion
+
         /**************************************************************/
         /// <summary>
         /// Parses a section element from an SPL document, creating the section entity
-        /// and orchestrating the parsing of its associated manufacturedProduct elements.
+        /// and orchestrating the parsing of its associated content and child elements.
         /// </summary>
         /// <param name="xEl">The XElement representing the section element to parse.</param>
         /// <param name="context">The current parsing context containing the structuredBody to link sections to.</param>
@@ -65,130 +96,209 @@ namespace MedRecPro.Service.ParsingServices
         /// </code>
         /// </example>
         /// <remarks>
-        /// This method performs the following operations:
-        /// 1. Validates that a structuredBody context exists
-        /// 2. Extracts section metadata (GUID, codes, title, effective time)
-        /// 3. Creates and saves the Section entity
-        /// 4. Sets up context for manufacturedProduct parsing
-        /// 5. Delegates manufacturedProduct parsing to specialized parsers
-        /// 6. Aggregates results from child parsers
-        /// 7. Restores context to prevent side effects
-        /// 
-        /// The method maintains proper context isolation and supports the delegation
-        /// pattern for hierarchical SPL document parsing.
+        /// This method orchestrates the following operations:
+        /// 1. Validates the parsing context.
+        /// 2. Creates and saves the primary Section entity.
+        /// 3. Manages parsing context for child elements.
+        /// 4. Delegates parsing of section content (text, highlights) to specialized helpers.
+        /// 5. Delegates parsing of child sections recursively.
+        /// 6. Delegates parsing of manufacturedProduct elements.
+        /// 7. Aggregates results and handles exceptions.
         /// </remarks>
-        /// <seealso cref="SplParseResult"/>
-        /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Section"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
         /// <seealso cref="ManufacturedProductParser"/>
+        /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement xEl,
             SplParseContext context,
             Action<string>? reportProgress = null)
         {
             #region implementation
             var result = new SplParseResult();
-            int secID = 0;
 
-            // Validate context
-            if (context == null || context.Logger == null)
+            // Validate parsing context to ensure all required dependencies are available
+            if (!validateContext(context, result))
             {
-                result.Success = false;
-                result.Errors.Add("Parsing context is null or logger is null.");
-                return result;
-            }
-
-            // Validate that we have a valid structuredBody context to link sections to
-            if (context.StructuredBody?.StructuredBodyID == null)
-            {
-                result.Success = false;
-                result.Errors.Add("Cannot parse section because no structuredBody context exists.");
                 return result;
             }
 
             try
             {
+                // Report parsing start for monitoring and debugging purposes
+                reportProgress?.Invoke($"Starting Section parsing for {context.FileNameInZip}");
 
-                reportProgress?.Invoke($"Starting Section XML Elements {context.FileNameInZip}");
-
-                // Create the Section entity with extracted metadata
-                var section = new Section
+                // 1. Create the core Section entity from the XML element
+                // Parse section metadata and persist the primary section entity
+                var section = await createAndSaveSectionAsync(xEl, context);
+                if (section?.SectionID == null)
                 {
-                    StructuredBodyID = context.StructuredBody.StructuredBodyID.Value,
-
-                    // Extract section GUID from the id element's root attribute, defaulting to empty GUID
-                    SectionGUID = Util.ParseNullableGuid(xEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root) ?? string.Empty) ?? Guid.Empty,
-
-                    // Extract section code value from the code element's codeValue attribute
-                    SectionCode = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
-
-                    // Extract section code system from the code element's codeSystem attribute
-                    SectionCodeSystem = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem),
-
-                    // Extract section display name from the code element's displayName attribute, defaulting to empty string
-                    SectionDisplayName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName) ?? string.Empty,
-
-                    // Extract and trim section title from the title element
-                    Title = xEl.GetSplElementVal(sc.E.Title)?.Trim(),
-
-                    // Extract and parse effective time from the effectiveTime element's value attribute, defaulting to DateTime.MinValue
-                    EffectiveTime = Util.ParseNullableDateTime(xEl.GetSplElementAttrVal(sc.E.EffectiveTime, sc.A.Value) ?? string.Empty) ?? DateTime.MinValue
-                };
-
-                // Save the section entity to the database
-                var sectionRepo = context.GetRepository<Section>();
-                await sectionRepo.CreateAsync(section);
+                    result.Success = false;
+                    result.Errors.Add("Failed to create and save the Section entity.");
+                    return result;
+                }
                 result.SectionsCreated++;
 
-                if (section != null && section.SectionID > 0)
-                {
-                    secID = section.SectionID.Value;
-
-                    // --- PARSE SECTION HEIRARCHY ---
-                    var hierarchies = await getOrCreateSectionHierarchiesAsync(xEl, secID, context);
-                    result.SectionAttributesCreated += hierarchies.Count;
-
-                    // --- PARSE SECTION TEXT CONTENT ---
-                    var textEl = xEl.SplElement(sc.E.Text);
-                    if (textEl != null)
-                    {
-                        var textContents = await getOrCreateSectionTextContentsAsync(textEl, secID, context, parseAndSaveSectionAsync);
-                        result.SectionAttributesCreated += textContents.Count;
-                    }
-
-                    // --- PARSE SECTION HIGHLIGHT ---
-                    var excerptHighlights = await getOrCreateSectionExcerptHighlightsAsync(xEl, secID, context);
-                    result.SectionAttributesCreated += excerptHighlights.Count;
-                }
-
-                // Set current section in context for child parsers
-                // Store the previous section context to restore later
+                // 2. Set context for child parsers and ensure it's restored
+                // Manage parsing context state to provide section context to child parsers
                 var oldSection = context.CurrentSection;
                 context.CurrentSection = section;
-
-                // Delegate parsing of <manufacturedProduct> if it exists
-                // Navigate through the SPL hierarchy: section/subject/manufacturedProduct
-                var productEl = xEl.SplElement(sc.E.Subject, sc.E.ManufacturedProduct);
-
-                if (productEl != null)
+                try
                 {
-                    // Create and delegate to the manufacturedProduct parser
-                    var productParser = new ManufacturedProductParser();
-                    var productResult = await productParser.ParseAsync(productEl, context, reportProgress);
-                    result.MergeFrom(productResult); // Aggregate results from product parsing
+                    // 3. Parse the content within this section (text, highlights, etc.)
+                    // Process section text content, hierarchies, and excerpt highlights
+                    var contentResult = await parseSectionContentAsync(xEl, section.SectionID.Value, context);
+                    result.MergeFrom(contentResult);
+
+                    // 4. Recursively parse all direct child sections
+                    // Handle nested section structure and establish parent-child relationships
+                    var childSectionsResult = await parseChildSectionsAsync(xEl, section.SectionID.Value, context, reportProgress);
+                    result.MergeFrom(childSectionsResult);
+
+                    // 5. Parse the associated manufactured product, if it exists
+                    // Process product information contained within the section
+                    var productResult = await parseManufacturedProductAsync(xEl, context, reportProgress);
+                    result.MergeFrom(productResult);
+                }
+                finally
+                {
+                    // Restore the context to prevent side effects for sibling or parent parsers
+                    context.CurrentSection = oldSection;
                 }
 
-                // Restore the previous section context to avoid side effects on other parsers
-                context.CurrentSection = oldSection;
-
-                reportProgress?.Invoke($"Completed Section XML Elements {context.FileNameInZip}");
+                // Report parsing completion for monitoring purposes
+                reportProgress?.Invoke($"Completed Section parsing for {context.FileNameInZip}");
             }
             catch (Exception ex)
             {
-                // Handle any exceptions that occur during section parsing
+                // Handle unexpected errors and log them for debugging
                 result.Success = false;
-                result.Errors.Add($"Error parsing section: {ex.Message}");
-                context.Logger.LogError(ex, "Error processing <section> element.");
+                result.Errors.Add($"An unexpected error occurred while parsing section: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error processing <section> element for {FileName}", context.FileNameInZip);
             }
+
+            return result;
+            #endregion
+        }
+
+        #region Private Helper Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates the parsing context to ensure it's properly initialized.
+        /// Checks for required dependencies and structured body context.
+        /// </summary>
+        /// <param name="context">The parsing context to validate.</param>
+        /// <param name="result">The result object to add errors to if validation fails.</param>
+        /// <returns>True if the context is valid; otherwise, false.</returns>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="Label"/>
+        private bool validateContext(SplParseContext context, SplParseResult result)
+        {
+            #region implementation
+            // Validate logger availability for error reporting and debugging
+            if (context?.Logger == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Parsing context or its logger is null.");
+                return false;
+            }
+
+            // Validate structured body context for section association
+            if (context.StructuredBody?.StructuredBodyID == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Cannot parse section because no structuredBody context exists.");
+                return false;
+            }
+
+            return true;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a new Section entity from the given XML element and saves it to the database.
+        /// Extracts section metadata including GUID, codes, title, and effective time.
+        /// </summary>
+        /// <param name="xEl">The XElement representing the section.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>The created and saved Section entity, or null if creation failed.</returns>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<Section?> createAndSaveSectionAsync(XElement xEl, SplParseContext context)
+        {
+            #region implementation
+            // Build section entity with extracted metadata from XML attributes and elements
+            var section = new Section
+            {
+                StructuredBodyID = context.StructuredBody!.StructuredBodyID!.Value,
+                SectionGUID = Util.ParseNullableGuid(xEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root) ?? string.Empty) ?? Guid.Empty,
+                SectionCode = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
+                SectionCodeSystem = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem),
+                SectionDisplayName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName) ?? string.Empty,
+                Title = xEl.GetSplElementVal(sc.E.Title)?.Trim(),
+                EffectiveTime = Util.ParseNullableDateTime(xEl.GetSplElementAttrVal(sc.E.EffectiveTime, sc.A.Value) ?? string.Empty) ?? DateTime.MinValue
+            };
+
+            // Persist section to database using repository pattern
+            var sectionRepo = context.GetRepository<Section>();
+            await sectionRepo.CreateAsync(section);
+
+            // Return section if successfully created with valid ID
+            return section.SectionID > 0 ? section : null;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the inner content of a section, such as text, lists, and highlights.
+        /// Processes hierarchies, text content, excerpts, and highlight elements.
+        /// </summary>
+        /// <param name="xEl">The XElement for the section whose content is to be parsed.</param>
+        /// <param name="sectionId">The database ID of the parent section.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A SplParseResult containing the outcome of parsing the content.</returns>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SectionHierarchy"/>
+        /// <seealso cref="SectionExcerptHighlight"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseSectionContentAsync(XElement xEl, int sectionId, SplParseContext context)
+        {
+            #region implementation
+            var result = new SplParseResult();
+
+            // Parse hierarchies, text, and highlights, aggregating the number of attributes created.
+            // Process section hierarchies to establish parent-child relationships
+            var hierarchies = await getOrCreateSectionHierarchiesAsync(xEl, sectionId, context);
+            result.SectionAttributesCreated += hierarchies.Count;
+
+            // Process main text content including paragraphs, lists, tables, etc.
+            var textEl = xEl.SplElement(sc.E.Text);
+            if (textEl != null)
+            {
+                var (textContents, listEntityCount) = await getOrCreateSectionTextContentsAsync(textEl, sectionId, context, parseAndSaveSectionAsync);
+                result.SectionAttributesCreated += textContents.Count;
+                result.SectionAttributesCreated += listEntityCount;
+            }
+
+            // Process excerpt elements with nested content structure
+            var excerptEl = xEl.SplElement(sc.E.Excerpt);
+            if (excerptEl != null)
+            {
+                var (excerptTextContents, listEntityCount) = await getOrCreateSectionTextContentsAsync(excerptEl, sectionId, context, parseAndSaveSectionAsync);
+                result.SectionAttributesCreated += excerptTextContents.Count;
+
+                // Extract highlighted text within excerpts for specialized processing
+                var eHighlights = await getOrCreateSectionExcerptHighlightsAsync(excerptEl, sectionId, context);
+                result.SectionAttributesCreated += eHighlights.Count;
+            }
+
+            // Process direct highlights not contained within excerpts
+            var directHighlights = await getOrCreateSectionExcerptHighlightsAsync(xEl, sectionId, context);
+            result.SectionAttributesCreated += directHighlights.Count;
 
             return result;
             #endregion
@@ -196,10 +306,421 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Recursively finds or creates SectionTextContent records for all content 
-        /// blocks ([paragraph], [list], [table], [renderMultimedia], [excerpt], [highlight])
-        /// within a section's [text] element, preserving the nested hierarchy for SPL round-tripping.
-        /// Also processes nested child sections and establishes section hierarchies.
+        /// Finds and recursively parses all direct child sections of the current section.
+        /// Establishes parent-child relationships and processes nested section hierarchies.
+        /// </summary>
+        /// <param name="parentEl">The XElement of the parent section.</param>
+        /// <param name="parentSectionId">The database ID of the parent section.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="reportProgress">Optional progress reporting action.</param>
+        /// <returns>An aggregated SplParseResult from all child section parsing operations.</returns>
+        /// <seealso cref="SectionHierarchy"/>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseChildSectionsAsync(XElement parentEl, int parentSectionId, SplParseContext context, Action<string>? reportProgress)
+        {
+            #region implementation
+            var result = new SplParseResult();
+
+            // Find all direct child sections within component elements
+            var childSectionEls = parentEl.SplElements(sc.E.Component, sc.E.Section);
+
+            // Process each child section recursively
+            foreach (var childSectionEl in childSectionEls)
+            {
+                // Recursively call the main public parser for the child
+                // Use recursive parsing to handle nested section structures
+                var childResult = await this.ParseAsync(childSectionEl, context, reportProgress);
+                result.MergeFrom(childResult);
+
+                // If the child was created successfully, establish the parent-child relationship
+                if (childResult.Success && childResult.SectionsCreated > 0)
+                {
+                    // Create hierarchy link between parent and child sections
+                    await linkChildSectionAsync(parentSectionId, childSectionEl, context, result);
+                }
+            }
+            return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a SectionHierarchy record to link a parent and child section.
+        /// Establishes hierarchical relationships with proper sequence numbering.
+        /// </summary>
+        /// <param name="parentSectionId">The ID of the parent section.</param>
+        /// <param name="childSectionEl">The XElement of the child section.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="result">The result object to update with counts.</param>
+        /// <seealso cref="SectionHierarchy"/>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task linkChildSectionAsync(int parentSectionId, XElement childSectionEl, SplParseContext context, SplParseResult result)
+        {
+            #region implementation
+            // Extract child section GUID for database lookup
+            var childGuidStr = childSectionEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root);
+            if (!Guid.TryParse(childGuidStr, out var childGuid))
+            {
+                return;
+            }
+
+            if (context == null || context.ServiceProvider == null)
+                return;
+
+            // We query by GUID (a non-PK), so direct DbContext access is more flexible here.
+            // Find child section entity by GUID for hierarchy establishment
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var childSection = await dbContext
+                .Set<Section>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.SectionGUID == childGuid);
+
+            // Validate child section exists before creating hierarchy
+            if (childSection?.SectionID == null)
+            {
+                return;
+            }
+
+            // Check for existing hierarchy relationship to avoid duplicates
+            var hierarchyRepo = context.GetRepository<SectionHierarchy>();
+            var existingHierarchy = await dbContext
+                .Set<SectionHierarchy>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(h => h.ParentSectionID == parentSectionId
+                    && h.ChildSectionID == childSection.SectionID.Value);
+
+            // Create new hierarchy relationship if none exists
+            if (existingHierarchy == null)
+            {
+                await hierarchyRepo.CreateAsync(new SectionHierarchy
+                {
+                    ParentSectionID = parentSectionId,
+                    ChildSectionID = childSection.SectionID.Value,
+                    SequenceNumber = result.SectionAttributesCreated + 1 // Simple sequence
+                });
+                result.SectionAttributesCreated++;
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// A utility method to extract the inner XML of a table cell (td or th),
+        /// preserving all markup for rich content display.
+        /// </summary>
+        /// <param name="cellElement">The [td] or [th] XElement.</param>
+        /// <returns>The inner XML as a string, or null if the input is null.</returns>
+        /// <seealso cref="TextTableCell"/>
+        /// <seealso cref="Label"/>
+        private static string? getCellXml(XElement cellElement)
+        {
+            #region implementation
+            // Return null for invalid input to handle edge cases gracefully
+            if (cellElement == null) return null;
+
+            // Using a reader is more robust for getting inner XML than the Nodes().ToString()
+            // approach, as it's less susceptible to modifications of the in-memory XDocument.
+            var reader = cellElement.CreateReader();
+            reader.MoveToContent();
+            return reader.ReadInnerXml().Trim();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all cells ([td], [th]) within a given table row ([tr]), creating
+        /// TextTableCell records. It skips empty cells and maintains correct sequencing.
+        /// </summary>
+        /// <param name="rowEl">The XElement for the table row ([tr]).</param>
+        /// <param name="textTableRowId">The database ID of the parent TextTableRow.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A task that resolves to the number of TextTableCell entities created.</returns>
+        /// <seealso cref="TextTableCell"/>
+        /// <seealso cref="TextTableRow"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<int> parseAndCreateCellsAsync(
+            XElement rowEl,
+            int textTableRowId,
+            SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // Validate required context dependencies for database operations
+            if (context == null || context.ServiceProvider == null)
+                return 0;
+
+            // Get database context and repository for table cell operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var cellRepo = context.GetRepository<TextTableCell>();
+            var cellDbSet = dbContext.Set<TextTableCell>();
+
+            // Process both <th> and <td> elements in document order.
+            // Extract both header and data cells while preserving their sequence
+            var cellElements = rowEl.Elements()
+                .Where(e => e.Name.LocalName == sc.E.Th || e.Name.LocalName == sc.E.Td)
+                .ToList();
+
+            // Initialize sequence number for maintaining cell order within row
+            int seqNum = 1;
+
+            // Process each cell element and create database entities
+            foreach (var cellEl in cellElements)
+            {
+               
+                // Check for existing cell to avoid duplicates based on row and sequence
+                var existingCell = await cellDbSet.FirstOrDefaultAsync(c =>
+                    c.TextTableRowID == textTableRowId &&
+                    c.SequenceNumber == seqNum);
+
+                // Create new cell if none exists at this position
+                if (existingCell == null)
+                {
+                    // Safely parse integer attributes
+                    // Extract rowspan and colspan attributes with safe parsing
+                    _ = int.TryParse(cellEl.Attribute(sc.A.Rowspan)?.Value, out int rs);
+                    _ = int.TryParse(cellEl.Attribute(sc.A.Colspan)?.Value, out int cs);
+
+                    // Build new table cell entity with all extracted attributes
+                    var newCell = new TextTableCell
+                    {
+                        TextTableRowID = textTableRowId,
+                        CellType = cellEl.Name.LocalName, // "th" or "td"
+                        SequenceNumber = seqNum,
+                        CellText = getCellXml(cellEl),
+                        RowSpan = rs > 0 ? rs : null, // Only store valid span values
+                        ColSpan = cs > 0 ? cs : null, // Only store valid span values
+                        StyleCode = cellEl.Attribute(sc.A.StyleCode)?.Value,
+                        Align = cellEl.Attribute(sc.A.Align)?.Value,
+                        VAlign = cellEl.Attribute(sc.A.VAlign)?.Value
+                    };
+
+                    // Persist new cell to database
+                    await cellRepo.CreateAsync(newCell);
+                    createdCount++;
+                }
+
+                // Increment sequence for next cell regardless of creation status
+                seqNum++;
+            }
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all rows ([tr]) within a given table group ([thead], [tbody], [tfoot]),
+        /// creating TextTableRow records and delegating cell parsing.
+        /// </summary>
+        /// <param name="rowGroupEl">The XElement for the group (e.g., [tbody]).</param>
+        /// <param name="textTableId">The database ID of the parent TextTable.</param>
+        /// <param name="rowGroupType">The type of group: 'Header', 'Body', or 'Footer'.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A task that resolves to the total number of row and cell entities created.</returns>
+        /// <seealso cref="TextTableRow"/>
+        /// <seealso cref="TextTable"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<int> parseAndCreateRowsAsync(
+            XElement rowGroupEl,
+            int textTableId,
+            string rowGroupType,
+            SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // Validate required context dependencies for database operations
+            if (context == null || context.ServiceProvider == null)
+                return 0;
+
+            // Get database context and repository for table row operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var rowRepo = context.GetRepository<TextTableRow>();
+            var rowDbSet = dbContext.Set<TextTableRow>();
+
+            // Extract all table row elements from the current group
+            var rowElements = rowGroupEl.SplElements(sc.E.Tr).ToList();
+
+            // Initialize sequence number for maintaining row order within group
+            int seqNum = 1;
+
+            // Process each row element within the table group
+            foreach (var rowEl in rowElements)
+            {
+                // Check for existing row to avoid duplicates based on table, group type, and sequence
+                var existingRow = await rowDbSet.FirstOrDefaultAsync(r =>
+                    r.TextTableID == textTableId &&
+                    r.RowGroupType == rowGroupType &&
+                    r.SequenceNumber == seqNum);
+
+                TextTableRow textTableRow;
+
+                // Use existing row if found, otherwise create new one
+                if (existingRow != null)
+                {
+                    textTableRow = existingRow;
+                }
+                else
+                {
+                    // Create new table row entity with group classification and styling
+                    textTableRow = new TextTableRow
+                    {
+                        TextTableID = textTableId,
+                        RowGroupType = rowGroupType, // 'Header', 'Body', or 'Footer'
+                        SequenceNumber = seqNum,
+                        StyleCode = rowEl.Attribute(sc.A.StyleCode)?.Value
+                    };
+
+                    // Persist new row to database
+                    await rowRepo.CreateAsync(textTableRow);
+                    createdCount++;
+                }
+
+                // Process cells within this row if row was successfully created/retrieved
+                if (textTableRow.TextTableRowID.HasValue)
+                {
+                    // Delegate cell parsing and accumulate created cell count
+                    createdCount += await parseAndCreateCellsAsync(rowEl, textTableRow.TextTableRowID.Value, context);
+                }
+
+                // Increment sequence for next row in group
+                seqNum++;
+            }
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses a [table] element, creating the main TextTable record and then
+        /// delegating the parsing of its header, body, and footer rows.
+        /// </summary>
+        /// <param name="tableEl">The XElement representing the [table] element.</param>
+        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A task that resolves to the total number of table, row, and cell entities created.</returns>
+        /// <seealso cref="TextTable"/>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<int> getOrCreateTextTableAndChildrenAsync(
+            XElement tableEl,
+            int sectionTextContentId,
+            SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // Validate all required input parameters and context dependencies
+            if (tableEl == null || sectionTextContentId <= 0 || context?.ServiceProvider == null)
+            {
+                return 0;
+            }
+
+            // Get database context and repository for table operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var tableRepo = context.GetRepository<TextTable>();
+            var tableDbSet = dbContext.Set<TextTable>();
+
+            // 1. Find or Create the TextTable record
+            // Check for existing table associated with the section text content
+            var textTable = await tableDbSet.FirstOrDefaultAsync(t => t.SectionTextContentID == sectionTextContentId);
+            if (textTable == null)
+            {
+                // Create new table entity with metadata about structure and styling
+                textTable = new TextTable
+                {
+                    SectionTextContentID = sectionTextContentId,
+                    Width = tableEl.Attribute(sc.A.Width)?.Value,
+                    HasHeader = tableEl.SplElement(sc.E.Thead) != null, // Check for header section
+                    HasFooter = tableEl.SplElement(sc.E.Tfoot) != null  // Check for footer section
+                };
+
+                // Persist new table to database
+                await tableRepo.CreateAsync(textTable);
+                createdCount++;
+            }
+
+            // Validate table creation was successful before proceeding
+            if (textTable.TextTableID == null)
+            {
+                context.Logger?.LogError("Failed to create or retrieve TextTable for SectionTextContentID {id}", sectionTextContentId);
+                return createdCount;
+            }
+
+            // 2. Parse rows for each section of the table (header, body, footer)
+            // Process table header section if present
+            var theadEl = tableEl.SplElement(sc.E.Thead);
+            if (theadEl != null)
+            {
+                // Parse header rows and accumulate creation count
+                createdCount += await parseAndCreateRowsAsync(theadEl, textTable.TextTableID.Value, "Header", context);
+            }
+
+            // Process table body section if present
+            var tbodyEl = tableEl.SplElement(sc.E.Tbody);
+            if (tbodyEl != null)
+            {
+                // Parse body rows and accumulate creation count
+                createdCount += await parseAndCreateRowsAsync(tbodyEl, textTable.TextTableID.Value, "Body", context);
+            }
+
+            // Process table footer section if present
+            var tfootEl = tableEl.SplElement(sc.E.Tfoot);
+            if (tfootEl != null)
+            {
+                // Parse footer rows and accumulate creation count
+                createdCount += await parseAndCreateRowsAsync(tfootEl, textTable.TextTableID.Value, "Footer", context);
+            }
+
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds and delegates parsing of a manufacturedProduct element within the section.
+        /// Navigates SPL hierarchy to locate product elements for specialized processing.
+        /// </summary>
+        /// <param name="sectionEl">The XElement of the section.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="reportProgress">Optional progress reporting action.</param>
+        /// <returns>The SplParseResult from the product parser, or an empty result if no product exists.</returns>
+        /// <seealso cref="ManufacturedProductParser"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseManufacturedProductAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
+        {
+            #region implementation
+            // Navigate through the SPL hierarchy: section/subject/manufacturedProduct
+            // Follow standard SPL document structure to locate product elements
+            var productEl = sectionEl.SplElement(sc.E.Subject, sc.E.ManufacturedProduct);
+
+            // Delegate to specialized product parser if product element exists
+            if (productEl != null)
+            {
+                var productParser = new ManufacturedProductParser();
+                return await productParser.ParseAsync(productEl, context, reportProgress);
+            }
+
+            // Return a default successful result if no product element is found
+            return new SplParseResult { Success = true };
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Orchestrates the recursive parsing of a section's [text] element. It iterates
+        /// through top-level content blocks and delegates the processing of each block
+        /// to specialized helpers, preserving the nested hierarchy for SPL round-tripping.
         /// </summary>
         /// <param name="parentEl">The XElement to start parsing (typically the [text] element).</param>
         /// <param name="sectionId">The SectionID owning this content.</param>
@@ -207,13 +728,13 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="parseAndSaveSectionAsync">Function delegate for parsing and saving child sections.</param>
         /// <param name="parentSectionTextContentId">Parent SectionTextContentID for hierarchy, or null for top-level blocks.</param>
         /// <param name="sequence">The sequence number to start from (default 1).</param>
-        /// <returns>A list of SectionTextContent objects created/found (entire tree).</returns>
+        /// <returns>A tuple containing the complete list of all created/found SectionTextContent objects and the total count of grandchild entities (e.g., list items, table cells).</returns>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="Section"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private static async Task<List<SectionTextContent>> getOrCreateSectionTextContentsAsync(
+        private static async Task<Tuple<List<SectionTextContent>, int>> getOrCreateSectionTextContentsAsync(
             XElement parentEl,
             int sectionId,
             SplParseContext context,
@@ -222,140 +743,405 @@ namespace MedRecPro.Service.ParsingServices
             int sequence = 1)
         {
             #region implementation
-            var created = new List<SectionTextContent>();
+            var allCreatedContent = new List<SectionTextContent>();
+            int totalGrandChildEntities = 0;
 
             // Validate all required input parameters and context dependencies
-            if (parentEl == null
-                || sectionId <= 0
-                || context == null
-                || context.ServiceProvider == null
-                || context.Logger == null)
-                return created;
+            if (parentEl == null || sectionId <= 0 || context?.ServiceProvider == null || context.Logger == null)
+            {
+                return Tuple.Create(allCreatedContent, totalGrandChildEntities);
+            }
 
-            // Get database context and repository for section text content operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var repo = context.GetRepository<SectionTextContent>();
-            var dbSet = dbContext.Set<SectionTextContent>();
-
-            // Initialize sequence counter for maintaining order within current hierarchy level
+            // Initialize sequence counter for maintaining content block order
             int seq = sequence;
 
-            // Process each allowed content block at the current hierarchy level
+            // Process each content block in the section using tree building helper
             foreach (var block in parentEl.SplBuildSectionContentTree())
             {
-                // Capitalize first letter to standardize content type names (e.g., "excerpt" → "Excerpt")
-                var contentType = char.ToUpper(block.Name.LocalName[0]) + block.Name.LocalName.Substring(1);
+                // Delegate the processing of a single block to a dedicated handler
+                // Use specialized handler for individual content block processing
+                var blockResult = await processContentBlockAsync(
+                    block,
+                    sectionId,
+                    context,
+                    parseAndSaveSectionAsync,
+                    parentSectionTextContentId,
+                    seq);
 
-                // Extract text content only for paragraph elements; complex structures handled via recursion
-                var contentText = contentType == "Paragraph" ? block.Value?.Trim() : null;
-
-                // Extract optional style code attribute for formatting information
-                var styleCode = block.Attribute("styleCode")?.Value?.Trim();
-
-                // Deduplication: SectionID + ContentType + SequenceNumber + ParentSectionTextContentID + ContentText (for Paragraphs)
-                // Search for existing content block with matching hierarchy and attributes
-                var existing = await dbSet.FirstOrDefaultAsync(c =>
-                    c.SectionID == sectionId &&
-                    c.ContentType == contentType &&
-                    c.SequenceNumber == seq &&
-                    c.ParentSectionTextContentID == parentSectionTextContentId &&
-                    (contentType != "Paragraph" || c.ContentText == contentText));
-
-                SectionTextContent stc;
-
-                // Use existing content block if found, otherwise create new one
-                if (existing != null)
+                // Aggregate results from the processed block
+                // Combine results from current block processing into overall collection
+                if (blockResult != null)
                 {
-                    stc = existing;
-                }
-                else
-                {
-                    // Create new section text content with hierarchical relationship
-                    stc = new SectionTextContent
-                    {
-                        SectionID = sectionId,
-                        ParentSectionTextContentID = parentSectionTextContentId,
-                        ContentType = contentType,
-                        StyleCode = styleCode,
-                        SequenceNumber = seq,
-                        ContentText = contentText
-                    };
-                    await repo.CreateAsync(stc);
+                    allCreatedContent.Add(blockResult.MainContent);
+                    allCreatedContent.AddRange(blockResult.NestedContent);
+                    totalGrandChildEntities += blockResult.GrandchildEntityCount;
                 }
 
-                // Add current content block to results
-                created.Add(stc);
-
-                // --- EXCERPT/HIGHLIGHT CAPTURE ---
-                // Process special excerpt elements that contain highlighted text
-                if (contentType == "Excerpt")
-                {
-                    // Extract and save excerpt highlights for specialized content processing
-                    var excerptHighlights = await getOrCreateSectionExcerptHighlightsAsync(block, sectionId, context);
-                }
-
-                // Recurse for children (preserving structure)
-                // Check for nested content blocks that require recursive processing
-                var childBlocks = block.SplBuildSectionContentTree().ToList();
-                if (childBlocks.Any())
-                {
-                    // Recursively process child content blocks with current block as parent
-                    var childResults = await getOrCreateSectionTextContentsAsync(
-                        block,
-                        sectionId,
-                        context,
-                        parseAndSaveSectionAsync,
-                        stc.SectionTextContentID,
-                        1); // Always start child sequence at 1 for each parent block
-
-                    // Add all child results to the overall collection
-                    created.AddRange(childResults);
-                }
-
-                // Increment sequence for next sibling at current level
+                // Increment sequence for next content block
                 seq++;
             }
 
-            // --- CAPTURE CHILD SECTIONS: <component><section> ---
-            // Process nested child sections within component elements
-            var childSectionEls = parentEl.SplElements(sc.E.Component)
-                .Select(comp => comp.SplElement(sc.E.Section))
-                .Where(childSec => childSec != null)
-                .ToList();
+            return Tuple.Create(allCreatedContent, totalGrandChildEntities);
+            #endregion
+        }
 
-            // Process each child section and establish hierarchical relationships
-            foreach (var childSectionEl in childSectionEls)
+        /**************************************************************/
+        /// <summary>
+        /// Processes a single content block ([paragraph], [list], etc.), creating its
+        /// corresponding SectionTextContent record, handling specialized content, and
+        /// initiating recursion for any nested blocks.
+        /// </summary>
+        /// <param name="block">The XElement representing the content block to process.</param>
+        /// <param name="sectionId">The owning section ID.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="parseAndSaveSectionAsync">Function delegate for parsing child sections.</param>
+        /// <param name="parentSectionTextContentId">Parent content ID for hierarchy.</param>
+        /// <param name="sequence">Sequence number for ordering.</param>
+        /// <returns>A ProcessBlockResult containing the created content and metadata, or null if the block is skipped.</returns>
+        /// <seealso cref="ProcessBlockResult"/>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<ProcessBlockResult?> processContentBlockAsync(
+            XElement block,
+            int sectionId,
+            SplParseContext context,
+            Func<XElement, SplParseContext, Task<Section>> parseAndSaveSectionAsync,
+            int? parentSectionTextContentId,
+            int sequence)
+        {
+            #region implementation
+            // Highlights are processed by getOrCreateSectionExcerptHighlightsAsync within an Excerpt.
+            // Skipping them here prevents creating a duplicate SectionTextContent record.
+            // Skip highlight elements as they are handled separately within excerpt processing
+            if (block.Name.LocalName.Equals(sc.E.Highlight, StringComparison.OrdinalIgnoreCase))
             {
-                // Save the child section and get its SectionID
-                // Parse and persist child section using provided delegate function
-                var childSection = await parseAndSaveSectionAsync(childSectionEl, context);
-                if (childSection != null && childSection.SectionID.HasValue)
-                {
-                    // Link parent to child in the hierarchy (if not already present)
-                    // Establish section hierarchy relationship between parent and child
-                    await getOrCreateSectionHierarchiesAsync(parentEl, sectionId, context);
-
-                    // Recursively parse this child section's text content
-                    // Process text content within the child section
-                    var childTextEl = childSectionEl.Element(sc.E.Text);
-                    if (childTextEl != null)
-                    {
-                        // Recursively process child section text content with fresh hierarchy context
-                        var childTextContents = await getOrCreateSectionTextContentsAsync(
-                            childTextEl,
-                            childSection.SectionID.Value,
-                            context,
-                            parseAndSaveSectionAsync,
-                            null, // new section, so null parentSectionTextContentId
-                            1); // Start sequence at 1 for new section
-
-                        // Add child section text content to overall results
-                        created.AddRange(childTextContents);
-                    }
-                }
+                return null;
             }
 
-            return created;
+            // 1. Find or create the primary SectionTextContent record for this block
+            // Create or retrieve the main content entity for this block
+            var stc = await findOrCreateSectionTextContentRecordAsync(block, sectionId, context, parentSectionTextContentId, sequence);
+            if (stc == null) return null;
+
+            // Initialize result container with main content entity
+            var result = new ProcessBlockResult { MainContent = stc };
+
+            // 2. Process specialized content (e.g., parse list items, table cells, or excerpt highlights)
+            // Handle complex nested structures like lists, tables, and excerpts
+            result.GrandchildEntityCount = await processSpecializedContentAsync(block, stc, context);
+
+            // 3. Recurse for any nested child blocks, but ONLY if the block is not a type
+            // that was fully handled by the specialized parser. This prevents the dual-parsing conflict.
+            var contentType = stc.ContentType ?? string.Empty;
+            if (!contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase) &&
+                !contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
+            {
+                // Process nested content blocks within the current block
+                var childResult = await processChildContentBlocksAsync(block, stc, context, parseAndSaveSectionAsync);
+                result.NestedContent.AddRange(childResult.Item1);
+                result.GrandchildEntityCount += childResult.Item2;
+            }
+
+            return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds an existing SectionTextContent record in the database or creates a new one.
+        /// This method encapsulates the database look-up and creation logic.
+        /// </summary>
+        /// <param name="block">The XElement representing the content block.</param>
+        /// <param name="sectionId">The owning section ID.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="parentId">Parent content ID for hierarchy.</param>
+        /// <param name="sequence">Sequence number for ordering.</param>
+        /// <returns>The found or newly created SectionTextContent entity.</returns>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<SectionTextContent?> findOrCreateSectionTextContentRecordAsync(
+            XElement block,
+            int sectionId,
+            SplParseContext context,
+            int? parentId,
+            int sequence)
+        {
+            #region implementation
+            if (context == null || context.ServiceProvider == null)
+                return null;
+
+            // Get database context and repository for content operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var repo = context.GetRepository<SectionTextContent>();
+
+            // Standardize content type name with proper capitalization
+            var contentType = char.ToUpper(block.Name.LocalName[0]) + block.Name.LocalName.Substring(1);
+
+            // Extract optional style code for formatting information
+            var styleCode = block.Attribute(sc.A.StyleCode)?.Value?.Trim();
+
+            // Helper function to extract inner XML while preserving markup
+            string? getInnerXml(XElement element) => string.Concat(element.Nodes().Select(n => n.ToString())).Trim();
+
+            // ContentText is null for container types like List or Table.
+            // Extract content text only for non-container elements
+            string? contentText = null;
+            if (!contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase) &&
+                !contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
+            {
+                contentText = getInnerXml(block);
+            }
+
+            // Deduplication: Find existing record based on a unique signature
+            // Search for existing content with matching attributes and hierarchy
+            var existing = await dbContext.Set<SectionTextContent>().FirstOrDefaultAsync(c =>
+                c.SectionID == sectionId &&
+                c.ContentType == contentType &&
+                c.SequenceNumber == sequence &&
+                c.ParentSectionTextContentID == parentId &&
+                (contentType.ToLower() != sc.E.Paragraph || c.ContentText == contentText));
+
+            // Return existing content if found to avoid duplicates
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            // Create a new record if not found
+            // Build new content entity with extracted attributes and hierarchy
+            var newStc = new SectionTextContent
+            {
+                SectionID = sectionId,
+                ParentSectionTextContentID = parentId,
+                ContentType = contentType,
+                StyleCode = styleCode,
+                SequenceNumber = sequence,
+                ContentText = contentText
+            };
+
+            // Persist new content to database
+            await repo.CreateAsync(newStc);
+            return newStc;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dispatches processing for special content types that have nested data structures,
+        /// such as Lists, Tables, and Excerpts with Highlights.
+        /// </summary>
+        /// <param name="block">The XElement representing the content block.</param>
+        /// <param name="stc">The SectionTextContent entity for this block.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>The number of grandchild entities created (e.g., list items, table cells).</returns>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<int> processSpecializedContentAsync(XElement block,
+            SectionTextContent stc,
+            SplParseContext context)
+        {
+            #region implementation
+            // Validate content entity has valid ID before processing children
+            if (!stc.SectionTextContentID.HasValue) return 0;
+
+            int grandchildEntitiesCount = 0;
+            var contentType = stc.ContentType ?? string.Empty;
+
+            // Dispatch to appropriate specialized handler based on content type
+            if (contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase))
+            {
+                // Process list structure and create list item entities
+                grandchildEntitiesCount += await getOrCreateTextListAndItemsAsync(block, stc.SectionTextContentID.Value, context);
+            }
+            else if (contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
+            {
+                // Process table structure and create row/cell entities
+                grandchildEntitiesCount += await getOrCreateTextTableAndChildrenAsync(block, stc.SectionTextContentID.Value, context);
+            }
+            else if (contentType.Equals(sc.E.Excerpt, StringComparison.OrdinalIgnoreCase))
+            {
+                // This method doesn't return a count, but we call it for its side effect.
+                // Process excerpt highlights for specialized content extraction
+                if (stc.SectionID > 0)
+                    await getOrCreateSectionExcerptHighlightsAsync(block, (int)stc.SectionID, context);
+            }
+
+            return grandchildEntitiesCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Handles the recursive processing of nested content blocks within a given parent block.
+        /// Manages hierarchy relationships and sequence numbering for child content.
+        /// </summary>
+        /// <param name="parentBlock">The parent XElement containing child blocks.</param>
+        /// <param name="parentStc">The parent SectionTextContent entity.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="parseAndSaveSectionAsync">Function delegate for parsing child sections.</param>
+        /// <returns>A tuple containing the list of nested SectionTextContent objects and the count of their grandchild entities.</returns>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<Tuple<List<SectionTextContent>, int>> processChildContentBlocksAsync(
+            XElement parentBlock,
+            SectionTextContent parentStc,
+            SplParseContext context,
+            Func<XElement, SplParseContext, Task<Section>> parseAndSaveSectionAsync)
+        {
+            #region implementation
+            // Find child content blocks within the parent element
+            var childBlocks = parentBlock.SplBuildSectionContentTree().ToList();
+            if (!childBlocks.Any() || parentStc == null || parentStc.SectionID == null)
+            {
+                // Return empty results if no child blocks found
+                return Tuple.Create(new List<SectionTextContent>(), 0);
+            }
+
+            // Recurse by calling the main orchestrator for the children of the current block.
+            // The current block's ID becomes the parent ID for the next level.
+            // Recursively process child blocks with current block as parent
+            return await getOrCreateSectionTextContentsAsync(
+                parentBlock,
+                (int)parentStc.SectionID,
+                context,
+                parseAndSaveSectionAsync,
+                parentStc.SectionTextContentID,
+                1); // Child sequence always restarts at 1 for each new parent.
+
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses a [list] element and its child [item] elements, creating and saving
+        /// TextList and TextListItem records to the database. This method handles the
+        /// specific structure of SPL lists, including attributes and nested content.
+        /// It performs deduplication to avoid creating duplicate records for the same content.
+        /// </summary>
+        /// <param name="listEl">The XElement representing the [list] element.</param>
+        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record (where ContentType='List').</param>
+        /// <param name="context">The current parsing context for database access.</param>
+        /// <returns>A task that resolves to the total number of TextList and TextListItem entities created.</returns>
+        /// <remarks>
+        /// Assumes the SplConstants class (aliased as 'sc') contains constants for list elements and attributes:
+        /// sc.A.ListType ("listType"), sc.A.StyleCode ("styleCode"), sc.E.Item ("item"), sc.E.Caption ("caption").
+        /// </remarks>
+        /// <seealso cref="TextList"/>
+        /// <seealso cref="TextListItem"/>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SplParseContext"/>
+        private static async Task<int> getOrCreateTextListAndItemsAsync(
+            XElement listEl,
+            int sectionTextContentId,
+            SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // Validate inputs
+            if (listEl == null
+                || sectionTextContentId <= 0
+                || context == null
+                || context?.ServiceProvider == null)
+            {
+                return 0;
+            }
+
+            // Get DB context and repositories
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var textListRepo = context.GetRepository<TextList>();
+            var textListItemRepo = context.GetRepository<TextListItem>();
+
+            // 1. Find or Create the TextList record
+            var textListDbSet = dbContext.Set<TextList>();
+            var textList = await textListDbSet.FirstOrDefaultAsync(l => l.SectionTextContentID == sectionTextContentId);
+
+            if (textList == null)
+            {
+                textList = new TextList
+                {
+                    SectionTextContentID = sectionTextContentId,
+                    ListType = listEl.Attribute(sc.A.ListType)?.Value,
+                    StyleCode = listEl.Attribute(sc.A.StyleCode)?.Value
+                };
+                await textListRepo.CreateAsync(textList);
+                createdCount++;
+            }
+
+            if (textList.TextListID == null)
+            {
+                context.Logger?.LogError("Failed to create or retrieve TextList for SectionTextContentID {id}", sectionTextContentId);
+                return createdCount; // Cannot proceed without a parent TextListID
+            }
+
+            // 2. Find or Create TextListItem records for each <item>
+            var textListItemDbSet = dbContext.Set<TextListItem>();
+            var itemElements = listEl.SplElements(sc.E.Item).ToList();
+            int seqNum = 1;
+
+            foreach (var itemEl in itemElements)
+            {
+                // Extract the content of the item
+                var itemText = getItemXml(itemEl);
+
+                // If the item's text content is empty, skip this iteration entirely
+                // This prevents creating empty records and incorrectly advancing the sequence
+                if (string.IsNullOrWhiteSpace(itemText))
+                {
+                    continue; // Move to the next <item> element
+                }
+
+                // Now that we know the item has content, proceed with deduplication and creation
+                var existingItem = await textListItemDbSet.FirstOrDefaultAsync(i =>
+                    i.TextListID == textList.TextListID &&
+                    i.SequenceNumber == seqNum);
+
+                if (existingItem == null)
+                {
+                    var newItem = new TextListItem
+                    {
+                        TextListID = textList.TextListID,
+                        SequenceNumber = seqNum,
+                        ItemCaption = itemEl.SplElement(sc.E.Caption)?.Value?.Trim(),
+                        ItemText = itemText // Use the pre-fetched and validated text
+                    };
+                    await textListItemRepo.CreateAsync(newItem);
+                    createdCount++;
+                }
+
+                seqNum++;
+            }
+
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the inner XML of a list [item] element, preserving all markup,
+        /// but excluding the [caption] element itself.
+        /// </summary>
+        /// <param name="itemElement">The [item] XElement to process.</param>
+        /// <returns>The inner XML as a string, or null if the input is null.</returns>
+        private static string? getItemXml(XElement itemElement)
+        {
+            #region implementation
+            if (itemElement == null) return null;
+
+            // Create a temporary clone to manipulate without affecting the original XDocument tree.
+            var clone = new XElement(itemElement);
+
+            // Find and remove the <caption/> element from the clone, if it exists.
+            clone.Element(itemElement.GetDefaultNamespace() + sc.E.Caption)?.Remove();
+
+            // Concatenate the remaining nodes (including text and other elements/tags) into a single string.
+            return string.Concat(clone.Nodes().Select(n => n.ToString())).Trim();
             #endregion
         }
 
@@ -439,7 +1225,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Finds or creates SectionExcerptHighlight records for all highlight text nodes
         /// within excerpt elements of a section, capturing highlighted content for database storage.
         /// </summary>
-        /// <param name="sectionEl">The XElement to search for excerpt/highlight/text patterns.</param>
+        /// <param name="excerptEl">The XElement to search for excerpt/highlight/text patterns.</param>
         /// <param name="sectionId">The SectionID owning this highlight content.</param>
         /// <param name="context">Parsing context for repository and database access.</param>
         /// <returns>List of SectionExcerptHighlight objects (created or found).</returns>
@@ -449,7 +1235,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private static async Task<List<SectionExcerptHighlight>> getOrCreateSectionExcerptHighlightsAsync(
-            XElement sectionEl,
+            XElement excerptEl,
             int sectionId,
             SplParseContext context)
         {
@@ -457,7 +1243,7 @@ namespace MedRecPro.Service.ParsingServices
             var highlights = new List<SectionExcerptHighlight>();
 
             // Validate required input parameters
-            if (sectionEl == null || sectionId <= 0)
+            if (excerptEl == null || sectionId <= 0)
                 return highlights;
 
             // Validate required context dependencies
@@ -471,16 +1257,13 @@ namespace MedRecPro.Service.ParsingServices
 
             // Find all excerpt/highlight/text nodes for this section
             // Navigate the XML hierarchy to locate text nodes within highlight elements inside excerpts
-            foreach (var highlightTextEl in sectionEl
-                .Descendants()
-                .Where(x => string.Equals(x.Name.LocalName, sc.E.Text, StringComparison.OrdinalIgnoreCase) &&
-                            x.Parent != null &&
-                            string.Equals(x.Parent.Name.LocalName, sc.E.Highlight, StringComparison.OrdinalIgnoreCase) &&
-                            x.Parent.Parent != null &&
-                            string.Equals(x.Parent.Parent.Name.LocalName, sc.E.Excerpt, StringComparison.OrdinalIgnoreCase)))
+            foreach (var highlightTextEl in excerptEl
+                 .Descendants(ns + sc.E.Text) // More direct search
+                 .Where(x => x.Parent?.Name.LocalName == sc.E.Highlight))
             {
                 // Extract the highlighted text content from the XML element
                 var txt = getHighlightXml(highlightTextEl);
+
                 if (string.IsNullOrWhiteSpace(txt)) continue;
 
                 // Dedupe: SectionID + HighlightText
@@ -534,20 +1317,20 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Same as getHighlightText but this preserves all the markup
         /// </summary>
-        /// <param name="highlightTextEl"></param>
+        /// <param name="textElement"></param>
         /// <returns></returns>
-        private static string? getHighlightXml(XElement highlightTextEl)
+        private static string? getHighlightXml(XElement textElement)
         {
             #region implementation
             // Find the <text> element directly under <highlight>
-            var textEl = highlightTextEl?.Element(highlightTextEl.GetDefaultNamespace() + "text")
-                         ?? highlightTextEl?.Element("text"); // fallback if no namespace
+            //var textEl = textElement?.Element(textElement.GetDefaultNamespace() + "text")
+            //             ?? textElement?.Element("text"); // fallback if no namespace
 
-            if (textEl == null)
+            if (textElement == null)
                 return null;
 
             // Return concatenated inner XML (preserving all tags/markup)
-            return string.Concat(textEl.Nodes().Select(n => n.ToString())).Trim();
+            return string.Concat(textElement.Nodes().Select(n => n.ToString())).Trim();
             #endregion
         }
 
@@ -647,4 +1430,5 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
     }
+    #endregion Private Helper Methods
 }
