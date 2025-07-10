@@ -129,6 +129,10 @@ namespace MedRecPro.Service.ParsingServices
                 context.Logger.LogInformation("Created Document with ID {DocumentID} for file {FileName}",
                     docID, context.FileNameInZip);
 
+                // --- PARSE LEGAL AUTHENTICATOR ---
+                var legalAuthenticators = await getOrCreateLegalAuthenticatorsAsync(element, docID, context);
+                result.DocumentAttributesCreated += legalAuthenticators.Count;
+
                 // --- PARSE RELATED DOCUMENTS ---
                 var relatedDocs = await getOrCreateRelatedDocumentsAsync(element, docID, context);
                 result.DocumentAttributesCreated += relatedDocs.Count;
@@ -144,6 +148,244 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds or creates LegalAuthenticator records for all [legalAuthenticator] elements under a parent element.
+        /// This method orchestrates the parsing, organization lookup, and entity creation for each authenticator.
+        /// </summary>
+        /// <param name="parentElement">The root XElement to search under (e.g., [document]).</param>
+        /// <param name="sourceDocumentId">The Source Document ID (current document's primary key).</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>A list of LegalAuthenticator entities that were found or created.</returns>
+        /// <remarks>
+        /// This method orchestrates the process by:
+        /// 1. Iterating through each [legalAuthenticator] element.
+        /// 2. Parsing the raw data from the XML.
+        /// 3. Finding or creating the associated [representedOrganization].
+        /// 4. Finding or creating the final LegalAuthenticator entity, handling deduplication.
+        /// </remarks>
+        /// <seealso cref="LegalAuthenticator"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="parseLegalAuthenticatorData"/>
+        /// <seealso cref="getOrCreateSignerOrganizationAsync"/>
+        /// <seealso cref="findOrCreateSingleAuthenticatorAsync"/>
+        private static async Task<List<LegalAuthenticator>> getOrCreateLegalAuthenticatorsAsync(
+            XElement parentElement,
+            int sourceDocumentId,
+            SplParseContext context)
+        {
+            #region implementation
+            var authenticators = new List<LegalAuthenticator>();
+
+            // Validate required input parameters to prevent null reference exceptions
+            if (parentElement == null || sourceDocumentId <= 0)
+                return authenticators;
+
+            // Validate required context dependencies to ensure proper service resolution
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+                return authenticators;
+
+            // Find all <legalAuthenticator> elements and process each one
+            foreach (var legalAuthEl in parentElement.SplElements(sc.E.LegalAuthenticator))
+            {
+                // 1. Parse the data from the current XML element
+                var parsedData = parseLegalAuthenticatorData(legalAuthEl);
+
+                // 2. Find or create the associated organization and get its ID
+                var signerOrganizationId = await getOrCreateSignerOrganizationAsync(
+                    parsedData.RepresentedOrgEl, context);
+
+                // 3. Find or create the LegalAuthenticator entity based on the parsed data
+                var authenticator = await findOrCreateSingleAuthenticatorAsync(
+                    parsedData,
+                    signerOrganizationId,
+                    sourceDocumentId,
+                    context);
+
+                if (authenticator != null)
+                {
+                    // Add successfully created or found authenticator to the result list
+                    authenticators.Add(authenticator);
+                }
+            }
+
+            return authenticators;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// A private record to hold data parsed from a [legalAuthenticator] XElement.
+        /// This record encapsulates all the relevant data extracted from the XML structure.
+        /// </summary>
+        /// <seealso cref="LegalAuthenticator"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="Organization"/>
+        private record LegalAuthenticatorData(
+            DateTime? TimeValue,
+            string? SignatureText,
+            string? NoteText,
+            string? AssignedPersonName,
+            XElement? RepresentedOrgEl);
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the relevant data from a single [legalAuthenticator] XElement.
+        /// Extracts time, signature text, note text, assigned person name, and represented organization element.
+        /// </summary>
+        /// <param name="legalAuthEl">The [legalAuthenticator] XElement to parse.</param>
+        /// <returns>A <see cref="LegalAuthenticatorData"/> record containing the extracted values.</returns>
+        /// <seealso cref="LegalAuthenticatorData"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="Util.ParseNullableDateTime"/>
+        private static LegalAuthenticatorData parseLegalAuthenticatorData(XElement legalAuthEl)
+        {
+            #region implementation
+            // Extract signature time from the time element's value attribute
+            var timeValue = Util.ParseNullableDateTime(
+                legalAuthEl.GetSplElementAttrVal(sc.E.Time, sc.A.Value) ?? string.Empty);
+
+            // Extract signature text and note from their respective elements
+            var signatureText = legalAuthEl.GetSplElementVal(sc.E.SignatureText);
+            var noteText = legalAuthEl.GetSplElementVal(sc.E.NoteText);
+
+            // Navigate to the assignedEntity to get person and organization details
+            var assignedEntityEl = legalAuthEl.SplElement(sc.E.AssignedEntity);
+            string? assignedPersonName = null;
+            XElement? representedOrgEl = null;
+
+            if (assignedEntityEl != null)
+            {
+                // Extract assigned person name from the nested structure
+                assignedPersonName = assignedEntityEl.SplElement(sc.E.AssignedPerson, sc.E.Name)?.Value;
+                // Get the represented organization element for further processing
+                representedOrgEl = assignedEntityEl.SplElement(sc.E.RepresentedOrganization);
+            }
+
+            return new LegalAuthenticatorData(
+                TimeValue: timeValue,
+                SignatureText: signatureText,
+                NoteText: noteText,
+                AssignedPersonName: assignedPersonName,
+                RepresentedOrgEl: representedOrgEl
+            );
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds an existing organization by name or creates a new one if not found.
+        /// This method handles the organization lookup and creation logic for legal authenticators.
+        /// </summary>
+        /// <param name="representedOrgEl">The [representedOrganization] XElement.</param>
+        /// <param name="context">The parsing context for database access.</param>
+        /// <returns>The primary key (OrganizationID) of the found or created organization, or null if no name is provided.</returns>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        private static async Task<int?> getOrCreateSignerOrganizationAsync(
+            XElement? representedOrgEl,
+            SplParseContext context)
+        {
+            #region implementation
+            // Return null if no organization element is provided
+            if (representedOrgEl == null || context?.ServiceProvider == null)
+                return null;
+
+            // Extract organization name from the XML element
+            var orgName = representedOrgEl.GetSplElementVal(sc.E.Name);
+            if (string.IsNullOrWhiteSpace(orgName))
+                return null;
+
+            // Get database context and organization dataset for queries
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var orgDbSet = dbContext.Set<Organization>();
+
+            // Look up the organization by name to check for existing record
+            var existingOrg = await orgDbSet.FirstOrDefaultAsync(o => o.OrganizationName == orgName);
+            if (existingOrg != null)
+            {
+                // Return existing organization ID if found
+                return existingOrg.OrganizationID;
+            }
+
+            // If not found, create it with the extracted name
+            var orgRepo = context.GetRepository<Organization>();
+            var newOrg = new Organization { OrganizationName = orgName };
+            await orgRepo.CreateAsync(newOrg);
+
+            // Return the newly created organization ID
+            return newOrg.OrganizationID;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds an existing LegalAuthenticator for the document or creates a new one.
+        /// This method handles the deduplication and creation logic for a single authenticator.
+        /// </summary>
+        /// <param name="data">The parsed data from the XML element.</param>
+        /// <param name="signerOrganizationId">The ID of the signer's organization.</param>
+        /// <param name="sourceDocumentId">The ID of the source document.</param>
+        /// <param name="context">The parsing context for database access.</param>
+        /// <returns>The existing or newly created <see cref="LegalAuthenticator"/> entity.</returns>
+        /// <seealso cref="LegalAuthenticator"/>
+        /// <seealso cref="LegalAuthenticatorData"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        private static async Task<LegalAuthenticator?> findOrCreateSingleAuthenticatorAsync(
+            LegalAuthenticatorData data,
+            int? signerOrganizationId,
+            int sourceDocumentId,
+            SplParseContext context)
+        {
+            #region implementation
+            // Return null if no organization element is provided
+            if (data == null || context?.ServiceProvider == null)
+                return null;
+
+            // Get database context and LegalAuthenticator dataset for queries
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbSet = dbContext.Set<LegalAuthenticator>();
+
+            // Check if an identical authenticator already exists for this document
+            // Deduplication based on document ID, time, signature text, and assigned person name
+            var existing = await dbSet.FirstOrDefaultAsync(la =>
+                la.DocumentID == sourceDocumentId &&
+                la.TimeValue == data.TimeValue &&
+                la.SignatureText == data.SignatureText &&
+                la.AssignedPersonName == data.AssignedPersonName);
+
+            if (existing != null)
+            {
+                // Return the existing entity to avoid duplicates
+                return existing;
+            }
+
+            // --- Create New Entity ---
+            // Build new LegalAuthenticator entity with all parsed data
+            var newAuthenticator = new LegalAuthenticator
+            {
+                DocumentID = sourceDocumentId,
+                TimeValue = data.TimeValue,
+                SignatureText = data.SignatureText,
+                NoteText = data.NoteText,
+                AssignedPersonName = data.AssignedPersonName,
+                SignerOrganizationID = signerOrganizationId
+            };
+
+            // Persist the new entity to the database
+            var repo = context.GetRepository<LegalAuthenticator>();
+            await repo.CreateAsync(newAuthenticator);
+
+            // Return the newly created authenticator
+            return newAuthenticator;
             #endregion
         }
 

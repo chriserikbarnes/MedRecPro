@@ -1,4 +1,6 @@
-﻿using MedRecPro.Helpers;
+﻿using AngleSharp.Text;
+using Humanizer;
+using MedRecPro.Helpers;
 using Microsoft.OpenApi.Attributes;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -7,6 +9,8 @@ using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json.Serialization;
+using static Azure.Core.HttpHeader;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace MedRecPro.Models
 {
@@ -41,6 +45,8 @@ namespace MedRecPro.Models
     /// </summary>
     public class Label
     {
+        private static List<string> preserveTags = new List<string>
+            { "paragraph", "list", "item", "caption", "linkHtml", "sup", "sub", "content" };
         #region Properties
 
         /*******************************************************************************/
@@ -563,6 +569,19 @@ namespace MedRecPro.Models
             /// </summary>
             public int? StructuredBodyID { get; set; } // Made nullable
 
+            [Display("ID")]
+            private string? _sectionLinkGUID;
+            /// <summary>
+            /// Attribute identifying the section link ([section][ID]), used for 
+            /// cross-references within the document e.g. [section ID="ID_1dc7080f-1d52-4bf7-b353-3c13ec291810"]
+            /// </summary>
+            public string? SectionLinkGUID
+            {
+                get => _sectionLinkGUID;
+                set => _sectionLinkGUID = value?.RemoveHtmlXss();
+            }
+           
+
             /// <summary>
             /// Unique identifier for the section ([id root]).
             /// </summary>
@@ -646,7 +665,8 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores the main content blocks ([paragraph], [list], [table], block [renderMultimedia]) within a section's [text] element. Based on Section 2.2.2.
+        /// Stores the main content blocks ([paragraph], [list], [table], block [renderMultimedia])
+        /// within a section's [text] element. Based on Section 2.2.2.
         /// </summary>
         public class SectionTextContent
         {
@@ -700,8 +720,7 @@ namespace MedRecPro.Models
             public string? ContentText
             {
                 get => _contentText;
-                set => _contentText = value?.RemoveUnwantedTags(preserveTags: new List<string>
-                { "paragraph", "list", "item", "caption", "linkHtml", "sup", "sub" });
+                set => _contentText = value?.RemoveUnwantedTags(preserveTags: preserveTags);
             }
             #endregion properties
         }
@@ -784,7 +803,7 @@ namespace MedRecPro.Models
             public string? ItemText
             {
                 get => _itemText;
-                set => _itemText = value?.RemoveHtmlXss();
+                set => _itemText = value?.RemoveUnwantedTags(preserveTags: preserveTags);
             }
             #endregion properties
         }
@@ -911,7 +930,7 @@ namespace MedRecPro.Models
             public string? CellText
             {
                 get => _cellText;
-                set => _cellText = value?.RemoveHtmlXss();
+                set => _cellText = value?.RemoveUnwantedTags(preserveTags: preserveTags);
             }
 
             /// <summary>
@@ -1003,6 +1022,16 @@ namespace MedRecPro.Models
                 set => _mediaType = value?.RemoveHtmlXss();
             }
 
+            private string? _xsiType;
+            /// <summary>
+            /// Xsi type of the file ([value xsi:type=]), e.g., "ED".
+            /// </summary>
+            public string? XsiType
+            {
+                get => _xsiType;
+                set => _xsiType = value?.RemoveHtmlXss();
+            }
+
             private string? _fileName;
             /// <summary>
             /// File name of the image ([reference value=]).
@@ -1017,7 +1046,11 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents the [renderMultimedia] tag, linking text content to an ObservationMedia entry. Based on Section 2.2.3.
+        /// Represents the [renderMultimedia] tag, linking text content to an ObservationMedia 
+        /// entry. Based on Section 2.2.3. The  renderMultimedia tag in the text of a [paragraph] 
+        /// as appropriate.Inline images are expected to be uncommon and basically represent 
+        /// symbols that cannot be represented by Unicode characters. In addition, [caption] 
+        /// are not applicable for inline images since these are not offset from the surrounding text.
         /// </summary>
         public class RenderedMedia
         {

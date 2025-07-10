@@ -8,6 +8,7 @@ using MedRecPro.Models;
 using MedRecPro.DataAccess;
 using MedRecPro.Data;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Generic;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -73,23 +74,31 @@ namespace MedRecPro.Service.ParsingServices
         /// The method supports multiple ingredient element types and maintains proper context
         /// isolation to ensure thread safety and predictable behavior.
         /// </remarks>
-        /// <seealso cref="SplParseResult"/>
-        /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="Product"/>
-        /// <seealso cref="IngredientParser"/>
-        /// <seealso cref="GenericMedicine"/>
-        /// <seealso cref="EquivalentEntity"/>
-        /// <seealso cref="ProductIdentifier"/>
-        /// <seealso cref="SpecializedKind"/>  
-        /// <seealso cref="MarketingCategory"/>
-        /// <seealso cref="Characteristic"/> 
-        /// <seealso cref="PackagingLevel"/>
-        /// <seealso cref="Ingredient"/>
         /// <seealso cref="AdditionalIdentifier"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Characteristic"/> 
+        /// <seealso cref="EquivalentEntity"/>
+        /// <seealso cref="GenericMedicine"/>
+        /// <seealso cref="Ingredient"/>
+        /// <seealso cref="IngredientParser"/>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="MarketingCategory"/>
         /// <seealso cref="MarketingStatus"/>
+        /// <seealso cref="PackageIdentifier"/>
+        /// <seealso cref="PackagingHierarchy"/>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="PartOfAssembly"/>
         /// <seealso cref="Policy"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="ProductPart"/>
         /// <seealso cref="ProductRouteOfAdministration"/>
         /// <seealso cref="ProductWebLink"/>
+        /// <seealso cref="SpecializedKind"/>  
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="XElementExtensions"/>
         public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
@@ -114,8 +123,6 @@ namespace MedRecPro.Service.ParsingServices
             try
             {
                 reportProgress?.Invoke($"Starting Manufactured Product XML Elements {context.FileNameInZip}");
-
-                int sequence = 1;
 
                 // Handle SPL variations where the main data is in a nested manufacturedMedicine element
                 // Use the nested element if it exists, otherwise use the main element
@@ -158,20 +165,17 @@ namespace MedRecPro.Service.ParsingServices
                 // --- PARSE GENERIC MEDICINE ---
                 reportProgress?.Invoke($"Starting Generic Medicine XML Elements {context.FileNameInZip}");
                 var genericMedicinesCreated = await parseAndSaveGenericMedicinesAsync(mmEl, product, context);
-                result.ProductElementsCreated += genericMedicinesCreated;
-                reportProgress?.Invoke($"Completed Generic Medicine XML Elements {context.FileNameInZip}");
+                result.ProductElementsCreated += genericMedicinesCreated;  
 
                 // --- PARSE EQUIVALENT ENTITIES ---
                 reportProgress?.Invoke($"Starting Equivalent XML Elements {context.FileNameInZip}");
                 var equivCount = await parseAndSaveEquivalentEntitiesAsync(mmEl, product, context);
                 result.ProductElementsCreated += equivCount;
-                reportProgress?.Invoke($"Completed Equivalent XML Elements {context.FileNameInZip}");
 
                 // --- PARSE IDENTIFIER ENTITIES ---
                 reportProgress?.Invoke($"Starting Identifier XML Elements {context.FileNameInZip}");
                 var idCount = await parseAndSaveProductIdentifiersAsync(mmEl, product, context);
                 result.ProductElementsCreated += idCount;
-                reportProgress?.Invoke($"Completed Identifier XML Elements {context.FileNameInZip}");
 
                 // --- PARSE SPECIALIZED KINDS ---
                 reportProgress?.Invoke($"Starting Specialized Kind XML Elements {context.FileNameInZip}");
@@ -183,49 +187,51 @@ namespace MedRecPro.Service.ParsingServices
                 reportProgress?.Invoke($"Starting Marketing Category XML Elements {context.FileNameInZip}");
                 var marketingCatCreated = await parseAndSaveMarketingCategoriesAsync(mmEl, product, context);
                 result.ProductElementsCreated += marketingCatCreated;
-                reportProgress?.Invoke($"Completed Marketing Category XML Elements {context.FileNameInZip}");
 
                 // --- PARSE CHARACTERISTIC ---
                 reportProgress?.Invoke($"Starting Characteristic XML Elements {context.FileNameInZip}");
                 var characteristicCt = await parseAndSaveCharacteristicsAsync(mmEl, product, context);
                 result.ProductElementsCreated += characteristicCt;
-                reportProgress?.Invoke($"Completed Characteristic XML Elements {context.FileNameInZip}");
 
                 // --- PARSE ADDITIONAL IDENTIFIER ---
                 reportProgress?.Invoke($"Starting Additional Identifier XML Elements {context.FileNameInZip}");
                 var identifiersCt = await parseAndSaveAdditionalIdentifiersAsync(mmEl, product, context);
                 result.ProductElementsCreated += identifiersCt;
-                reportProgress?.Invoke($"Completed Additional Identifier XML Elements {context.FileNameInZip}");
 
                 // --- PARSE MARKETING STATUS ---
                 reportProgress?.Invoke($"Starting Marketing Status XML Elements {context.FileNameInZip}");
                 var marketingCt = await parseAndSaveMarketingStatusesAsync(mmEl, product, context);
                 result.ProductElementsCreated += marketingCt;
-                reportProgress?.Invoke($"Completed Marketing Status XML Elements {context.FileNameInZip}");
 
                 // --- PARSE POLICY ---
                 reportProgress?.Invoke($"Starting Policy XML Elements {context.FileNameInZip}");
                 var policyCt = await parseAndSavePoliciesAsync(mmEl, product, context);
                 result.ProductElementsCreated += policyCt;
-                reportProgress?.Invoke($"Completed Policy XML Elements {context.FileNameInZip}");
 
                 // --- PARSE ROUTE OF ADMIN ---
                 reportProgress?.Invoke($"Starting Product Route Of Administration XML Elements {context.FileNameInZip}");
                 var routeCt = await parseAndSaveProductRoutesOfAdministrationAsync(mmEl, product, context);
                 result.ProductElementsCreated += routeCt;
-                reportProgress?.Invoke($"Completed Product Route Of Administration XML Elements {context.FileNameInZip}");
 
                 // --- PARSE WEB LINK ---
                 reportProgress?.Invoke($"Starting Web Link XML Elements {context.FileNameInZip}");
                 var webCt = await parseAndSaveProductWebLinksAsync(mmEl, product, context);
                 result.ProductElementsCreated += webCt;
-                reportProgress?.Invoke($"Completed Web Link XML Elements {context.FileNameInZip}");
 
                 // --- PARSE BUSINESS OPERATION ---
                 reportProgress?.Invoke($"Starting Business Operation XML Elements {context.FileNameInZip}");
                 var opsCt = await parseAndSaveBusinessOperationAndLinksAsync(mmEl, product, context);
                 result.ProductElementsCreated += opsCt;
-                reportProgress?.Invoke($"CompletedBusiness Operation XML Elements {context.FileNameInZip}");
+
+                // --- PARSE KIT PARTS (if any) ---
+                reportProgress?.Invoke($"Starting Kit/Part XML Elements {context.FileNameInZip}");
+                var kitParsingResult = await parseAndSaveProductPartsAsync(mmEl, product, context, reportProgress);
+                result.MergeFrom(kitParsingResult);
+
+                // --- PARSE PART OF ASSEMBLY (if any) ---
+                reportProgress?.Invoke($"Starting Part of Assembly XML Elements {context.FileNameInZip}");
+                var assemblyParsingResult = await parseAndSavePartOfAssemblyAsync(mmEl, product, context, reportProgress);
+                result.MergeFrom(assemblyParsingResult);
 
                 // --- PARSE PACKAGING LEVELS ---
                 reportProgress?.Invoke($"Starting Packaging Level XML Elements {context.FileNameInZip}");
@@ -732,7 +738,6 @@ namespace MedRecPro.Service.ParsingServices
             await dbContext.SaveChangesAsync();
             #endregion
         }
-
 
         /**************************************************************/
         /// <summary>
@@ -1425,31 +1430,49 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses and saves all PackagingLevel entities under a given 'asContent' node (including nested asContent/containerPackagedProduct nodes).
+        /// Parses and saves all PackagingLevel entities under a given 'asContent' 
+        /// node (including nested asContent/containerPackagedProduct nodes).
         /// </summary>
-        /// <param name="asContentEl">Root <asContent> XElement.</param>
+        /// <param name="asContentEl">Root [asContent] XElement.</param>
         /// <param name="product">The Product entity associated (if outermost).</param>
         /// <param name="context">The parsing context (repo, logger, docTypeCode, etc).</param>
+        /// <param name="parentPackagingLevelId">The ID of the parent (outer) packaging level for creating hierarchy links. Null for the top level.</param>
+        /// <param name="sequenceNumber">The sequence of this package within its parent. Null for the top level.</param>
         /// <param name="parentProductInstanceId">For lot/container context (16.2.8), null otherwise.</param>
         /// <returns>The count of PackagingLevel records created (recursively).</returns>
         /// <remarks>
-        /// Handles both outermost and nested package levels; links product OR product instance as appropriate.
-        /// Recursively processes nested packaging structures to create hierarchical packaging relationships.
-        /// Extracts quantity information (numerator/denominator), package codes, and form codes from XML.
+        /// Handles both outermost and nested package levels. Recursively processes nested packaging
+        /// structures to create a full packaging tree using PackagingHierarchy links.
+        /// Extracts quantity, package codes, and form codes from the XML.
         /// </remarks>
         /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="PackagingHierarchy"/>
         /// <seealso cref="Product"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="saveOrGetPackagingHierarchyAsync"/>
         private async Task<int> parseAndSavePackagingLevelsAsync(
             XElement asContentEl,
             Product? product,
             SplParseContext context,
+            int? parentPackagingLevelId = null,
+            int? sequenceNumber = null,
             int? parentProductInstanceId = null)
         {
             #region implementation
             int count = 0;
+
+            if(context?.ServiceProvider == null || context.Logger == null)
+            {
+                return count; // Exit early if context is not properly initialized
+            }
+
+            // Get repository and database context for PackagingLevel operations
             var repo = context.GetRepository<PackagingLevel>();
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
             // 1. Extract <quantity>/<numerator> from current <asContent>
             var quantityEl = asContentEl.SplElement(sc.E.Quantity);
@@ -1457,10 +1480,9 @@ namespace MedRecPro.Service.ParsingServices
             decimal? quantityDenominator = null;
             string? quantityUnit = null;
 
-            // Parse quantity information if present
             if (quantityEl != null)
             {
-                // Extract numerator value and unit
+                // Extract numerator value and unit from the quantity element
                 var numeratorEl = quantityEl.SplElement(sc.E.Numerator);
                 if (numeratorEl != null)
                 {
@@ -1468,7 +1490,7 @@ namespace MedRecPro.Service.ParsingServices
                     quantityUnit = numeratorEl.GetAttrVal(sc.A.Unit);
                 }
 
-                // Extract denominator value if present
+                // Extract denominator value if present (for ratio quantities)
                 var denominatorEl = quantityEl.SplElement(sc.E.Denominator);
                 if (denominatorEl != null)
                 {
@@ -1484,10 +1506,9 @@ namespace MedRecPro.Service.ParsingServices
                 packageCode = null,
                 packageCodeSystem = null;
 
-            // Parse container package product details if present
             if (cppEl != null)
             {
-                // Extract form code information (e.g., bottle, blister pack)
+                // Extract package form information (e.g., bottle, vial, tube)
                 var formCodeEl = cppEl.SplElement(sc.E.FormCode);
                 if (formCodeEl != null)
                 {
@@ -1496,7 +1517,7 @@ namespace MedRecPro.Service.ParsingServices
                     packageFormDisplayName = formCodeEl.GetAttrVal(sc.A.DisplayName);
                 }
 
-                // Extract package identification code
+                // Extract package identification code (e.g., NDC, UPC)
                 var codeEl = cppEl.SplElement(sc.E.Code);
                 if (codeEl != null)
                 {
@@ -1505,11 +1526,11 @@ namespace MedRecPro.Service.ParsingServices
                 }
             }
 
-            // 3. Create packaging level entity with extracted data
+            // 3. Create and save the current packaging level entity
             var packagingLevel = new PackagingLevel
             {
-                // Link to product if this is the outermost level without parent instance
-                ProductID = (parentProductInstanceId == null && product != null) ? product.ProductID : null,
+                // Link to Product only for top-level packaging (no parent)
+                ProductID = (parentPackagingLevelId == null && product != null) ? product.ProductID : null,
                 ProductInstanceID = parentProductInstanceId,
                 QuantityNumerator = quantityValue,
                 QuantityNumeratorUnit = quantityUnit,
@@ -1519,27 +1540,536 @@ namespace MedRecPro.Service.ParsingServices
                 PackageFormCode = packageFormCode,
                 PackageFormCodeSystem = packageFormCodeSystem,
                 PackageFormDisplayName = packageFormDisplayName,
-                // If part context: PartProductID should be set in part-specific parser.
             };
 
-            // Save the packaging level to the database
+            // Persist the new packaging level to the database
             await repo.CreateAsync(packagingLevel);
             count++;
-            context.Logger.LogInformation($"PackagingLevel created: ProductID={packagingLevel.ProductID}, Quantity={quantityValue}{quantityUnit}, FormCode={packageFormCode}");
 
-            // 4. Recursively process nested <asContent> for child packaging levels
-            if (cppEl != null)
+            // Log successful creation with key identifying information
+            context.Logger.LogInformation($"PackagingLevel created: ID={packagingLevel.PackagingLevelID}, ProductID={packagingLevel.ProductID}, FormCode={packageFormCode}");
+
+            // 4. If this is an inner package, create the hierarchy link to its parent
+            if (parentPackagingLevelId.HasValue && packagingLevel.PackagingLevelID.HasValue)
             {
+                // Create parent-child relationship in PackagingHierarchy table
+                await saveOrGetPackagingHierarchyAsync(
+                    dbContext,
+                    parentPackagingLevelId.Value,
+                    packagingLevel.PackagingLevelID.Value,
+                    sequenceNumber
+                );
+
+                // Log hierarchy creation for debugging and audit purposes
+                context.Logger.LogInformation($"PackagingHierarchy created: OuterID={parentPackagingLevelId}, InnerID={packagingLevel.PackagingLevelID}, Seq={sequenceNumber}");
+            }
+
+            // 5. Recursively process nested <asContent> for child packaging levels
+            if (cppEl != null && packagingLevel.PackagingLevelID.HasValue)
+            {
+                int innerSequence = 1;
+
+                // Process each nested asContent element as a child packaging level
                 foreach (var nestedAsContent in cppEl.SplElements(sc.E.AsContent))
                 {
+                    // Pass the current level's ID as the parent for the next level down
                     count += await parseAndSavePackagingLevelsAsync(
                         nestedAsContent,
                         product,
                         context,
-                        parentProductInstanceId // For packaging trees, this is usually null except in lot/instance context
+                        packagingLevel.PackagingLevelID, // This level is the parent for the next
+                        innerSequence,                   // Sequence of the inner package
+                        parentProductInstanceId
                     );
+
+                    // Increment sequence for next sibling package at this level
+                    innerSequence++;
                 }
             }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all [part] elements for a given kit product, creating the part products and linking them.
+        /// </summary>
+        /// <param name="parentEl">The parent XElement (usually [manufacturedProduct]) containing [part] elements.</param>
+        /// <param name="kitProduct">The parent Product entity representing the kit.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <param name="reportProgress">Optional action to report progress.</param>
+        /// <returns>A SplParseResult aggregating the results of parsing all parts.</returns>
+        /// <remarks>
+        /// This method orchestrates the parsing of a kit structure as defined in SPL IG Section 3.1.6.
+        /// For each [part] element, it:
+        /// 1. Extracts the quantity of the part within the kit.
+        /// 2. Identifies the nested [partProduct] element.
+        /// 3. Calls the main `ParseAsync` method to parse the [partProduct] as a new, complete Product.
+        /// 4. Creates a `ProductPart` link between the kit and the newly created part product.
+        /// </remarks>
+        /// <seealso cref="ProductPart"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="ParseAsync"/>
+        /// <seealso cref="saveOrGetProductPartAsync"/>
+        private async Task<SplParseResult> parseAndSaveProductPartsAsync(
+            XElement parentEl,
+            Product kitProduct,
+            SplParseContext context,
+            Action<string>? reportProgress)
+        {
+            #region implementation
+            if (context == null 
+                || context.ServiceProvider == null 
+                || context.Logger == null)
+            {
+                return new SplParseResult();
+            }
+
+            // Initialize aggregate result to collect outcomes from all part parsing operations
+            var aggregateResult = new SplParseResult();
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Find all direct <part> children of the parent element
+            foreach (var partEl in parentEl.SplElements(sc.E.Part))
+            {
+                // Report progress for tracking kit part processing
+                reportProgress?.Invoke($"Starting Kit Part XML Elements {context.FileNameInZip}");
+
+                // 1. Extract the quantity of this part within the kit
+                var quantityEl = partEl.SplElement(sc.E.Quantity);
+                var numeratorEl = quantityEl?.SplElement(sc.E.Numerator);
+
+                // Parse quantity value and unit from the numerator element
+                decimal? partQuantity = numeratorEl?.GetAttrDecimal(sc.A.Value);
+                string? partUnit = numeratorEl?.GetAttrVal(sc.A.Unit);
+
+                // 2. The actual product data is inside <partProduct>
+                var partProductEl = partEl.SplElement(sc.E.PartProduct);
+                if (partProductEl == null)
+                {
+                    // Log warning and skip if partProduct element is missing
+                    context.Logger.LogWarning("Found <part> element without a <partProduct> child; skipping.");
+                    continue;
+                }
+
+                // 3. Recursively parse the <partProduct> as a new Product.
+                // We use the main parser to handle all its nested details (ingredients, packaging, etc.).
+                // The `partProductEl` is treated just like a `manufacturedProduct` element.
+                var partResult = await this.ParseAsync(partProductEl, context, reportProgress);
+
+                // Merge the part parsing results into the aggregate result
+                aggregateResult.MergeFrom(partResult);
+
+                // 4. Link the newly created part product back to the kit product.
+                // The `CurrentProduct` in the context will now be the part product we just created.
+                if (context.CurrentProduct?.ProductID != null && kitProduct.ProductID != null)
+                {
+                    // Create the ProductPart relationship linking kit to part
+                    await saveOrGetProductPartAsync(
+                        dbContext,
+                        kitProduct.ProductID.Value,
+                        context.CurrentProduct.ProductID.Value,
+                        partQuantity,
+                        partUnit
+                    );
+
+                    // Increment count for the ProductPart link creation
+                    aggregateResult.ProductElementsCreated++; // Count the ProductPart link
+
+                    // Log successful creation of kit-part relationship
+                    context.Logger.LogInformation(
+                        "ProductPart link created: KitID={KitID}, PartID={PartID}, Quantity={Quantity}{Unit}",
+                        kitProduct.ProductID, context.CurrentProduct.ProductID, partQuantity, partUnit);
+                }
+                else
+                {
+                    // Log error when ProductIDs are not available for linking
+                    context.Logger.LogError("Failed to create ProductPart link: Kit or Part ProductID was null.");
+                }
+
+                // Report completion of this kit part processing
+                reportProgress?.Invoke($"Completed Kit Part XML Elements {context.FileNameInZip}");
+            }
+
+            // Return aggregated results from all part parsing operations
+            return aggregateResult;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all [asPartOfAssembly] elements, creating the accessory products and linking them.
+        /// </summary>
+        /// <param name="parentEl">The parent XElement (usually [manufacturedProduct]) containing the assembly info.</param>
+        /// <param name="primaryProduct">The primary Product entity being described.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <param name="reportProgress">Optional action to report progress.</param>
+        /// <returns>A SplParseResult aggregating the results of parsing all assembly parts.</returns>
+        /// <remarks>
+        /// This method handles products sold separately but used together, as defined in SPL IG Sections 3.1.6 and 3.3.8.
+        /// For each [asPartOfAssembly] element, it:
+        /// 1. Navigates to the nested [partProduct] which defines the accessory product.
+        /// 2. Recursively calls the main `ParseAsync` method to parse the accessory product.
+        /// 3. Creates a `PartOfAssembly` link between the primary product and the newly created accessory product.
+        /// </remarks>
+        /// <seealso cref="PartOfAssembly"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="ParseAsync"/>
+
+        /// <seealso cref="saveOrGetPartOfAssemblyAsync"/>
+        private async Task<SplParseResult> parseAndSavePartOfAssemblyAsync(
+            XElement parentEl,
+            Product primaryProduct,
+            SplParseContext context,
+            Action<string>? reportProgress)
+        {
+            #region implementation
+
+            // Validate required dependencies to ensure proper database operations
+            if (context?.Logger == null || context?.ServiceProvider == null)
+            {
+                return new SplParseResult();
+            }
+
+            // Initialize aggregate result to collect outcomes from all assembly part parsing operations
+            var aggregateResult = new SplParseResult();
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Find all <asPartOfAssembly> elements that define accessory products
+            foreach (var assemblyEl in parentEl.SplElements(sc.E.AsPartOfAssembly))
+            {
+                // Report progress for tracking assembly part processing
+                reportProgress?.Invoke($"Starting Part of Assembly XML Elements {context.FileNameInZip}");
+
+                // The accessory product is defined within <wholeProduct><part><partProduct>
+                // Navigate through the nested XML structure to find the partProduct element
+                var accessoryProductEl = assemblyEl.SplElement(sc.E.WholeProduct, sc.E.Part, sc.E.PartProduct);
+                if (accessoryProductEl == null)
+                {
+                    // Log warning and skip if the expected XML structure is not found
+                    context.Logger.LogWarning("Found <asPartOfAssembly> without a valid <partProduct> structure; skipping.");
+                    continue;
+                }
+
+                // Recursively parse the accessory product by treating its <partProduct> element
+                // as a standard <manufacturedProduct> element to handle all nested details
+                var accessoryResult = await this.ParseAsync(accessoryProductEl, context, reportProgress);
+
+                // Merge the accessory parsing results into the aggregate result
+                aggregateResult.MergeFrom(accessoryResult);
+
+                // The newly parsed accessory product is now available in context.CurrentProduct
+                var accessoryProduct = context.CurrentProduct;
+
+                // Create the bidirectional assembly link if both products were created successfully
+                if (accessoryProduct != null 
+                    && primaryProduct.ProductID.HasValue 
+                    && accessoryProduct.ProductID.HasValue)
+                {
+                    // Create the PartOfAssembly relationship linking primary and accessory products
+                    await saveOrGetPartOfAssemblyAsync(
+                        dbContext,
+                        primaryProduct.ProductID.Value,
+                        accessoryProduct.ProductID.Value
+                    );
+
+                    // Increment count for the PartOfAssembly link creation
+                    aggregateResult.ProductElementsCreated++; // Count the PartOfAssembly link
+
+                    // Log successful creation of assembly relationship
+                    context.Logger.LogInformation(
+                        "PartOfAssembly link created: ProductID1={P1}, ProductID2={P2}",
+                        primaryProduct.ProductID.Value, accessoryProduct.ProductID.Value);
+                }
+                else
+                {
+                    // Log error when ProductIDs are not available for linking
+                    context.Logger.LogError("Failed to create PartOfAssembly link: A ProductID was null.");
+                }
+
+                // Report completion of this assembly part processing
+                reportProgress?.Invoke($"Completed Part of Assembly XML Elements {context.FileNameInZip}");
+            }
+
+            // Return aggregated results from all assembly part parsing operations
+            return aggregateResult;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing PartOfAssembly link or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="product1Id">The ID of the first product in the assembly.</param>
+        /// <param name="product2Id">The ID of the second product in the assembly.</param>
+        /// <returns>The existing or newly created PartOfAssembly entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern for the bidirectional relationship between two products
+        /// in an assembly. To prevent duplicate entries (e.g., A-B and B-A), it stores the relationship
+        /// in a canonical order, with the lower ProductID always in `PrimaryProductID`.
+        /// </remarks>
+        /// <seealso cref="PartOfAssembly"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Product"/>
+        private async Task<PartOfAssembly> saveOrGetPartOfAssemblyAsync(
+            ApplicationDbContext dbContext,
+            int product1Id,
+            int product2Id)
+        {
+            #region implementation
+            // Store the relationship canonically to avoid duplicates (e.g., A-B vs. B-A)
+            // Always place the smaller ID in PrimaryProductID for consistent ordering
+            int primaryId = Math.Min(product1Id, product2Id);
+            int accessoryId = Math.Max(product1Id, product2Id);
+
+            // Search for an existing assembly link with the canonical IDs
+            // Deduplication based on canonical ordering of PrimaryProductID and AccessoryProductID
+            var existing = await dbContext.Set<PartOfAssembly>().FirstOrDefaultAsync(pa =>
+                pa.PrimaryProductID == primaryId &&
+                pa.AccessoryProductID == accessoryId);
+
+            // Return the existing link if found to avoid creating duplicates
+            if (existing != null)
+                return existing;
+
+            // Create a new assembly link entity with canonical ordering
+            var assemblyLink = new PartOfAssembly
+            {
+                PrimaryProductID = primaryId,
+                AccessoryProductID = accessoryId
+            };
+
+            // Save the new link to the database and persist changes immediately
+            dbContext.Set<PartOfAssembly>().Add(assemblyLink);
+            await dbContext.SaveChangesAsync();
+
+            // Return the newly created and persisted assembly relationship
+            return assemblyLink;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing ProductPart or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="kitProductId">The ID of the parent (kit) product.</param>
+        /// <param name="partProductId">The ID of the child (part) product.</param>
+        /// <param name="quantity">The quantity of the part within the kit.</param>
+        /// <param name="unit">The unit for the part quantity.</param>
+        /// <returns>The existing or newly created ProductPart entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern to prevent duplicate kit-part relationships.
+        /// It uses a composite key match on the kit and part product IDs for uniqueness.
+        /// </remarks>
+        /// <seealso cref="ProductPart"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Product"/>
+        private async Task<ProductPart> saveOrGetProductPartAsync(
+            ApplicationDbContext dbContext,
+            int kitProductId,
+            int partProductId,
+            decimal? quantity,
+            string? unit)
+        {
+            #region implementation
+            // Search for an existing part link with matching kit and part IDs
+            // Deduplication based on composite key: KitProductID and PartProductID
+            var existing = await dbContext.Set<ProductPart>().FirstOrDefaultAsync(pp =>
+                pp.KitProductID == kitProductId &&
+                pp.PartProductID == partProductId);
+
+            // Return the existing link if found to avoid creating duplicates
+            if (existing != null)
+                return existing;
+
+            // Create a new product part link entity with the provided relationship data
+            var productPart = new ProductPart
+            {
+                KitProductID = kitProductId,
+                PartProductID = partProductId,
+                PartQuantityNumerator = quantity,
+                PartQuantityNumeratorUnit = unit
+            };
+
+            // Save the new link to the database and persist changes immediately
+            dbContext.Set<ProductPart>().Add(productPart);
+            await dbContext.SaveChangesAsync();
+
+            // Return the newly created and persisted product part relationship
+            return productPart;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing PackagingHierarchy or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="outerId">The ID of the outer (containing) packaging level.</param>
+        /// <param name="innerId">The ID of the inner (contained) packaging level.</param>
+        /// <param name="sequence">The sequence number of the inner package within the outer package.</param>
+        /// <returns>The existing or newly created PackagingHierarchy entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern to prevent duplicate hierarchy records.
+        /// It uses a composite key match on the outer ID, inner ID, and sequence number for uniqueness.
+        /// </remarks>
+        /// <seealso cref="PackagingHierarchy"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="PackagingLevel"/>
+        private async Task<PackagingHierarchy> saveOrGetPackagingHierarchyAsync(
+            ApplicationDbContext dbContext,
+            int outerId,
+            int innerId,
+            int? sequence)
+        {
+            #region implementation
+            // Search for an existing hierarchy link with matching parameters
+            // Deduplication based on composite key: OuterPackagingLevelID, InnerPackagingLevelID, and SequenceNumber
+            var existing = await dbContext.Set<PackagingHierarchy>().FirstOrDefaultAsync(ph =>
+                ph.OuterPackagingLevelID == outerId &&
+                ph.InnerPackagingLevelID == innerId &&
+                ph.SequenceNumber == sequence);
+
+            // Return the existing link if found to avoid creating duplicates
+            if (existing != null)
+                return existing;
+
+            // Create a new hierarchy link entity with the provided relationship data
+            var hierarchyLink = new PackagingHierarchy
+            {
+                OuterPackagingLevelID = outerId,
+                InnerPackagingLevelID = innerId,
+                SequenceNumber = sequence
+            };
+
+            // Save the new link to the database and persist changes immediately
+            dbContext.Set<PackagingHierarchy>().Add(hierarchyLink);
+            await dbContext.SaveChangesAsync();
+
+            // Return the newly created and persisted hierarchy link
+            return hierarchyLink;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Infers the package identifier type (e.g., 'NDCPackage') based on the OID.
+        /// </summary>
+        /// <param name="oid">The OID string for the code system.</param>
+        /// <returns>A formatted package identifier type string, or null if not recognized.</returns>
+        /// <remarks>
+        /// This helper calls the general <see cref="inferIdentifierType"/> method and then formats
+        /// the result to match the package-specific naming convention (e.g., 'ISBT 128' becomes 'ISBTPackage').
+        /// </remarks>
+        /// <seealso cref="inferIdentifierType"/>
+        /// <seealso cref="PackageIdentifier"/>
+        private static string? inferPackageIdentifierType(string? oid)
+        {
+            #region implementation
+            // Call the general identifier type inference method to get base type
+            var baseType = inferIdentifierType(oid);
+            if (string.IsNullOrEmpty(baseType))
+            {
+                // Return null if no base type could be inferred from the OID
+                return null;
+            }
+
+            // Format to match model examples: "ISBT 128" -> "ISBTPackage"
+            // Remove spaces and append "Package" suffix for consistent naming convention
+            return $"{baseType.Replace(" ", "")}Package";
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves PackageIdentifier entities from a [containerPackagedProduct] element for a given packaging level.
+        /// </summary>
+        /// <param name="containerPackagedProductEl">The [containerPackagedProduct] XElement to parse.</param>
+        /// <param name="packagingLevel">The PackagingLevel entity to link the identifiers to.</param>
+        /// <param name="context">The parsing context for repository access and logging.</param>
+        /// <returns>The number of PackageIdentifier records created.</returns>
+        /// <remarks>
+        /// Handles the [code] element within a [containerPackagedProduct] node, which represents the
+        /// package item code (e.g., NDC Package Code). It infers the identifier type from the code system OID
+        /// and creates a link to the parent packaging level, as specified in SPL IG Section 3.1.5.
+        /// </remarks>
+        /// <seealso cref="PackageIdentifier"/>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="inferPackageIdentifierType"/>
+        private async Task<int> parseAndSavePackageIdentifiersAsync(
+            XElement containerPackagedProductEl,
+            PackagingLevel packagingLevel,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+
+            // Get repository for PackageIdentifier database operations
+            var repo = context.GetRepository<PackageIdentifier>();
+
+            // Validate required dependencies to ensure proper database operations
+            if (context?.Logger == null || repo == null || !packagingLevel.PackagingLevelID.HasValue)
+            {
+                // Log warning when critical dependencies are missing
+                context?.Logger?.LogWarning("Could not parse PackageIdentifier due to invalid context or missing PackagingLevelID.");
+                return 0;
+            }
+
+            // The package item code is in the <code> child of <containerPackagedProduct>
+            var codeEl = containerPackagedProductEl.SplElement(sc.E.Code);
+            if (codeEl == null)
+            {
+                // No code element found, which is valid in some cases (e.g., compounded drugs per IG 3.1.5.12)
+                return 0;
+            }
+
+            // Extract identifier value and system OID from the code element attributes
+            string? identifierValue = codeEl.GetAttrVal(sc.A.CodeValue);
+            string? identifierSystemOID = codeEl.GetAttrVal(sc.A.CodeSystem);
+
+            // Both value and system are required to create a valid identifier
+            if (string.IsNullOrWhiteSpace(identifierValue) || string.IsNullOrWhiteSpace(identifierSystemOID))
+            {
+                // Return early if required data is missing - no error logging as this is expected in some scenarios
+                return 0;
+            }
+
+            // Infer the type (e.g., 'NDCPackage', 'GS1Package') from the system OID
+            string? identifierType = inferPackageIdentifierType(identifierSystemOID);
+
+            // Create and save the PackageIdentifier entity with extracted data
+            var packageIdentifier = new PackageIdentifier
+            {
+                PackagingLevelID = packagingLevel.PackagingLevelID,
+                IdentifierValue = identifierValue,
+                IdentifierSystemOID = identifierSystemOID,
+                IdentifierType = identifierType
+            };
+
+            // Persist the new PackageIdentifier to the database
+            await repo.CreateAsync(packageIdentifier);
+            count++;
+
+            // Log successful creation with key details for debugging and audit purposes
+            context.Logger.LogInformation(
+                "PackageIdentifier created: PackagingLevelID={PackagingLevelID}, Value={IdentifierValue}, Type={IdentifierType}",
+                packagingLevel.PackagingLevelID, identifierValue, identifierType);
 
             return count;
             #endregion
@@ -1800,8 +2330,7 @@ namespace MedRecPro.Service.ParsingServices
         XElement mmEl,
         Product product,
         SplParseContext context,
-        string? documentTypeCode
-)
+        string? documentTypeCode)
         {
             #region implementation
             var repo = context.GetRepository<SpecializedKind>();

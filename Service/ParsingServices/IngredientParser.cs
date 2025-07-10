@@ -83,9 +83,9 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Ingredient"/>
         /// <seealso cref="IngredientSubstance"/>
         /// <seealso cref="Label"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, 
-            SplParseContext context,
-            Action<string>? reportProgress)
+        public async Task<SplParseResult> ParseAsync(XElement element,
+        SplParseContext context,
+        Action<string>? reportProgress)
         {
             #region implementation
             var result = new SplParseResult();
@@ -114,8 +114,8 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 // 2. Get or create the required substance entities from the database
-                var (substance, specifiedSubstanceId) = await getOrCreateSubstanceEntitiesAsync(ingredientSubstanceEl, 
-                    context, 
+                var (substance, specifiedSubstanceId) = await getOrCreateSubstanceEntitiesAsync(ingredientSubstanceEl,
+                    context,
                     element.GetAttrVal(sc.A.ClassCode),
                     reportProgress);
 
@@ -128,15 +128,21 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 // 3. Build the Ingredient object from the XML data (no DB calls here)
-                Ingredient ingredient = buildIngredient(element, 
-                    context, 
-                    substance.IngredientSubstanceID.Value, 
+                Ingredient ingredient = buildIngredient(element,
+                    context,
+                    substance.IngredientSubstanceID.Value,
                     specifiedSubstanceId,
                     context.SeqNumber,
                     ingredientSubstanceEnclosingElement);
 
                 // 4. Persist the new Ingredient to the database
                 await saveIngredientAsync(ingredient, context);
+
+                // 5. If the ingredient has a source product, create the link now that we have an IngredientID
+                if (ingredient.IngredientID.HasValue)
+                {
+                    await createIngredientSourceProductAsync(element, ingredient.IngredientID.Value, context);
+                }
 
                 result.IngredientsCreated++;
 
@@ -242,6 +248,175 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return (substance, specifiedSubstanceId);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds an existing ReferenceSubstance by its UNII and parent IngredientSubstanceID.
+        /// If not found, creates a new one. This is used when an ingredient's strength is
+        /// based on a reference ingredient (classCode="ACTIR").
+        /// </summary>
+        /// <param name="substanceEl">The XElement representing the ingredientSubstance to process.</param>
+        /// <param name="ingredientSubstanceId">The ID of the parent IngredientSubstance.</param>
+        /// <param name="context">The current parsing context containing database access services.</param>
+        /// <returns>A ReferenceSubstance entity, either existing or newly created, or null if no reference substance data is found.</returns>
+        /// <remarks>
+        /// This method implements the logic for handling reference ingredients as specified in SPL section 3.2.5.
+        /// The process:
+        /// 1. Navigates to the [asEquivalentEntity] -> [definingSubstance] element.
+        /// 2. Extracts the UNII and name of the reference substance.
+        /// 3. Checks if a link for this reference substance already exists for the parent ingredient.
+        /// 4. If found, returns the existing entity; otherwise, creates a new one.
+        /// </remarks>
+        /// <seealso cref="ReferenceSubstance"/>
+        /// <seealso cref="IngredientSubstance"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        private async Task<ReferenceSubstance?> getOrCreateReferenceSubstanceAsync(XElement substanceEl, int ingredientSubstanceId, SplParseContext context)
+        {
+            #region implementation
+            // Navigate to the element containing the reference substance details
+            // Path: ingredientSubstance -> asEquivalentEntity -> definingSubstance
+            var definingSubstanceEl = substanceEl.SplElement(sc.E.AsEquivalentEntity, sc.E.DefiningSubstance);
+            if (definingSubstanceEl == null
+                || context?.ServiceProvider == null
+                || context?.Logger == null)
+            {
+                // No reference substance data present for this ingredient
+                return null;
+            }
+
+            // Extract the reference substance's UNII and name from the XML structure
+            var refUnii = definingSubstanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue);
+            var refName = definingSubstanceEl.GetSplElementVal(sc.E.Name);
+
+            // Validate that we have the required data before proceeding with database operations
+            if (string.IsNullOrWhiteSpace(refUnii) || string.IsNullOrWhiteSpace(refName))
+            {
+                // Log warning for missing critical data that prevents reference substance creation
+                context.Logger.LogWarning("Skipping ReferenceSubstance for IngredientSubstanceID {ID} due to missing UNII or Name.", ingredientSubstanceId);
+                return null;
+            }
+
+            // Get the DbContext to check for existing records and perform database operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var referenceSubstanceDbSet = dbContext.Set<ReferenceSubstance>();
+
+            // Check if this exact reference substance link already exists to prevent duplicates
+            // Deduplication based on both IngredientSubstanceID and RefSubstanceUNII
+            var existingReference = await referenceSubstanceDbSet.FirstOrDefaultAsync(rs =>
+                rs.IngredientSubstanceID == ingredientSubstanceId && rs.RefSubstanceUNII == refUnii);
+
+            if (existingReference != null)
+            {
+                // Return existing reference substance to avoid creating duplicates
+                context.Logger.LogDebug("ReferenceSubstance link for UNII {UNII} already exists for IngredientSubstanceID {ID}.", refUnii, ingredientSubstanceId);
+                return existingReference;
+            }
+
+            // If not found, create, save, and return the new entity
+            context.Logger.LogInformation("Creating new ReferenceSubstance '{Name}' for IngredientSubstanceID {ID}", refName, ingredientSubstanceId);
+
+            // Build new ReferenceSubstance entity with extracted XML data
+            var newReferenceSubstance = new ReferenceSubstance
+            {
+                IngredientSubstanceID = ingredientSubstanceId,
+                RefSubstanceUNII = refUnii,
+                RefSubstanceName = refName
+            };
+
+            // Add to DbSet and save immediately to generate primary key
+            referenceSubstanceDbSet.Add(newReferenceSubstance);
+            await dbContext.SaveChangesAsync();
+
+            // Return the newly created and persisted reference substance
+            return newReferenceSubstance;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and creates an IngredientSourceProduct record if the ingredient XML
+        /// specifies a source product NDC, which is common in compounded drug labels.
+        /// </summary>
+        /// <param name="ingredientEl">The XML element for the <ingredient> which may contain the source product info.</param>
+        /// <param name="ingredientId">The ID of the parent Ingredient record to link to.</param>
+        /// <param name="context">The current parsing context for database access and logging.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <remarks>
+        /// This method implements the logic for handling ingredient source products as specified in SPL section 3.1.4.
+        /// The process:
+        /// 1. Navigates to the [subjectOf] -> [substanceSpecification] -> [code] element.
+        /// 2. Extracts the source product NDC and its code system.
+        /// 3. Validates that the NDC exists.
+        /// 4. Checks for and prevents the creation of duplicate records for the same ingredient.
+        /// 5. Creates and saves a new IngredientSourceProduct entity to the database.
+        /// </remarks>
+        /// <seealso cref="IngredientSourceProduct"/>
+        /// <seealso cref="Ingredient"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        private async Task createIngredientSourceProductAsync(XElement ingredientEl, int ingredientId, SplParseContext context)
+        {
+            #region implementation
+            // Navigate to the element containing the source product NDC
+            // Path: ingredient -> subjectOf -> substanceSpecification -> code
+            var codeEl = ingredientEl.SplElement(sc.E.SubjectOf, sc.E.SubstanceSpecification, sc.E.Code);
+            if (codeEl == null
+                || context?.ServiceProvider == null
+                || context?.Logger == null)
+            {
+                // No source product data present for this ingredient
+                return;
+            }
+
+            // Extract the source product's NDC and code system from XML attributes
+            var sourceNdc = codeEl.GetAttrVal(sc.A.CodeValue);
+            var sourceNdcSystem = codeEl.GetAttrVal(sc.A.CodeSystem);
+
+            // Validate that we have the required NDC before proceeding with database operations
+            if (string.IsNullOrWhiteSpace(sourceNdc))
+            {
+                // Log warning for missing NDC which is required for source product tracking
+                context.Logger.LogWarning("Skipping IngredientSourceProduct for IngredientID {ID} due to missing source NDC.", ingredientId);
+                return;
+            }
+
+            // Get the DbContext to check for existing records and perform database operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var sourceProductDbSet = dbContext.Set<IngredientSourceProduct>();
+
+            // Check if this exact source product link already exists to prevent duplicates
+            // Deduplication based on both IngredientID and SourceProductNDC
+            var existingSourceProduct = await sourceProductDbSet.FirstOrDefaultAsync(isp =>
+                isp.IngredientID == ingredientId && isp.SourceProductNDC == sourceNdc);
+
+            if (existingSourceProduct != null)
+            {
+                // Return early if source product link already exists to avoid creating duplicates
+                context.Logger.LogDebug("IngredientSourceProduct link for NDC {NDC} already exists for IngredientID {ID}.", sourceNdc, ingredientId);
+                return;
+            }
+
+            // If not found, create and save the new entity
+            context.Logger.LogInformation("Creating new IngredientSourceProduct with NDC {NDC} for IngredientID {ID}", sourceNdc, ingredientId);
+
+            // Build new IngredientSourceProduct entity with extracted XML data
+            var newSourceProduct = new IngredientSourceProduct
+            {
+                IngredientID = ingredientId,
+                SourceProductNDC = sourceNdc,
+                SourceProductNDCSysten = sourceNdcSystem
+            };
+
+            // Add to DbSet and save immediately to persist the source product relationship
+            sourceProductDbSet.Add(newSourceProduct);
+            await dbContext.SaveChangesAsync();
             #endregion
         }
 
@@ -594,7 +769,16 @@ namespace MedRecPro.Service.ParsingServices
 
             // If the substance has an active moiety, create it
             if (newSubstance != null && newSubstance.IngredientSubstanceID > 0)
+            {
                 await createActiveMoietyAsync(substanceEl, newSubstance.IngredientSubstanceID.Value, context);
+
+                // If the ingredient is a reference ingredient for strength, create the link
+                if (!string.IsNullOrWhiteSpace(ingredientClassCode) 
+                    && ingredientClassCode.Equals("ACTIR", StringComparison.OrdinalIgnoreCase))
+                {
+                    await getOrCreateReferenceSubstanceAsync(substanceEl, newSubstance.IngredientSubstanceID.Value, context);
+                }
+            }
 
             reportProgress?.Invoke($"Added Ingredient {newSubstance?.SubstanceName} for file {context.FileNameInZip}");
 
@@ -620,7 +804,10 @@ namespace MedRecPro.Service.ParsingServices
             // We need to find the inner-most one that contains the code and name.
             var activeMoietyEl = substanceEl.GetSplElement(sc.E.ActiveMoiety)?.GetSplElement(sc.E.ActiveMoiety);
 
-            if (activeMoietyEl == null)
+            if (activeMoietyEl == null
+                || context == null
+                || context.Logger == null
+                || context.ServiceProvider == null)
             {
                 return; // No active moiety to parse
             }

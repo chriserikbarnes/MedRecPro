@@ -218,6 +218,7 @@
         public static class A // Attribute Names
         {
             public const string Root = "root";
+            public const string ID = "ID"; // Attribute name is "ID"
             public const string Extension = "extension";
             public const string CodeValue = "code"; // Attribute name is "code"
             public const string CodeSystem = "codeSystem";

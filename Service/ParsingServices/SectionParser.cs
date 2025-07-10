@@ -109,6 +109,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="ManufacturedProductParser"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement xEl,
             SplParseContext context,
@@ -227,6 +228,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>The created and saved Section entity, or null if creation failed.</returns>
         /// <seealso cref="Section"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
         private async Task<Section?> createAndSaveSectionAsync(XElement xEl, SplParseContext context)
         {
@@ -235,6 +237,7 @@ namespace MedRecPro.Service.ParsingServices
             var section = new Section
             {
                 StructuredBodyID = context.StructuredBody!.StructuredBodyID!.Value,
+                SectionLinkGUID = xEl.GetAttrVal(sc.A.ID),
                 SectionGUID = Util.ParseNullableGuid(xEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root) ?? string.Empty) ?? Guid.Empty,
                 SectionCode = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
                 SectionCodeSystem = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem),
@@ -300,7 +303,190 @@ namespace MedRecPro.Service.ParsingServices
             var directHighlights = await getOrCreateSectionExcerptHighlightsAsync(xEl, sectionId, context);
             result.SectionAttributesCreated += directHighlights.Count;
 
+            // Process observationMedia elements for images
+            var observationMedia = await getOrCreateObservationMediaAsync(xEl, sectionId, context);
+            result.SectionAttributesCreated += observationMedia.Count;
+
             return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds or creates ObservationMedia records for all [observationMedia] elements
+        /// within a section, capturing image metadata for database storage.
+        /// </summary>
+        /// <param name="sectionEl">The XElement for the parent [section].</param>
+        /// <param name="sectionId">The SectionID of the parent section (already saved).</param>
+        /// <param name="context">Parsing context for repo/db access.</param>
+        /// <returns>List of ObservationMedia objects (created or found).</returns>
+        /// <seealso cref="ObservationMedia"/>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<ObservationMedia>> getOrCreateObservationMediaAsync(
+            XElement sectionEl,
+            int sectionId,
+            SplParseContext context)
+        {
+            #region implementation
+            var mediaList = new List<ObservationMedia>();
+
+            // Validate required input parameters to prevent null reference exceptions
+            if (sectionEl == null || sectionId <= 0)
+                return mediaList;
+
+            // Validate required context dependencies to ensure proper service resolution
+            if (context?.ServiceProvider == null)
+                return mediaList;
+
+            // Get database context and repository for ObservationMedia operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var repo = context.GetRepository<ObservationMedia>();
+            var dbSet = dbContext.Set<ObservationMedia>();
+
+            // Find all <component><observationMedia> children within the section
+            var mediaElements = sectionEl.SplElements(sc.E.Component, sc.E.ObservationMedia);
+
+            foreach (var mediaEl in mediaElements)
+            {
+                if (mediaEl == null) continue;
+
+                // Extract data from the XML element
+                var mediaId = mediaEl.GetAttrVal(sc.A.ID);
+                if (string.IsNullOrWhiteSpace(mediaId))
+                {
+                    // ID is crucial for linking, skip if missing
+                    continue;
+                }
+
+                // Deduplicate based on SectionID and the media's own ID attribute
+                var existingMedia = await dbSet.FirstOrDefaultAsync(m =>
+                    m.SectionID == sectionId &&
+                    m.MediaID == mediaId);
+
+                if (existingMedia != null)
+                {
+                    // Use existing media record instead of creating duplicate
+                    mediaList.Add(existingMedia);
+                    continue;
+                }
+
+                // Not found, so create a new one with extracted XML data
+                var newMedia = new ObservationMedia
+                {
+                    SectionID = sectionId,
+                    MediaID = mediaId,
+                    DescriptionText = mediaEl.GetSplElementVal(sc.E.Text),
+                    MediaType = mediaEl.GetSplElementAttrVal(sc.E.Value, sc.A.MediaType),
+                    XsiType = mediaEl.SplElement(sc.E.Value)?.GetXsiType(),
+                    // Path: observationMedia > value > reference
+                    FileName = mediaEl.SplElement(sc.E.Value)?.SplElement(sc.E.Reference)?.Attribute(sc.A.Value)?.Value
+                };
+
+                // Save new media record to database
+                await repo.CreateAsync(newMedia);
+                mediaList.Add(newMedia);
+            }
+
+            return mediaList;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds or creates RenderedMedia records for all [renderMultimedia] tags within a given content block.
+        /// This method links a SectionTextContent entry to its corresponding ObservationMedia entry.
+        /// </summary>
+        /// <param name="contentBlockEl">The XElement for the content block (e.g., a paragraph or a block-level renderMultimedia).</param>
+        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="isInline">Indicates if the media is rendered inline within text or as a standalone block.</param>
+        /// <returns>The number of RenderedMedia entities created.</returns>
+        /// <seealso cref="RenderedMedia"/>
+        /// <seealso cref="ObservationMedia"/>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<int> getOrCreateRenderedMediaAsync(
+            XElement contentBlockEl,
+            int sectionTextContentId,
+            SplParseContext context,
+            bool isInline)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // Validate context to ensure required services and current section are available
+            if (context?.ServiceProvider == null || context?.CurrentSection == null) return 0;
+
+            // Get DB context and repositories for RenderedMedia and ObservationMedia operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var renderedMediaRepo = context.GetRepository<RenderedMedia>();
+            var renderedMediaDbSet = dbContext.Set<RenderedMedia>();
+            var observationMediaDbSet = dbContext.Set<ObservationMedia>();
+
+            // Find all <renderMultimedia> elements. If the block is the element itself, this will be the only one.
+            // If it's a paragraph, it will find all descendants.
+            var renderedElements = contentBlockEl.Name.LocalName == sc.E.RenderMultimedia
+                ? new List<XElement> { contentBlockEl }
+                : contentBlockEl.Descendants(ns + sc.E.RenderMultimedia).ToList();
+
+            // Return early if no renderMultimedia elements found
+            if (!renderedElements.Any()) return 0;
+
+            int seqNum = 1;
+            foreach (var el in renderedElements)
+            {
+                // Extract the referenced object ID from the renderMultimedia element
+                var referencedObjectId = el.Attribute(sc.A.ReferencedObject)?.Value;
+                if (string.IsNullOrWhiteSpace(referencedObjectId))
+                {
+                    // Log warning for missing referencedObject attribute
+                    context.Logger?.LogWarning("Found <renderMultimedia> tag with no referencedObject attribute in file {FileName}.", context.FileNameInZip);
+                    continue;
+                }
+
+                // Find the ObservationMedia this tag refers to.
+                // Note: This assumes ObservationMedia for the entire section has already been parsed.
+                var observationMedia = await observationMediaDbSet
+                    .FirstOrDefaultAsync(om => om.MediaID == referencedObjectId && om.SectionID == context.CurrentSection.SectionID);
+
+                if (observationMedia?.ObservationMediaID == null)
+                {
+                    // Log warning for dangling reference when no matching ObservationMedia found
+                    context.Logger?.LogWarning("Dangling reference: <renderMultimedia referencedObject='{RefId}'> found, but no matching <observationMedia> was found in the same section in file {FileName}.", referencedObjectId, context.FileNameInZip);
+                    continue;
+                }
+
+                // Deduplicate: Check if this link already exists to avoid duplicate records
+                var existingLink = await renderedMediaDbSet.FirstOrDefaultAsync(rm =>
+                    rm.SectionTextContentID == sectionTextContentId &&
+                    rm.ObservationMediaID == observationMedia.ObservationMediaID &&
+                    rm.SequenceInContent == seqNum);
+
+                if (existingLink == null)
+                {
+                    // Create new RenderedMedia link between SectionTextContent and ObservationMedia
+                    var newLink = new RenderedMedia
+                    {
+                        SectionTextContentID = sectionTextContentId,
+                        ObservationMediaID = observationMedia.ObservationMediaID,
+                        SequenceInContent = seqNum,
+                        IsInline = isInline
+                    };
+                    await renderedMediaRepo.CreateAsync(newLink);
+                    createdCount++;
+                }
+                // Increment sequence number for proper ordering of media within content
+                seqNum++;
+            }
+
+            return createdCount;
             #endregion
         }
 
@@ -315,6 +501,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="reportProgress">Optional progress reporting action.</param>
         /// <returns>An aggregated SplParseResult from all child section parsing operations.</returns>
         /// <seealso cref="SectionHierarchy"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Section"/>
         /// <seealso cref="Label"/>
         private async Task<SplParseResult> parseChildSectionsAsync(XElement parentEl, int parentSectionId, SplParseContext context, Action<string>? reportProgress)
@@ -356,6 +543,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionHierarchy"/>
         /// <seealso cref="Section"/>
         /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
         private async Task linkChildSectionAsync(int parentSectionId, XElement childSectionEl, SplParseContext context, SplParseResult result)
         {
@@ -441,6 +629,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="TextTableCell"/>
         /// <seealso cref="TextTableRow"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private static async Task<int> parseAndCreateCellsAsync(
@@ -525,6 +714,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="TextTableRow"/>
         /// <seealso cref="TextTable"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private static async Task<int> parseAndCreateRowsAsync(
@@ -609,6 +799,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="TextTable"/>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private static async Task<int> getOrCreateTextTableAndChildrenAsync(
@@ -695,6 +886,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="reportProgress">Optional progress reporting action.</param>
         /// <returns>The SplParseResult from the product parser, or an empty result if no product exists.</returns>
         /// <seealso cref="ManufacturedProductParser"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="Label"/>
         private async Task<SplParseResult> parseManufacturedProductAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
@@ -732,6 +924,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="Section"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private static async Task<Tuple<List<SectionTextContent>, int>> getOrCreateSectionTextContentsAsync(
@@ -861,6 +1054,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
         private static async Task<SectionTextContent?> findOrCreateSectionTextContentRecordAsync(
             XElement block,
@@ -969,6 +1163,23 @@ namespace MedRecPro.Service.ParsingServices
                 if (stc.SectionID > 0)
                     await getOrCreateSectionExcerptHighlightsAsync(block, (int)stc.SectionID, context);
             }
+            else if (contentType.Equals(sc.E.RenderMultimedia, StringComparison.OrdinalIgnoreCase))
+            { 
+                // Handle block-level images, where <renderMultimedia> is its own content block.
+                grandchildEntitiesCount += await getOrCreateRenderedMediaAsync(block, stc.SectionTextContentID.Value, context, isInline: false);
+            }
+
+            // Check for INLINE images inside other content types, like Paragraph.
+            // This runs in addition to the handlers above.
+            if (block.Descendants(ns + sc.E.RenderMultimedia).Any())
+            {
+                // If the block itself isn't a RenderMultiMedia tag, any images inside it must be inline.
+                bool isInline = !contentType.Equals(sc.E.RenderMultimedia, StringComparison.OrdinalIgnoreCase);
+                if (isInline)
+                {
+                    grandchildEntitiesCount += await getOrCreateRenderedMediaAsync(block, stc.SectionTextContentID.Value, context, isInline: true);
+                }
+            }
 
             return grandchildEntitiesCount;
             #endregion
@@ -1035,6 +1246,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="TextList"/>
         /// <seealso cref="TextListItem"/>
         /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="SplParseContext"/>
         private static async Task<int> getOrCreateTextListAndItemsAsync(
             XElement listEl,
@@ -1157,6 +1369,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <exception cref="InvalidOperationException">Thrown when structured body context is invalid or section GUID is missing.</exception>
         /// <seealso cref="Section"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private static async Task<Section> parseAndSaveSectionAsync(XElement sectionEl, SplParseContext context)
@@ -1194,6 +1407,7 @@ namespace MedRecPro.Service.ParsingServices
             // Extract additional metadata
             // Parse section code information and metadata from XML attributes
             var sectionCode = sectionEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue);
+            var sectionLinkGuid = sectionEl.GetAttrVal(sc.A.ID);
             var sectionCodeSystem = sectionEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem);
             var sectionDisplayName = sectionEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName) ?? string.Empty;
             var sectionTitle = sectionEl.GetSplElementVal(sc.E.Title)?.Trim();
@@ -1232,6 +1446,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionExcerptHighlight"/>
         /// <seealso cref="Section"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private static async Task<List<SectionExcerptHighlight>> getOrCreateSectionExcerptHighlightsAsync(
@@ -1346,6 +1561,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionHierarchy"/>
         /// <seealso cref="Section"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private static async Task<List<SectionHierarchy>> getOrCreateSectionHierarchiesAsync(
