@@ -209,6 +209,11 @@
             public const string Risk = "risk";
             public const string ConsequenceObservation = "consequenceObservation";
             public const string ManufacturerOrganization = "manufacturerOrganization";
+            public const string AdministrableMaterialKind = "administrableMaterialKind";
+            public const string AdministrableMaterial = "administrableMaterial";
+            public const string Consumable = "consumable";
+            public const string Subject2 = "subject2";
+            public const string ComponentOf = "componentOf";
             #endregion
         }
 

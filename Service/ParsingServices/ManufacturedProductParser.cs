@@ -9,6 +9,7 @@ using MedRecPro.DataAccess;
 using MedRecPro.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
+using Azure;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -94,6 +95,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="ProductPart"/>
         /// <seealso cref="ProductRouteOfAdministration"/>
         /// <seealso cref="ProductWebLink"/>
+        /// <seealso cref="ResponsiblePersonLink"/>
         /// <seealso cref="SpecializedKind"/>  
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseResult"/>
@@ -162,10 +164,15 @@ namespace MedRecPro.Service.ParsingServices
                     throw new InvalidOperationException("ProductID was not populated by the database after creation.");
                 }
 
+                // --- PARSE RESPONSIBLE PERSON LINK (for cosmetics) ---
+                reportProgress?.Invoke($"Starting Responsible Person XML Elements {context.FileNameInZip}");
+                var responsiblePersonLinksCreated = await parseAndSaveResponsiblePersonLinkAsync(mmEl, product, context);
+                result.ProductElementsCreated += responsiblePersonLinksCreated;
+
                 // --- PARSE GENERIC MEDICINE ---
                 reportProgress?.Invoke($"Starting Generic Medicine XML Elements {context.FileNameInZip}");
                 var genericMedicinesCreated = await parseAndSaveGenericMedicinesAsync(mmEl, product, context);
-                result.ProductElementsCreated += genericMedicinesCreated;  
+                result.ProductElementsCreated += genericMedicinesCreated;
 
                 // --- PARSE EQUIVALENT ENTITIES ---
                 reportProgress?.Invoke($"Starting Equivalent XML Elements {context.FileNameInZip}");
@@ -296,6 +303,194 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
+        /// Parses the [manufacturerOrganization] element to create a ResponsiblePersonLink.
+        /// </summary>
+        /// <param name="manufacturedProductEl">The [manufacturedProduct] XElement containing the link.</param>
+        /// <param name="product">The Product entity that has just been created.</param>
+        /// <param name="context">The parsing context for repository and service access.</param>
+        /// <returns>The count of links created (0 or 1).</returns>
+        /// <remarks>
+        /// This method handles the "Responsible Person" link for cosmetic products as specified in SPL IG Section 35.2.3.
+        /// It finds or creates the organization listed as the manufacturer and links it to the product.
+        /// </remarks>
+        /// <seealso cref="ResponsiblePersonLink"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="getOrCreateOrganizationAsync"/>
+        /// <seealso cref="getOrSaveResponsiblePersonLinkAsync"/>
+        private async Task<int> parseAndSaveResponsiblePersonLinkAsync(
+            XElement manufacturedProductEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+
+            // Validate required dependencies for processing responsible person links
+            if (context?.ServiceProvider == null || context.Logger == null || !product.ProductID.HasValue)
+            {
+                return count;
+            }
+
+            // 1. Find the <manufacturerOrganization> element within the manufactured product
+            var responsibleOrgEl = manufacturedProductEl.GetSplElement(sc.E.ManufacturerOrganization);
+            if (responsibleOrgEl == null)
+            {
+                // This is normal for non-cosmetic products that don't require responsible person links
+                return count;
+            }
+
+            // 2. Get or create the Organization for the responsible person.
+            // This uses the same helper as the Author parser for consistency
+            var (responsibleOrg, created) = await getOrCreateOrganizationAsync(responsibleOrgEl, context);
+
+            if (responsibleOrg?.OrganizationID == null)
+            {
+                // Log warning when organization cannot be created or parsed properly
+                context.Logger.LogWarning("Found <manufacturerOrganization> but could not parse its name or create an organization record for ProductID {ProductID}.", product.ProductID);
+                return count;
+            }
+
+            if (created)
+            {
+                // Log information when a new responsible person organization is created
+                context.Logger.LogInformation("Created new Organization (Responsible Person) '{OrgName}' with ID {OrgID}", responsibleOrg.OrganizationName, responsibleOrg.OrganizationID);
+            }
+
+            // 3. Get or create the link between the product and the responsible organization
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await getOrSaveResponsiblePersonLinkAsync(dbContext, product.ProductID, responsibleOrg.OrganizationID);
+
+            // Log successful creation of the responsible person link
+            context.Logger.LogInformation("Created ResponsiblePersonLink for ProductID {ProductID} to OrganizationID {OrgID}", product.ProductID, responsibleOrg.OrganizationID);
+            count++;
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing ResponsiblePersonLink or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="productId">The ID of the cosmetic product.</param>
+        /// <param name="responsiblePersonOrgId">The ID of the responsible person organization.</param>
+        /// <returns>The existing or newly created ResponsiblePersonLink entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern to prevent duplicate links between a product
+        /// and its responsible person organization. Uniqueness is based on the composite key
+        /// of ProductID and ResponsiblePersonOrgID.
+        /// </remarks>
+        /// <seealso cref="ResponsiblePersonLink"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        private async Task<ResponsiblePersonLink> getOrSaveResponsiblePersonLinkAsync(
+            ApplicationDbContext dbContext,
+            int? productId,
+            int? responsiblePersonOrgId)
+        {
+            #region implementation
+            // Search for an existing link with the matching product and organization IDs
+            // Deduplication based on composite key: ProductID and ResponsiblePersonOrgID
+            var existing = await dbContext.Set<ResponsiblePersonLink>().FirstOrDefaultAsync(rpl =>
+                rpl.ProductID == productId &&
+                rpl.ResponsiblePersonOrgID == responsiblePersonOrgId);
+
+            // If the link already exists, return it to avoid creating duplicates
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            // Create a new link entity with the provided relationship data
+            var newLink = new ResponsiblePersonLink
+            {
+                ProductID = productId,
+                ResponsiblePersonOrgID = responsiblePersonOrgId
+            };
+
+            // Save the new link to the database and persist changes immediately
+            dbContext.Set<ResponsiblePersonLink>().Add(newLink);
+            await dbContext.SaveChangesAsync();
+
+            // Return the newly created and persisted responsible person link
+            return newLink;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds an existing organization by name or creates a new one if not found.
+        /// This is a helper method to support parsing organizations from different contexts.
+        /// </summary>
+        /// <param name="orgElement">The XElement representing the organization.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A tuple containing the Organization entity and a boolean indicating if it was newly created.</returns>
+        /// <remarks>
+        /// NOTE: This is a copy of the helper from AuthorSectionParser. In a larger refactoring,
+        /// this could be moved to a shared static helper class to avoid code duplication.
+        /// </remarks>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        private static async Task<(Organization? Organization, bool Created)> getOrCreateOrganizationAsync(XElement orgElement, SplParseContext context)
+        {
+            #region implementation
+            // Extract organization name from the XML element and trim whitespace
+            var orgName = orgElement.GetSplElementVal(sc.E.Name)?.Trim();
+
+            // Validate required context dependencies for database operations
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+            {
+                throw new ArgumentNullException(nameof(context), "Parsing context, logger, and provider cannot be null.");
+            }
+
+            if (string.IsNullOrWhiteSpace(orgName))
+            {
+                // Log warning when organization name is missing from the XML
+                context.Logger.LogWarning("Organization name is missing in file {FileName}. Cannot create organization.", context.FileNameInZip);
+                return (null, false);
+            }
+
+            // Get database context and repository for Organization operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var orgRepo = context.GetRepository<Organization>();
+            var orgDbSet = dbContext.Set<Organization>();
+
+            // Check if organization already exists by name to prevent duplicates
+            var existingOrg = await orgDbSet.FirstOrDefaultAsync(o => o.OrganizationName == orgName);
+
+            if (existingOrg != null)
+            {
+                // Return existing organization without creating a new one
+                return (existingOrg, false);
+            }
+
+            // Create new organization entity with extracted data
+            var newOrganization = new Organization
+            {
+                OrganizationName = orgName,
+                // Check confidentiality code to determine if organization is confidential
+                IsConfidential = orgElement.GetSplElementAttrVal(sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
+            };
+
+            // Persist the new organization to the database
+            await orgRepo.CreateAsync(newOrganization);
+
+            // Return the newly created organization with created flag set to true
+            return (newOrganization, true);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets an existing DocumentRelationship or creates and saves it if not found.
         /// </summary>
         /// <param name="dbContext">The database context for entity operations.</param>
@@ -347,59 +542,6 @@ namespace MedRecPro.Service.ParsingServices
             dbContext.Set<DocumentRelationship>().Add(rel);
             await dbContext.SaveChangesAsync();
             return rel;
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets an existing BusinessOperation or creates and saves it if not found.
-        /// </summary>
-        /// <param name="dbContext">The database context for entity operations.</param>
-        /// <param name="documentRelationshipId">The document relationship ID to associate with the operation.</param>
-        /// <param name="operationCode">The operation code identifying the business operation type.</param>
-        /// <param name="operationCodeSystem">The code system for the operation code.</param>
-        /// <param name="operationDisplayName">The display name for the operation.</param>
-        /// <returns>The existing or newly created BusinessOperation entity.</returns>
-        /// <remarks>
-        /// Implements a get-or-create pattern to prevent duplicate operation records.
-        /// Uses a composite key match on document relationship ID and operation details.
-        /// </remarks>
-        /// <seealso cref="BusinessOperation"/>
-        /// <seealso cref="DocumentRelationship"/>
-        /// <seealso cref="ApplicationDbContext"/>
-        /// <seealso cref="Label"/>
-        private async Task<BusinessOperation> saveOrGetBusinessOperationAsync(
-            ApplicationDbContext dbContext,
-            int? documentRelationshipId,
-            string? operationCode,
-            string? operationCodeSystem,
-            string? operationDisplayName)
-        {
-            #region implementation
-            // Search for existing operation with matching parameters
-            var existing = await dbContext.Set<BusinessOperation>().FirstOrDefaultAsync(op =>
-                op.DocumentRelationshipID == documentRelationshipId &&
-                op.OperationCode == operationCode &&
-                op.OperationCodeSystem == operationCodeSystem &&
-                op.OperationDisplayName == operationDisplayName);
-
-            // Return existing operation if found
-            if (existing != null)
-                return existing;
-
-            // Create new business operation entity with provided parameters
-            var newOp = new BusinessOperation
-            {
-                DocumentRelationshipID = documentRelationshipId,
-                OperationCode = operationCode,
-                OperationCodeSystem = operationCodeSystem,
-                OperationDisplayName = operationDisplayName
-            };
-
-            // Save the new operation to database
-            dbContext.Set<BusinessOperation>().Add(newOp);
-            await dbContext.SaveChangesAsync();
-            return newOp;
             #endregion
         }
 
@@ -612,8 +754,148 @@ namespace MedRecPro.Service.ParsingServices
             string? opDisplayName = opCodeEl?.GetAttrVal(sc.A.DisplayName);
 
             // Always use the helper to get or create the operation
-            return await saveOrGetBusinessOperationAsync(
+            var bizOp = await getOrSaveBusinessOperationAsync(
                 dbContext, docRelId, opCode, opCodeSystem, opDisplayName);
+
+            // Verify created or retrieved business operation
+            if (bizOp != null && bizOp.BusinessOperationID > 0)
+            {
+                // Parse Qualifiers for the Business Operation
+                // Qualifiers are found in <subjectOf><approval><code>
+                foreach (var approvalEl in actDefEl.SplElements(sc.E.SubjectOf, sc.E.Approval))
+                {
+                    var qualifierCodeEl = approvalEl.GetSplElement(sc.E.Code);
+                    if (qualifierCodeEl == null) continue;
+
+                    // Extract qualifier details from the code element
+                    string? qualifierCode = qualifierCodeEl.GetAttrVal(sc.A.CodeValue);
+                    string? qualifierCodeSystem = qualifierCodeEl.GetAttrVal(sc.A.CodeSystem);
+                    string? qualifierDisplayName = qualifierCodeEl.GetAttrVal(sc.A.DisplayName);
+
+                    // Skip if essential data is missing
+                    if (string.IsNullOrWhiteSpace(qualifierCode) || bizOp.BusinessOperationID == null)
+                    {
+                        continue;
+                    }
+
+                    // Get or create the qualifier and link it to the business operation
+                    await getOrSaveBusinessOperationQualifierAsync(
+                        dbContext,
+                        bizOp.BusinessOperationID,
+                        qualifierCode,
+                        qualifierCodeSystem,
+                        qualifierDisplayName
+                    );
+                } 
+            }
+
+            return bizOp ?? new BusinessOperation();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing BusinessOperation or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="documentRelationshipId">The document relationship ID to associate with the operation.</param>
+        /// <param name="operationCode">The operation code identifying the business operation type.</param>
+        /// <param name="operationCodeSystem">The code system for the operation code.</param>
+        /// <param name="operationDisplayName">The display name for the operation.</param>
+        /// <returns>The existing or newly created BusinessOperation entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern to prevent duplicate operation records.
+        /// Uses a composite key match on document relationship ID and operation details.
+        /// </remarks>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<BusinessOperation> getOrSaveBusinessOperationAsync(
+            ApplicationDbContext dbContext,
+            int? documentRelationshipId,
+            string? operationCode,
+            string? operationCodeSystem,
+            string? operationDisplayName)
+        {
+            #region implementation
+            // Search for existing operation with matching parameters
+            var existing = await dbContext.Set<BusinessOperation>().FirstOrDefaultAsync(op =>
+                op.DocumentRelationshipID == documentRelationshipId &&
+                op.OperationCode == operationCode &&
+                op.OperationCodeSystem == operationCodeSystem &&
+                op.OperationDisplayName == operationDisplayName);
+
+            // Return existing operation if found
+            if (existing != null)
+                return existing;
+
+            // Create new business operation entity with provided parameters
+            var newOp = new BusinessOperation
+            {
+                DocumentRelationshipID = documentRelationshipId,
+                OperationCode = operationCode,
+                OperationCodeSystem = operationCodeSystem,
+                OperationDisplayName = operationDisplayName
+            };
+
+            // Save the new operation to database
+            dbContext.Set<BusinessOperation>().Add(newOp);
+            await dbContext.SaveChangesAsync();
+            return newOp;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing BusinessOperationQualifier or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="businessOperationId">The business operation ID to associate with the qualifier.</param>
+        /// <param name="qualifierCode">The code identifying the business operation qualifier.</param>
+        /// <param name="qualifierCodeSystem">The code system for the qualifier code.</param>
+        /// <param name="qualifierDisplayName">The display name for the qualifier.</param>
+        /// <returns>The existing or newly created BusinessOperationQualifier entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern to prevent duplicate qualifier records for a given business operation.
+        /// Uses a composite key match on business operation ID and qualifier details for uniqueness.
+        /// </remarks>
+        /// <seealso cref="BusinessOperationQualifier"/>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<BusinessOperationQualifier> getOrSaveBusinessOperationQualifierAsync(
+            ApplicationDbContext dbContext,
+            int? businessOperationId,
+            string? qualifierCode,
+            string? qualifierCodeSystem,
+            string? qualifierDisplayName)
+        {
+            #region implementation
+            // Search for an existing qualifier with matching parameters
+            var existing = await dbContext.Set<BusinessOperationQualifier>().FirstOrDefaultAsync(q =>
+                q.BusinessOperationID == businessOperationId &&
+                q.QualifierCode == qualifierCode &&
+                q.QualifierCodeSystem == qualifierCodeSystem &&
+                q.QualifierDisplayName == qualifierDisplayName);
+
+            // Return existing qualifier if found
+            if (existing != null)
+                return existing;
+
+            // Create a new business operation qualifier entity with the provided parameters
+            var newQualifier = new BusinessOperationQualifier
+            {
+                BusinessOperationID = businessOperationId,
+                QualifierCode = qualifierCode,
+                QualifierCodeSystem = qualifierCodeSystem,
+                QualifierDisplayName = qualifierDisplayName
+            };
+
+            // Save the new qualifier to the database
+            dbContext.Set<BusinessOperationQualifier>().Add(newQualifier);
+            await dbContext.SaveChangesAsync();
+            return newQualifier;
             #endregion
         }
 
@@ -813,7 +1095,6 @@ namespace MedRecPro.Service.ParsingServices
             return count;
             #endregion
         }
-
 
         /**************************************************************/
         /// <summary>
@@ -1465,7 +1746,7 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
             int count = 0;
 
-            if(context?.ServiceProvider == null || context.Logger == null)
+            if (context?.ServiceProvider == null || context.Logger == null)
             {
                 return count; // Exit early if context is not properly initialized
             }
@@ -1623,8 +1904,8 @@ namespace MedRecPro.Service.ParsingServices
             Action<string>? reportProgress)
         {
             #region implementation
-            if (context == null 
-                || context.ServiceProvider == null 
+            if (context == null
+                || context.ServiceProvider == null
                 || context.Logger == null)
             {
                 return new SplParseResult();
@@ -1772,8 +2053,8 @@ namespace MedRecPro.Service.ParsingServices
                 var accessoryProduct = context.CurrentProduct;
 
                 // Create the bidirectional assembly link if both products were created successfully
-                if (accessoryProduct != null 
-                    && primaryProduct.ProductID.HasValue 
+                if (accessoryProduct != null
+                    && primaryProduct.ProductID.HasValue
                     && accessoryProduct.ProductID.HasValue)
                 {
                     // Create the PartOfAssembly relationship linking primary and accessory products

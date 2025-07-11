@@ -3168,7 +3168,7 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents an instance of a product (Fill Lot, Label Lot, Package Lot, Salvaged Lot) in Lot Distribution or Salvage Reports. Based on Section 16.2.5, 16.2.7, 16.2.11, 29.2.2.
+        /// Represents an instance of a product (Fill Lot, Label Lot, Package Lot, Salvaged Lot) in Lot Distribution or Salvage Reports. Based on Section 16.2.5, 16.2.7, 16.2.11,  .
         /// </summary>
         public class ProductInstance
         {

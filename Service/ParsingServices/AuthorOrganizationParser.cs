@@ -8,6 +8,7 @@ using sc = MedRecPro.Models.SplConstants;
 using MedRecPro.Models;
 using System.Security.Cryptography;
 using AngleSharp.Svg.Dom;
+using System.Collections.Generic;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -191,7 +192,7 @@ namespace MedRecPro.Service.ParsingServices
             return result;
             #endregion
         }
-
+      
         /**************************************************************/
         /// <summary>
         /// Finds or creates NamedEntity records for all [asNamedEntity] elements under orgElement.
@@ -702,6 +703,12 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Organization"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="getOrCreateOrganizationAsync"/>
+        /// <seealso cref="saveOrGetDocumentRelationshipAsync"/>
+        /// <seealso cref="parseAndSaveFacilityProductLinksAsync"/>
         private async Task<int> parseAndSaveDocumentRelationshipsAsync(
             XElement authorEl,
             SplParseContext context,
@@ -710,116 +717,322 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             int count = 0;
+
+            // Get database context for entity operations
             var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
 
-            // Validate required context before proceeding
+            // Validate required dependencies for processing document relationships
             if (context == null || dbContext == null || context.Logger == null || context.Document?.DocumentID == null)
                 return count;
 
-            // Track the parent and all children for relationship building
-            Organization? labelerOrg = null;
-            Organization? registrantOrg = null;
-            List<Organization> establishmentOrgs = new List<Organization>();
-
             // Helper: gets or creates an org from an assignedEntity/assignedOrganization element
-            async Task<Organization?> getOrgFromEntity(XElement entityEl)
+            async Task<(Organization? org, XElement? orgEl)> getOrgAndElFromEntity(XElement entityEl)
             {
-                #region implementation
-                // Look for either assignedOrganization or representedOrganization
+                // Find either AssignedOrganization or RepresentedOrganization element
                 var assignedOrgEl = entityEl.GetSplElement(sc.E.AssignedOrganization)
                                      ?? entityEl.GetSplElement(sc.E.RepresentedOrganization);
                 if (assignedOrgEl == null)
-                    return null;
+                    return (null, null);
 
-                // Get or create the organization entity
+                // Create or retrieve the organization entity from the XML element
                 var (org, _) = await getOrCreateOrganizationAsync(assignedOrgEl, context);
-                return org;
-                #endregion
+                return (org, assignedOrgEl);
             }
 
-            // Traverse author/assignedEntity/representedOrganization tree
-            // Pattern: author → assignedEntity (labeler) → representedOrganization (registrant) → assignedEntity (establishment)
+            // Navigate to the labeler entity within the author element
             var labelerEntityEl = authorEl.GetSplElement(sc.E.AssignedEntity);
             if (labelerEntityEl != null)
             {
                 // Get the labeler organization from the assigned entity
-                labelerOrg = await getOrgFromEntity(labelerEntityEl);
+                var (labelerOrg, _) = await getOrgAndElFromEntity(labelerEntityEl);
 
-                // Registrant: Look for representedOrganization/assignedEntity under labeler
+                // Look for the registrant organization in the represented organization element
                 var registrantRepOrgEl = labelerEntityEl.GetSplElement(sc.E.RepresentedOrganization);
                 if (registrantRepOrgEl != null)
                 {
+                    // Navigate to the registrant entity within the represented organization
                     var registrantEntityEl = registrantRepOrgEl.GetSplElement(sc.E.AssignedEntity);
                     if (registrantEntityEl != null)
                     {
-                        // Get the registrant organization
-                        registrantOrg = await getOrgFromEntity(registrantEntityEl);
+                        // Get or create the registrant organization
+                        var (registrantOrg, _) = await getOrgAndElFromEntity(registrantEntityEl);
 
                         if (registrantOrg?.OrganizationID != null)
                         {
-                            // Save Labeler → Registrant relationship
-                            await saveOrGetDocumentRelationshipAsync(
-                                dbContext,
-                                documentId,
-                               lablelerId,
-                                registrantOrg.OrganizationID,
-                                "LabelerToRegistrant",
-                                2
-                            );
+                            // Create LabelerToRegistrant relationship at hierarchy level 2
+                            var rel1 = await saveOrGetDocumentRelationshipAsync(
+                                dbContext, documentId, lablelerId, registrantOrg.OrganizationID, "LabelerToRegistrant", 2);
                             count++;
-                            context.Logger.LogInformation(
-                                $"DocumentRelationship: Labeler ({labelerOrg?.OrganizationID}) → Registrant ({registrantOrg.OrganizationID}) saved.");
+                            context.Logger.LogInformation($"DocumentRelationship: Labeler ({labelerOrg?.OrganizationID}) → Registrant ({registrantOrg.OrganizationID}) saved.");
                         }
 
-                        // Establishment(s): Look for assignedOrganization(s) under registrant entity
+                        // Process all establishment entities under the registrant
                         foreach (var establishmentEntityEl in registrantEntityEl.SplElements(sc.E.AssignedEntity))
                         {
-                            var establishmentOrg = await getOrgFromEntity(establishmentEntityEl);
-                            if (establishmentOrg != null
-                                && registrantOrg != null
-                                && establishmentOrg?.OrganizationID != null
-                                && registrantOrg.OrganizationID != null)
-                            {
-                                establishmentOrgs.Add(establishmentOrg);
+                            // Get or create each establishment organization
+                            var (establishmentOrg, establishmentOrgEl) = await getOrgAndElFromEntity(establishmentEntityEl);
 
-                                // Save Registrant → Establishment relationship
-                                await saveOrGetDocumentRelationshipAsync(
-                                    dbContext,
-                                    documentId,
-                                    registrantOrg.OrganizationID,
-                                    establishmentOrg.OrganizationID,
-                                    "RegistrantToEstablishment",
-                                    3
-                                );
+                            if (establishmentOrg?.OrganizationID != null && registrantOrg?.OrganizationID != null)
+                            {
+                                // Create RegistrantToEstablishment relationship at hierarchy level 3
+                                var rel2 = await saveOrGetDocumentRelationshipAsync(
+                                    dbContext, documentId, registrantOrg.OrganizationID, establishmentOrg.OrganizationID, "RegistrantToEstablishment", 3);
+
                                 count++;
-                                context.Logger.LogInformation(
-                                    $"DocumentRelationship: Registrant ({registrantOrg.OrganizationID}) → Establishment ({establishmentOrg.OrganizationID}) saved.");
+                                context.Logger.LogInformation($"DocumentRelationship: Registrant ({registrantOrg.OrganizationID}) → Establishment ({establishmentOrg.OrganizationID}) saved.");
+
+                                // If this establishment is a facility, parse its product links
+                                if (establishmentOrgEl != null && establishmentOrgEl.SplElements(sc.E.Performance).Any())
+                                {
+                                    context.Logger.LogInformation("Found facility with product links. Parsing...");
+
+                                    // Parse facility-product relationships for this establishment
+                                    int linksCreated = await parseAndSaveFacilityProductLinksAsync(
+                                        establishmentOrgEl,
+                                        rel2.DocumentRelationshipID,
+                                        context
+                                    );
+
+                                    // Log the number of facility-product links created
+                                    context.Logger.LogInformation("Created {count} facility-product links.", linksCreated);
+                                }
                             }
                         }
                     }
                     else
                     {
-                        // Save relationship with null child when no registrant entity found
-                        await saveOrGetDocumentRelationshipAsync(
-                            dbContext,
-                            documentId,
-                            lablelerId,
-                            null,
-                            null,
-                            1
-                        );
+                        // Create basic relationship when no registrant entity is found
+                        await saveOrGetDocumentRelationshipAsync(dbContext, documentId, lablelerId, null, null, 1);
                     }
                 }
             }
 
-            // If only a Labeler was found, optionally record a relationship to itself or log as a single org
-            if (labelerOrg != null && count == 0)
+            // Log when no relationships were found
+            if (count == 0)
             {
-                context.Logger.LogInformation(
-                    $"No Registrant/Establishment found; Labeler OrganizationID={labelerOrg.OrganizationID}");
+                context.Logger.LogInformation($"No Registrant/Establishment found; Labeler OrganizationID={lablelerId}");
             }
 
             return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all FacilityProductLink entities from [performance][actDefinition][product] nodes.
+        /// </summary>
+        /// <param name="parentEl">The parent XElement (e.g., [assignedOrganization] for a facility) to scan for product links.</param>
+        /// <param name="documentRelationshipId">The ID of the DocumentRelationship linking the document to this facility.</param>
+        /// <param name="context">The parsing context for repository access and logging.</param>
+        /// <returns>The count of FacilityProductLink records created.</returns>
+        /// <remarks>
+        /// This method orchestrates the linking of a facility to its cosmetic products as defined in SPL IG Section 36.1.6.
+        /// It iterates through each product reference, resolves the product by its Cosmetic Listing Number (CLN) or name,
+        /// and then creates the link record in the database.
+        /// </remarks>
+        /// <seealso cref="FacilityProductLink"/>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="resolveProductFromLinkElementAsync"/>
+        /// <seealso cref="getOrSaveFacilityProductLinkAsync"/>
+        private async Task<int> parseAndSaveFacilityProductLinksAsync(
+            XElement parentEl,
+            int? documentRelationshipId,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+
+            // Validate required dependencies for processing facility product links
+            if (context?.ServiceProvider == null || context.Logger == null || !documentRelationshipId.HasValue)
+            {
+                return count; // Exit if context or parent relationship ID is invalid
+            }
+
+            // Get database context for entity operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Find all <performance><actDefinition> elements that define product links
+            foreach (var actDefEl in parentEl.SplElements(sc.E.Performance, sc.E.ActDefinition))
+            {
+                // Each actDefinition should reference one product
+                var productEl = actDefEl.GetSplElement(sc.E.Product);
+                if (productEl == null)
+                {
+                    // Log warning and skip if product reference is missing
+                    context.Logger.LogWarning("Found <actDefinition> for a facility without a <product> reference; skipping.");
+                    continue;
+                }
+
+                // 1. Resolve the product by CLN or Name using the product element
+                var (productId, productIdentifierId, productName) = await resolveProductFromLinkElementAsync(productEl, dbContext, context.Logger);
+
+                // If we couldn't find the product, we can't create a link
+                if (!productId.HasValue && string.IsNullOrWhiteSpace(productName))
+                {
+                    // Log warning when product cannot be resolved from the XML element
+                    context.Logger.LogWarning("Could not resolve product for facility link from element: {ProductElementXml}", productEl.ToString());
+                    continue;
+                }
+
+                // 2. Get or create the FacilityProductLink with resolved product information
+                await getOrSaveFacilityProductLinkAsync(
+                    dbContext,
+                    documentRelationshipId,
+                    productId,
+                    productIdentifierId,
+                    productName
+                );
+
+                // Increment count for each successfully created facility-product link
+                count++;
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves a product reference from a facility link XML element by querying the database.
+        /// </summary>
+        /// <param name="productEl">The [product] XElement containing the reference.</param>
+        /// <param name="dbContext">The database context for querying.</param>
+        /// <param name="logger">Logger for reporting warnings if a product cannot be found.</param>
+        /// <returns>A tuple containing the resolved ProductID, ProductIdentifierID (if by CLN), and ProductName (if by name).</returns>
+        /// <remarks>
+        /// Implements the logic from SPL IG Section 36.1.6, first attempting to find the product by its
+        /// Cosmetic Listing Number (CLN), and falling back to the product name if the CLN is not provided.
+        /// </remarks>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="ILogger"/>
+        private async Task<(int? ProductId, int? ProductIdentifierId, string? ProductName)> resolveProductFromLinkElementAsync(
+            XElement productEl,
+            ApplicationDbContext dbContext,
+            ILogger logger)
+        {
+            #region implementation
+            // Navigate to the manufactured material kind element containing product details
+            var materialKindEl = productEl.SplElement(sc.E.ManufacturedProduct, sc.E.ManufacturedMaterialKind);
+            if (materialKindEl == null) return (null, null, null);
+
+            // Try to resolve by Cosmetic Listing Number (CLN) first
+            var codeEl = materialKindEl.GetSplElement(sc.E.Code);
+            var clnValue = codeEl?.GetAttrVal(sc.A.CodeValue);
+
+            if (!string.IsNullOrWhiteSpace(clnValue))
+            {
+                // Find the ProductIdentifier record for this CLN using the standard CLN OID
+                var productIdentifier = await dbContext.Set<ProductIdentifier>()
+                    .FirstOrDefaultAsync(pi => pi.IdentifierValue == clnValue && pi.IdentifierSystemOID == "2.16.840.1.113883.3.9848");
+
+                if (productIdentifier != null)
+                {
+                    // Return product information when CLN match is found
+                    return (productIdentifier.ProductID, productIdentifier.ProductIdentifierID, null);
+                }
+                else
+                {
+                    // Log warning when CLN is provided but no matching product identifier exists
+                    logger.LogWarning("A facility link referenced CLN '{cln}' but no matching product identifier was found in the database.", clnValue);
+                    return (null, null, null);
+                }
+            }
+
+            // Fallback to resolving by product name when CLN is not available
+            var nameEl = materialKindEl.GetSplElement(sc.E.Name);
+            var productName = nameEl?.Value?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(productName))
+            {
+                // Search for product by exact name match
+                var product = await dbContext.Set<Product>()
+                    .FirstOrDefaultAsync(p => p.ProductName == productName);
+
+                if (product != null)
+                {
+                    // Return product information when name match is found
+                    return (product.ProductID, null, productName);
+                }
+                else
+                {
+                    // Log warning but return name for link creation even when product not found
+                    logger.LogWarning("A facility link referenced product name '{productName}' but no matching product was found in the database.", productName);
+                    // Return the name anyway so the link can be created with a name reference
+                    return (null, null, productName);
+                }
+            }
+
+            // Return null values when no valid reference is found
+            return (null, null, null);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing FacilityProductLink or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="documentRelationshipId">The ID of the parent DocumentRelationship (linking to the facility).</param>
+        /// <param name="productId">The ID of the product being linked (if resolved).</param>
+        /// <param name="productIdentifierId">The ID of the product identifier (if linked by CLN).</param>
+        /// <param name="productName">The name of the product (if linked by name).</param>
+        /// <returns>The existing or newly created FacilityProductLink entity.</returns>
+        /// <remarks>
+        /// Implements a get-or-create pattern to prevent duplicate facility-to-product links.
+        /// Uniqueness is determined by the combination of the document relationship and the specific product reference
+        /// (either by its internal ID or by its name).
+        /// </remarks>
+        /// <seealso cref="FacilityProductLink"/>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="ProductIdentifier"/>
+        private async Task<FacilityProductLink> getOrSaveFacilityProductLinkAsync(
+            ApplicationDbContext dbContext,
+            int? documentRelationshipId,
+            int? productId,
+            int? productIdentifierId,
+            string? productName)
+        {
+            #region implementation
+            // Search for an existing link matching the relationship and product reference.
+            // A match is found if the relationship ID is the same AND either the ProductID matches
+            // OR the ProductName matches (for unresolved products).
+            var existing = await dbContext.Set<FacilityProductLink>().FirstOrDefaultAsync(fpl =>
+                fpl.DocumentRelationshipID == documentRelationshipId &&
+                (
+                    (productId.HasValue && fpl.ProductID == productId) ||
+                    (!string.IsNullOrWhiteSpace(productName) && fpl.ProductName == productName)
+                ));
+
+            // Return existing link if found to avoid creating duplicates
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            // Create a new facility product link entity with the provided relationship data
+            var newLink = new FacilityProductLink
+            {
+                DocumentRelationshipID = documentRelationshipId,
+                ProductID = productId,
+                ProductIdentifierID = productIdentifierId,
+                ProductName = productName
+            };
+
+            // Save the new link to the database and persist changes immediately
+            dbContext.Set<FacilityProductLink>().Add(newLink);
+            await dbContext.SaveChangesAsync();
+
+            // Return the newly created and persisted facility-product link
+            return newLink;
             #endregion
         }
 
