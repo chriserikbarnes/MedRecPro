@@ -286,6 +286,28 @@ namespace MedRecPro.Service.ParsingServices
                 // Restore the previous product context to avoid side effects on other parsers
                 context.CurrentProduct = oldProduct;
                 reportProgress?.Invoke($"Completed Ingredient Level XML Elements {context.FileNameInZip}");
+
+                // --- DELEGATION TO LOT DISTRIBUTION PARSER ---
+                var lotDistributionElements = mmEl.SplFindElements(sc.E.ProductInstance);
+                if (lotDistributionElements.Any())
+                {
+                    reportProgress?.Invoke($"Starting Lot Distribution XML Elements {context.FileNameInZip}");
+
+                    // Set the current product in the context for lot distribution parsing
+                    var oldProductForLots = context.CurrentProduct;
+                    context.CurrentProduct = product;
+
+                    // Create lot distribution parser for delegated parsing
+                    var lotDistributionParser = new LotDistributionParser();
+
+                    // Process the parent element containing lot instances
+                    var lotResult = await lotDistributionParser.ParseAsync(mmEl, context, reportProgress);
+                    result.MergeFrom(lotResult); // Aggregate results from lot distribution parsing
+
+                    // Restore the previous product context
+                    context.CurrentProduct = oldProductForLots;
+                    reportProgress?.Invoke($"Completed Lot Distribution XML Elements {context.FileNameInZip}");
+                }
             }
             catch (Exception ex)
             {

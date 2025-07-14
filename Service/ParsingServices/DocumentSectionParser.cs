@@ -32,7 +32,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Gets the section name for this parser, using the constant for Document element.
         /// </summary>
         /// <seealso cref="MedRecPro.Models.SplConstants"/>
-        public string SectionName => sc.E.Document;
+        public string SectionName => "document";
 
         /// <summary>
         /// The XML namespace used for element parsing, derived from the constant configuration.

@@ -256,8 +256,17 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
+                if (xEl == null)
+                {
+                    result.Success = false;
+                    result.Errors.Add("Invalid section element provided for parsing.");
+                    return result;
+                }
+
                 // Report parsing start for monitoring and debugging purposes
-                reportProgress?.Invoke($"Starting Section parsing for {context.FileNameInZip}");
+                reportProgress?.Invoke($"Starting Section parsing for " +
+                    $"{xEl?.GetSplElement(sc.E.Title)?.Value?.Replace("\t", " ") ?? xEl?.Name.LocalName ?? "Undefined"}, " +
+                    $"file: {context.FileNameInZip}");
 
                 // 1. Create the core Section entity from the XML element
                 // Parse section metadata and persist the primary section entity
@@ -322,6 +331,7 @@ namespace MedRecPro.Service.ParsingServices
                         result.SectionAttributesCreated += interactionResult;
                     }
 
+
                     // 10. Parse National Clinical Trials Indexing if applicable
                     // Check if this is a National Clinical Trials Indexing document 
                     var nctLinkResult = await parseAndSaveNCTLinksAsync(xEl, section, context);
@@ -335,7 +345,7 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 // Report parsing completion for monitoring purposes
-                reportProgress?.Invoke($"Completed Section parsing for {context.FileNameInZip}");
+                reportProgress?.Invoke($"Section attributes {result.SectionAttributesCreated} for {context.FileNameInZip}");
             }
             catch (Exception ex)
             {

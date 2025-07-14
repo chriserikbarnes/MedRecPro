@@ -214,6 +214,11 @@
             public const string Consumable = "consumable";
             public const string Subject2 = "subject2";
             public const string ComponentOf = "componentOf";
+            public const string PartProductInstance = "partProductInstance";
+            public const string AsInstanceOfKind = "asInstanceOfKind";
+            public const string KindOfMaterialKind = "kindOfMaterialKind";
+            public const string Performer = "performer";
+
             #endregion
         }
 
