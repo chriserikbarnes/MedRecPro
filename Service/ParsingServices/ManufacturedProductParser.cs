@@ -256,6 +256,11 @@ namespace MedRecPro.Service.ParsingServices
                 context.Logger.LogInformation("Created Product '{ProductName}' with ID {ProductID}", product.ProductName, product.ProductID);
                 reportProgress?.Invoke($"Completed Packaging Level XML Elements {context.FileNameInZip}");
 
+                // --- PARSE DOSING SPECIFICATIONS ---
+                reportProgress?.Invoke($"Starting Dosing Specification XML Elements {context.FileNameInZip}");
+                var dosingSpecCount = await DosingSpecificationParser.BuildDosingSpecificationAsync(mmEl, product, context);
+                result.ProductElementsCreated += dosingSpecCount;
+
                 // --- DELEGATION TO INGREDIENT PARSER ---
                 // Set the current product in the context so child parsers can access it
                 // Store the previous product context to restore later
@@ -2625,7 +2630,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Uses SpecializedKindValidator to enforce SPL Implementation Guide 3.4.3 rules.
         /// </remarks>
         /// <seealso cref="SpecializedKind"/>
-        /// <seealso cref="SpecializedKindValidator"/>
+        /// <seealso cref="SpecializedKindValidatorService"/>
         /// <seealso cref="Product"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
@@ -2676,7 +2681,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Step 2: Validate with business rules for mutually exclusive cosmetic codes
-            var validatedKinds = SpecializedKindValidator.ValidateCosmeticCategoryRules(
+            var validatedKinds = SpecializedKindValidatorService.ValidateCosmeticCategoryRules(
                 allKinds,
                 documentTypeCode,
                 context.Logger,

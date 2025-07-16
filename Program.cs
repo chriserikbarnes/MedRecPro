@@ -12,7 +12,8 @@ using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
 using MedRecPro.Service;
 using MedRecPro.Models; // Namespace for User model
 using MedRecPro.DataAccess;
-using MedRecPro.Security; // Namespace for BasicAuthenticationHandler
+using MedRecPro.Security;
+using MedRecPro.Service.ParsingServices; 
 
 string? connectionString, googleClientId, googleClientSecret;
 
@@ -54,6 +55,8 @@ builder.Services.AddScoped(typeof(Repository<>), typeof(Repository<>));
 builder.Services.AddScoped<SplXmlParser>(); 
 
 builder.Services.AddScoped<SplImportService>();
+
+builder.Services.AddScoped<DosingSpecificationValidationService>();
 
 builder.Services.AddTransient<StringCipher>();
 

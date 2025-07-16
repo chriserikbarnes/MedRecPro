@@ -10,7 +10,7 @@ namespace MedRecPro.Service.ParsingServices
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="SpecializedKind"/>
-    public static class SpecializedKindValidator
+    public static class SpecializedKindValidatorService
     {
         #region implementation
 

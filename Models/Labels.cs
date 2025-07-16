@@ -1,16 +1,16 @@
-﻿using AngleSharp.Text;
-using Humanizer;
+﻿
+
 using MedRecPro.Helpers;
+using MedRecPro.Models.Validation;
+using MedRecPro.Service.ParsingServices;
 using Microsoft.OpenApi.Attributes;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
-using System;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using System.Linq;
 using System.Reflection;
-using System.Text.Json.Serialization;
-using static Azure.Core.HttpHeader;
-using static System.Net.Mime.MediaTypeNames;
+using ValidationResult = System.ComponentModel.DataAnnotations.ValidationResult;
+
 
 namespace MedRecPro.Models
 {
@@ -569,7 +569,7 @@ namespace MedRecPro.Models
             /// </summary>
             public int? StructuredBodyID { get; set; } // Made nullable
 
-            [Display("ID")]
+            [Microsoft.OpenApi.Attributes.Display("ID")]
             private string? _sectionLinkGUID;
             /// <summary>
             /// Attribute identifying the section link ([section][ID]), used for 
@@ -3205,67 +3205,189 @@ namespace MedRecPro.Models
             #endregion properties
         }
 
-        /*******************************************************************************/
+        /**************************************************************/
         /// <summary>
-        /// Stores dosing specification for Lot Distribution calculations ([consumedIn][substanceAdministration1]). Based on Section 16.2.4.
+        /// Stores dosing specification for Lot Distribution calculations ([consumedIn][substanceAdministration]) based on SPL Implementation Guide Section 16.2.4.
+        /// Provides validation attributes to ensure compliance with SPL dosing specification requirements.
         /// </summary>
+        /// <remarks>
+        /// This model represents the dosing specification used to compute the number of doses in any lot or container,
+        /// supporting compliance with FDA regulations for fill lot/label lot requirements.
+        /// All validation follows SPL Implementation Guide Section 16.2.4 requirements.
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="ProductRouteOfAdministration"/>
+        /// <seealso cref="DosingSpecificationValidationService"/>
         public class DosingSpecification
         {
             #region properties
+            /**************************************************************/
             /// <summary>
             /// Primary key for the DosingSpecification table.
             /// </summary>
-            public int? DosingSpecificationID { get; set; } // Made nullable
+            /// <seealso cref="Label"/>
+            public int? DosingSpecificationID { get; set; }
 
+            /**************************************************************/
             /// <summary>
-            /// Foreign key to Product.
+            /// Foreign key reference to the associated Product entity.
+            /// Links this dosing specification to a specific pharmaceutical product.
             /// </summary>
-            public int? ProductID { get; set; } // Made nullable
+            /// <seealso cref="Product"/>
+            /// <seealso cref="Label"/>
+            [Required(ErrorMessage = "ProductID is required for dosing specifications.")]
+            public int? ProductID { get; set; }
 
+            #region route code properties
             private string? _routeCode;
+
+            /**************************************************************/
             /// <summary>
-            /// Route of administration associated with the dose.
+            /// Route of administration code associated with the dose, following SPL Implementation Guide Section 3.2.20.2f.
+            /// Must be from FDA SPL code system (2.16.840.1.113883.3.26.1.1) or include nullFlavor.
             /// </summary>
+            /// <seealso cref="ProductRouteOfAdministration"/>
+            /// <seealso cref="RouteCodeValidationAttribute"/>
+            /// <seealso cref="Label"/>
+            [Required(ErrorMessage = "Route code is required for dosing specifications (SPL IG 16.2.4.2).")]
+            [RouteCodeValidation]
             public string? RouteCode
             {
+                #region implementation
                 get => _routeCode;
                 set => _routeCode = value?.RemoveHtmlXss();
+                #endregion
             }
 
             private string? _routeCodeSystem;
+
+            /**************************************************************/
             /// <summary>
-            /// Code system for RouteCode.
+            /// Code system identifier for the RouteCode, typically FDA SPL system (2.16.840.1.113883.3.26.1.1).
+            /// Required when RouteCode is specified to ensure proper code system context.
             /// </summary>
+            /// <seealso cref="ProductRouteOfAdministration"/>
+            /// <seealso cref="Label"/>
+            [Required(ErrorMessage = "Route code system is required when route code is specified.")]
             public string? RouteCodeSystem
             {
+                #region implementation
                 get => _routeCodeSystem;
                 set => _routeCodeSystem = value?.RemoveHtmlXss();
+                #endregion
             }
 
             private string? _routeDisplayName;
+
+            /**************************************************************/
             /// <summary>
-            /// Display name for RouteCode.
+            /// Human-readable display name for the RouteCode.
+            /// Provides clear identification of the route of administration for users.
             /// </summary>
+            /// <seealso cref="ProductRouteOfAdministration"/>
+            /// <seealso cref="Label"/>
             public string? RouteDisplayName
             {
+                #region implementation
                 get => _routeDisplayName;
                 set => _routeDisplayName = value?.RemoveHtmlXss();
+                #endregion
             }
+            #endregion
 
+            #region dose quantity properties
+            /**************************************************************/
             /// <summary>
-            /// Quantity and unit representing a single dose.
+            /// Numeric value representing a single dose quantity according to SPL Implementation Guide Section 16.2.4.3-16.2.4.6.
+            /// Must be a valid number (may be 0) and should not contain spaces.
             /// </summary>
-            public decimal? DoseQuantityValue { get; set; } // Already nullable
+            /// <seealso cref="UCUMUnitValidationAttribute"/>
+            /// <seealso cref="NoSpacesValidationAttribute"/>
+            /// <seealso cref="Label"/>
+            [Range(0, double.MaxValue, ErrorMessage = "Dose quantity value cannot be negative (SPL IG 16.2.4.4).")]
+            [NoSpacesValidation]
+            public decimal? DoseQuantityValue { get; set; }
 
             private string? _doseQuantityUnit;
+
+            /**************************************************************/
             /// <summary>
-            /// Dose quantity unit ([doseQuantity unit]).
+            /// Unit of measure for the dose quantity, must conform to UCUM (Unified Code for Units of Measure) standards per SPL Implementation Guide Section 16.2.4.5.
+            /// Common units include mg, mL, g, L, and complex units like mg/mL.
             /// </summary>
+            /// <seealso cref="UCUMUnitValidationAttribute"/>
+            /// <seealso cref="DosingSpecificationValidationService"/>
+            /// <seealso cref="Label"/>
+            [UCUMUnitValidation]
             public string? DoseQuantityUnit
             {
+                #region implementation
                 get => _doseQuantityUnit;
                 set => _doseQuantityUnit = value?.RemoveHtmlXss();
+                #endregion
             }
+            #endregion
+
+            #region validation properties
+            private string? _routeNullFlavor;
+
+            /**************************************************************/
+            /// <summary>
+            /// NullFlavor attribute for route code when the specific route is unknown or not applicable.
+            /// Allows for flexible handling of route specifications in SPL documents.
+            /// </summary>
+            /// <seealso cref="RouteCodeValidationAttribute"/>
+            /// <seealso cref="Label"/>
+            public string? RouteNullFlavor
+            {
+                get => _routeNullFlavor;
+                set => _routeNullFlavor = value?.RemoveHtmlXss();
+            }
+            #endregion
+
+            #region custom validation
+            /**************************************************************/
+            /// <summary>
+            /// Performs custom validation logic for the DosingSpecification entity.
+            /// Validates the relationship between dose quantity value and unit according to SPL requirements.
+            /// </summary>
+            /// <param name="validationContext">The validation context containing model state and services.</param>
+            /// <returns>Enumerable of ValidationResult objects for any validation failures.</returns>
+            /// <seealso cref="DosingSpecificationValidationService"/>
+            /// <seealso cref="Label"/>
+            public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+            {
+                #region implementation
+                var results = new List<ValidationResult>();
+
+                // SPL IG 16.2.4.3 - If dose quantity is specified, both value and unit should be present
+                if (DoseQuantityValue.HasValue && string.IsNullOrWhiteSpace(DoseQuantityUnit))
+                {
+                    results.Add(new ValidationResult(
+                        "Dose quantity unit is required when dose quantity value is specified (SPL IG 16.2.4.3).",
+                        new[] { nameof(DoseQuantityUnit) }));
+                }
+
+                if (!string.IsNullOrWhiteSpace(DoseQuantityUnit) && !DoseQuantityValue.HasValue)
+                {
+                    results.Add(new ValidationResult(
+                        "Dose quantity value is required when dose quantity unit is specified (SPL IG 16.2.4.3).",
+                        new[] { nameof(DoseQuantityValue) }));
+                }
+
+                // Additional validation for zero values with meaningful units
+                if (DoseQuantityValue.HasValue && DoseQuantityValue.Value == 0 && !string.IsNullOrWhiteSpace(DoseQuantityUnit))
+                {
+                    // SPL IG 16.2.4.6 allows zero values, but log for review
+                    // This is informational validation, not an error
+                }
+
+                return results;
+                #endregion
+            }
+            #endregion
+
             #endregion properties
         }
 

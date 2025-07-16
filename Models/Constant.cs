@@ -67,6 +67,7 @@
     /// </summary>
     public static class SplConstants
     {
+        /**************************************************************/
         /// <summary>
         /// Defines the XML Element namespace used in SPL files.
         /// </summary>
@@ -222,6 +223,7 @@
             #endregion
         }
 
+        /**************************************************************/
         /// <summary>
         /// Defines the XML Attribute names used in SPL files.
         /// </summary>
