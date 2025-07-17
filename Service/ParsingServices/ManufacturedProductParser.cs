@@ -248,7 +248,11 @@ namespace MedRecPro.Service.ParsingServices
                 {
                     foreach (var asContentEl in asContentEls)
                     {
-                        result.ProductElementsCreated += await parseAndSavePackagingLevelsAsync(asContentEl, product, context);
+                        result.ProductElementsCreated += 
+                            await parseAndSavePackagingLevelsAsync(asContentEl, product, context);
+
+                        result.ProductElementsCreated += 
+                            await parseAndSavePackagingLevelsWithEventsAsync(asContentEl, product, context);
                     }
                 }
 
@@ -813,7 +817,7 @@ namespace MedRecPro.Service.ParsingServices
                         qualifierCodeSystem,
                         qualifierDisplayName
                     );
-                } 
+                }
             }
 
             return bizOp ?? new BusinessOperation();
@@ -1609,7 +1613,7 @@ namespace MedRecPro.Service.ParsingServices
                     var characteristic = new Characteristic
                     {
                         ProductID = product.ProductID,
-                        // PackagingLevelID is not handled here, add logic if needed
+                        // PackagingLevelID is not handled here
                         CharacteristicCode = charCode,
                         CharacteristicCodeSystem = charCodeSystem,
                         ValueType = valueType,
@@ -2822,6 +2826,105 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Enhanced packaging level parsing with ProductEvent support.
+        /// Parses and saves all PackagingLevel entities with associated ProductEvent entities.
+        /// </summary>
+        /// <param name="asContentEl">Root [asContent] XElement.</param>
+        /// <param name="product">The Product entity associated (if outermost).</param>
+        /// <param name="context">The parsing context (repo, logger, docTypeCode, etc).</param>
+        /// <param name="parentPackagingLevelId">The ID of the parent (outer) packaging level for creating hierarchy links. Null for the top level.</param>
+        /// <param name="sequenceNumber">The sequence of this package within its parent. Null for the top level.</param>
+        /// <param name="parentProductInstanceId">For lot/container context (16.2.8), null otherwise.</param>
+        /// <returns>The count of PackagingLevel records created (recursively).</returns>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="ProductEvent"/>
+        /// <seealso cref="ProductEventParser"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSavePackagingLevelsWithEventsAsync(
+            XElement asContentEl,
+            Product? product,
+            SplParseContext context,
+            int? parentPackagingLevelId = null,
+            int? sequenceNumber = null,
+            int? parentProductInstanceId = null)
+        {
+            #region implementation
+            // First, create the packaging level using the existing method
+            int count = await parseAndSavePackagingLevelsAsync(
+                asContentEl, product, context, parentPackagingLevelId, sequenceNumber, parentProductInstanceId);
+
+            // Then, parse and create ProductEvent entities for the packaging level
+            if (count > 0)
+            {
+                var containerEl = asContentEl.SplElement(sc.E.ContainerPackagedProduct);
+                if (containerEl != null)
+                {
+                    // Get the packaging level ID from the context or database
+                    var packagingLevelId = await getPackagingLevelIdFromContextAsync(containerEl, context);
+
+                    if (packagingLevelId.HasValue)
+                    {
+                        var eventCount = await ProductEventParser.BuildProductEventAsync(
+                            containerEl,
+                            new PackagingLevel { PackagingLevelID = packagingLevelId },
+                            context);
+
+                        context?.Logger?.LogInformation(
+                            "Created {EventCount} ProductEvent records for PackagingLevelID {PackagingLevelID}",
+                            eventCount, packagingLevelId);
+                    }
+                }
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the PackagingLevel ID from the database context for a given container element.
+        /// </summary>
+        /// <param name="containerEl">The container XML element to find the packaging level for.</param>
+        /// <param name="context">The parsing context containing database access services.</param>
+        /// <returns>The PackagingLevel ID if found, otherwise null.</returns>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="Label"/>
+        private async Task<int?> getPackagingLevelIdFromContextAsync(XElement containerEl, SplParseContext context)
+        {
+            #region implementation
+            if (context?.ServiceProvider == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var packagingLevelDbSet = dbContext.Set<PackagingLevel>();
+
+                // Extract package code from the container element
+                var codeEl = containerEl.SplElement(sc.E.Code);
+                var packageCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+
+                if (!string.IsNullOrWhiteSpace(packageCode))
+                {
+                    var packagingLevel = await packagingLevelDbSet
+                        .FirstOrDefaultAsync(pl => pl.PackageCode == packageCode);
+
+                    return packagingLevel?.PackagingLevelID;
+                }
+            }
+            catch (Exception ex)
+            {
+                context?.Logger?.LogError(ex, "Error getting PackagingLevel ID from context");
+            }
+
+            return null;
             #endregion
         }
     }

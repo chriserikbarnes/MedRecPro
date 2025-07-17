@@ -3453,23 +3453,33 @@ namespace MedRecPro.Models
         /// <summary>
         /// Stores product events like distribution or return quantities ([subjectOf][productEvent]). Based on Section 16.2.9, 16.2.10.
         /// </summary>
-        public class ProductEvent
+        /// <seealso cref="ProductEventParser"/>
+        /// <seealso cref="ProductEventValidationService"/>
+        /// <seealso cref="Label"/>
+        public class ProductEvent : IValidatableObject
         {
             #region properties
             /// <summary>
             /// Primary key for the ProductEvent table.
             /// </summary>
-            public int? ProductEventID { get; set; } // Made nullable
+            /// <seealso cref="Label"/>
+            public int? ProductEventID { get; set; }
 
             /// <summary>
             /// Foreign key to PackagingLevel (The container level the event applies to).
             /// </summary>
-            public int? PackagingLevelID { get; set; } // Made nullable
+            /// <seealso cref="PackagingLevel"/>
+            /// <seealso cref="Label"/>
+            [Required(ErrorMessage = "PackagingLevelID is required for product events.")]
+            public int? PackagingLevelID { get; set; }
 
             private string? _eventCode;
             /// <summary>
             /// Code identifying the type of event (e.g., C106325 Distributed, C106328 Returned).
             /// </summary>
+            /// <seealso cref="ProductEventCodeValidationAttribute"/>
+            /// <seealso cref="Label"/>
+            [ProductEventCodeValidation]
             public string? EventCode
             {
                 get => _eventCode;
@@ -3480,6 +3490,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code system for EventCode.
             /// </summary>
+            /// <seealso cref="Label"/>
             public string? EventCodeSystem
             {
                 get => _eventCodeSystem;
@@ -3490,6 +3501,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Display name for EventCode.
             /// </summary>
+            /// <seealso cref="Label"/>
             public string? EventDisplayName
             {
                 get => _eventDisplayName;
@@ -3499,12 +3511,16 @@ namespace MedRecPro.Models
             /// <summary>
             /// Integer quantity associated with the event (e.g., number of containers distributed/returned).
             /// </summary>
-            public int? QuantityValue { get; set; } // Made nullable
+            /// <seealso cref="ProductEventQuantityValidationAttribute"/>
+            /// <seealso cref="Label"/>
+            [ProductEventQuantityValidation]
+            public int? QuantityValue { get; set; }
 
             private string? _quantityUnit;
             /// <summary>
             /// Unit for quantity (usually '1' or null).
             /// </summary>
+            /// <seealso cref="Label"/>
             public string? QuantityUnit
             {
                 get => _quantityUnit;
@@ -3514,15 +3530,52 @@ namespace MedRecPro.Models
             /// <summary>
             /// Effective date (low value), used for Initial Distribution Date.
             /// </summary>
-            public DateTime? EffectiveTimeLow { get; set; } // Already nullable
+            /// <seealso cref="ProductEventEffectiveTimeValidationAttribute"/>
+            /// <seealso cref="Label"/>
+            [ProductEventEffectiveTimeValidation]
+            public DateTime? EffectiveTimeLow { get; set; }
             #endregion properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Performs custom validation logic for the ProductEvent entity.
+            /// Validates the relationship between event code, quantity, and effective time according to SPL requirements.
+            /// </summary>
+            /// <param name="validationContext">The validation context containing model state and services.</param>
+            /// <returns>Enumerable of ValidationResult objects for any validation failures.</returns>
+            /// <seealso cref="ProductEventValidationService"/>
+            /// <seealso cref="Label"/>
+            public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+            {
+                #region implementation
+                var results = new List<ValidationResult>();
+
+                // Use the validation service for comprehensive validation
+                var logger = validationContext.GetService<ILogger<ProductEvent>>();
+                if (logger != null)
+                {
+                    var validationService = new ProductEventValidationService(logger);
+                    var validationResult = validationService.ValidateProductEvent(this);
+
+                    if (!validationResult.IsValid)
+                    {
+                        foreach (var error in validationResult.Errors)
+                        {
+                            results.Add(new ValidationResult(error));
+                        }
+                    }
+                }
+
+                return results;
+                #endregion
+            }
         }
 
-        /*******************************************************************************/
-        /// <summary>
-        /// Stores "Doing Business As" (DBA) names or other named entity types associated with an Organization ([asNamedEntity]). Based on Section 2.1.9, 18.1.3. 18.1.4
-        /// </summary>
-        public class NamedEntity
+            /*******************************************************************************/
+            /// <summary>
+            /// Stores "Doing Business As" (DBA) names or other named entity types associated with an Organization ([asNamedEntity]). Based on Section 2.1.9, 18.1.3. 18.1.4
+            /// </summary>
+            public class NamedEntity
         {
             #region properties
             /// <summary>
