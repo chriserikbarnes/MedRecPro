@@ -296,7 +296,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Gets or sets the number of lot hierarchies created during this parsing operation.
         /// </summary>
-        public int LotHierarchiesCreated { get; set; };
+        public int LotHierarchiesCreated { get; set; }
 
         /// <summary>
         /// Gets or sets the number of ingredients created during this parsing operation.

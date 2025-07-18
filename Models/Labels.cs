@@ -4336,8 +4336,13 @@ namespace MedRecPro.Models
 
             private string? _protocolCode;
             /// <summary>
-            /// Code identifying the REMS protocol type.
+            /// Protocol code with automatic REMS validation.
+            /// The REMSProtocolCodeValidation attribute will validate:
+            /// - Code is not null/empty
+            /// - Code system is FDA SPL system (2.16.840.1.113883.3.26.1.1)
+            /// - Code contains only alphanumeric characters
             /// </summary>
+            [REMSProtocolCodeValidation(ErrorMessage = "Invalid REMS protocol code")]
             public string? ProtocolCode
             {
                 get => _protocolCode;
@@ -4382,6 +4387,11 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code identifying the stakeholder role (e.g., prescriber, patient).
             /// </summary>
+            // <summary>
+            /// Stakeholder code with automatic REMS validation.
+            /// Validates stakeholder role codes (prescriber, patient, etc.)
+            /// </summary>
+            [REMSStakeholderCodeValidation(ErrorMessage = "Invalid stakeholder code")]
             public string? StakeholderCode
             {
                 get => _stakeholderCode;
@@ -4479,6 +4489,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Sequence number relative to the substance administration step (fixed at 2). 1=Before, 2=During/Concurrent, 3=After.
             /// </summary>
+            [Range(1, 3, ErrorMessage = "Sequence number must be 1, 2, or 3")]
             public int? RequirementSequenceNumber { get; set; } // Made nullable
 
             /// <summary>
@@ -4505,6 +4516,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code identifying the specific requirement or monitoring observation.
             /// </summary>
+            [REMSRequirementValidation(ErrorMessage = "Invalid REMS requirement")]
             public string? RequirementCode
             {
                 get => _requirementCode;

@@ -56,7 +56,7 @@ builder.Services.AddScoped<SplXmlParser>();
 
 builder.Services.AddScoped<SplImportService>();
 
-builder.Services.AddScoped<DosingSpecificationValidationService>();
+//builder.Services.AddScoped<DosingSpecificationValidationService>();
 
 builder.Services.AddTransient<StringCipher>();
 

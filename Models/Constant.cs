@@ -219,6 +219,8 @@
             public const string AsInstanceOfKind = "asInstanceOfKind";
             public const string KindOfMaterialKind = "kindOfMaterialKind";
             public const string Performer = "performer";
+            public const string SequenceNumber = "sequenceNumber";
+            public const string OriginalText = "originalText";
 
             #endregion
         }

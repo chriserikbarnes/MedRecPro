@@ -337,6 +337,15 @@ namespace MedRecPro.Service.ParsingServices
                     var nctLinkResult = await parseAndSaveNCTLinksAsync(xEl, section, context);
                     result.SectionAttributesCreated += nctLinkResult;
 
+                    // 11. Parse REMS protocols if applicable
+                    // Check if this section contains REMS protocol elements
+                    if (containsRemsProtocols(xEl))
+                    {
+                        var remsParser = new REMSParser();
+                        var remsResult = await remsParser.ParseAsync(xEl, context, reportProgress);
+                        result.MergeFrom(remsResult);
+                    }
+
                 }
                 finally
                 {
@@ -360,6 +369,22 @@ namespace MedRecPro.Service.ParsingServices
         }
 
         #region Private Helper Methods
+        /**************************************************************/
+        /// <summary>
+        /// Determines if a section contains REMS protocol elements that should be parsed.
+        /// </summary>
+        /// <param name="sectionEl">The section XElement to check.</param>
+        /// <returns>True if the section contains REMS protocols, false otherwise.</returns>
+        /// <seealso cref="REMSParser"/>
+        /// <seealso cref="Label"/>
+        private static bool containsRemsProtocols(XElement sectionEl)
+        {
+            #region implementation
+            // Check for REMS-specific elements that indicate this section should be processed by REMSParser
+            return sectionEl.SplElements(sc.E.Subject2, sc.E.SubstanceAdministration, sc.E.ComponentOf, sc.E.Protocol).Any() ||
+                   sectionEl.SplElements(sc.E.Subject, sc.E.ManufacturedProduct, sc.E.SubjectOf, sc.E.Document).Any();
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
