@@ -3696,10 +3696,13 @@ namespace MedRecPro.Models
             /// </summary>
             public int? BusinessOperationID { get; set; } // Made nullable
 
+            
             private string? _licenseNumber;
             /// <summary>
             /// The license number string.
             /// </summary>
+
+            [LicenseNumberValidation]
             public string? LicenseNumber
             {
                 get => _licenseNumber;
@@ -3710,6 +3713,8 @@ namespace MedRecPro.Models
             /// <summary>
             /// The root OID identifying the issuing authority and context.
             /// </summary>
+
+            [LicenseRootOIDValidation]
             public string? LicenseRootOID
             {
                 get => _licenseRootOID;
@@ -3730,6 +3735,8 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code system for LicenseTypeCode.
             /// </summary>
+
+            [LicenseTypeCodeValidation]
             public string? LicenseTypeCodeSystem
             {
                 get => _licenseTypeCodeSystem;
@@ -3750,6 +3757,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Status of the license: active, suspended, aborted (revoked), completed (expired).
             /// </summary>
+            [LicenseStatusCodeValidation]
             public string? StatusCode
             {
                 get => _statusCode;
@@ -3759,6 +3767,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Expiration date of the license.
             /// </summary>
+            [LicenseExpirationDateValidation]
             public DateTime? ExpirationDate { get; set; } // Already nullable
 
             /// <summary>
