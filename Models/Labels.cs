@@ -3571,11 +3571,12 @@ namespace MedRecPro.Models
             }
         }
 
-            /*******************************************************************************/
-            /// <summary>
-            /// Stores "Doing Business As" (DBA) names or other named entity types associated with an Organization ([asNamedEntity]). Based on Section 2.1.9, 18.1.3. 18.1.4
-            /// </summary>
-            public class NamedEntity
+        /*******************************************************************************/
+        /// <summary>
+        /// Stores "Doing Business As" (DBA) names or other named entity types associated with an 
+        /// Organization ([asNamedEntity]). Based on Section 2.1.9, 18.1.3. 18.1.4
+        /// </summary>
+        public class NamedEntity
         {
             #region properties
             /// <summary>
@@ -3642,40 +3643,125 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents the issuing authority (State or Federal Agency like DEA) for licenses ([author][territorialAuthority]). Based on Section 18.1.5.
+        /// Represents the issuing authority (State or Federal Agency like DEA) for licenses 
+        /// ([author][territorialAuthority]). Based on Section 18.1.5.
         /// </summary>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="License"/>
+        [TerritorialAuthorityConsistencyValidation]
         public class TerritorialAuthority
         {
             #region properties
+            /**************************************************************/
             /// <summary>
             /// Primary key for the TerritorialAuthority table.
             /// </summary>
+            /// <seealso cref="Label"/>
             public int? TerritorialAuthorityID { get; set; } // Made nullable
 
             private string? _territoryCode;
+            /**************************************************************/
             /// <summary>
             /// ISO 3166-2 State code (e.g., US-MD) or ISO 3166-1 Country code (e.g., USA).
+            /// Used to identify the territorial scope of the licensing authority.
             /// </summary>
+            /// <remarks>
+            /// For state authorities, use ISO 3166-2 format like "US-MD" for Maryland.
+            /// For federal authorities, use ISO 3166-1 country code "USA".
+            /// </remarks>
+            /// <seealso cref="Label"/>
+            /// <seealso cref="TerritoryCodeValidationAttribute"/>
+            [TerritoryCodeValidation]
             public string? TerritoryCode
             {
+                #region implementation
                 get => _territoryCode;
                 set => _territoryCode = value?.RemoveHtmlXss();
+                #endregion
             }
 
             private string? _territoryCodeSystem;
+            /**************************************************************/
             /// <summary>
-            /// Code system (e.g., '1.0.3166.2' for state, '1.0.3166.1.2.3' for country).
+            /// Code system OID for the territory code (e.g., '1.0.3166.2' for state, '1.0.3166.1.2.3' for country).
+            /// Must match the type of territory code being used.
             /// </summary>
+            /// <remarks>
+            /// Use '1.0.3166.2' for ISO 3166-2 state codes and '1.0.3166.1.2.3' for ISO 3166-1 country codes.
+            /// </remarks>
+            /// <seealso cref="Label"/>
+            /// <seealso cref="TerritoryCodeSystemValidationAttribute"/>
+            [TerritoryCodeSystemValidation]
             public string? TerritoryCodeSystem
             {
+                #region implementation
                 get => _territoryCodeSystem;
                 set => _territoryCodeSystem = value?.RemoveHtmlXss();
+                #endregion
             }
 
+            private string? _governingAgencyIdExtension;
+            /**************************************************************/
             /// <summary>
-            /// Link to the Organization representing the federal governing agency, if applicable.
+            /// DUNS number of the federal governing agency (e.g., "004234790" for DEA).
+            /// Required when territory code is "USA", prohibited otherwise.
             /// </summary>
-            public int? GoverningAgencyOrgID { get; set; } // Already nullable
+            /// <remarks>
+            /// DUNS (Data Universal Numbering System) numbers are 9-digit identifiers.
+            /// DEA uses DUNS number "004234790" as specified in SPL IG 18.1.5.26.
+            /// </remarks>
+            /// <seealso cref="Label"/>
+            /// <seealso cref="GoverningAgencyDunsNumberValidationAttribute"/>
+            [GoverningAgencyDunsNumberValidation]
+            public string? GoverningAgencyIdExtension
+            {
+                #region implementation
+                get => _governingAgencyIdExtension;
+                set => _governingAgencyIdExtension = value?.RemoveHtmlXss();
+                #endregion
+            }
+
+            private string? _governingAgencyIdRoot;
+            /**************************************************************/
+            /// <summary>
+            /// Root OID for governing agency identification ("1.3.6.1.4.1.519.1").
+            /// Required when territory code is "USA", prohibited otherwise.
+            /// </summary>
+            /// <remarks>
+            /// This is the standard OID root for DUNS-based agency identification as specified
+            /// in SPL Implementation Guide Section 18.1.5.24.
+            /// </remarks>
+            /// <seealso cref="Label"/>
+            /// <seealso cref="GoverningAgencyIdRootValidationAttribute"/>
+            [GoverningAgencyIdRootValidation]
+            public string? GoverningAgencyIdRoot
+            {
+                #region implementation
+                get => _governingAgencyIdRoot;
+                set => _governingAgencyIdRoot = value?.RemoveHtmlXss();
+                #endregion
+            }
+
+            private string? _governingAgencyName;
+            /**************************************************************/
+            /// <summary>
+            /// Name of the federal governing agency (e.g., "DEA" for Drug Enforcement Agency).
+            /// Required when territory code is "USA", prohibited otherwise.
+            /// </summary>
+            /// <remarks>
+            /// Must be "DEA" when DUNS number is "004234790" as specified in SPL IG 18.1.5.26.
+            /// Other federal agencies may have different names but must follow SPL requirements.
+            /// </remarks>
+            /// <seealso cref="Label"/>
+            /// <seealso cref="GoverningAgencyNameValidationAttribute"/>
+            [GoverningAgencyNameValidation]
+            public string? GoverningAgencyName
+            {
+                #region implementation
+                get => _governingAgencyName;
+                set => _governingAgencyName = value?.RemoveHtmlXss();
+                #endregion
+            }
             #endregion properties
         }
 

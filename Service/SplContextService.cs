@@ -116,6 +116,11 @@ namespace MedRecPro.Service.ParsingServices
         public Product? CurrentProduct { get; set; }
 
         /// <summary>
+        /// Gets or sets the current business operation being processed.
+        /// </summary>
+        public BusinessOperation? CurrentBusinessOperation { get; set; }
+
+        /// <summary>
         /// Gets or sets the count of ingredients created during the current parsing operation.
         /// </summary>
         /// <seealso cref="Label"/>
@@ -285,6 +290,13 @@ namespace MedRecPro.Service.ParsingServices
         /// Gets or sets the number of generics created during this parsing operation.
         /// </summary>
         public int ProductElementsCreated { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number of licenses created during parsing.
+        /// </summary>
+        /// <seealso cref="License"/>
+        /// <seealso cref="Label"/>
+        public int LicensesCreated { get; set; }
 
         /// <summary>
         /// Gets or sets the current product being processed, if applicable.

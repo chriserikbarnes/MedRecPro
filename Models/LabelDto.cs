@@ -299,6 +299,8 @@
     {
         public required Dictionary<string, object?> License { get; set; }
         public List<DisciplinaryActionDto> DisciplinaryActions { get; set; } = new();
+
+        public List<TerritorialAuthorityDto> TerritorialAuthorities { get; set; } = new();
     }
 
     /**************************************************************/
@@ -374,7 +376,6 @@
         public List<DocumentRelationshipDto> ChildRelationships { get; set; } = new();
         public List<OrganizationIdentifierDto> Identifiers { get; set; } = new();
         public List<LegalAuthenticatorDto> SignedDocuments { get; set; } = new();
-        public List<TerritorialAuthorityDto> GoverningAuthorities { get; set; } = new();
         public List<NamedEntityDto> NamedEntities { get; set; } = new();
         public List<HolderDto> Holders { get; set; } = new();
         public List<IngredientInstanceDto> ManufacturedIngredientInstances { get; set; } = new();

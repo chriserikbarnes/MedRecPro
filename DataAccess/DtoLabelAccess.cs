@@ -1392,7 +1392,7 @@ namespace MedRecPro.DataAccess
             #region implementation
             if (sectionId == null) return new List<REMSMaterialDto>();
 
-           var dtos = new List<REMSMaterialDto>();
+            var dtos = new List<REMSMaterialDto>();
 
             // Query REMS materials for the specified section
             var items = await db.Set<Label.REMSMaterial>()
@@ -1405,7 +1405,7 @@ namespace MedRecPro.DataAccess
 
             foreach (var item in items)
             {
-                if(item.REMSMaterialID == null) continue;
+                if (item.REMSMaterialID == null) continue;
 
                 // Build all attachments for this REMS material
                 var attachments = await buildREMSAttachmentsAsync(db, item.REMSMaterialID, pkSecret, logger);
@@ -3973,9 +3973,6 @@ namespace MedRecPro.DataAccess
                     contactPartyDtos.Add(cpDto);
             }
 
-            var govAuthorities = await buildTerritorialAuthoritiesDtoAsync(db, organizationId, pkSecret, logger)
-                ?? new List<TerritorialAuthorityDto>();
-
             // Build Telecoms, Identifiers, etc.
             var telecoms = await buildOrganizationTelecomsAsync(db, organizationId, pkSecret, logger);
 
@@ -3992,8 +3989,7 @@ namespace MedRecPro.DataAccess
                 Telecoms = telecoms,
                 Identifiers = identifiers,
                 NamedEntities = names,
-                Holders = holders,
-                GoverningAuthorities = govAuthorities
+                Holders = holders
 
                 // TODO: Continue with org dependencies
             };
@@ -4412,23 +4408,23 @@ namespace MedRecPro.DataAccess
         /// Related by OrganizationID through GoverningAgencyOrgID (GoverningAgencyOrgID == OrganizationID).
         /// </summary>
         /// <param name="db">The database context for querying territorial authority entities.</param>
-        /// <param name="organizationID">The organization identifier used as governing agency organization ID to filter territorial authorities.</param>
+        /// <param name="territorialAuthId">The organization identifier used as governing agency organization ID to filter territorial authorities.</param>
         /// <param name="pkSecret">The secret key used for encrypting entity IDs.</param>
         /// <param name="logger">The logger instance for tracking operations.</param>
         /// <returns>A list of TerritorialAuthorityDto objects, or null if no organization ID provided or no entities found.</returns>
         /// <seealso cref="Label.TerritorialAuthority"/>
         /// <seealso cref="TerritorialAuthorityDto"/>
-        private static async Task<List<TerritorialAuthorityDto>> buildTerritorialAuthoritiesDtoAsync(ApplicationDbContext db, int? organizationID, string pkSecret, ILogger logger)
+        private static async Task<List<TerritorialAuthorityDto>> buildTerritorialAuthoritiesDtoAsync(ApplicationDbContext db, int? territorialAuthId, string pkSecret, ILogger logger)
         {
             #region implementation
             // Return null if no organization ID is provided
-            if (organizationID == null)
+            if (territorialAuthId == null)
                 return new List<TerritorialAuthorityDto>();
 
             // Query territorial authorities for the specified governing agency organization
             var entity = await db.Set<Label.TerritorialAuthority>()
                 .AsNoTracking()
-                .Where(e => e.GoverningAgencyOrgID == organizationID)
+                .Where(e => e.TerritorialAuthorityID == territorialAuthId)
                 .ToListAsync();
 
             // Return null if no entities found
@@ -4612,11 +4608,15 @@ namespace MedRecPro.DataAccess
                 // Build disciplinary actions for this license
                 var disciplinaryActions = await buildDisciplinaryActionsAsync(db, e.LicenseID, pkSecret, logger);
 
+                var govAuthorities = await buildTerritorialAuthoritiesDtoAsync(db, e.TerritorialAuthorityID, pkSecret, logger)
+                    ?? new List<TerritorialAuthorityDto>();
+
                 // Create license DTO with encrypted ID and associated data
                 dtos.Add(new LicenseDto
                 {
                     License = e.ToEntityWithEncryptedId(pkSecret, logger),
                     DisciplinaryActions = disciplinaryActions,
+                    TerritorialAuthorities = govAuthorities
                 });
             }
 
