@@ -44,6 +44,8 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <seealso cref="MedRecPro.Models.Constant"/>
         private static readonly XNamespace ns = c.XML_NAMESPACE;
+
+        private readonly DisciplinaryActionParser _disciplinaryActionParser = new();
         #endregion
 
         /**************************************************************/
@@ -106,7 +108,13 @@ namespace MedRecPro.Service.ParsingServices
                 reportProgress?.Invoke($"Starting License XML Elements {context.FileNameInZip}");
 
                 var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                var licenseCount = await parseAndSaveLicensesAsync(element, context.CurrentBusinessOperation, dbContext, context.Logger);
+                var licenseCount = await parseAndSaveLicensesAsync(element, 
+                    context.CurrentBusinessOperation, 
+                    context, 
+                    dbContext, 
+                    context.Logger,
+                    reportProgress,
+                    result);
 
                 result.LicensesCreated += licenseCount;
                 result.Success = true;
@@ -130,8 +138,11 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="parentEl">The parent XML element containing approval elements.</param>
         /// <param name="businessOperation">The business operation to associate licenses with.</param>
+        /// <param name="context">SplParseContext containing service provider and logger.</param>
         /// <param name="dbContext">The database context for entity operations.</param>
         /// <param name="logger">Logger for information and warning messages.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="result">SplParseResult to accumulate results and errors.</param>
         /// <returns>The number of licenses created.</returns>
         /// <remarks>
         /// This method searches for approval elements that contain licensing information
@@ -141,14 +152,18 @@ namespace MedRecPro.Service.ParsingServices
         /// </remarks>
         /// <seealso cref="License"/>
         /// <seealso cref="TerritorialAuthority"/>
+        /// <seealso cref="DisciplinaryAction"/>
         /// <seealso cref="BusinessOperation"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private async Task<int> parseAndSaveLicensesAsync(
             XElement parentEl,
             BusinessOperation businessOperation,
+            SplParseContext context,
             ApplicationDbContext dbContext,
-            ILogger logger)
+            ILogger logger,
+            Action<string>? reportProgress,
+            SplParseResult result)
         {
             #region implementation
             int licensesCreated = 0;
@@ -174,6 +189,27 @@ namespace MedRecPro.Service.ParsingServices
                     var license = await parseLicenseFromApprovalAsync(approvalEl, businessOperation, dbContext, logger);
                     if (license?.LicenseID != null)
                     {
+                        context.CurrentLicense = license;
+
+                        try
+                        {
+                            var disciplineParserResult = await _disciplinaryActionParser
+                                .ParseAsync(approvalEl, context, reportProgress);
+
+                            result.MergeFrom(disciplineParserResult);
+
+                            if (disciplineParserResult.DisciplinaryActionsCreated > 0)
+                            {
+                                logger.LogInformation($"Created {disciplineParserResult.DisciplinaryActionsCreated} disciplinary actions for License {license.LicenseID}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogError(ex, $"Error parsing disciplinary actions for License {license.LicenseID}");
+                            // Don't fail the entire license parsing due to disciplinary action errors
+                            result.Errors.Add($"Failed to parse disciplinary actions for License {license.LicenseID}: {ex.Message}");
+                        }
+
                         licensesCreated++;
                         logger.LogInformation($"Created License ID {license.LicenseID} for BusinessOperation {businessOperation.BusinessOperationID}");
                     }
@@ -181,6 +217,7 @@ namespace MedRecPro.Service.ParsingServices
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Error parsing individual license from approval element.");
+                    result.Errors.Add($"Failed to parse license: {ex.Message}");
                 }
             }
 

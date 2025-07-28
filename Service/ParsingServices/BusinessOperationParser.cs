@@ -529,7 +529,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 if (product == null)
                 {
-                    logger.LogWarning($"No Product found for item code {itemCode} (op={bizOp.OperationCode}).");
+                    logger.LogWarning($"No Product found for item code {itemCode} (op={bizOp?.OperationCode}).");
                     continue;
                 }
 

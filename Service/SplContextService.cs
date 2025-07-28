@@ -121,6 +121,11 @@ namespace MedRecPro.Service.ParsingServices
         public BusinessOperation? CurrentBusinessOperation { get; set; }
 
         /// <summary>
+        /// Gets or sets the the current license
+        /// </summary>
+        public License? CurrentLicense { get; set; }
+
+        /// <summary>
         /// Gets or sets the count of ingredients created during the current parsing operation.
         /// </summary>
         /// <seealso cref="Label"/>
@@ -299,6 +304,16 @@ namespace MedRecPro.Service.ParsingServices
         public int LicensesCreated { get; set; }
 
         /// <summary>
+        /// Gets or sets the number of disciplinary actions that have been created.
+        /// </summary>
+        public int DisciplinaryActionsCreated { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number of documents that have been attached and created.
+        /// </summary>
+        public int AttachedDocumentsCreated { get; set; }
+
+        /// <summary>
         /// Gets or sets the current product being processed, if applicable.
         /// </summary>
         /// <seealso cref="Label"/>
@@ -340,11 +355,18 @@ namespace MedRecPro.Service.ParsingServices
 
             // Sum up all entity creation counts
             DocumentsCreated += other.DocumentsCreated;
+            DocumentAttributesCreated += other.DocumentAttributesCreated;
             OrganizationsCreated += other.OrganizationsCreated;
+            OrganizationAttributesCreated += other.OrganizationAttributesCreated;
             ProductsCreated += other.ProductsCreated;
             SectionsCreated += other.SectionsCreated;
-            IngredientsCreated += other.IngredientsCreated;
+            SectionAttributesCreated += other.SectionAttributesCreated;
             ProductElementsCreated += other.ProductElementsCreated;
+            LicensesCreated += other.LicensesCreated;
+            LotHierarchiesCreated += other.LotHierarchiesCreated;
+            IngredientsCreated += other.IngredientsCreated;
+            DisciplinaryActionsCreated += other.DisciplinaryActionsCreated;
+            AttachedDocumentsCreated += other.AttachedDocumentsCreated;
 
             #endregion
         }

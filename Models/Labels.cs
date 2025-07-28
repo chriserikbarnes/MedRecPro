@@ -47,6 +47,7 @@ namespace MedRecPro.Models
     {
         private static List<string> preserveTags = new List<string>
             { "paragraph", "list", "item", "caption", "linkHtml", "sup", "sub", "content" };
+
         #region Properties
 
         /*******************************************************************************/
@@ -3866,7 +3867,12 @@ namespace MedRecPro.Models
         /*******************************************************************************/
         /// <summary>
         /// Stores references to attached documents (e.g., PDFs for Disciplinary Actions, REMS Materials).
+        /// 18.1.7 Approval Disciplinary Action and 23.2.9 REMS Material 
         /// </summary>
+        [AttachedDocumentValidation]
+        [AttachedDocumentFileValidation]
+        [AttachedDocumentREMSValidation]
+        [AttachedDocumentParentEntityValidation]
         public class AttachedDocument
         {
             #region properties
@@ -3933,6 +3939,8 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code identifying the disciplinary action type (e.g., suspension, revocation, activation).
             /// </summary>
+            [DisciplinaryActionCodeValidation]
+            [DisciplinaryActionLicenseStatusConsistencyValidation]
             public string? ActionCode
             {
                 get => _actionCode;
@@ -3962,12 +3970,14 @@ namespace MedRecPro.Models
             /// <summary>
             /// Date the disciplinary action became effective.
             /// </summary>
+            [DisciplinaryActionEffectiveTimeValidation]
             public DateTime? EffectiveTime { get; set; } // Made nullable
 
             private string? _actionText;
             /// <summary>
             /// Text description used when the action code is 'other'.
             /// </summary>
+            [DisciplinaryActionTextValidation]
             public string? ActionText
             {
                 get => _actionText;
