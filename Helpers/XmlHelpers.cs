@@ -1,5 +1,6 @@
-﻿using System.Xml.Linq;
-using MedRecPro.Models;
+﻿using MedRecPro.Models;
+using System.Xml.Linq;
+using static MedRecPro.Models.Label;
 using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants;
 
@@ -446,6 +447,159 @@ namespace MedRecPro.Helpers
                         e.Value.IndexOf(excludingFieldsContaining, StringComparison.OrdinalIgnoreCase) < 0
                     )
                 );
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the inner XML of a table cell (td or th), preserving all markup for rich content display.
+        /// </summary>
+        /// <param name="cellElement">The [td] or [th] XElement.</param>
+        /// <returns>The inner XML as a string, or null if the input is null.</returns>
+        /// <example>
+        /// <code>
+        /// XElement cell = XElement.Parse("&lt;td&gt;&lt;strong&gt;Bold Text&lt;/strong&gt;&lt;/td&gt;");
+        /// string content = XElementExtensions.GetCellXml(cell);
+        /// // content will be "&lt;strong&gt;Bold Text&lt;/strong&gt;"
+        /// </code>
+        /// </example>
+        /// <seealso cref="TextTableCell"/>
+        /// <seealso cref="Label"/>
+        public static string? GetCellXml(XElement? cellElement)
+        {
+            #region implementation
+            // Return null for invalid input to handle edge cases gracefully
+            if (cellElement == null) return null;
+
+            // Using a reader is more robust for getting inner XML than the Nodes().ToString()
+            // approach, as it's less susceptible to modifications of the in-memory XDocument.
+            var reader = cellElement.CreateReader();
+            reader.MoveToContent();
+            return reader.ReadInnerXml().Trim();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the inner XML of a list [item] element, preserving all markup,
+        /// but excluding the [caption] element itself.
+        /// </summary>
+        /// <param name="itemElement">The [item] XElement to process.</param>
+        /// <returns>The inner XML as a string, or null if the input is null.</returns>
+        /// <example>
+        /// <code>
+        /// XElement item = XElement.Parse("&lt;item&gt;&lt;caption&gt;Title&lt;/caption&gt;&lt;em&gt;Content&lt;/em&gt;&lt;/item&gt;");
+        /// string content = XElementExtensions.GetItemXml(item);
+        /// // content will be "&lt;em&gt;Content&lt;/em&gt;" (caption excluded)
+        /// </code>
+        /// </example>
+        /// <seealso cref="TextListItem"/>
+        /// <seealso cref="Label"/>
+        public static string? GetItemXml(XElement? itemElement)
+        {
+            #region implementation
+            if (itemElement == null) return null;
+
+            // Create a temporary clone to manipulate without affecting the original XDocument tree.
+            var clone = new XElement(itemElement);
+
+            // Find and remove the <caption/> element from the clone, if it exists.
+            clone.Element(itemElement.GetDefaultNamespace() + sc.E.Caption)?.Remove();
+
+            // Concatenate the remaining nodes (including text and other elements/tags) into a single string.
+            return string.Concat(clone.Nodes().Select(n => n.ToString())).Trim();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the inner XML of a highlight text element, preserving all markup
+        /// for rich content display and round-trip fidelity.
+        /// </summary>
+        /// <param name="textElement">The text XElement containing highlighted content.</param>
+        /// <returns>The inner XML as a string with preserved markup, or null if element is null.</returns>
+        /// <example>
+        /// <code>
+        /// XElement highlight = XElement.Parse("&lt;text&gt;Important &lt;em&gt;text&lt;/em&gt; here&lt;/text&gt;");
+        /// string xml = XElementExtensions.GetHighlightXml(highlight);
+        /// // xml will be "Important &lt;em&gt;text&lt;/em&gt; here"
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method preserves all markup within the highlight element, making it suitable
+        /// for scenarios where the original formatting needs to be maintained for display
+        /// or round-trip processing back to XML.
+        /// </remarks>
+        /// <seealso cref="SectionExcerptHighlight"/>
+        /// <seealso cref="Label"/>
+        public static string? GetHighlightXml(XElement? textElement)
+        {
+            #region implementation
+            if (textElement == null)
+                return null;
+
+            // Return concatenated inner XML (preserving all tags/markup)
+            return string.Concat(textElement.Nodes().Select(n => n.ToString())).Trim();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Safely extracts an attribute value from an XElement, returning null if the
+        /// element or attribute doesn't exist, rather than throwing an exception.
+        /// </summary>
+        /// <param name="element">The XElement to extract the attribute from.</param>
+        /// <param name="attributeName">The name of the attribute to extract.</param>
+        /// <returns>The attribute value as a string, or null if not found.</returns>
+        /// <example>
+        /// <code>
+        /// XElement elem = XElement.Parse("&lt;item id='123'&gt;Content&lt;/item&gt;");
+        /// string id = SectionParserUtilities.SafeGetAttribute(elem, "id"); // "123"
+        /// string missing = SectionParserUtilities.SafeGetAttribute(elem, "missing"); // null
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method provides a null-safe way to extract attribute values without
+        /// the need for null-checking the element or handling exceptions when
+        /// attributes don't exist.
+        /// </remarks>
+        public static string? SafeGetAttribute(this XElement? element, string attributeName)
+        {
+            #region implementation
+            if (element == null || string.IsNullOrEmpty(attributeName)) return null;
+
+            return element.Attribute(attributeName)?.Value;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Safely extracts an attribute value from an XElement and attempts to parse it
+        /// as an integer, returning null if parsing fails.
+        /// </summary>
+        /// <param name="element">The XElement to extract the attribute from.</param>
+        /// <param name="attributeName">The name of the attribute to extract and parse.</param>
+        /// <returns>The parsed integer value, or null if the attribute doesn't exist or parsing fails.</returns>
+        /// <example>
+        /// <code>
+        /// XElement elem = XElement.Parse("&lt;item rowspan='3'&gt;Content&lt;/item&gt;");
+        /// int? span = SectionParserUtilities.SafeGetIntAttribute(elem, "rowspan"); // 3
+        /// int? missing = SectionParserUtilities.SafeGetIntAttribute(elem, "missing"); // null
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method combines attribute extraction and integer parsing in a safe way,
+        /// making it useful for extracting numeric attributes like rowspan, colspan,
+        /// or sequence numbers without exception handling.
+        /// </remarks>
+        public static int? SafeGetIntAttribute(this XElement? element, string attributeName)
+        {
+            #region implementation
+            var attributeValue = SafeGetAttribute(element, attributeName);
+
+            if (string.IsNullOrWhiteSpace(attributeValue)) return null;
+
+            return int.TryParse(attributeValue, out int result) ? result : null;
             #endregion
         }
 

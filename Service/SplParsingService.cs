@@ -133,7 +133,20 @@ namespace MedRecPro.Service
             // Register core SPL element parsers
             RegisterSectionParser(sc.E.Document, new DocumentSectionParser());
             RegisterSectionParser(sc.E.Author, new AuthorSectionParser());
-            RegisterSectionParser(sc.E.StructuredBody, new StructuredBodySectionParser());
+
+            // Create the specialized parsers needed for SectionParser
+            var contentParser = new SectionContentParser();
+            var indexingParser = new SectionIndexingParser();
+            var hierarchyParser = new SectionHierarchyParser();
+            var mediaParser = new SectionMediaParser();
+
+            // Create the main SectionParser with its dependencies
+            var sectionParser = new SectionParser(contentParser, indexingParser, hierarchyParser, mediaParser);
+
+            // Create the StructuredBodySectionParser with SectionParser dependency
+            var structuredBodyParser = new StructuredBodySectionParser(sectionParser);
+
+            RegisterSectionParser(sc.E.StructuredBody, structuredBodyParser);
             // Child parsers like SectionParser and ManufacturedProductParser are called by their parents,
             // so they don't need to be in the top-level registry unless they can appear at the root.
             #endregion

@@ -52,7 +52,7 @@ builder.Services.AddScoped<IPermissionService, PermissionService>();
 
 builder.Services.AddScoped(typeof(Repository<>), typeof(Repository<>));
 
-builder.Services.AddScoped<SplXmlParser>(); 
+builder.Services.AddScoped<SplXmlParser>();
 
 builder.Services.AddScoped<SplImportService>();
 

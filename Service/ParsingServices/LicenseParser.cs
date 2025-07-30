@@ -108,7 +108,7 @@ namespace MedRecPro.Service.ParsingServices
                 reportProgress?.Invoke($"Starting License XML Elements {context.FileNameInZip}");
 
                 var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                var licenseCount = await parseAndSaveLicensesAsync(element, 
+                var licenseCount = await parseAndSaveLicensesAsync(parentEl: element, 
                     context.CurrentBusinessOperation, 
                     context, 
                     dbContext, 

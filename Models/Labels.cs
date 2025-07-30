@@ -4829,7 +4829,8 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores FDA-initiated inactivation/reactivation status for Drug Listings (linked via PackageIdentifierID) or Establishment Registrations (linked via DocumentRelationshipID). Based on Section 30.2.3, 31.1.4.
+        /// Stores FDA-initiated inactivation/reactivation status for Drug Listings (linked via PackageIdentifierID) or Establishment Registrations 
+        /// (linked via DocumentRelationshipID). Based on Section 30.2.3, 31.1.4.
         /// </summary>
         public class ComplianceAction
         {

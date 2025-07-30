@@ -34,6 +34,14 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <seealso cref="MedRecPro.Models.Constant"/>
         private static readonly XNamespace ns = c.XML_NAMESPACE;
+
+        private SectionParser _sectionParser;
+
+        /**************************************************************/
+        public StructuredBodySectionParser(SectionParser? sectionParser = null)
+        {
+            _sectionParser = sectionParser?? new SectionParser();
+        }
         #endregion
 
         /**************************************************************/
@@ -107,9 +115,6 @@ namespace MedRecPro.Service.ParsingServices
                 // Update the parsing context with the newly created structuredBody
                 context.StructuredBody = structuredBody;
 
-                // Delegate parsing of each top-level section to the SectionParser
-                var sectionParser = new SectionParser();
-
                 // Navigate through the SPL hierarchy to find section elements
                 // Path: structuredBody/component/section
                 var sectionElements = element.SplElements(sc.E.Component, sc.E.Section);
@@ -119,7 +124,7 @@ namespace MedRecPro.Service.ParsingServices
                     foreach (var sectionEl in sectionElements)
                     {
                         // Delegate section parsing to the specialized section parser
-                        var sectionResult = await sectionParser.ParseAsync(sectionEl, context, reportProgress);
+                        var sectionResult = await _sectionParser.ParseAsync(sectionEl, context, reportProgress);
                         result.MergeFrom(sectionResult); // Aggregate results from section parsing
                     }
 
