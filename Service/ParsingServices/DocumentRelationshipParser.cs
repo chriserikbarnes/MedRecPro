@@ -40,6 +40,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>A SplParseResult. The created DocumentRelationship is set on the context.</returns>
         public async Task<SplParseResult> ParseAsync(XElement subjectEl, SplParseContext context, Action<string>? reportProgress)
         {
+            #region implementation
             var result = new SplParseResult();
 
             // 1. Find the Parent Organization (the Labeler for this document)
@@ -51,7 +52,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // 2. Find the Child Organization (the Establishment from the section's subject)
-            var establishmentOrgEl = subjectEl.SplElement(sc.E.RepresentedOrganization) 
+            var establishmentOrgEl = subjectEl.SplElement(sc.E.RepresentedOrganization)
                 ?? subjectEl.SplElement(sc.E.AssignedEntity, sc.E.RepresentedOrganization);
 
             if (establishmentOrgEl == null)
@@ -68,7 +69,7 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
-            if(context == null || context.Document == null)
+            if (context == null || context.Document == null)
             {
                 result.Errors.Add("Parsing context or document is not set.");
                 return result;
@@ -96,7 +97,8 @@ namespace MedRecPro.Service.ParsingServices
                 result.Errors.Add("Failed to create the DocumentRelationship link between Labeler and Establishment.");
             }
 
-            return result;
+            return result; 
+            #endregion
         }
 
         /**************************************************************/
@@ -105,10 +107,10 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         private async Task<Organization?> getLabelerOrganizationAsync(SplParseContext context)
         {
-
-            if (context == null 
-                || context.ServiceProvider == null
-                || context.Document == null)
+            #region implementation
+            if (context == null
+                   || context.ServiceProvider == null
+                   || context.Document == null)
             {
                 return null;
             }
@@ -122,7 +124,8 @@ namespace MedRecPro.Service.ParsingServices
                     da.DocumentID == context.Document.DocumentID &&
                     da.AuthorType == "Labeler");
 
-            return labelerAuthorLink?.Organization;
+            return labelerAuthorLink?.Organization; 
+            #endregion
         }
 
         /**************************************************************/
@@ -131,8 +134,9 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         private async Task<DocumentRelationship?> getOrCreateDocumentRelationshipAsync(DocumentRelationship relationship, SplParseContext context)
         {
-            if(context == null ||
-                context.ServiceProvider == null)
+            #region implementation
+            if (context == null ||
+                    context.ServiceProvider == null)
             {
                 return null;
             }
@@ -150,7 +154,8 @@ namespace MedRecPro.Service.ParsingServices
             if (existing != null) return existing;
 
             await repo.CreateAsync(relationship);
-            return relationship;
+            return relationship; 
+            #endregion
         }
         #endregion
     }

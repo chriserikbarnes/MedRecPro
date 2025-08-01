@@ -18,6 +18,8 @@
         public const string PDF_MEDIA_TYPE = "application/pdf";
         public const string PDF_FILE_EXTENSION = ".pdf";
 
+        public const string WARNING_LETTER_SECTION_CODE = "48779-3";
+
         public enum ActorType
         {
             Aggregator,

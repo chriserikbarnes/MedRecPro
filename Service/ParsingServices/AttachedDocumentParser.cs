@@ -231,7 +231,7 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // If it does not exist, create a new record using the repository.
                 await repo.CreateAsync(doc);
-                context?.Logger.LogInformation(
+                context?.Logger?.LogInformation(
                     "Created new AttachedDocument for file '{FileName}' in SectionID {SectionID}",
                     doc.FileName,
                     doc.SectionID);

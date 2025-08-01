@@ -155,7 +155,7 @@ namespace MedRecPro.Service.ParsingServices
                 // Parse Billing Unit Indexing if applicable
                 // Check if this is a Billing Unit Indexing section (Code 48779-3)
                 // inside a Billing Unit Indexing document (Code 71446-9).
-                if (context.Document.DocumentCode == "71446-9" && section.SectionCode == "48779-3")
+                if (context.Document.DocumentCode == "71446-9" && section.SectionCode == c.WARNING_LETTER_SECTION_CODE)
                 {
                     var billingUnitResult = await parseAndSaveBillingUnitIndexAsync(element, section, context);
                     result.SectionAttributesCreated += billingUnitResult;
@@ -164,7 +164,7 @@ namespace MedRecPro.Service.ParsingServices
                 // Parse Product Concept Indexing if applicable
                 // Check if this is a Product Concept Indexing section (Code 48779-3)
                 // inside a Product Concept Indexing document (Code 71445-1).
-                if (context.Document.DocumentCode == "71445-1" && section.SectionCode == "48779-3")
+                if (context.Document.DocumentCode == "71445-1" && section.SectionCode == c.WARNING_LETTER_SECTION_CODE)
                 {
                     var conceptResult = await parseAndSaveProductConceptsAsync(element, section, context);
                     result.SectionAttributesCreated += conceptResult;

@@ -187,6 +187,10 @@ namespace MedRecPro.Service.ParsingServices
                     var indexingResult = await _indexingParser.ParseAsync(xEl, context, reportProgress);
                     result.MergeFrom(indexingResult);
 
+                    // Parse warning letter information if this is a warning letter alert section 
+                    var warningLetterResult = await parseWarningLetterContentAsync(xEl, context, reportProgress);
+                    result.MergeFrom(warningLetterResult);
+
                     // Parse compliance actions for this section
                     var complianceResult = await parseComplianceActionsAsync(xEl, context, reportProgress);
                     result.MergeFrom(complianceResult);
@@ -235,6 +239,57 @@ namespace MedRecPro.Service.ParsingServices
         }
 
         #region Core Section Processing Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses Warning Letter Alert content if the current section is a warning letter section (48779-3).
+        /// Delegates to the specialized WarningLetterParser for processing product and date information.
+        /// </summary>
+        /// <param name="sectionEl">The XElement representing the section to parse for warning letter content.</param>
+        /// <param name="context">The current parsing context containing section information.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <returns>A SplParseResult containing the results from warning letter parsing operations.</returns>
+        /// <example>
+        /// <code>
+        /// var result = await parseWarningLetterContentAsync(sectionElement, parseContext, progress);
+        /// if (result.Success)
+        /// {
+        ///     Console.WriteLine($"Warning letter elements created: {result.SectionAttributesCreated}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method checks if the current section is a Warning Letter Alert section (48779-3)
+        /// and delegates processing to the specialized WarningLetterParser. If the section is not
+        /// a warning letter section, it returns a successful result without processing.
+        /// </remarks>
+        /// <seealso cref="WarningLetterParser"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseWarningLetterContentAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
+        {
+            #region implementation
+            try
+            {
+                // Delegate to specialized warning letter parser
+                var warningLetterParser = new WarningLetterParser();
+                return await warningLetterParser.ParseAsync(sectionEl, context, reportProgress);
+            }
+            catch (Exception ex)
+            {
+                // Handle unexpected errors during warning letter parsing
+                var result = new SplParseResult
+                {
+                    Success = false
+                };
+                result.Errors.Add($"Error parsing warning letter content: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error parsing warning letter content for section in {FileName}", context.FileNameInZip);
+                return result;
+            }
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>

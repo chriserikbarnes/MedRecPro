@@ -4365,6 +4365,10 @@ namespace MedRecPro.Models
         public class WarningLetterProductInfo
         {
             #region properties
+            [WarningLetterProductInfoValidation]
+            [WarningLetterProductInfoConsistencyValidation]
+            public WarningLetterProductInfo ValidateAll() => this;
+
             /// <summary>
             /// Primary key for the WarningLetterProductInfo table.
             /// </summary>
@@ -4399,6 +4403,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Dosage form code of the product referenced in the warning letter.
             /// </summary>
+            [WarningLetterFormCodeValidation]
             public string? FormCode
             {
                 get => _formCode;
@@ -4439,6 +4444,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Text description of the product item code(s) (e.g., NDC).
             /// </summary>
+            [WarningLetterItemCodesValidation]
             public string? ItemCodesText
             {
                 get => _itemCodesText;
@@ -4454,6 +4460,9 @@ namespace MedRecPro.Models
         public class WarningLetterDate
         {
             #region properties
+            [WarningLetterDateConsistencyValidation]
+            public WarningLetterDate ValidateAll() => this;
+
             /// <summary>
             /// Primary key for the WarningLetterDate table.
             /// </summary>
@@ -4467,11 +4476,13 @@ namespace MedRecPro.Models
             /// <summary>
             /// Date the warning letter alert was issued.
             /// </summary>
+            [WarningLetterDateValidation] 
             public DateTime? AlertIssueDate { get; set; } // Made nullable
 
             /// <summary>
             /// Date the issue described in the warning letter was resolved, if applicable.
             /// </summary>
+            [WarningLetterDateValidation]
             public DateTime? ResolutionDate { get; set; } // Already nullable
             #endregion properties
         }
