@@ -1,18 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
+﻿
 using System.Xml.Linq;
 using MedRecPro.Models;
-using MedRecPro.DataAccess;
-using MedRecPro.Models; // For ImportResult
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using MedRecPro.Service.ParsingServices; // Import the new parsers
 using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants; // Constant class for SPL elements and attributes
-using static MedRecPro.Models.Label;
+
 
 namespace MedRecPro.Service
 {
@@ -59,6 +51,9 @@ namespace MedRecPro.Service
         /// </summary>
         /// <seealso cref="ISplSectionParser"/>
         private readonly Dictionary<string, ISplSectionParser> _sectionParsers = new();
+
+        // Add field to store main section parser reference
+        private ISplSectionParser? _mainSectionParser;
 
         #endregion
 
@@ -143,10 +138,16 @@ namespace MedRecPro.Service
             // Create the main SectionParser with its dependencies
             var sectionParser = new SectionParser(contentParser, indexingParser, hierarchyParser, mediaParser);
 
+            // Register the section parser
+            RegisterSectionParser(sc.E.Section, sectionParser);
+
             // Create the StructuredBodySectionParser with SectionParser dependency
             var structuredBodyParser = new StructuredBodySectionParser(sectionParser);
-
             RegisterSectionParser(sc.E.StructuredBody, structuredBodyParser);
+
+            // Store reference to main section parser for context usage
+            _mainSectionParser = sectionParser;
+
             // Child parsers like SectionParser and ManufacturedProductParser are called by their parents,
             // so they don't need to be in the top-level registry unless they can appear at the root.
             #endregion
@@ -223,7 +224,8 @@ namespace MedRecPro.Service
                 ServiceProvider = scope.ServiceProvider,
                 Logger = _logger,
                 FileResult = fileResult,
-                FileNameInZip = fileNameInZip
+                FileNameInZip = fileNameInZip,
+                MainSectionParser = _mainSectionParser
             };
 
             try

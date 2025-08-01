@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
 using static MedRecPro.Models.Label;
+using c = MedRecPro.Models.Constant;
 
 namespace MedRecPro.Models.Validation
 {
@@ -136,7 +137,7 @@ namespace MedRecPro.Models.Validation
         /// </summary>
         private static readonly Dictionary<string, HashSet<string>> ValidMediaTypeExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["application/pdf"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" }
+            [c.PDF_MEDIA_TYPE] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" }
         };
 
         /**************************************************************/
@@ -215,8 +216,8 @@ namespace MedRecPro.Models.Validation
             else
             {
                 // For unknown media types, perform basic validation
-                if (string.Equals(mediaType, "application/pdf", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(fileExtension, ".pdf", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(mediaType, c.PDF_MEDIA_TYPE, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(fileExtension, c.PDF_FILE_EXTENSION, StringComparison.OrdinalIgnoreCase))
                 {
                     errors.Add("PDF documents must have .pdf file extension (SPL IG 18.1.7.19, 23.2.9.6).");
                 }
@@ -470,7 +471,7 @@ namespace MedRecPro.Models.Validation
         /// </summary>
         private static readonly HashSet<string> ValidParentEntityTypes = new(StringComparer.OrdinalIgnoreCase)
         {
-            "DisciplinaryAction",
+            c.DISCIPLINARY_ACTION_ENTITY_TYPE,
             "REMSMaterial"
         };
 

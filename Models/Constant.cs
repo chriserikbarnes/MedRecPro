@@ -4,6 +4,20 @@
     {
         public static string XML_NAMESPACE = "urn:hl7-org:v3";
 
+        public const string BLANKET_NO_CHANGES_CERTIFICATION_CODE = "BNCC";
+        public const string CERTIFICATION_RELATIONSHIP_TYPE = "Certification";
+        public const int CERTIFICATION_RELATIONSHIP_LEVEL = 2;
+        public const string DISCIPLINARY_ACTION_ENTITY_TYPE = "DisciplinaryAction";
+        public const string COMPLIANCE_ACTION_ENTITY_TYPE = "ComplianceAction";
+
+        // Compliance Action Codes
+        public const string INACTIVATED_CODE = "C162847";
+        public const string REACTIVATED_CODE = "C162848";
+
+        // Media Types
+        public const string PDF_MEDIA_TYPE = "application/pdf";
+        public const string PDF_FILE_EXTENSION = ".pdf";
+
         public enum ActorType
         {
             Aggregator,

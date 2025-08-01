@@ -109,6 +109,12 @@ namespace MedRecPro.Service.ParsingServices
         public Section? CurrentSection { get; set; }
 
         /// <summary>
+        /// Gets or sets the parser responsible for handling the main section of the SPL document.
+        /// This holds the object for recursive parsing within a section
+        /// </summary>
+        public ISplSectionParser? MainSectionParser { get; set; }
+
+        /// <summary>
         /// Gets or sets the product currently being processed during parsing.
         /// </summary>
         /// <seealso cref="Label"/>
@@ -119,6 +125,36 @@ namespace MedRecPro.Service.ParsingServices
         /// Gets or sets the current business operation being processed.
         /// </summary>
         public BusinessOperation? CurrentBusinessOperation { get; set; }
+
+        /// <summary>
+        /// Holds the current PackageIdentifier being parsed, allowing child parsers
+        /// like ComplianceActionParser to link to it.
+        /// </summary>
+        /// <seealso cref="PackageIdentifier"/>
+        /// <seealso cref="MedRecPro.Service.ParsingServices.PackagingParser"/>
+        public PackageIdentifier? CurrentPackageIdentifier { get; set; }
+
+        /// <summary>
+        /// Holds the current DocumentRelationship being parsed (e.g., for an establishment),
+        /// allowing child parsers to link to it.
+        /// </summary>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="MedRecPro.Service.ParsingServices.ComplianceActionParser"/>
+        /// <seealso cref="MedRecPro.Service.ParsingServices.CertificationProductLinkParser"/>
+        public DocumentRelationship? CurrentDocumentRelationship { get; set; }
+
+        /// <summary>
+        /// Holds the current ComplianceAction being parsed, allowing child parsers
+        /// like AttachedDocumentParser to link to it.
+        /// </summary>
+        /// <seealso cref="ComplianceAction"/>
+        /// <seealso cref="MedRecPro.Service.ParsingServices.AttachedDocumentParser"/>
+        public ComplianceAction? CurrentComplianceAction { get; set; }
+
+        /// <summary>
+        /// Gets or sets the current ProductIdentifier being processed.
+        /// </summary>
+        public ProductIdentifier? CurrentProductIdentifier { get; set; }
 
         /// <summary>
         /// Gets or sets the the current license

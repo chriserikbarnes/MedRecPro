@@ -82,21 +82,25 @@ namespace MedRecPro.Service.ParsingServices
         /**************************************************************/
         /// <summary>
         /// Parses and saves all BusinessOperation and BusinessOperationProductLink entities.
+        /// It also orchestrates the parsing of any other elements related to the document relationship,
+        /// such as compliance actions for an establishment.
         /// </summary>
         /// <param name="parentEl">The parent XML element to search for performance elements.</param>
         /// <param name="product"> The product to link business operations to.</param>
         /// <param name="context">The parsing context containing document and service provider access.</param>
-        /// <returns>The total count of business operation product links created.</returns>
+        /// <returns>The total count of business operations and related entities created.</returns>
         /// <remarks>
-        /// This method orchestrates the parsing of business operations by:
-        /// 1. Validating the parsing context and retrieving the labeler organization.
-        /// 2. Getting all document relationships for the current document.
-        /// 3. Processing performance elements for each document relationship.
-        /// 4. Creating business operations and their product links.
+        /// This method orchestrates parsing by:
+        /// 1. Validating the context and getting all document relationships for the current document.
+        /// 2. Looping through each relationship, creating a temporary, safe context for it.
+        /// 3. Within that context, delegating to specialized parsers for business operations (`[performance]`)
+        ///    and compliance actions (`[Action]`).
+        /// 4. Restoring the context after each relationship is processed to prevent side effects.
         /// </remarks>
         /// <seealso cref="BusinessOperation"/>
         /// <seealso cref="BusinessOperationProductLink"/>
         /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="ComplianceActionParser"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
         private async Task<int> parseAndSaveBusinessOperationAndLinksAsync(
@@ -108,17 +112,14 @@ namespace MedRecPro.Service.ParsingServices
             int createdCount = 0;
 
             // Validate the parsing context.
-            if (context == null
-                || context.ServiceProvider == null
-                || context.Logger == null
-                || context.Document == null)
+            if (context?.ServiceProvider == null || context.Logger == null || context.Document == null)
             {
                 context?.Logger?.LogError("BusinessOperationParser called with invalid context.");
                 return 0;
             }
 
-            var dbContext = context?.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            int? docId = context?.Document.DocumentID;
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            int? docId = context.Document.DocumentID;
 
             if (dbContext != null)
             {
@@ -130,7 +131,6 @@ namespace MedRecPro.Service.ParsingServices
                 var docRels = await getDocumentRelationshipsAsync(dbContext, docId, context.Logger);
                 if (!docRels.Any()) return 0;
 
-
                 // Process business operations for each document relationship.
                 foreach (var docRel in docRels)
                 {
@@ -138,9 +138,47 @@ namespace MedRecPro.Service.ParsingServices
                     var thisDocRel = await saveOrGetDocumentRelationshipAsync(
                         dbContext, docId, labelerOrgId, docRel.ChildOrganizationID, docRel.RelationshipType, docRel.RelationshipLevel);
 
-                    // Parse performance elements and create business operation links.
-                    createdCount += await parsePerformanceElementsAsync(
-                        parentEl, dbContext, product, thisDocRel.DocumentRelationshipID, context.Logger, context);
+                    // --- START: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+                    // Set the context for this specific DocumentRelationship and wrap dependent
+                    // parser calls in a try/finally to ensure the context is restored.
+                    var oldDocRel = context.CurrentDocumentRelationship;
+                    context.CurrentDocumentRelationship = thisDocRel;
+
+                    try
+                    {
+                        // 1. Parse business operations (<performance>) related to this establishment.
+                        createdCount += await parsePerformanceElementsAsync(
+                            parentEl, dbContext, product, thisDocRel.DocumentRelationshipID, context.Logger, context);
+
+                        // 2. Parse compliance actions (<action>) related to this establishment.
+                        // This is where the context is consumed by the ComplianceActionParser.
+                        // The XML structure might be <manufacturedProduct><subjectOf><action>...</action></subjectOf></manufacturedProduct>
+                        var subjectOfElements = parentEl.SplElements(sc.E.SubjectOf);
+                        foreach (var subjectEl in subjectOfElements)
+                        {
+                            if (subjectEl.SplElement(sc.E.Action) != null)
+                            {
+                                var complianceParser = new ComplianceActionParser();
+                                // The parser will now find `context.CurrentDocumentRelationship` and correctly
+                                // link the ComplianceAction to the establishment.
+                                var complianceResult = await complianceParser.ParseAsync(subjectEl, context, null);
+                                if (complianceResult.Success)
+                                {
+                                    createdCount += complianceResult.ProductElementsCreated;
+                                }
+                            }
+                        }
+
+                        // 3. Future parsers that depend on DocumentRelationship (like CertificationProductLinkParser)
+                        // would also be called here.
+                    }
+                    finally
+                    {
+                        // CRITICAL: Restore the context to prevent this DocumentRelationship from
+                        // "leaking" into the parsing of the next item in the loop.
+                        context.CurrentDocumentRelationship = oldDocRel;
+                    }
+                    // --- END: CONTEXT MANAGEMENT AND ORCHESTRATION ---
                 }
             }
 

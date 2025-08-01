@@ -192,7 +192,142 @@ namespace MedRecPro.Service.ParsingServices
             return result;
             #endregion
         }
-      
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds or creates an Organization by its identifier (e.g., FEI, DUNS). This is the preferred method for establishments.
+        /// </summary>
+        /// <param name="orgEl">The XElement containing the organization's data (e.g., representedOrganization).</param>
+        /// <param name="context">The parsing context for DB access.</param>
+        /// <returns>The existing or newly created Organization entity.</returns>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        public static async Task<(Organization? Organization, bool Created)> GetOrCreateOrganizationByIdentifierAsync(XElement orgEl, SplParseContext context)
+        {
+            #region implementation
+            if (orgEl == null) return (null, false);
+
+            var idEl = orgEl.SplElement(sc.E.Id);
+            var identifierValue = idEl?.GetAttrVal(sc.A.Extension);
+            var identifierRoot = idEl?.GetAttrVal(sc.A.Root);
+
+            if (string.IsNullOrWhiteSpace(identifierValue))
+            {
+                context?.Logger?.LogWarning("Organization element is missing an identifier. Falling back to name-based lookup.");
+                return await GetOrCreateOrganizationByNameAsync(orgEl, context);
+            }
+
+            if(context == null || context.ServiceProvider == null)
+            {
+                context?.Logger?.LogError("Parsing context or service provider is null.");
+                return (null, false);
+            }
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Step 1: Search for an existing OrganizationIdentifier
+            var existingIdentifier = await dbContext.Set<OrganizationIdentifier>()
+                .Include(oi => oi.Organization) // Eager load the related Organization
+                .FirstOrDefaultAsync(oi => oi.IdentifierValue == identifierValue && oi.IdentifierSystemOID == identifierRoot);
+
+            if (existingIdentifier?.Organization != null)
+            {
+                // Step 2: If found, return the associated Organization
+                return (existingIdentifier.Organization, false);
+            }
+
+            // Step 3: If not found, create both the Organization and the OrganizationIdentifier
+            var orgRepo = context.GetRepository<Organization>();
+            var orgName = orgEl.GetSplElementVal(sc.E.Name)?.Trim();
+
+            if (string.IsNullOrWhiteSpace(orgName))
+            {
+                context?.Logger?.LogError("Cannot create new organization for identifier '{Identifier}' because its name is missing.", identifierValue);
+                return (null, false);
+            }
+
+            // Step 3a: Create the new Organization
+            var newOrganization = new Organization
+            {
+                OrganizationName = orgName,
+                IsConfidential = orgEl.GetSplElementAttrVal(sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
+            };
+            await orgRepo.CreateAsync(newOrganization);
+
+            if (newOrganization.OrganizationID == null)
+            {
+                context?.Logger?.LogError("Failed to save new organization '{OrgName}'.", orgName);
+                return (null, false);
+            }
+
+            // Step 3b: Create the new OrganizationIdentifier and link it
+            var identifierRepo = context.GetRepository<OrganizationIdentifier>();
+            var newIdentifier = new OrganizationIdentifier
+            {
+                OrganizationID = newOrganization.OrganizationID,
+                IdentifierValue = identifierValue,
+                IdentifierSystemOID = identifierRoot,
+                IdentifierType = inferIdentifierTypeFromOid(identifierRoot) // Helper to map OID to a friendly type
+            };
+            await identifierRepo.CreateAsync(newIdentifier);
+
+            context?.Logger?.LogInformation("Created new Organization '{OrgName}' (ID: {OrgId}) with Identifier '{Identifier}'", orgName, newOrganization.OrganizationID, identifierValue);
+            return (newOrganization, true);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Infers a friendly identifier type from its OID root.
+        /// </summary>
+        private static string inferIdentifierTypeFromOid(string? oid)
+        {
+            return oid switch
+            {
+                "1.3.6.1.4.1.519.1" => "DUNS",
+                "2.16.840.1.113883.4.82" => "FEI",
+                "2.16.840.1.113883.6.69" => "NDC Labeler Code",
+                _ => "Other"
+            };
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds an existing organization by name or creates a new one if not found.
+        /// </summary>
+        /// <param name="orgElement">The XElement representing the organization (e.g., representedOrganization).</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A tuple containing the Organization entity and a boolean indicating if it was newly created.</returns>
+        public static async Task<(Organization? Organization, bool Created)> GetOrCreateOrganizationByNameAsync(XElement orgElement, SplParseContext context)
+        {
+            #region implementation
+            var orgName = orgElement.GetSplElementVal(sc.E.Name)?.Trim();
+            if (string.IsNullOrWhiteSpace(orgName)) return (null, false);
+
+            var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
+            var orgRepo = context?.GetRepository<Organization>();
+
+            if (dbContext == null || orgRepo == null)
+            {
+                context?.Logger?.LogError("Database context or repository is not available.");
+                return (null, false);
+            }
+
+            var existingOrg = await dbContext.Set<Organization>().FirstOrDefaultAsync(o => o.OrganizationName == orgName);
+
+            if (existingOrg != null) return (existingOrg, false);
+
+            var newOrganization = new Organization
+            {
+                OrganizationName = orgName,
+                IsConfidential = orgElement.GetSplElementAttrVal(sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
+            };
+            await orgRepo.CreateAsync(newOrganization);
+            return (newOrganization, true);
+            #endregion
+        }
+
         /**************************************************************/
         /// <summary>
         /// Finds or creates NamedEntity records for all [asNamedEntity] elements under orgElement.
@@ -677,143 +812,247 @@ namespace MedRecPro.Service.ParsingServices
         /**************************************************************/
         /// <summary>
         /// Defines hierarchical relationships between organizations within a document header (e.g., Labeler → Registrant → Establishment).
-        /// Parses and saves all DocumentRelationship entities at the Author level 
-        /// by examining author/assignedEntity/representedOrganization hierarchies.
+        /// Parses and saves all DocumentRelationship entities at the Author level by orchestrating calls to specialized parsing methods.
         /// </summary>
         /// <param name="authorEl">The author XML element containing organization hierarchy information.</param>
         /// <param name="context">The parsing context providing database access and logging services.</param>
         /// <param name="documentId">The document ID to associate relationships with.</param>
-        /// <param name="lablelerId">The labeler organization ID as the root of the hierarchy.</param>
+        /// <param name="labelerId">The labeler organization ID as the root of the hierarchy.</param>
         /// <returns>The count of DocumentRelationship records created.</returns>
         /// <remarks>
-        /// Describes the specific relationship types including:
-        /// - LabelerToRegistrant (4.1.3 [cite: 788])
-        /// - RegistrantToEstablishment (4.1.4 [cite: 791]) 
-        /// - EstablishmentToUSagent (6.1.4 [cite: 914])
-        /// - EstablishmentToImporter (6.1.5 [cite: 918])
-        /// - LabelerToDetails (5.1.3 [cite: 863])
-        /// - FacilityToParentCompany (35.1.6 [cite: 1695])
-        /// - LabelerToParentCompany (36.1.2.5 [cite: 1719])
-        /// - DocumentToBulkLotManufacturer (16.1.3)
-        /// 
-        /// Indicates the level in the hierarchy (e.g., 1 for Labeler, 2 for Registrant, 3 for Establishment).
-        /// Follows the SPL pattern: author → assignedEntity (labeler) → representedOrganization (registrant) → assignedEntity (establishment).
+        /// This method acts as the entry point for parsing the complex organization hierarchy. It delegates the
+        /// actual parsing of registrants and establishments to private helper methods, making the logic more modular and readable.
         /// </remarks>
         /// <seealso cref="DocumentRelationship"/>
         /// <seealso cref="Organization"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        /// <seealso cref="XElement"/>
-        /// <seealso cref="ApplicationDbContext"/>
-        /// <seealso cref="XElementExtensions"/>
-        /// <seealso cref="getOrCreateOrganizationAsync"/>
-        /// <seealso cref="saveOrGetDocumentRelationshipAsync"/>
-        /// <seealso cref="parseAndSaveFacilityProductLinksAsync"/>
         private async Task<int> parseAndSaveDocumentRelationshipsAsync(
             XElement authorEl,
             SplParseContext context,
             int documentId,
-            int lablelerId)
+            int labelerId)
         {
             #region implementation
             int count = 0;
 
-            // Get database context for entity operations
-            var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
-
             // Validate required dependencies for processing document relationships
-            if (context == null || dbContext == null || context.Logger == null || context.Document?.DocumentID == null)
+            if (context?.ServiceProvider == null || context.Logger == null)
                 return count;
-
-            // Helper: gets or creates an org from an assignedEntity/assignedOrganization element
-            async Task<(Organization? org, XElement? orgEl)> getOrgAndElFromEntity(XElement entityEl)
-            {
-                // Find either AssignedOrganization or RepresentedOrganization element
-                var assignedOrgEl = entityEl.GetSplElement(sc.E.AssignedOrganization)
-                                     ?? entityEl.GetSplElement(sc.E.RepresentedOrganization);
-                if (assignedOrgEl == null)
-                    return (null, null);
-
-                // Create or retrieve the organization entity from the XML element
-                var (org, _) = await getOrCreateOrganizationAsync(assignedOrgEl, context);
-                return (org, assignedOrgEl);
-            }
 
             // Navigate to the labeler entity within the author element
             var labelerEntityEl = authorEl.GetSplElement(sc.E.AssignedEntity);
-            if (labelerEntityEl != null)
+            if (labelerEntityEl == null)
             {
-                // Get the labeler organization from the assigned entity
-                var (labelerOrg, _) = await getOrgAndElFromEntity(labelerEntityEl);
-
-                // Look for the registrant organization in the represented organization element
-                var registrantRepOrgEl = labelerEntityEl.GetSplElement(sc.E.RepresentedOrganization);
-                if (registrantRepOrgEl != null)
-                {
-                    // Navigate to the registrant entity within the represented organization
-                    var registrantEntityEl = registrantRepOrgEl.GetSplElement(sc.E.AssignedEntity);
-                    if (registrantEntityEl != null)
-                    {
-                        // Get or create the registrant organization
-                        var (registrantOrg, _) = await getOrgAndElFromEntity(registrantEntityEl);
-
-                        if (registrantOrg?.OrganizationID != null)
-                        {
-                            // Create LabelerToRegistrant relationship at hierarchy level 2
-                            var rel1 = await saveOrGetDocumentRelationshipAsync(
-                                dbContext, documentId, lablelerId, registrantOrg.OrganizationID, "LabelerToRegistrant", 2);
-                            count++;
-                            context.Logger.LogInformation($"DocumentRelationship: Labeler ({labelerOrg?.OrganizationID}) → Registrant ({registrantOrg.OrganizationID}) saved.");
-                        }
-
-                        // Process all establishment entities under the registrant
-                        foreach (var establishmentEntityEl in registrantEntityEl.SplElements(sc.E.AssignedEntity))
-                        {
-                            // Get or create each establishment organization
-                            var (establishmentOrg, establishmentOrgEl) = await getOrgAndElFromEntity(establishmentEntityEl);
-
-                            if (establishmentOrg?.OrganizationID != null && registrantOrg?.OrganizationID != null)
-                            {
-                                // Create RegistrantToEstablishment relationship at hierarchy level 3
-                                var rel2 = await saveOrGetDocumentRelationshipAsync(
-                                    dbContext, documentId, registrantOrg.OrganizationID, establishmentOrg.OrganizationID, "RegistrantToEstablishment", 3);
-
-                                count++;
-                                context.Logger.LogInformation($"DocumentRelationship: Registrant ({registrantOrg.OrganizationID}) → Establishment ({establishmentOrg.OrganizationID}) saved.");
-
-                                // If this establishment is a facility, parse its product links
-                                if (establishmentOrgEl != null && establishmentOrgEl.SplElements(sc.E.Performance).Any())
-                                {
-                                    context.Logger.LogInformation("Found facility with product links. Parsing...");
-
-                                    // Parse facility-product relationships for this establishment
-                                    int linksCreated = await parseAndSaveFacilityProductLinksAsync(
-                                        establishmentOrgEl,
-                                        rel2.DocumentRelationshipID,
-                                        context
-                                    );
-
-                                    // Log the number of facility-product links created
-                                    context.Logger.LogInformation("Created {count} facility-product links.", linksCreated);
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // Create basic relationship when no registrant entity is found
-                        await saveOrGetDocumentRelationshipAsync(dbContext, documentId, lablelerId, null, null, 1);
-                    }
-                }
+                // If there's no entity, we can't find relationships.
+                context.Logger.LogInformation("No assignedEntity found under author; cannot parse document relationships.");
+                return count;
             }
+
+            // Delegate to the method responsible for parsing the registrant level
+            count = await parseRegistrantRelationshipAsync(labelerEntityEl, context, documentId, labelerId);
 
             // Log when no relationships were found
             if (count == 0)
             {
-                context.Logger.LogInformation($"No Registrant/Establishment found; Labeler OrganizationID={lablelerId}");
+                context.Logger.LogInformation($"No Registrant/Establishment hierarchy found under Labeler OrganizationID={labelerId}");
             }
 
             return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the registrant relationship nested under a labeler entity.
+        /// </summary>
+        /// <param name="labelerEntityEl">The [assignedEntity] element of the labeler.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="documentId">The ID of the current document.</param>
+        /// <param name="labelerId">The ID of the labeler organization.</param>
+        /// <returns>The total count of all relationships and child entities created.</returns>
+        /// <remarks>
+        /// This method finds the registrant, creates the `LabelerToRegistrant` relationship, sets the context,
+        /// and then delegates the parsing of any nested establishments.
+        /// </remarks>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="parseEstablishmentRelationshipsAsync"/>
+        /// <seealso cref="saveOrGetDocumentRelationshipAsync"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseRegistrantRelationshipAsync(
+            XElement labelerEntityEl,
+            SplParseContext context,
+            int documentId,
+            int labelerId)
+        {
+            #region implementation
+            int count = 0;
+
+            if (context == null || context.ServiceProvider == null || context.Logger == null)
+            {
+                context?.Logger?.LogWarning("Parsing context is not properly initialized.");
+                return count;
+            }
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // The registrant is inside a <representedOrganization> which contains another <assignedEntity>
+            var registrantEntityEl = labelerEntityEl.SplElement(sc.E.RepresentedOrganization, sc.E.AssignedEntity);
+            if (registrantEntityEl == null)
+            {
+                // No registrant found, this might be a simple labeler-only document.
+                return 0;
+            }
+
+            // Get or create the registrant organization
+            var (registrantOrg, _) = await getOrgFromEntityAsync(registrantEntityEl, context);
+            if (registrantOrg?.OrganizationID == null)
+            {
+                context.Logger.LogWarning("Found a registrant entity but could not resolve its organization.");
+                return 0;
+            }
+
+            // Create the "Labeler -> Registrant" relationship link
+            var labelerToRegistrantRel = await saveOrGetDocumentRelationshipAsync(
+                dbContext, documentId, labelerId, registrantOrg.OrganizationID, "LabelerToRegistrant", 2);
+            count++;
+            context.Logger.LogInformation($"DocumentRelationship: Labeler ({labelerId}) → Registrant ({registrantOrg.OrganizationID}) saved.");
+
+            // --- START: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+            var oldDocRel = context.CurrentDocumentRelationship;
+            context.CurrentDocumentRelationship = labelerToRegistrantRel;
+
+            try
+            {
+                // Now, with the registrant context set, parse its children (establishments)
+                count += await parseEstablishmentRelationshipsAsync(registrantEntityEl, context, documentId, registrantOrg.OrganizationID.Value);
+            }
+            finally
+            {
+                // CRITICAL: Restore the context to prevent side effects.
+                context.CurrentDocumentRelationship = oldDocRel;
+            }
+            // --- END: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all establishment relationships nested under a registrant entity.
+        /// </summary>
+        /// <param name="registrantEntityEl">The [assignedEntity] element of the registrant.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="documentId">The ID of the current document.</param>
+        /// <param name="registrantId">The ID of the parent registrant organization.</param>
+        /// <returns>The total count of all relationships and child entities created.</returns>
+        /// <remarks>
+        /// This method loops through all establishments, creates the `RegistrantToEstablishment` relationship,
+        /// sets the context for each, and then delegates parsing of facility links or compliance actions.
+        /// </remarks>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="ComplianceActionParser"/>
+        /// <seealso cref="parseAndSaveFacilityProductLinksAsync"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseEstablishmentRelationshipsAsync(
+            XElement registrantEntityEl,
+            SplParseContext context,
+            int documentId,
+            int registrantId)
+        {
+            #region implementation
+            int count = 0;
+
+            if(context == null || context.ServiceProvider == null || context.Logger == null)
+            {
+                context?.Logger?.LogWarning("Parsing context is not properly initialized.");
+                return count;
+            }
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Process all establishment entities under the registrant
+            foreach (var establishmentEntityEl in registrantEntityEl.SplElements(sc.E.AssignedEntity))
+            {
+                // Get or create each establishment organization
+                var (establishmentOrg, establishmentOrgEl) = await getOrgFromEntityAsync(establishmentEntityEl, context);
+                if (establishmentOrg?.OrganizationID == null || establishmentOrgEl == null) continue;
+
+                // Create the "Registrant -> Establishment" relationship link
+                var registrantToEstablishmentRel = await saveOrGetDocumentRelationshipAsync(
+                    dbContext, documentId, registrantId, establishmentOrg.OrganizationID, "RegistrantToEstablishment", 3);
+                count++;
+                context.Logger.LogInformation($"DocumentRelationship: Registrant ({registrantId}) → Establishment ({establishmentOrg.OrganizationID}) saved.");
+
+                // --- START: CONTEXT MANAGEMENT AND ORCHESTRATION FOR EACH ESTABLISHMENT ---
+                var oldDocRel = context.CurrentDocumentRelationship;
+                context.CurrentDocumentRelationship = registrantToEstablishmentRel;
+
+                try
+                {
+                    // 1. Parse facility-product links (<performance>) for this establishment
+                    if (establishmentOrgEl.SplElements(sc.E.Performance).Any())
+                    {
+                        context.Logger.LogInformation("Found facility with product links. Parsing...");
+                        int linksCreated = await parseAndSaveFacilityProductLinksAsync(
+                            establishmentOrgEl, registrantToEstablishmentRel.DocumentRelationshipID, context);
+                        count += linksCreated;
+                        context.Logger.LogInformation("Created {count} facility-product links.", linksCreated);
+                    }
+
+                    // 2. Parse compliance actions (<action>) for this establishment
+                    var subjectOfElements = establishmentOrgEl.SplElements(sc.E.SubjectOf);
+                    foreach (var subjectEl in subjectOfElements)
+                    {
+                        if (subjectEl.SplElement(sc.E.Action) != null)
+                        {
+                            var complianceParser = new ComplianceActionParser();
+                            var complianceResult = await complianceParser.ParseAsync(subjectEl, context, null);
+                            if (complianceResult.Success)
+                            {
+                                count += complianceResult.ProductElementsCreated;
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    // CRITICAL: Restore the context after processing this establishment.
+                    context.CurrentDocumentRelationship = oldDocRel;
+                }
+                // --- END: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+            }
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Helper method to get or create an Organization from an [assignedEntity] or similar element.
+        /// </summary>
+        /// <param name="entityEl">The entity element (e.g., assignedEntity) containing the organization info.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A tuple containing the Organization entity and its corresponding XElement.</returns>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="getOrCreateOrganizationAsync"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private async Task<(Organization? org, XElement? orgEl)> getOrgFromEntityAsync(XElement entityEl, SplParseContext context)
+        {
+            #region implementation
+            // Find either AssignedOrganization or RepresentedOrganization element
+            var orgEl = entityEl.SplElement(sc.E.AssignedOrganization)
+                        ?? entityEl.SplElement(sc.E.RepresentedOrganization);
+
+            if (orgEl == null)
+                return (null, null);
+
+            // Create or retrieve the organization entity from the XML element
+            var (org, _) = await getOrCreateOrganizationAsync(orgEl, context);
+            return (org, orgEl);
             #endregion
         }
 

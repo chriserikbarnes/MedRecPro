@@ -125,6 +125,14 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
+            // Validate that MainSectionParser is available in context
+            if (context.MainSectionParser == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Main section parser not available in parsing context.");
+                return result;
+            }
+
             // Find all direct child sections within component elements
             var childSectionEls = parentEl.SplElements(sc.E.Component, sc.E.Section);
 
@@ -135,7 +143,7 @@ namespace MedRecPro.Service.ParsingServices
                 {
                     // Use service locator pattern to resolve the main SectionParser for recursive calls
                     // This avoids circular dependency issues while enabling recursive section processing
-                    var sectionParser = context!.ServiceProvider.GetRequiredService<SectionParser>();
+                    var sectionParser = context!.MainSectionParser;
 
                     // Recursively call the main public parser for the child
                     var childResult = await sectionParser.ParseAsync(childSectionEl, context, reportProgress);

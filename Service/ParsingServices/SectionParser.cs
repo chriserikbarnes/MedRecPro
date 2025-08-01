@@ -128,7 +128,7 @@ namespace MedRecPro.Service.ParsingServices
             var result = new SplParseResult();
 
             // Validate parsing context to ensure all required dependencies are available
-            if (!ValidateContext(context, result))
+            if (!validateContext(context, result))
             {
                 return result;
             }
@@ -149,7 +149,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 // 1. Create the core Section entity from the XML element
                 // Parse section metadata and persist the primary section entity
-                var section = await CreateAndSaveSectionAsync(xEl, context);
+                var section = await createAndSaveSectionAsync(xEl, context);
                 if (section?.SectionID == null)
                 {
                     result.Success = false;
@@ -165,6 +165,10 @@ namespace MedRecPro.Service.ParsingServices
 
                 try
                 {
+                    // Before parsing products, check if this section requires a DocumentRelationship context.
+                    var docRelResult = await parseDocumentRelationshipAsync(xEl, context, reportProgress);
+                    result.MergeFrom(docRelResult);
+
                     // 3. Delegate to specialized parsers for different aspects of section processing
 
                     // Parse the content within this section (text, highlights, etc.)
@@ -183,14 +187,25 @@ namespace MedRecPro.Service.ParsingServices
                     var indexingResult = await _indexingParser.ParseAsync(xEl, context, reportProgress);
                     result.MergeFrom(indexingResult);
 
+                    // Parse compliance actions for this section
+                    var complianceResult = await parseComplianceActionsAsync(xEl, context, reportProgress);
+                    result.MergeFrom(complianceResult);
+
+                    // Parse certification links if this is a certification section
+                    if (context.CurrentSection?.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE)
+                    {
+                        var certificationResult = await parseCertificationLinksAsync(xEl, context, reportProgress);
+                        result.MergeFrom(certificationResult);
+                    }
+
                     // 4. Parse the associated manufactured product, if it exists
                     // Process product information contained within the section
-                    var productResult = await ParseManufacturedProductAsync(xEl, context, reportProgress);
+                    var productResult = await parseManufacturedProductAsync(xEl, context, reportProgress);
                     result.MergeFrom(productResult);
 
                     // 5. Parse REMS protocols if applicable
                     // Check if this section contains REMS protocol elements
-                    if (ContainsRemsProtocols(xEl))
+                    if (containsRemsProtocols(xEl))
                     {
                         var remsParser = new REMSParser();
                         var remsResult = await remsParser.ParseAsync(xEl, context, reportProgress);
@@ -223,6 +238,33 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
+        /// Conditionally parses a DocumentRelationship if the section requires it (e.g., for certifications).
+        /// </summary>
+        /// <param name="sectionEl">The XElement of the section.</param>
+        /// <param name="context">The current parsing context. This will be populated with the CurrentDocumentRelationship.</param>
+        /// <param name="reportProgress">Optional progress reporting action.</param>
+        /// <returns>The SplParseResult from the relationship parser.</returns>
+        /// <seealso cref="DocumentRelationshipParser"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseDocumentRelationshipAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
+        {
+            #region implementation
+            // The section code "BNCC" is an example for "Blanket No Changes Certification".
+            if (context.CurrentSection?.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE)
+            {
+                var subjectEl = sectionEl.SplElement(sc.E.Subject);
+                if (subjectEl != null)
+                {
+                    var relationshipParser = new DocumentRelationshipParser();
+                    return await relationshipParser.ParseAsync(subjectEl, context, reportProgress);
+                }
+            }
+            return new SplParseResult { Success = true };
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Validates the parsing context to ensure it's properly initialized.
         /// Checks for required dependencies and structured body context.
         /// </summary>
@@ -232,7 +274,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="Label"/>
-        private bool ValidateContext(SplParseContext context, SplParseResult result)
+        private bool validateContext(SplParseContext context, SplParseResult result)
         {
             #region implementation
             // Validate logger availability for error reporting and debugging
@@ -267,7 +309,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
-        private async Task<Section?> CreateAndSaveSectionAsync(XElement xEl, SplParseContext context)
+        private async Task<Section?> createAndSaveSectionAsync(XElement xEl, SplParseContext context)
         {
             #region implementation
             try
@@ -313,7 +355,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="Label"/>
-        private async Task<SplParseResult> ParseManufacturedProductAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
+        private async Task<SplParseResult> parseManufacturedProductAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
             // Navigate through the SPL hierarchy: section/subject/manufacturedProduct
@@ -340,12 +382,297 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>True if the section contains REMS protocols, false otherwise.</returns>
         /// <seealso cref="REMSParser"/>
         /// <seealso cref="Label"/>
-        private static bool ContainsRemsProtocols(XElement sectionEl)
+        private static bool containsRemsProtocols(XElement sectionEl)
         {
             #region implementation
             // Check for REMS-specific elements that indicate this section should be processed by REMSParser
             return sectionEl.SplElements(sc.E.Subject2, sc.E.SubstanceAdministration, sc.E.ComponentOf, sc.E.Protocol).Any() ||
                    sectionEl.SplElements(sc.E.Subject, sc.E.ManufacturedProduct, sc.E.SubjectOf, sc.E.Document).Any();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses compliance actions contained within the section by looking for subjectOf elements
+        /// that contain action elements, delegating to the specialized ComplianceActionParser.
+        /// </summary>
+        /// <param name="sectionEl">The XElement representing the section to parse for compliance actions.</param>
+        /// <param name="context">The current parsing context containing the section and other contextual information.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <returns>A SplParseResult containing the aggregated results from all compliance action parsing operations.</returns>
+        /// <example>
+        /// <code>
+        /// var result = await parseComplianceActionsAsync(sectionElement, parseContext, progress);
+        /// if (result.Success)
+        /// {
+        ///     Console.WriteLine($"Compliance actions created: {result.ProductElementsCreated}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method searches for XML structures matching the pattern:
+        /// &lt;section&gt;&lt;subjectOf&gt;&lt;action&gt;...&lt;/action&gt;&lt;/subjectOf&gt;&lt;/section&gt;
+        /// Each found action element is processed by the ComplianceActionParser to create
+        /// ComplianceAction entities and any associated AttachedDocument entities.
+        /// The method ensures proper context management for DocumentRelationship when available.
+        /// </remarks>
+        /// <seealso cref="ComplianceActionParser"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseComplianceActionsAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
+        {
+            #region implementation
+            var result = new SplParseResult();
+
+            try
+            {
+                // Look for compliance actions in subjectOf elements within the section
+                // This follows the SPL document structure: <section><subjectOf><action>...</action></subjectOf></section>
+                var subjectOfElements = sectionEl.SplElements(sc.E.SubjectOf);
+
+                foreach (var subjectEl in subjectOfElements)
+                {
+                    // Check if this subjectOf element contains an action element
+                    if (subjectEl.SplElement(sc.E.Action) != null)
+                    {
+                        // --- START: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+                        // The ComplianceActionParser requires either CurrentDocumentRelationship or CurrentPackageIdentifier
+                        // For section-level compliance actions, we typically use DocumentRelationship context if available
+                        // No need to set context here as it should already be established by ParseDocumentRelationshipAsync
+                        // or inherited from parent parsing context
+
+                        try
+                        {
+                            // Delegate to specialized compliance action parser
+                            var complianceParser = new ComplianceActionParser();
+                            var complianceResult = await complianceParser.ParseAsync(subjectEl, context, reportProgress);
+
+                            // Merge results to accumulate counts and errors
+                            result.MergeFrom(complianceResult);
+
+                            // Log errors if compliance parsing failed
+                            if (!complianceResult.Success)
+                            {
+                                context?.Logger?.LogError("Failed to parse compliance action for SectionID {SectionID} in file {FileName}.",
+                                    context.CurrentSection?.SectionID, context.FileNameInZip);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            // Handle errors during individual compliance action parsing
+                            result.Success = false;
+                            result.Errors.Add($"Error parsing individual compliance action: {ex.Message}");
+                            context?.Logger?.LogError(ex, "Error parsing compliance action in section for {FileName}", context.FileNameInZip);
+                        }
+                        // --- END: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Handle unexpected errors during compliance action parsing
+                result.Success = false;
+                result.Errors.Add($"Error parsing compliance actions in section: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error parsing compliance actions for section in {FileName}", context.FileNameInZip);
+            }
+
+            return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses certification links for Blanket No Changes Certification (BNCC) sections by
+        /// finding product identifiers and setting appropriate context for the specialized parser.
+        /// </summary>
+        /// <param name="sectionEl">The XElement representing the BNCC section to parse for certification links.</param>
+        /// <param name="context">The current parsing context containing the section and document relationship information.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <returns>A SplParseResult containing the results from certification link parsing operations.</returns>
+        /// <example>
+        /// <code>
+        /// if (context.CurrentSection?.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE)
+        /// {
+        ///     var result = await parseCertificationLinksAsync(sectionElement, parseContext, progress);
+        ///     if (result.Success)
+        ///     {
+        ///         Console.WriteLine($"Certification links created: {result.ProductElementsCreated}");
+        ///     }
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method is specifically designed for BNCC sections and looks for product-related
+        /// elements within the section that can be linked to certifications. It expects the
+        /// DocumentRelationship context to be properly set before calling. The method finds
+        /// product identifiers and sets the CurrentProductIdentifier context for each certification
+        /// link parsing operation, following the established context management pattern.
+        /// </remarks>
+        /// <seealso cref="CertificationProductLinkParser"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseCertificationLinksAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
+        {
+            #region implementation
+            var result = new SplParseResult();
+
+            try
+            {
+                // Validate that we have the required DocumentRelationship context for certification links
+                if (context.CurrentDocumentRelationship?.DocumentRelationshipID == null)
+                {
+                    // This is not necessarily an error - some BNCC sections may not have certification links
+                    return new SplParseResult { Success = true };
+                }
+
+                // Look for product-related elements within the section that can have certification links
+                // In BNCC sections, we need to find manufactured products or product identifiers
+                var productElements = sectionEl.SplElements(sc.E.Subject, sc.E.ManufacturedProduct);
+
+                foreach (var productEl in productElements)
+                {
+                    // Look for product identification codes within the manufactured product
+                    var codeElements = productEl.SplElements(sc.E.Code);
+
+                    foreach (var codeEl in codeElements)
+                    {
+                        // Check if this code element represents a product identifier with certification potential
+                        if (!string.IsNullOrEmpty(codeEl.GetAttrVal(sc.A.CodeValue)))
+                        {
+                            // Create a ProductIdentifier to set the required context for certification link parsing
+                            // This provides the ProductIdentifier context that CertificationProductLinkParser expects
+                            var productIdentifier = await createProductIdentifierForContextAsync(codeEl, context);
+
+                            if (productIdentifier?.ProductIdentifierID.HasValue == true)
+                            {
+                                // --- START: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+                                var oldIdentifier = context.CurrentProductIdentifier;
+                                context.CurrentProductIdentifier = productIdentifier; // Set context for the child parser
+                                try
+                                {
+                                    // Delegate to specialized certification link parser
+                                    var certLinkParser = new CertificationProductLinkParser();
+                                    var certLinkResult = await certLinkParser.ParseAsync(codeEl, context, reportProgress);
+
+                                    // Merge results to accumulate counts and errors
+                                    result.MergeFrom(certLinkResult);
+
+                                    // Log errors if certification link parsing failed
+                                    if (!certLinkResult.Success)
+                                    {
+                                        context?.Logger?.LogError("Failed to parse certification link for ProductIdentifierID {ProductIdentifierID} in file {FileName}.",
+                                            productIdentifier.ProductIdentifierID, context.FileNameInZip);
+                                    }
+                                }
+                                finally
+                                {
+                                    context.CurrentProductIdentifier = oldIdentifier; // Restore context
+                                }
+                                // --- END: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Handle unexpected errors during certification link parsing
+                result.Success = false;
+                result.Errors.Add($"Error parsing certification links in BNCC section: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error parsing certification links for BNCC section in {FileName}", context.FileNameInZip);
+            }
+
+            return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a temporary ProductIdentifier from the given code element to establish
+        /// the proper context for certification link parsing.
+        /// </summary>
+        /// <param name="codeEl">The XElement containing product identification information.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A ProductIdentifier entity with a valid ProductIdentifierID, or null if creation failed.</returns>
+        /// <remarks>
+        /// This helper method creates a ProductIdentifier entity to provide the required context
+        /// for CertificationProductLinkParser. Since repository FindAsync is not available,
+        /// this method creates new ProductIdentifier entities based on the code element data.
+        /// The ProductID will be set if a current product exists in the parsing context.
+        /// </remarks>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private async Task<ProductIdentifier?> createProductIdentifierForContextAsync(XElement codeEl, SplParseContext context)
+        {
+            #region implementation
+            try
+            {
+                var codeValue = codeEl.GetAttrVal(sc.A.CodeValue);
+                var codeSystem = codeEl.GetAttrVal(sc.A.CodeSystem);
+
+                if (string.IsNullOrEmpty(codeValue))
+                {
+                    return null;
+                }
+
+                // Create a new ProductIdentifier using the correct model properties
+                var newIdentifier = new ProductIdentifier
+                {
+                    ProductID = context.CurrentProduct?.ProductID, // Link to current product if available
+                    IdentifierValue = codeValue, // Maps to [code code=] attribute
+                    IdentifierSystemOID = codeSystem, // Maps to [code codeSystem=] attribute
+                    IdentifierType = determineIdentifierType(codeSystem) // Classify based on OID
+                };
+
+                // Get repository for ProductIdentifier operations
+                var identifierRepo = context.GetRepository<ProductIdentifier>();
+                await identifierRepo.CreateAsync(newIdentifier);
+
+                return newIdentifier.ProductIdentifierID > 0 ? newIdentifier : null;
+            }
+            catch (Exception ex)
+            {
+                context?.Logger?.LogError(ex, "Error creating ProductIdentifier for certification link context");
+                return null;
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines the identifier type classification based on the OID system.
+        /// </summary>
+        /// <param name="oidSystem">The OID system string from the code element.</param>
+        /// <returns>A string classification of the identifier type, or null if not recognized.</returns>
+        /// <remarks>
+        /// This method maps common OID systems to their corresponding identifier types
+        /// for proper classification in the ProductIdentifier entity.
+        /// </remarks>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="Label"/>
+        private static string? determineIdentifierType(string? oidSystem)
+        {
+            #region implementation
+            if (string.IsNullOrEmpty(oidSystem))
+            {
+                return null;
+            }
+
+            // Map common OID systems to identifier types
+            // These mappings should be updated based on your system's OID registry
+            return oidSystem switch
+            {
+                "2.16.840.1.113883.6.69" => "NDC", // National Drug Code
+                "1.3.160" => "GTIN", // Global Trade Item Number
+                "2.16.840.1.113883.6.162" => "UPC", // Universal Product Code
+                _ => "OTHER" // Generic classification for unrecognized OIDs
+            };
             #endregion
         }
 

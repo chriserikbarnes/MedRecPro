@@ -79,8 +79,8 @@ namespace MedRecPro.Service.ParsingServices
             result.ProductElementsCreated += equivCount;
 
             // --- PARSE IDENTIFIER ENTITIES ---
-            var idCount = await parseAndSaveProductIdentifiersAsync(element, product, context);
-            result.ProductElementsCreated += idCount;
+            var idResult = await parseAndSaveProductIdentifiersAsync(element, product, context, reportProgress);
+            result.MergeFrom(idResult);
 
             // --- PARSE SPECIALIZED KINDS ---
             // The document type code is needed for business rule validation.
@@ -157,33 +157,126 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses and creates ProductIdentifier entities from the manufacturedProduct XML element.
+        /// Orchestrates the parsing and creation of all ProductIdentifier entities.
         /// </summary>
         /// <param name="mmEl">The manufacturedProduct or manufacturedMedicine XElement.</param>
         /// <param name="product">The Product entity to link identifiers to.</param>
         /// <param name="context">The parsing context for repository access and logging.</param>
-        /// <returns>The number of ProductIdentifier records created.</returns>
+        /// <param name="reportProgress">Optional action to report progress.</param>
+        /// <returns>An SplParseResult containing the results of the operations.</returns>
         /// <remarks>
-        /// Handles all 'code' elements representing product/item codes (NDC, GTIN, etc.) under 'manufacturedProduct'
-        /// and 'subjectOf'/'approval' sections, supporting drugs, devices, and cosmetics.
+        /// This method first consolidates all relevant code elements (direct, packaging, and approval)
+        /// and then processes them in a single, unified function to create identifiers and,
+        /// conditionally, certification links.
         /// </remarks>
         /// <seealso cref="ProductIdentifier"/>
         /// <seealso cref="Product"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private async Task<int> parseAndSaveProductIdentifiersAsync(XElement mmEl, Product product, SplParseContext context)
+        private async Task<SplParseResult> parseAndSaveProductIdentifiersAsync(XElement mmEl, Product product, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
-            int createdCount = 0;
+            // Step 1: Consolidate all relevant identifier code elements into one list.
+            var allIdentifierElements = getAllRelevantIdentifierElements(mmEl);
 
-            // 1. Save product/package identifiers from direct code elements
-            var codes = getAllProductAndPackagingCodes(mmEl);
-            createdCount += await saveProductIdentifiersAsync(codes, product, context);
+            // Step 2: Process the consolidated list to create identifiers and links.
+            var result = await createIdentifiersAndLinksAsync(allIdentifierElements, product, context, reportProgress);
 
-            // 2. Save approval/marketing identifiers from subjectOf/approval sections
-            createdCount += await saveApprovalIdentifiersAsync(mmEl, product, context);
+            return result;
+            #endregion
+        }
 
-            return createdCount;
+        /**************************************************************/
+        /// <summary>
+        /// Gathers all relevant product identifier `code` elements from direct, packaging, and approval locations.
+        /// </summary>
+        /// <param name="element">The root XML element (e.g., manufacturedProduct) to search within.</param>
+        /// <returns>A distinct collection of all `code` XElements that represent product identifiers.</returns>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
+        private IEnumerable<XElement> getAllRelevantIdentifierElements(XElement element)
+        {
+            #region implementation
+            // 1. Get product-level and nested packaging codes
+            var productAndPackageCodes = getAllProductAndPackagingCodes(element);
+
+            // 2. Get approval/marketing codes
+            var approvalCodes = element.SplElements(sc.E.SubjectOf, sc.E.Approval, sc.E.Code);
+
+            // 3. Combine and return a distinct list to avoid processing the same element twice
+            return productAndPackageCodes.Union(approvalCodes);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates and saves ProductIdentifier entities from a collection of code XML elements,
+        /// and conditionally creates CertificationProductLink records.
+        /// </summary>
+        /// <param name="codeElements">The consolidated collection of all identifier XML code elements.</param>
+        /// <param name="product">The Product entity to associate identifiers with.</param>
+        /// <param name="context">The parsing context for repository access and logging.</param>
+        /// <param name="reportProgress">Optional action to report progress.</param>
+        /// <returns>An SplParseResult containing the results of the operations.</returns>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="CertificationProductLinkParser"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> createIdentifiersAndLinksAsync(IEnumerable<XElement> codeElements,
+            Product product, SplParseContext context, Action<string>? reportProgress)
+        {
+            #region implementation
+            var result = new SplParseResult();
+
+            if (context == null || context.CurrentSection == null)
+            {
+                result.Success = false;
+                result.Errors.Add("No parsing context provided for ProductIdentifier creation.");
+                return result;
+            }
+
+            var repo = context.GetRepository<ProductIdentifier>();
+
+            foreach (var codeEl in codeElements)
+            {
+                string? codeVal = codeEl.GetAttrVal(sc.A.CodeValue);
+                string? codeSystem = codeEl.GetAttrVal(sc.A.CodeSystem);
+
+                if (string.IsNullOrWhiteSpace(codeVal) || string.IsNullOrWhiteSpace(codeSystem))
+                    continue;
+
+                var identifier = new ProductIdentifier
+                {
+                    ProductID = product.ProductID,
+                    IdentifierValue = codeVal,
+                    IdentifierSystemOID = codeSystem,
+                    IdentifierType = inferIdentifierType(codeSystem)
+                };
+
+                await repo.CreateAsync(identifier);
+                result.ProductElementsCreated++;
+                context?.Logger?.LogInformation($"ProductIdentifier created: ProductID={product.ProductID} Value={codeVal} OID={codeSystem}");
+
+                // If this is a certification document and the identifier was successfully saved, create the link.
+                // The section code "BNCC" is an example for "Blanket No Changes Certification".
+                if (context?.CurrentSection?.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE && identifier.ProductIdentifierID.HasValue)
+                {
+                    var oldIdentifier = context.CurrentProductIdentifier;
+                    context.CurrentProductIdentifier = identifier; // Set context for the child parser
+                    try
+                    {
+                        var certLinkParser = new CertificationProductLinkParser();
+                        var certLinkResult = await certLinkParser.ParseAsync(codeEl, context, reportProgress);
+                        result.MergeFrom(certLinkResult);
+                    }
+                    finally
+                    {
+                        context.CurrentProductIdentifier = oldIdentifier; // Restore context
+                    }
+                }
+            }
+            return result;
             #endregion
         }
 
@@ -231,19 +324,23 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="codeElements">The collection of XML code elements to process.</param>
         /// <param name="product">The Product entity to associate identifiers with.</param>
         /// <param name="context">The parsing context for repository access and logging.</param>
-        /// <returns>The number of ProductIdentifier records successfully created.</returns>
+        /// <param name="reportProgress">Optional action to report progress.</param>
+        /// <returns>An SplParseResult containing the results of the operations.</returns>
         /// <remarks>
         /// Validates that both code value and code system are present before creating identifiers.
         /// Logs the creation of each identifier for audit purposes.
+        /// **This method now conditionally creates CertificationProductLink records.**
         /// </remarks>
         /// <seealso cref="ProductIdentifier"/>
         /// <seealso cref="Product"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="CertificationProductLinkParser"/>
         /// <seealso cref="Label"/>
-        private async Task<int> saveProductIdentifiersAsync(IEnumerable<XElement> codeElements, Product product, SplParseContext context)
+        private async Task<SplParseResult> saveProductIdentifiersAsync(IEnumerable<XElement> codeElements, 
+            Product product, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
-            int count = 0;
+            var result = new SplParseResult();
             var repo = context.GetRepository<ProductIdentifier>();
 
             // Process each code element to create identifiers
@@ -268,10 +365,11 @@ namespace MedRecPro.Service.ParsingServices
 
                 // Save to database and track count
                 await repo.CreateAsync(identifier);
-                count++;
+                result.ProductElementsCreated++;
                 context?.Logger?.LogInformation($"ProductIdentifier created: ProductID={product.ProductID} Value={codeVal} OID={codeSystem}");
+
             }
-            return count;
+            return result;
             #endregion
         }
 
@@ -282,19 +380,23 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="mmEl">The manufacturedProduct XML element containing approval information.</param>
         /// <param name="product">The Product entity to associate identifiers with.</param>
         /// <param name="context">The parsing context for repository access and logging.</param>
-        /// <returns>The number of approval ProductIdentifier records successfully created.</returns>
+        /// <param name="reportProgress">Optional action to report progress.</param>
+        /// <returns>An SplParseResult containing the results of the operations.</returns>
         /// <remarks>
         /// Searches for approval codes in subjectOf/approval XML structures.
         /// These typically contain regulatory approval numbers or marketing authorization codes.
+        /// **This method now conditionally creates CertificationProductLink records.**
         /// </remarks>
         /// <seealso cref="ProductIdentifier"/>
         /// <seealso cref="Product"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="CertificationProductLinkParser"/>
         /// <seealso cref="Label"/>
-        private async Task<int> saveApprovalIdentifiersAsync(XElement mmEl, Product product, SplParseContext context)
+        private async Task<SplParseResult> saveApprovalIdentifiersAsync(XElement mmEl, 
+            Product product, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
-            int count = 0;
+            var result = new SplParseResult();
             var repo = context.GetRepository<ProductIdentifier>();
 
             // Find all approval code elements in the XML structure
@@ -319,11 +421,11 @@ namespace MedRecPro.Service.ParsingServices
 
                 // Save and log the approval identifier
                 await repo.CreateAsync(identifier);
-                count++;
+                result.ProductElementsCreated++;
                 context?.Logger?.LogInformation("Approval ProductIdentifier created: ProductID={ProductID} Value={IdentifierValue} OID={IdentifierSystemOID}",
                     product.ProductID, codeVal, codeSystem);
             }
-            return count;
+            return result;
             #endregion
         }
 
@@ -410,6 +512,14 @@ namespace MedRecPro.Service.ParsingServices
         string? documentTypeCode)
         {
             #region implementation
+            if (mmEl == null
+                || context == null
+                || context.Logger == null
+                || context.ServiceProvider == null)
+            {
+                return 0;
+            }
+
             var repo = context.GetRepository<SpecializedKind>();
             var allKinds = new List<SpecializedKind>();
 

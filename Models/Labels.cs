@@ -160,6 +160,11 @@ namespace MedRecPro.Models
             /// Flag indicating if the organization information is confidential ([confidentialityCode code="B"]).
             /// </summary>
             public bool? IsConfidential { get; set; } = false;// Made nullable (Default is 0 (false) in SQL)
+
+            /// <summary>
+            /// Collection of identifiers associated with this organization.
+            /// </summary>
+            public virtual ICollection<OrganizationIdentifier> OrganizationIdentifiers { get; set; } = new List<OrganizationIdentifier>();
             #endregion properties
         }
 
@@ -413,6 +418,11 @@ namespace MedRecPro.Models
                 get => _authorType;
                 set => _authorType = value?.RemoveHtmlXss();
             }
+
+            /// <summary>
+            /// Navigation property back to the parent Organization.
+            /// </summary>
+            public virtual Organization? Organization { get; set; }
             #endregion properties
         }
 
@@ -2574,6 +2584,11 @@ namespace MedRecPro.Models
                 get => _identifierType;
                 set => _identifierType = value?.RemoveHtmlXss();
             }
+
+            /// <summary>
+            /// Navigation property back to the parent Organization.
+            /// </summary>
+            public virtual Organization? Organization { get; set; }
             #endregion properties
         }
 
@@ -3867,8 +3882,9 @@ namespace MedRecPro.Models
         /*******************************************************************************/
         /// <summary>
         /// Stores references to attached documents (e.g., PDFs for Disciplinary Actions, REMS Materials).
-        /// 18.1.7 Approval Disciplinary Action and 23.2.9 REMS Material 
+        /// Based on SPL Implementation Guide Sections 18.1.7 and 23.2.9.
         /// </summary>
+        /// <seealso cref="Label"/>
         [AttachedDocumentValidation]
         [AttachedDocumentFileValidation]
         [AttachedDocumentREMSValidation]
@@ -3876,29 +3892,57 @@ namespace MedRecPro.Models
         public class AttachedDocument
         {
             #region properties
+            /**************************************************************/
             /// <summary>
             /// Primary key for the AttachedDocument table.
             /// </summary>
-            public int? AttachedDocumentID { get; set; } // Made nullable
+            public int? AttachedDocumentID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Foreign key to the Section where this document is referenced. Can be null.
+            /// </summary>
+            /// <seealso cref="Section"/>
+            public int? SectionID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Foreign key to a ComplianceAction, if the document is part of a drug listing or establishment inactivation. Can be null.
+            /// </summary>
+            /// <seealso cref="ComplianceAction"/>
+            public int? ComplianceActionID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Foreign key to a Product, if the document is related to a specific product (e.g., REMS material). Can be null.
+            /// </summary>
+            /// <seealso cref="Product"/>
+            public int? ProductID { get; set; }
+
 
             private string? _parentEntityType;
+            /**************************************************************/
             /// <summary>
-            /// Identifies the type of the parent element containing the document reference.
+            /// Identifies the type of the parent element containing the document reference (e.g., "DisciplinaryAction").
             /// </summary>
+            /// <seealso cref="DisciplinaryAction"/>
             public string? ParentEntityType
             {
                 get => _parentEntityType;
                 set => _parentEntityType = value?.RemoveHtmlXss();
             }
 
+            /**************************************************************/
             /// <summary>
-            /// FK to the parent table (e.g., DisciplinaryActionID).
+            /// Foreign key to the parent table (e.g., DisciplinaryActionID).
             /// </summary>
-            public int? ParentEntityID { get; set; } // Made nullable
+            public int? ParentEntityID { get; set; }
 
+            // --- Common and REMS-specific fields ---
             private string? _mediaType;
+            /**************************************************************/
             /// <summary>
-            /// MIME type of the attached document.
+            /// MIME type of the attached document (e.g., "application/pdf").
             /// </summary>
             public string? MediaType
             {
@@ -3907,6 +3951,7 @@ namespace MedRecPro.Models
             }
 
             private string? _fileName;
+            /**************************************************************/
             /// <summary>
             /// File name of the attached document.
             /// </summary>
@@ -3914,6 +3959,39 @@ namespace MedRecPro.Models
             {
                 get => _fileName;
                 set => _fileName = value?.RemoveHtmlXss();
+            }
+
+            private string? _documentIdRoot;
+            /**************************************************************/
+            /// <summary>
+            /// The root identifier of the document from the [id] element, required for REMS materials (SPL IG 23.2.9.1).
+            /// </summary>
+            public string? DocumentIdRoot
+            {
+                get => _documentIdRoot;
+                set => _documentIdRoot = value?.RemoveHtmlXss();
+            }
+
+            private string? _title;
+            /**************************************************************/
+            /// <summary>
+            /// The title of the document reference (SPL IG 23.2.9.2).
+            /// </summary>
+            public string? Title
+            {
+                get => _title;
+                set => _title = value?.RemoveHtmlXss();
+            }
+
+            private string? _titleReference;
+            /**************************************************************/
+            /// <summary>
+            /// The ID referenced within the document's title, linking it to content in the section text (SPL IG 23.2.9.3).
+            /// </summary>
+            public string? TitleReference
+            {
+                get => _titleReference;
+                set => _titleReference = value?.RemoveHtmlXss();
             }
             #endregion properties
         }
@@ -4821,7 +4899,7 @@ namespace MedRecPro.Models
             public int? DocumentRelationshipID { get; set; } // Made nullable
 
             /// <summary>
-            /// Foreign key to ProductIdentifier (NDC or ISBT code being certified).
+            /// Foreign key to ProductIdentifier.
             /// </summary>
             public int? ProductIdentifierID { get; set; } // Made nullable
             #endregion properties
@@ -4829,9 +4907,12 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores FDA-initiated inactivation/reactivation status for Drug Listings (linked via PackageIdentifierID) or Establishment Registrations 
+        /// Stores FDA-initiated inactivation/reactivation status for Drug Listings 
+        /// (linked via PackageIdentifierID) or Establishment Registrations 
         /// (linked via DocumentRelationshipID). Based on Section 30.2.3, 31.1.4.
         /// </summary>
+        [ComplianceActionContextValidation]
+        [ComplianceActionConsistencyValidation]
         public class ComplianceAction
         {
             #region properties
@@ -4859,6 +4940,8 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code for the compliance action (e.g., C162847 Inactivated).
             /// </summary>
+            
+            [ComplianceActionCodeValidation]
             public string? ActionCode
             {
                 get => _actionCode;
@@ -4888,11 +4971,13 @@ namespace MedRecPro.Models
             /// <summary>
             /// Date the inactivation begins.
             /// </summary>
+            [ComplianceActionEffectiveTimeLowValidation]
             public DateTime? EffectiveTimeLow { get; set; } // Made nullable
 
             /// <summary>
             /// Date the inactivation ends (reactivation date), if applicable.
             /// </summary>
+            [ComplianceActionEffectiveTimeHighValidation]
             public DateTime? EffectiveTimeHigh { get; set; } // Already nullable
             #endregion properties
         }
