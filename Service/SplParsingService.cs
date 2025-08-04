@@ -134,9 +134,10 @@ namespace MedRecPro.Service
             var indexingParser = new SectionIndexingParser();
             var hierarchyParser = new SectionHierarchyParser();
             var mediaParser = new SectionMediaParser();
+            var toleranceParser = new ToleranceSpecificationParser();
 
             // Create the main SectionParser with its dependencies
-            var sectionParser = new SectionParser(contentParser, indexingParser, hierarchyParser, mediaParser);
+            var sectionParser = new SectionParser(contentParser, indexingParser, hierarchyParser, mediaParser, toleranceParser);
 
             // Register the section parser
             RegisterSectionParser(sc.E.Section, sectionParser);

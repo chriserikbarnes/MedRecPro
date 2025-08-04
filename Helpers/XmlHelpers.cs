@@ -82,6 +82,234 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Gets the value of a specified attribute from a nested child element path with 3 levels.
+        /// This method navigates through multiple levels of child elements before getting the attribute.
+        /// </summary>
+        /// <param name="element">The parent XElement.</param>
+        /// <param name="E1">The string name of the first child element (namespace will be automatically applied).</param>
+        /// <param name="E2">The string name of the second child element (namespace will be automatically applied).</param>
+        /// <param name="E3">The string name of the third child element (namespace will be automatically applied).</param>
+        /// <param name="A">The string name of the attribute on the nested child element.</param>
+        /// <returns>The attribute's value, or null if any element in the path or the attribute does not exist.</returns>
+        /// <example>
+        /// <code>
+        /// XElement parent = XElement.Parse("&lt;root xmlns='namespace'&gt;&lt;subjectOf&gt;&lt;approval&gt;&lt;code value='123'/&gt;&lt;/approval&gt;&lt;/subjectOf&gt;&lt;/root&gt;");
+        /// string value = parent.GetSplElementAttrVal("subjectOf", "approval", "code", "value");
+        /// // value will be "123"
+        /// </code>
+        /// </example>
+        /// <seealso cref="GetSplElementAttrVal(XElement, XName, XName, XName, XName)"/>
+        /// <seealso cref="XNamespace"/>
+        /// <seealso cref="Label"/>
+        public static string? GetSplElementAttrVal(this XElement element, string E1, string E2, string E3, string A)
+        {
+            #region implementation
+            // Apply namespace to all element names and delegate to the XName overload
+            return GetSplElementAttrVal(element, ns + E1, ns + E2, ns + E3, A);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the value of a specified attribute from a nested child element path with 3 levels using XName parameters.
+        /// This method navigates through multiple levels of child elements before getting the attribute.
+        /// </summary>
+        /// <param name="element">The parent XElement.</param>
+        /// <param name="E1">The XName of the first child element.</param>
+        /// <param name="E2">The XName of the second child element (nested within E1).</param>
+        /// <param name="E3">The XName of the third child element (nested within E2).</param>
+        /// <param name="A">The XName of the attribute on the nested child element.</param>
+        /// <returns>The attribute's value, or null if any element in the path or the attribute does not exist.</returns>
+        /// <example>
+        /// <code>
+        /// XElement parent = XElement.Parse("&lt;root&gt;&lt;subjectOf&gt;&lt;approval&gt;&lt;code value='123'/&gt;&lt;/approval&gt;&lt;/subjectOf&gt;&lt;/root&gt;");
+        /// string value = parent.GetSplElementAttrVal(XName.Get("subjectOf"), XName.Get("approval"), XName.Get("code"), XName.Get("value"));
+        /// // value will be "123"
+        /// </code>
+        /// </example>
+        /// <seealso cref="XElement(XName)"/>
+        /// <seealso cref="XElement.Attribute(XName)"/>
+        /// <seealso cref="XAttribute.Value"/>
+        /// <seealso cref="Label"/>
+        public static string? GetSplElementAttrVal(this XElement element, XName E1, XName E2, XName E3, XName A)
+        {
+            #region implementation
+            // Navigate through the nested element path: element -> E1 -> E2 -> E3, then get the attribute value
+            return element.Element(E1)?.Element(E2)?.Element(E3)?.Attribute(A)?.Value;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the value of a specified attribute from a nested child element path with 4 levels.
+        /// This method navigates through multiple levels of child elements before getting the attribute.
+        /// </summary>
+        /// <param name="element">The parent XElement.</param>
+        /// <param name="E1">The string name of the first child element (namespace will be automatically applied).</param>
+        /// <param name="E2">The string name of the second child element (namespace will be automatically applied).</param>
+        /// <param name="E3">The string name of the third child element (namespace will be automatically applied).</param>
+        /// <param name="E4">The string name of the fourth child element (namespace will be automatically applied).</param>
+        /// <param name="A">The string name of the attribute on the nested child element.</param>
+        /// <returns>The attribute's value, or null if any element in the path or the attribute does not exist.</returns>
+        /// <example>
+        /// <code>
+        /// XElement parent = XElement.Parse("&lt;root xmlns='namespace'&gt;&lt;subjectOf&gt;&lt;approval&gt;&lt;effectiveTime&gt;&lt;high value='20251231'/&gt;&lt;/effectiveTime&gt;&lt;/approval&gt;&lt;/subjectOf&gt;&lt;/root&gt;");
+        /// string value = parent.GetSplElementAttrVal("subjectOf", "approval", "effectiveTime", "high", "value");
+        /// // value will be "20251231"
+        /// </code>
+        /// </example>
+        /// <seealso cref="GetSplElementAttrVal(XElement, XName, XName, XName, XName, XName)"/>
+        /// <seealso cref="XNamespace"/>
+        /// <seealso cref="Label"/>
+        public static string? GetSplElementAttrVal(this XElement element, string E1, string E2, string E3, string E4, string A)
+        {
+            #region implementation
+            // Apply namespace to all element names and delegate to the XName overload
+            return GetSplElementAttrVal(element, ns + E1, ns + E2, ns + E3, ns + E4, A);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the value of a specified attribute from a nested child element path with 4 levels using XName parameters.
+        /// This method navigates through multiple levels of child elements before getting the attribute.
+        /// </summary>
+        /// <param name="element">The parent XElement.</param>
+        /// <param name="E1">The XName of the first child element.</param>
+        /// <param name="E2">The XName of the second child element (nested within E1).</param>
+        /// <param name="E3">The XName of the third child element (nested within E2).</param>
+        /// <param name="E4">The XName of the fourth child element (nested within E3).</param>
+        /// <param name="A">The XName of the attribute on the nested child element.</param>
+        /// <returns>The attribute's value, or null if any element in the path or the attribute does not exist.</returns>
+        /// <example>
+        /// <code>
+        /// XElement parent = XElement.Parse("&lt;root&gt;&lt;subjectOf&gt;&lt;approval&gt;&lt;effectiveTime&gt;&lt;high value='20251231'/&gt;&lt;/effectiveTime&gt;&lt;/approval&gt;&lt;/subjectOf&gt;&lt;/root&gt;");
+        /// string value = parent.GetSplElementAttrVal(XName.Get("subjectOf"), XName.Get("approval"), XName.Get("effectiveTime"), XName.Get("high"), XName.Get("value"));
+        /// // value will be "20251231"
+        /// </code>
+        /// </example>
+        /// <seealso cref="XElement(XName)"/>
+        /// <seealso cref="XElement.Attribute(XName)"/>
+        /// <seealso cref="XAttribute.Value"/>
+        /// <seealso cref="Label"/>
+        public static string? GetSplElementAttrVal(this XElement element, XName E1, XName E2, XName E3, XName E4, XName A)
+        {
+            #region implementation
+            // Navigate through the nested element path: element -> E1 -> E2 -> E3 -> E4, then get the attribute value
+            return element.Element(E1)?.Element(E2)?.Element(E3)?.Element(E4)?.Attribute(A)?.Value;
+            #endregion
+        }
+
+        // ADD THESE METHODS AFTER THE EXISTING GetSplElementVal METHODS (around line 100)
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the value of a nested child element using a 2-level path with the configured namespace.
+        /// </summary>
+        /// <param name="element">The parent XElement.</param>
+        /// <param name="E1">The string name of the first child element (namespace will be automatically applied).</param>
+        /// <param name="E2">The string name of the second child element (namespace will be automatically applied).</param>
+        /// <returns>The nested child element's value, or null if any element in the path does not exist.</returns>
+        /// <example>
+        /// <code>
+        /// XElement parent = XElement.Parse("&lt;root xmlns='namespace'&gt;&lt;approval&gt;&lt;text&gt;Some text&lt;/text&gt;&lt;/approval&gt;&lt;/root&gt;");
+        /// string value = parent.GetSplElementVal("approval", "text");
+        /// // value will be "Some text"
+        /// </code>
+        /// </example>
+        /// <seealso cref="GetSplElementVal(XElement, XName, XName)"/>
+        /// <seealso cref="XNamespace"/>
+        /// <seealso cref="Label"/>
+        public static string? GetSplElementVal(this XElement element, string E1, string E2)
+        {
+            #region implementation
+            // Apply namespace to both element names and delegate to the XName overload
+            return GetSplElementVal(element, ns + E1, ns + E2);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the value of a nested child element using a 2-level path with XName parameters.
+        /// </summary>
+        /// <param name="element">The parent XElement.</param>
+        /// <param name="E1">The XName of the first child element.</param>
+        /// <param name="E2">The XName of the second child element (nested within E1).</param>
+        /// <returns>The nested child element's value, or null if any element in the path does not exist.</returns>
+        /// <example>
+        /// <code>
+        /// XElement parent = XElement.Parse("&lt;root&gt;&lt;approval&gt;&lt;text&gt;Some text&lt;/text&gt;&lt;/approval&gt;&lt;/root&gt;");
+        /// string value = parent.GetSplElementVal(XName.Get("approval"), XName.Get("text"));
+        /// // value will be "Some text"
+        /// </code>
+        /// </example>
+        /// <seealso cref="XElement(XName)"/>
+        /// <seealso cref="XElement.Value"/>
+        /// <seealso cref="Label"/>
+        public static string? GetSplElementVal(this XElement element, XName E1, XName E2)
+        {
+            #region implementation
+            // Navigate through the nested element path: element -> E1 -> E2, then get the value
+            return element.Element(E1)?.Element(E2)?.Value;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the value of a nested child element using a 3-level path with the configured namespace.
+        /// </summary>
+        /// <param name="element">The parent XElement.</param>
+        /// <param name="E1">The string name of the first child element (namespace will be automatically applied).</param>
+        /// <param name="E2">The string name of the second child element (namespace will be automatically applied).</param>
+        /// <param name="E3">The string name of the third child element (namespace will be automatically applied).</param>
+        /// <returns>The nested child element's value, or null if any element in the path does not exist.</returns>
+        /// <example>
+        /// <code>
+        /// XElement parent = XElement.Parse("&lt;root xmlns='namespace'&gt;&lt;subjectOf&gt;&lt;approval&gt;&lt;text&gt;Some text&lt;/text&gt;&lt;/approval&gt;&lt;/subjectOf&gt;&lt;/root&gt;");
+        /// string value = parent.GetSplElementVal("subjectOf", "approval", "text");
+        /// // value will be "Some text"
+        /// </code>
+        /// </example>
+        /// <seealso cref="GetSplElementVal(XElement, XName, XName, XName)"/>
+        /// <seealso cref="XNamespace"/>
+        /// <seealso cref="Label"/>
+        public static string? GetSplElementVal(this XElement element, string E1, string E2, string E3)
+        {
+            #region implementation
+            // Apply namespace to all element names and delegate to the XName overload
+            return GetSplElementVal(element, ns + E1, ns + E2, ns + E3);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the value of a nested child element using a 3-level path with XName parameters.
+        /// </summary>
+        /// <param name="element">The parent XElement.</param>
+        /// <param name="E1">The XName of the first child element.</param>
+        /// <param name="E2">The XName of the second child element (nested within E1).</param>
+        /// <param name="E3">The XName of the third child element (nested within E2).</param>
+        /// <returns>The nested child element's value, or null if any element in the path does not exist.</returns>
+        /// <example>
+        /// <code>
+        /// XElement parent = XElement.Parse("&lt;root&gt;&lt;subjectOf&gt;&lt;approval&gt;&lt;text&gt;Some text&lt;/text&gt;&lt;/approval&gt;&lt;/subjectOf&gt;&lt;/root&gt;");
+        /// string value = parent.GetSplElementVal(XName.Get("subjectOf"), XName.Get("approval"), XName.Get("text"));
+        /// // value will be "Some text"
+        /// </code>
+        /// </example>
+        /// <seealso cref="XElement(XName)"/>
+        /// <seealso cref="XElement.Value"/>
+        /// <seealso cref="Label"/>
+        public static string? GetSplElementVal(this XElement element, XName E1, XName E2, XName E3)
+        {
+            #region implementation
+            // Navigate through the nested element path: element -> E1 -> E2 -> E3, then get the value
+            return element.Element(E1)?.Element(E2)?.Element(E3)?.Value;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets a direct child element using a string name with the configured namespace.
         /// </summary>
         /// <param name="element">The parent XElement.</param>

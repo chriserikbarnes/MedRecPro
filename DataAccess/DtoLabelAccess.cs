@@ -3106,32 +3106,16 @@ namespace MedRecPro.DataAccess
         /**************************************************************/
         /// <summary>
         /// Builds a list of pharmacologic classes for the IdentifiedSubstance.
-        /// Retrieves pharmacologic class records for an identified substance and 
-        /// enriches them with names, links, and hierarchies, then transforms 
-        /// them into DTOs with encrypted identifiers.
+        /// Handles both ActiveMoiety indexing (via PharmacologicClassLink) and 
+        /// PharmacologicClass definitions (direct IdentifiedSubstanceID relationship).
         /// </summary>
         /// <param name="db">The application database context for data access operations</param>
         /// <param name="identifiedSubstanceID">The unique identifier of the identified substance to find pharmacologic classes for. Returns empty list if null</param>
         /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
         /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
         /// <returns>A list of PharmacologicClassDto objects representing the pharmacologic classes with their associated data, or an empty list if none found</returns>
-        /// <remarks>
-        /// This method follows the data flow: IdentifiedSubstanceDto > PharmacologicClassDto
-        /// Each pharmacologic class is enriched with its names, links, and hierarchies.
-        /// The method uses AsNoTracking() for read-only operations to improve performance.
-        /// All returned DTOs contain encrypted IDs for security purposes.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// var pharmacologicClasses = await buildPharmacologicClassesAsync(dbContext, 456, secretKey, logger);
-        /// </code>
-        /// </example>
-        /// <seealso cref="Label.PharmacologicClass"/>
-        /// <seealso cref="PharmacologicClassDto"/>
-        /// <seealso cref="buildPharmacologicClassNamesAsync"/>
-        /// <seealso cref="buildPharmacologicClassLinksAsync"/>
-        /// <seealso cref="buildPharmacologicClassHierarchiesAsync"/>
-        private static async Task<List<PharmacologicClassDto>> buildPharmacologicClassesAsync(ApplicationDbContext db, int? identifiedSubstanceID, string pkSecret, ILogger logger)
+        private static async Task<List<PharmacologicClassDto>> buildPharmacologicClassesAsync(ApplicationDbContext db, 
+            int? identifiedSubstanceID, string pkSecret, ILogger logger)
         {
             #region implementation
             // Early return if no identified substance ID provided
@@ -3140,37 +3124,59 @@ namespace MedRecPro.DataAccess
 
             var dtos = new List<PharmacologicClassDto>();
 
-            // Query pharmacologic classes for the specified identified substance using read-only tracking
-            var entity = await db.Set<Label.PharmacologicClass>()
+            // CASE 1: PharmacologicClass Definitions (Section 8.2.3)
+            // Direct relationship via IdentifiedSubstanceID
+            var definitionClasses = await db.Set<Label.PharmacologicClass>()
                 .AsNoTracking()
                 .Where(e => e.IdentifiedSubstanceID == identifiedSubstanceID)
                 .ToListAsync();
 
-            // Return empty list if no pharmacologic classes found
-            if (entity == null || !entity.Any())
-                return new List<PharmacologicClassDto>();
+            // CASE 2: ActiveMoiety Indexing (Section 8.2.2) 
+            // Relationship via PharmacologicClassLink table
+            var linkedClassIds = await db.Set<Label.PharmacologicClassLink>()
+                .AsNoTracking()
+                .Where(link => link.ActiveMoietySubstanceID == identifiedSubstanceID)
+                .Select(link => link.PharmacologicClassID)
+                .ToListAsync();
+
+            var linkedClasses = new List<Label.PharmacologicClass>();
+            if (linkedClassIds.Any())
+            {
+                linkedClasses = await db.Set<Label.PharmacologicClass>()
+                    .AsNoTracking()
+                    .Where(pc => linkedClassIds.Contains(pc.PharmacologicClassID))
+                    .ToListAsync();
+            }
+
+            // Combine both types of relationships
+            var allClasses = definitionClasses.Concat(linkedClasses).Distinct().ToList();
+
+            logger.LogInformation("Found {DefinitionCount} definition classes and {LinkedCount} linked classes for substance {SubstanceId}",
+                definitionClasses.Count, linkedClasses.Count, identifiedSubstanceID);
 
             // Process each pharmacologic class and build associated data
-            foreach (var e in entity)
+            foreach (var pharmClass in allClasses)
             {
                 // Skip entities without valid IDs
-                if (e.PharmacologicClassID == null)
+                if (pharmClass.PharmacologicClassID == null)
                     continue;
 
                 // Build the pharmacologic class names, links, and hierarchies for this class
-                var pharmacologicClassNames = await buildPharmacologicClassNamesAsync(db, e.PharmacologicClassID, pkSecret, logger);
-                var pharmLinks = await buildPharmacologicClassLinksAsync(db, e.PharmacologicClassID, pkSecret, logger);
-                var pharmHierarchies = await buildPharmacologicClassHierarchiesAsync(db, e.PharmacologicClassID, pkSecret, logger);
+                var pharmacologicClassNames = await buildPharmacologicClassNamesAsync(db, pharmClass.PharmacologicClassID, pkSecret, logger);
+                var pharmLinks = await buildPharmacologicClassLinksAsync(db, pharmClass.PharmacologicClassID, pkSecret, logger);
+                var pharmHierarchies = await buildPharmacologicClassHierarchiesAsync(db, pharmClass.PharmacologicClassID, pkSecret, logger);
 
                 // Create pharmacologic class DTO with encrypted ID and associated data
                 dtos.Add(new PharmacologicClassDto
                 {
-                    PharmacologicClass = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    PharmacologicClass = pharmClass.ToEntityWithEncryptedId(pkSecret, logger),
                     PharmacologicClassNames = pharmacologicClassNames,
                     PharmacologicClassLinks = pharmLinks,
                     PharmacologicClassHierarchies = pharmHierarchies
                 });
             }
+
+            logger.LogInformation("Built {Count} PharmacologicClassDto objects for substance {SubstanceId}", dtos.Count, identifiedSubstanceID);
 
             // Return processed pharmacologic classes with associated data, ensuring non-null result
             return dtos ?? new List<PharmacologicClassDto>();

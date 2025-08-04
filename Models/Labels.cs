@@ -4085,6 +4085,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Specification code, format 40-CFR-...
             /// </summary>
+            [SubstanceSpecificationCodeValidation]
             public string? SpecCode
             {
                 get => _specCode;
@@ -4105,6 +4106,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code for the Enforcement Analytical Method used ([observation][code]).
             /// </summary>
+            [EnforcementMethodCodeValidation]
             public string? EnforcementMethodCode
             {
                 get => _enforcementMethodCode;
@@ -4137,6 +4139,7 @@ namespace MedRecPro.Models
         /// <summary>
         /// Links a Substance Specification to the analyte(s) being measured ([analyte][identifiedSubstance]). Based on Section 19.2.3.
         /// </summary>
+        [AnalyteValidation]
         public class Analyte
         {
             #region properties
@@ -4173,6 +4176,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code identifying the commodity.
             /// </summary>
+            [CommodityCodeValidation]
             public string? CommodityCode
             {
                 get => _commodityCode;
@@ -4237,6 +4241,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code system for AppTypeCode (2.16.840.1.113883.6.275.1).
             /// </summary>
+            [ApplicationTypeCodeValidation]
             public string? AppTypeCodeSystem
             {
                 get => _appTypeCodeSystem;
@@ -4259,6 +4264,7 @@ namespace MedRecPro.Models
         /// <summary>
         /// Stores the tolerance range and related details ([referenceRange][observationCriterion]). Based on Section 19.2.4.
         /// </summary>
+        [ObservationCriterionConsistencyValidation]
         public class ObservationCriterion
         {
             #region properties
@@ -4281,6 +4287,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Tolerance unit ([value][high unit]).
             /// </summary>
+            [ToleranceHighValueValidation]
             public string? ToleranceHighUnit
             {
                 get => _toleranceHighUnit;
@@ -4300,12 +4307,14 @@ namespace MedRecPro.Models
             /// <summary>
             /// Optional expiration or revocation date for the tolerance.
             /// </summary>
+            [ToleranceExpirationDateValidation]
             public DateTime? ExpirationDate { get; set; } // Already nullable
 
             private string? _textNote;
             /// <summary>
             /// Optional text annotation about the tolerance.
             /// </summary>
+            [ToleranceTextNoteValidation]
             public string? TextNote
             {
                 get => _textNote;

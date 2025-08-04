@@ -55,6 +55,11 @@ namespace MedRecPro.Service.ParsingServices
         /// Specialized parser for handling multimedia content and media references.
         /// </summary>
         private readonly SectionMediaParser _mediaParser;
+
+        /// <summary>
+        /// Specialized parser for handling tolerance specifications and observation criteria.
+        /// </summary>
+        private readonly ToleranceSpecificationParser _toleranceParser;
         #endregion
 
         /**************************************************************/
@@ -65,16 +70,19 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="indexingParser">Parser for indexing operations and cross-references.</param>
         /// <param name="hierarchyParser">Parser for section hierarchies and child relationships.</param>
         /// <param name="mediaParser">Parser for multimedia content and media references.</param>
+        /// <param name="toleranceParser">Parser for tolerance specifications and observation criteria.</param>
         public SectionParser(
             SectionContentParser? contentParser = null,
             SectionIndexingParser? indexingParser = null,
             SectionHierarchyParser? hierarchyParser = null,
-            SectionMediaParser? mediaParser = null)
+            SectionMediaParser? mediaParser = null,
+            ToleranceSpecificationParser? toleranceParser = null)
         {
             _contentParser = contentParser ?? new SectionContentParser();
             _indexingParser = indexingParser ?? new SectionIndexingParser();
             _hierarchyParser = hierarchyParser ?? new SectionHierarchyParser();
             _mediaParser = mediaParser ?? new SectionMediaParser();
+            _toleranceParser = toleranceParser ?? new ToleranceSpecificationParser();
         }
 
         /**************************************************************/
@@ -186,6 +194,15 @@ namespace MedRecPro.Service.ParsingServices
                     // Parse indexing information (pharmacologic classes, billing units, etc.)
                     var indexingResult = await _indexingParser.ParseAsync(xEl, context, reportProgress);
                     result.MergeFrom(indexingResult);
+
+                    // Parse tolerance specifications and observation criteria for 40 CFR 180 documents
+                    // Check if this section contains tolerance specification elements
+                    if (containsToleranceSpecifications(xEl))
+                    {
+                        var toleranceResult = await _toleranceParser.ParseAsync(xEl, context, reportProgress);
+                        result.MergeFrom(toleranceResult);
+                    }
+
 
                     // Parse warning letter information if this is a warning letter alert section 
                     var warningLetterResult = await parseWarningLetterContentAsync(xEl, context, reportProgress);
@@ -315,6 +332,38 @@ namespace MedRecPro.Service.ParsingServices
                 }
             }
             return new SplParseResult { Success = true };
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if a section contains tolerance specification elements that should be parsed.
+        /// </summary>
+        /// <param name="sectionEl">The section XElement to check.</param>
+        /// <returns>True if the section contains tolerance specifications, false otherwise.</returns>
+        /// <seealso cref="ToleranceSpecificationParser"/>
+        /// <seealso cref="Label"/>
+        private static bool containsToleranceSpecifications(XElement sectionEl)
+        {
+            #region implementation
+            // Check for tolerance-specific elements that indicate this section should be processed by ToleranceSpecificationParser
+            // Look for 40-CFR- prefix codes in substance specifications
+            var substanceSpecElements = sectionEl.SplElements(sc.E.Subject, sc.E.IdentifiedSubstance, sc.E.SubjectOf, sc.E.SubstanceSpecification);
+
+            foreach (var specEl in substanceSpecElements)
+            {
+                var codeEl = specEl.GetSplElement(sc.E.Code);
+                var specCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+
+                // Check for 40-CFR- prefix as specified in SPL IG 19.2.3.8
+                if (!string.IsNullOrEmpty(specCode) && specCode.StartsWith("40-CFR-", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            // Also check for observation criteria with tolerance ranges
+            return sectionEl.SplElements(sc.E.ReferenceRange, sc.E.ObservationCriterion).Any();
             #endregion
         }
 
