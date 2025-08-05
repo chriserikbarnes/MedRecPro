@@ -1,13 +1,14 @@
-﻿using MedRecPro.Data;
+﻿using System.Xml.Linq;
+using System.ComponentModel.DataAnnotations;
 using MedRecPro.DataAccess;
-using MedRecPro.Helpers;
 using MedRecPro.Models;
-using MedRecPro.Models.Validation;
+using MedRecPro.Data;
+using MedRecPro.Helpers;
 using Microsoft.EntityFrameworkCore;
-using System.Xml.Linq;
 using static MedRecPro.Models.Label;
 using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants;
+using v = System.ComponentModel.DataAnnotations;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -390,7 +391,7 @@ namespace MedRecPro.Service.ParsingServices
                     if (highEl != null)
                     {
                         var valueStr = highEl.GetAttrVal(sc.A.Value);
-                        toleranceHighValue = Util.ParseNullableDecimal(valueStr);
+                        toleranceHighValue = Util.ParseNullableDecimal(valueStr ?? string.Empty);
                         toleranceHighUnit = highEl.GetAttrVal(sc.A.Unit);
                     }
 
@@ -551,24 +552,16 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="observationCriterionEl">The observation criterion XElement.</param>
         /// <returns>The parsed expiration date, or null if not found or invalid.</returns>
-        /// <remarks>
-        /// Implements SPL Implementation Guide Section 19.2.4.18-19.2.4.20 requirements for 
-        /// expiration or revocation date extraction with proper YYYYMMDD format validation.
-        /// </remarks>
-        /// <seealso cref="ObservationCriterion"/>
-        /// <seealso cref="ToleranceExpirationDateValidationAttribute"/>
         /// <seealso cref="Label"/>
         private DateTime? extractExpirationDate(XElement observationCriterionEl)
         {
             #region implementation
             // Look for expiration date in subjectOf > approval > effectiveTime > high (SPL IG 19.2.4.18-19.2.4.20)
-            // Now uses the 5-parameter GetSplElementAttrVal overload: E1, E2, E3, E4, A
-            var expirationDateStr = observationCriterionEl.GetSplElementAttrVal(
-                sc.E.SubjectOf,           // E1
-                sc.E.Approval,            // E2  
-                sc.E.EffectiveTime,       // E3
-                sc.E.High,                // E4
-                sc.A.Value);              // A (attribute)
+            var expirationDateStr = observationCriterionEl.GetSplElementAttrVal(sc.E.SubjectOf, 
+                sc.E.Approval, 
+                sc.E.EffectiveTime, 
+                sc.E.High, 
+                sc.A.Value);
 
             return Util.ParseNullableDateTime(expirationDateStr ?? string.Empty);
             #endregion
@@ -579,75 +572,13 @@ namespace MedRecPro.Service.ParsingServices
         /// Extracts text note from an observation criterion element.
         /// </summary>
         /// <param name="observationCriterionEl">The observation criterion XElement.</param>
-        /// <returns>The text note content, sanitized for XSS protection, or null if not found.</returns>
-        /// <remarks>
-        /// Implements SPL Implementation Guide Section 19.2.4.22 requirements for optional 
-        /// text annotation extraction with proper HTML sanitization.
-        /// </remarks>
-        /// <seealso cref="ObservationCriterion"/>
-        /// <seealso cref="ToleranceTextNoteValidationAttribute"/>
+        /// <returns>The text note content, or null if not found.</returns>
         /// <seealso cref="Label"/>
         private string? extractTextNote(XElement observationCriterionEl)
         {
             #region implementation
             // Look for text note in subjectOf > approval > text (SPL IG 19.2.4.22)
-            // Now uses the 3-parameter GetSplElementVal overload: E1, E2, E3
-            var textContent = observationCriterionEl.GetSplElementVal(
-                sc.E.SubjectOf,           // E1
-                sc.E.Approval,            // E2
-                sc.E.Text);               // E3
-
-            // Apply HTML sanitization as per existing patterns in the codebase
-            return textContent?.RemoveHtmlXss();
-            #endregion
-        }
-
-        // ALTERNATIVE: If you prefer to use the SplElement method for more complex navigation
-        // These methods demonstrate alternative approaches using the existing SplElement helper
-
-        /**************************************************************/
-        /// <summary>
-        /// Alternative implementation using SplElement for more complex navigation.
-        /// Extracts expiration or revocation date from an observation criterion element.
-        /// </summary>
-        /// <param name="observationCriterionEl">The observation criterion XElement.</param>
-        /// <returns>The parsed expiration date, or null if not found or invalid.</returns>
-        /// <seealso cref="ObservationCriterion"/>
-        /// <seealso cref="Label"/>
-        private DateTime? extractExpirationDateAlternative(XElement observationCriterionEl)
-        {
-            #region implementation
-            // Alternative approach using SplElement for deep navigation
-            var highElement = observationCriterionEl.SplElement(
-                sc.E.SubjectOf,
-                sc.E.Approval,
-                sc.E.EffectiveTime,
-                sc.E.High);
-
-            var expirationDateStr = highElement?.GetAttrVal(sc.A.Value);
-            return Util.ParseNullableDateTime(expirationDateStr ?? string.Empty);
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Alternative implementation using SplElement for navigation.
-        /// Extracts text note from an observation criterion element.
-        /// </summary>
-        /// <param name="observationCriterionEl">The observation criterion XElement.</param>
-        /// <returns>The text note content, sanitized for XSS protection, or null if not found.</returns>
-        /// <seealso cref="ObservationCriterion"/>
-        /// <seealso cref="Label"/>
-        private string? extractTextNoteAlternative(XElement observationCriterionEl)
-        {
-            #region implementation
-            // Alternative approach using SplElement for navigation
-            var textElement = observationCriterionEl.SplElement(
-                sc.E.SubjectOf,
-                sc.E.Approval,
-                sc.E.Text);
-
-            return textElement?.Value?.RemoveHtmlXss();
+            return observationCriterionEl.GetSplElementVal(sc.E.SubjectOf, sc.E.Approval, sc.E.Text)?.RemoveHtmlXss();
             #endregion
         }
 
@@ -672,6 +603,50 @@ namespace MedRecPro.Service.ParsingServices
             return context?.ServiceProvider != null &&
                    context.Logger != null &&
                    section.SectionID.HasValue;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates an entity using its validation attributes (e.g., SubstanceSpecificationCodeValidation).
+        /// This method triggers all validation attributes applied to the entity and its properties.
+        /// </summary>
+        /// <typeparam name="T">The entity type to validate.</typeparam>
+        /// <param name="entity">The entity instance to validate.</param>
+        /// <returns>A collection of ValidationResult objects containing any validation errors.</returns>
+        /// <remarks>
+        /// This method explicitly uses the validation attributes from SubstanceSpecificationValidation.cs:
+        /// - SubstanceSpecificationCodeValidationAttribute
+        /// - EnforcementMethodCodeValidationAttribute  
+        /// - AnalyteValidationAttribute
+        /// - CommodityCodeValidationAttribute
+        /// - ApplicationTypeCodeValidationAttribute
+        /// - ToleranceHighValueValidationAttribute
+        /// - ToleranceExpirationDateValidationAttribute
+        /// - ObservationCriterionConsistencyValidationAttribute
+        /// - ToleranceTextNoteValidationAttribute
+        /// </remarks>
+        /// <seealso cref="SubstanceSpecification"/>
+        /// <seealso cref="ObservationCriterion"/>
+        /// <seealso cref="Commodity"/>
+        /// <seealso cref="ApplicationType"/>
+        /// <seealso cref="Analyte"/>
+        /// <seealso cref="Label"/>
+        private ICollection<v.ValidationResult> validateEntity<T>(T entity) where T : class
+        {
+            #region implementation
+            var validationContext = new ValidationContext(entity);
+            var validationResults = new List<v.ValidationResult>();
+
+            // This will trigger all validation attributes applied to the entity
+            // For SubstanceSpecification: SubstanceSpecificationCodeValidation, EnforcementMethodCodeValidation
+            // For ObservationCriterion: ObservationCriterionConsistencyValidation, ToleranceHighValueValidation, etc.
+            // For Commodity: CommodityCodeValidation
+            // For ApplicationType: ApplicationTypeCodeValidation  
+            // For Analyte: AnalyteValidation
+            Validator.TryValidateObject(entity, validationContext, validationResults, validateAllProperties: true);
+
+            return validationResults;
             #endregion
         }
 
@@ -753,6 +728,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <remarks>
         /// Implements a get-or-create pattern to prevent duplicate substance specification records.
         /// Uniqueness is determined by the IdentifiedSubstanceID and specification code combination.
+        /// Uses validation attributes: SubstanceSpecificationCodeValidation, EnforcementMethodCodeValidation.
         /// </remarks>
         /// <seealso cref="SubstanceSpecification"/>
         /// <seealso cref="IdentifiedSubstance"/>
@@ -781,12 +757,20 @@ namespace MedRecPro.Service.ParsingServices
             var newSpecification = new SubstanceSpecification
             {
                 IdentifiedSubstanceID = identifiedSubstanceId,
-                SpecCode = specCode,
-                SpecCodeSystem = specCodeSystem,
-                EnforcementMethodCode = enforcementMethodCode,
+                SpecCode = specCode,                                    // [SubstanceSpecificationCodeValidation]
+                SpecCodeSystem = specCodeSystem,                        // Validated by SubstanceSpecificationCodeValidation
+                EnforcementMethodCode = enforcementMethodCode,          // [EnforcementMethodCodeValidation]
                 EnforcementMethodCodeSystem = enforcementMethodCodeSystem,
                 EnforcementMethodDisplayName = enforcementMethodDisplayName
             };
+
+            // Explicit validation before saving (using validation attributes)
+            var validationResults = validateEntity(newSpecification);
+            if (validationResults.Any())
+            {
+                var errorMessages = string.Join("; ", validationResults.Select(vr => vr.ErrorMessage));
+                throw new ValidationException($"SubstanceSpecification validation failed: {errorMessages}");
+            }
 
             // Save the new entity to the database and persist changes immediately
             dbContext.Set<SubstanceSpecification>().Add(newSpecification);
@@ -807,6 +791,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <remarks>
         /// Implements a get-or-create pattern to prevent duplicate analyte records.
         /// Uniqueness is determined by the combination of SubstanceSpecificationID and AnalyteSubstanceID.
+        /// Uses validation attributes: AnalyteValidation.
         /// </remarks>
         /// <seealso cref="Analyte"/>
         /// <seealso cref="SubstanceSpecification"/>
@@ -831,9 +816,17 @@ namespace MedRecPro.Service.ParsingServices
             // Create new Analyte entity with validation
             var newAnalyte = new Analyte
             {
-                SubstanceSpecificationID = substanceSpecificationId,
-                AnalyteSubstanceID = analyteSubstanceId
-            };
+                SubstanceSpecificationID = substanceSpecificationId,    // Validated by AnalyteValidation
+                AnalyteSubstanceID = analyteSubstanceId                 // Validated by AnalyteValidation
+            };                                                          // [AnalyteValidation] at class level
+
+            // Explicit validation before saving (using validation attributes)
+            var validationResults = validateEntity(newAnalyte);
+            if (validationResults.Any())
+            {
+                var errorMessages = string.Join("; ", validationResults.Select(vr => vr.ErrorMessage));
+                throw new ValidationException($"Analyte validation failed: {errorMessages}");
+            }
 
             // Save the new entity to the database and persist changes immediately
             dbContext.Set<Analyte>().Add(newAnalyte);
@@ -856,6 +849,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <remarks>
         /// Implements a get-or-create pattern to prevent duplicate commodity records.
         /// Uniqueness is determined by the combination of commodity code and code system.
+        /// Uses validation attributes: CommodityCodeValidation.
         /// </remarks>
         /// <seealso cref="Commodity"/>
         /// <seealso cref="ApplicationDbContext"/>
@@ -880,11 +874,19 @@ namespace MedRecPro.Service.ParsingServices
             // Create new Commodity entity with validation
             var newCommodity = new Commodity
             {
-                CommodityCode = commodityCode,
-                CommodityCodeSystem = commodityCodeSystem,
-                CommodityDisplayName = commodityDisplayName,
+                CommodityCode = commodityCode,                          // [CommodityCodeValidation]
+                CommodityCodeSystem = commodityCodeSystem,              // Validated by CommodityCodeValidation
+                CommodityDisplayName = commodityDisplayName,            // Validated by CommodityCodeValidation
                 CommodityName = commodityName
             };
+
+            // Explicit validation before saving (using validation attributes)
+            var validationResults = validateEntity(newCommodity);
+            if (validationResults.Any())
+            {
+                var errorMessages = string.Join("; ", validationResults.Select(vr => vr.ErrorMessage));
+                throw new ValidationException($"Commodity validation failed: {errorMessages}");
+            }
 
             // Save the new entity to the database and persist changes immediately
             dbContext.Set<Commodity>().Add(newCommodity);
@@ -906,6 +908,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <remarks>
         /// Implements a get-or-create pattern to prevent duplicate application type records.
         /// Uniqueness is determined by the combination of application type code and code system.
+        /// Uses validation attributes: ApplicationTypeCodeValidation.
         /// </remarks>
         /// <seealso cref="ApplicationType"/>
         /// <seealso cref="ApplicationDbContext"/>
@@ -929,10 +932,18 @@ namespace MedRecPro.Service.ParsingServices
             // Create new ApplicationType entity with validation
             var newApplicationType = new ApplicationType
             {
-                AppTypeCode = appTypeCode,
-                AppTypeCodeSystem = appTypeCodeSystem,
-                AppTypeDisplayName = appTypeDisplayName
+                AppTypeCode = appTypeCode,                              // [ApplicationTypeCodeValidation]
+                AppTypeCodeSystem = appTypeCodeSystem,                  // Validated by ApplicationTypeCodeValidation
+                AppTypeDisplayName = appTypeDisplayName                 // Validated by ApplicationTypeCodeValidation
             };
+
+            // Explicit validation before saving (using validation attributes)
+            var validationResults = validateEntity(newApplicationType);
+            if (validationResults.Any())
+            {
+                var errorMessages = string.Join("; ", validationResults.Select(vr => vr.ErrorMessage));
+                throw new ValidationException($"ApplicationType validation failed: {errorMessages}");
+            }
 
             // Save the new entity to the database and persist changes immediately
             dbContext.Set<ApplicationType>().Add(newApplicationType);
@@ -958,6 +969,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <remarks>
         /// Implements a get-or-create pattern to prevent duplicate observation criterion records.
         /// Uniqueness is determined by the combination of SubstanceSpecificationID and tolerance value.
+        /// Uses validation attributes: ObservationCriterionConsistencyValidation, ToleranceHighValueValidation,
+        /// ToleranceExpirationDateValidation, ToleranceTextNoteValidation.
         /// </remarks>
         /// <seealso cref="ObservationCriterion"/>
         /// <seealso cref="SubstanceSpecification"/>
@@ -988,13 +1001,21 @@ namespace MedRecPro.Service.ParsingServices
             var newObservationCriterion = new ObservationCriterion
             {
                 SubstanceSpecificationID = substanceSpecificationId,
-                ToleranceHighValue = toleranceHighValue,
-                ToleranceHighUnit = toleranceHighUnit,
+                ToleranceHighValue = toleranceHighValue,                 // [ToleranceHighValueValidation]
+                ToleranceHighUnit = toleranceHighUnit,                   // Validated by ToleranceHighValueValidation  
                 CommodityID = commodityId,
                 ApplicationTypeID = applicationTypeId,
-                ExpirationDate = expirationDate,
-                TextNote = textNote
-            };
+                ExpirationDate = expirationDate,                        // [ToleranceExpirationDateValidation]
+                TextNote = textNote                                      // [ToleranceTextNoteValidation]
+            };                                                           // [ObservationCriterionConsistencyValidation] at class level
+
+            // Explicit validation before saving (using validation attributes)
+            var validationResults = validateEntity(newObservationCriterion);
+            if (validationResults.Any())
+            {
+                var errorMessages = string.Join("; ", validationResults.Select(vr => vr.ErrorMessage));
+                throw new ValidationException($"ObservationCriterion validation failed: {errorMessages}");
+            }
 
             // Save the new entity to the database and persist changes immediately
             dbContext.Set<ObservationCriterion>().Add(newObservationCriterion);

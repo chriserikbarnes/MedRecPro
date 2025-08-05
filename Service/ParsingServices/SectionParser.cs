@@ -427,9 +427,11 @@ namespace MedRecPro.Service.ParsingServices
                     SectionCode = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
                     SectionCodeSystem = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem),
                     SectionDisplayName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName) ?? string.Empty,
-                    Title = xEl.GetSplElementVal(sc.E.Title)?.Trim(),
-                    EffectiveTime = Util.ParseNullableDateTime(xEl.GetSplElementAttrVal(sc.E.EffectiveTime, sc.A.Value) ?? string.Empty) ?? DateTime.MinValue
+                    Title = xEl.GetSplElementVal(sc.E.Title)?.Trim()
                 };
+
+                // Enhanced EffectiveTime parsing to handle both simple and complex structures
+                parseEffectiveTime(xEl, section);
 
                 // Persist section to database using repository pattern
                 var sectionRepo = context.GetRepository<Section>();
@@ -444,6 +446,55 @@ namespace MedRecPro.Service.ParsingServices
                 return null;
             }
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses effectiveTime element handling both simple value and low/high range structures.
+        /// </summary>
+        /// <param name="xEl">The section XElement containing effectiveTime information.</param>
+        /// <param name="section">The Section entity to populate with effectiveTime data.</param>
+        private static void parseEffectiveTime(XElement xEl, Section section)
+        {
+            var effectiveTimeEl = xEl.GetSplElement(sc.E.EffectiveTime);
+
+            if (effectiveTimeEl == null)
+            {
+                section.EffectiveTime = DateTime.MinValue;
+                return;
+            }
+
+            // Check for simple value attribute first
+            var simpleValue = effectiveTimeEl.GetAttrVal(sc.A.Value);
+            if (!string.IsNullOrEmpty(simpleValue))
+            {
+                section.EffectiveTime = Util.ParseNullableDateTime(simpleValue) ?? DateTime.MinValue;
+                return;
+            }
+
+            // Check for low/high structure
+            var lowEl = effectiveTimeEl.GetSplElement(sc.E.Low);
+            var highEl = effectiveTimeEl.GetSplElement(sc.E.High);
+
+            if (lowEl != null || highEl != null)
+            {
+                // Parse low boundary
+                section.EffectiveTimeLow = lowEl != null
+                    ? Util.ParseNullableDateTime(lowEl.GetAttrVal(sc.A.Value) ?? string.Empty)
+                    : null;
+
+                // Parse high boundary  
+                section.EffectiveTimeHigh = highEl != null
+                    ? Util.ParseNullableDateTime(highEl.GetAttrVal(sc.A.Value) ?? string.Empty)
+                    : null;
+
+                // Set the main EffectiveTime to the low value for backward compatibility
+                section.EffectiveTime = section.EffectiveTimeLow ?? DateTime.MinValue;
+            }
+            else
+            {
+                section.EffectiveTime = DateTime.MinValue;
+            }
         }
 
         /**************************************************************/

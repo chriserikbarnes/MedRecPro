@@ -200,24 +200,23 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses the [subject][identifiedSubstance] element within a section for indexing information.
+        /// ENHANCED: Parses the complete substance indexing structure including moieties and characteristics.
+        /// Processes both substance definitions and their associated chemical structure data.
         /// </summary>
         /// <param name="sectionEl">The parent [section] XElement.</param>
         /// <param name="section">The Section entity that has just been created.</param>
         /// <param name="context">The parsing context for repository and service access.</param>
-        /// <returns>The count of IdentifiedSubstance records created.</returns>
+        /// <returns>The count of all substance-related records created.</returns>
         /// <remarks>
-        /// Handles both Pharmacologic Class Indexing (8.2.2) and Definition (8.2.3) sections.
-        /// It parses the primary subject (Active Moiety or Pharm Class) and any associated
-        /// specialized kinds (defining super-classes or associated classes).
+        /// This enhanced version processes the complete substance definition including:
+        /// - IdentifiedSubstance records
+        /// - Associated Moiety components with quantity data
+        /// - Characteristic records containing chemical structure data (MOLFILE, InChI, InChI-Key)
+        /// Follows FDA Substance Registration System standards per ISO/FDIS 11238.
         /// </remarks>
         /// <seealso cref="IdentifiedSubstance"/>
-        /// <seealso cref="Section"/>
-        /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="XElement"/>
-        /// <seealso cref="ApplicationDbContext"/>
-        /// <seealso cref="XElementExtensions"/>
-        /// <seealso cref="getOrCreateIdentifiedSubstanceAsync"/>
+        /// <seealso cref="Moiety"/>
+        /// <seealso cref="Characteristic"/>
         /// <seealso cref="Label"/>
         private async Task<int> parseAndSaveIdentifiedSubstancesAsync(
             XElement sectionEl,
@@ -249,6 +248,9 @@ namespace MedRecPro.Service.ParsingServices
                 mainSubjectInfo.Identifier, mainSubjectInfo.SystemOid, mainSubjectInfo.IsDefinition);
             count++;
 
+            // ENHANCED: Parse associated moieties and their characteristics
+            count += await parseAndSaveMoietiesAsync(dbContext, identifiedSubstanceEl, mainIdentifiedSubstance, context);
+
             // Process based on subject type (Active Moiety or Pharmacologic Class)
             if (mainSubjectInfo.SubjectType == "ActiveMoiety")
             {
@@ -260,6 +262,264 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all moiety components associated with an identified substance.
+        /// Processes chemical structure components including quantity ratios and molecular data.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="identifiedSubstanceEl">The identified substance XElement containing moiety data.</param>
+        /// <param name="identifiedSubstance">The parent IdentifiedSubstance entity.</param>
+        /// <param name="context">The parsing context for logging and services.</param>
+        /// <returns>The count of moiety and characteristic records created.</returns>
+        /// <remarks>
+        /// Processes moiety elements that define the chemical components of a substance.
+        /// Each moiety contains quantity information (ratios, units) and multiple characteristics
+        /// representing different molecular structure formats (MOLFILE, InChI, InChI-Key).
+        /// </remarks>
+        /// <example>
+        /// // XML structure being parsed:
+        /// // &lt;moiety&gt;
+        /// //   &lt;code code="C103243" displayName="mixture component"/&gt;
+        /// //   &lt;quantity&gt;...&lt;/quantity&gt;
+        /// //   &lt;subjectOf&gt;&lt;characteristic&gt;...&lt;/characteristic&gt;&lt;/subjectOf&gt;
+        /// // &lt;/moiety&gt;
+        /// </example>
+        /// <seealso cref="Moiety"/>
+        /// <seealso cref="Characteristic"/>
+        /// <seealso cref="IdentifiedSubstance"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveMoietiesAsync(
+            ApplicationDbContext dbContext,
+            XElement identifiedSubstanceEl,
+            IdentifiedSubstance identifiedSubstance,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+
+            // Find all moiety elements within the identified substance
+            var moietyElements = identifiedSubstanceEl.Elements(ns + sc.E.Moiety).ToList();
+
+            context?.Logger?.LogInformation("Found {Count} moiety elements for substance {UNII}",
+                moietyElements.Count, identifiedSubstance.SubstanceIdentifierValue);
+
+            foreach (var moietyEl in moietyElements)
+            {
+                try
+                {
+                    // Extract moiety code information
+                    var moietyCodeEl = moietyEl.GetSplElement(sc.E.Code);
+                    var moietyCode = moietyCodeEl?.GetAttrVal(sc.A.CodeValue);
+                    var moietyCodeSystem = moietyCodeEl?.GetAttrVal(sc.A.CodeSystem);
+                    var moietyDisplayName = moietyCodeEl?.GetAttrVal(sc.A.DisplayName);
+
+                    // Extract quantity information
+                    var quantityInfo = extractMoietyQuantityInfo(moietyEl);
+
+                    // Create or get the moiety record
+                    var moiety = await getOrCreateMoietyAsync(
+                        dbContext,
+                        identifiedSubstance.IdentifiedSubstanceID,
+                        moietyCode,
+                        moietyCodeSystem,
+                        moietyDisplayName,
+                        quantityInfo);
+                    count++;
+
+                    // Parse characteristics for this moiety
+                    count += await parseAndSaveCharacteristicsAsync(dbContext, moietyEl, moiety, context);
+                }
+                catch (Exception ex)
+                {
+                    context?.Logger?.LogError(ex, "Error parsing moiety for substance {UNII}",
+                        identifiedSubstance.SubstanceIdentifierValue);
+                    throw; // Re-throw to maintain existing error handling behavior
+                }
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves characteristic elements containing chemical structure data for a moiety.
+        /// Processes multiple molecular representation formats including MOLFILE, InChI, and InChI-Key.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="moietyEl">The moiety XElement containing characteristic data.</param>
+        /// <param name="moiety">The parent Moiety entity.</param>
+        /// <param name="context">The parsing context for logging and services.</param>
+        /// <returns>The count of characteristic records created.</returns>
+        /// <remarks>
+        /// Characteristics define the identifying properties of chemical substances.
+        /// For chemical structures, this includes CDATA content containing:
+        /// - MOLFILE format molecular connection tables
+        /// - InChI (IUPAC International Chemical Identifier) strings
+        /// - InChI-Key hash-based compact identifiers
+        /// Preserves exact formatting for scientific integrity per ISO/FDIS 11238.
+        /// </remarks>
+        /// <example>
+        /// // XML structure being parsed:
+        /// // &lt;subjectOf&gt;
+        /// //   &lt;characteristic&gt;
+        /// //     &lt;code code="C103240" displayName="Chemical Structure"/&gt;
+        /// //     &lt;value mediaType="application/x-mdl-molfile"&gt;&lt;![CDATA[...]]&gt;&lt;/value&gt;
+        /// //   &lt;/characteristic&gt;
+        /// // &lt;/subjectOf&gt;
+        /// </example>
+        /// <seealso cref="Characteristic"/>
+        /// <seealso cref="Moiety"/>
+        /// <seealso cref="XElementExtensions.GetChemicalStructureData"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveCharacteristicsAsync(
+            ApplicationDbContext dbContext,
+            XElement moietyEl,
+            Moiety moiety,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+
+            // Find all characteristic elements within subjectOf elements
+            var characteristicElements = moietyEl.SplElements(sc.E.SubjectOf, sc.E.Characteristic).ToList();
+
+            context?.Logger?.LogInformation("Found {Count} characteristics for moiety {MoietyID}",
+                characteristicElements.Count, moiety.MoietyID);
+
+            foreach (var characteristicEl in characteristicElements)
+            {
+                try
+                {
+                    // Extract characteristic code information
+                    var charCodeEl = characteristicEl.GetSplElement(sc.E.Code);
+                    var characteristicCode = charCodeEl?.GetAttrVal(sc.A.CodeValue);
+                    var characteristicCodeSystem = charCodeEl?.GetAttrVal(sc.A.CodeSystem);
+
+                    // Skip non-chemical structure characteristics for now
+                    if (characteristicCode != "C103240") // Chemical Structure code
+                    {
+                        context?.Logger?.LogDebug("Skipping non-chemical structure characteristic: {Code}", characteristicCode);
+                        continue;
+                    }
+
+                    // Extract chemical structure data from value element
+                    var valueEl = characteristicEl.GetSplElement(sc.E.Value);
+                    var structureData = valueEl?.GetChemicalStructureData();
+
+                    if (structureData.HasValue)
+                    {
+                        var (mediaType, content) = structureData.Value;
+
+                        // Create characteristic record
+                        var characteristic = await getOrCreateCharacteristicAsync(
+                            dbContext,
+                            moiety.MoietyID,
+                            characteristicCode,
+                            characteristicCodeSystem,
+                            "ED", // Encapsulated Data type for chemical structures
+                            mediaType,
+                            content);
+                        count++;
+
+                        context?.Logger?.LogDebug("Created characteristic for moiety {MoietyID}: {MediaType}",
+                            moiety.MoietyID, mediaType);
+                    }
+                    else
+                    {
+                        context?.Logger?.LogWarning("No chemical structure data found in characteristic for moiety {MoietyID}",
+                            moiety.MoietyID);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    context?.Logger?.LogError(ex, "Error parsing characteristic for moiety {MoietyID}", moiety.MoietyID);
+                    throw; // Re-throw to maintain existing error handling behavior
+                }
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts quantity information from a moiety element including numerator and denominator data.
+        /// Parses complex quantity structures with ranges, units, and inclusive boundaries.
+        /// </summary>
+        /// <param name="moietyEl">The moiety XElement containing quantity data.</param>
+        /// <returns>A tuple containing parsed quantity information or null if not found.</returns>
+        /// <remarks>
+        /// Quantity information defines mixture ratios and proportions for chemical components.
+        /// Handles complex structures including range specifications with inclusive/exclusive boundaries.
+        /// </remarks>
+        /// <example>
+        /// // XML structure being parsed:
+        /// // &lt;quantity&gt;
+        /// //   &lt;numerator p3:type="URG_PQ"&gt;
+        /// //     &lt;low value="0" unit="1" inclusive="false"/&gt;
+        /// //   &lt;/numerator&gt;
+        /// //   &lt;denominator value="1" unit="1"/&gt;
+        /// // &lt;/quantity&gt;
+        /// </example>
+        /// <seealso cref="Moiety"/>
+        /// <seealso cref="XElementExtensions.GetInclusiveAttribute"/>
+        /// <seealso cref="Label"/>
+        private (decimal? numeratorLow, string? numeratorUnit, bool? inclusive, decimal? denominatorValue, string? denominatorUnit)? extractMoietyQuantityInfo(XElement moietyEl)
+        {
+            #region implementation
+            var quantityEl = moietyEl.GetSplElement(sc.E.Quantity);
+            if (quantityEl == null) return null;
+
+            // Extract numerator information (may be a range with 'low' value)
+            var numeratorEl = quantityEl.GetSplElement(sc.E.Numerator);
+            decimal? numeratorLow = null;
+            string? numeratorUnit = null;
+            bool? inclusive = null;
+
+            if (numeratorEl != null)
+            {
+                // Check for low value (range specification)
+                var lowEl = numeratorEl.GetSplElement(sc.E.Low);
+                if (lowEl != null)
+                {
+                    if (decimal.TryParse(lowEl.GetAttrVal(sc.A.Value), out decimal lowValue))
+                    {
+                        numeratorLow = lowValue;
+                    }
+                    numeratorUnit = lowEl.GetAttrVal(sc.A.Unit);
+                    inclusive = lowEl.GetInclusiveAttribute();
+                }
+                else
+                {
+                    // Simple numerator value
+                    if (decimal.TryParse(numeratorEl.GetAttrVal(sc.A.Value), out decimal value))
+                    {
+                        numeratorLow = value;
+                    }
+                    numeratorUnit = numeratorEl.GetAttrVal(sc.A.Unit);
+                }
+            }
+
+            // Extract denominator information
+            var denominatorEl = quantityEl.GetSplElement(sc.E.Denominator);
+            decimal? denominatorValue = null;
+            string? denominatorUnit = null;
+
+            if (denominatorEl != null)
+            {
+                if (decimal.TryParse(denominatorEl.GetAttrVal(sc.A.Value), out decimal denValue))
+                {
+                    denominatorValue = denValue;
+                }
+                denominatorUnit = denominatorEl.GetAttrVal(sc.A.Unit);
+            }
+
+            return (numeratorLow, numeratorUnit, inclusive, denominatorValue, denominatorUnit);
             #endregion
         }
 
@@ -653,6 +913,138 @@ namespace MedRecPro.Service.ParsingServices
         #endregion
 
         #region Database Entity Creation Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing Moiety or creates and saves it if not found.
+        /// Implements deduplication based on substance ID and moiety characteristics.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="identifiedSubstanceId">The ID of the parent IdentifiedSubstance.</param>
+        /// <param name="moietyCode">The code identifying the moiety type.</param>
+        /// <param name="moietyCodeSystem">The code system for the moiety code.</param>
+        /// <param name="moietyDisplayName">The display name for the moiety code.</param>
+        /// <param name="quantityInfo">Tuple containing quantity information.</param>
+        /// <returns>The existing or newly created Moiety entity.</returns>
+        /// <remarks>
+        /// Creates moiety records representing chemical components within substance definitions.
+        /// Handles quantity information including mixture ratios and range specifications.
+        /// </remarks>
+        /// <seealso cref="Moiety"/>
+        /// <seealso cref="IdentifiedSubstance"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<Moiety> getOrCreateMoietyAsync(
+            ApplicationDbContext dbContext,
+            int? identifiedSubstanceId,
+            string? moietyCode,
+            string? moietyCodeSystem,
+            string? moietyDisplayName,
+            (decimal? numeratorLow, string? numeratorUnit, bool? inclusive, decimal? denominatorValue, string? denominatorUnit)? quantityInfo)
+        {
+            #region implementation
+            // Search for existing moiety based on substance ID and moiety code
+            // Deduplication based on IdentifiedSubstanceID and MoietyCode
+            var existing = await dbContext.Set<Moiety>().FirstOrDefaultAsync(m =>
+                m.IdentifiedSubstanceID == identifiedSubstanceId &&
+                m.MoietyCode == moietyCode &&
+                m.MoietyCodeSystem == moietyCodeSystem);
+
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            // Create new Moiety entity with provided data
+            var newMoiety = new Moiety
+            {
+                IdentifiedSubstanceID = identifiedSubstanceId,
+                MoietyCode = moietyCode,
+                MoietyCodeSystem = moietyCodeSystem,
+                MoietyDisplayName = moietyDisplayName
+            };
+
+            // Add quantity information if provided
+            if (quantityInfo.HasValue)
+            {
+                var (numeratorLow, numeratorUnit, inclusive, denominatorValue, denominatorUnit) = quantityInfo.Value;
+                newMoiety.QuantityNumeratorLowValue = numeratorLow;
+                newMoiety.QuantityNumeratorUnit = numeratorUnit;
+                newMoiety.QuantityNumeratorInclusive = inclusive;
+                newMoiety.QuantityDenominatorValue = denominatorValue;
+                newMoiety.QuantityDenominatorUnit = denominatorUnit;
+            }
+
+            // Save the new moiety to the database
+            dbContext.Set<Moiety>().Add(newMoiety);
+            await dbContext.SaveChangesAsync();
+
+            return newMoiety;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing Characteristic or creates and saves it if not found.
+        /// Implements deduplication based on moiety ID, characteristic code, and media type.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="moietyId">The ID of the parent Moiety.</param>
+        /// <param name="characteristicCode">The code identifying the characteristic type.</param>
+        /// <param name="characteristicCodeSystem">The code system for the characteristic.</param>
+        /// <param name="valueType">The XML schema type (e.g., "ED" for encapsulated data).</param>
+        /// <param name="mediaType">The media type for chemical structure data.</param>
+        /// <param name="cdataContent">The raw CDATA content containing chemical structure data.</param>
+        /// <returns>The existing or newly created Characteristic entity.</returns>
+        /// <remarks>
+        /// Creates characteristic records for chemical structure data preservation.
+        /// Maintains exact formatting of MOLFILE, InChI, and InChI-Key data for scientific integrity.
+        /// No HTML sanitization is applied to chemical data to preserve molecular structure information.
+        /// </remarks>
+        /// <seealso cref="Characteristic"/>
+        /// <seealso cref="Moiety"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<Characteristic> getOrCreateCharacteristicAsync(
+            ApplicationDbContext dbContext,
+            int? moietyId,
+            string? characteristicCode,
+            string? characteristicCodeSystem,
+            string? valueType,
+            string? mediaType,
+            string? cdataContent)
+        {
+            #region implementation
+            // Search for existing characteristic based on moiety ID, code, and media type
+            // Deduplication prevents duplicate chemical structure records
+            var existing = await dbContext.Set<Characteristic>().FirstOrDefaultAsync(c =>
+                c.MoietyID == moietyId &&
+                c.CharacteristicCode == characteristicCode &&
+                c.ValueED_MediaType == mediaType);
+
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            // Create new Characteristic entity for chemical structure data
+            var newCharacteristic = new Characteristic
+            {
+                MoietyID = moietyId,
+                CharacteristicCode = characteristicCode,
+                CharacteristicCodeSystem = characteristicCodeSystem,
+                ValueType = valueType,
+                ValueED_MediaType = mediaType,
+                ValueED_CDATAContent = cdataContent // Preserve chemical data exactly - no sanitization
+            };
+
+            // Save the new characteristic to the database
+            dbContext.Set<Characteristic>().Add(newCharacteristic);
+            await dbContext.SaveChangesAsync();
+
+            return newCharacteristic;
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>

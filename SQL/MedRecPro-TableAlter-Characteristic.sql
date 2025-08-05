@@ -2,18 +2,19 @@
 *   DATABASE MODIFICATION SCRIPT
 *
 *   PURPOSE:
-*   This script modifies the [dbo].[Section] table to align it with the 
-*   corresponding Entity Framework (EF) model.
+*   This script modifies the [dbo].[Characteristic] table to align it with the 
+*   corresponding Entity Framework (EF) model for Substance Indexing support.
 *
 *   CHANGES:
-*   1.  Table [dbo].[Section]:
-*       - Adds the [SectionLinkGUID] column if it doesn't exist.
-*       - Adds the [EffectiveTimeLow] column if it doesn't exist.
-*       - Adds the [EffectiveTimeHigh] column if it doesn't exist.
+*   1.  Table [dbo].[Characteristic]:
+*       - Adds the [MoietyID] column if it doesn't exist.
+*       - Adds the [ValueED_CDATAContent] column if it doesn't exist.
 *       - Adds or updates MS_Description extended properties for the table and its columns.
 *
 *   NOTES:
 *   - The script is idempotent and can be run multiple times safely.
+*   - NO foreign key constraints are created (ApplicationDbContext uses reflection).
+*   - New columns support FDA Substance Registration System chemical structure data.
 *
 ***************************************************************************************************/
 
@@ -25,47 +26,38 @@ BEGIN TRANSACTION;
 BEGIN TRY
 
     -- ==========================================================================================
-    --  Modify [dbo].[Section] Table
+    --  Modify [dbo].[Characteristic] Table
     -- ==========================================================================================
-    PRINT 'Modifying table [dbo].[Section]...';
+    PRINT 'Modifying table [dbo].[Characteristic]...';
 
-    -- Add SectionLinkGUID column
-    PRINT ' -> Adding [SectionLinkGUID] column if not exists.';
+    -- Add MoietyID column
+    PRINT ' -> Adding [MoietyID] column if not exists.';
     IF NOT EXISTS (
         SELECT 1 FROM sys.columns 
-        WHERE Name = N'SectionLinkGUID' 
-          AND Object_ID = Object_ID(N'dbo.Section')
+        WHERE Name = N'MoietyID' 
+          AND Object_ID = Object_ID(N'dbo.Characteristic')
     )
-        ALTER TABLE [dbo].[Section] ADD [SectionLinkGUID] VARCHAR(64) NULL;
+        ALTER TABLE [dbo].[Characteristic] ADD [MoietyID] INT NULL;
 
-    -- Add EffectiveTimeLow column
-    PRINT ' -> Adding [EffectiveTimeLow] column if not exists.';
+    -- Add ValueED_CDATAContent column
+    PRINT ' -> Adding [ValueED_CDATAContent] column if not exists.';
     IF NOT EXISTS (
         SELECT 1 FROM sys.columns 
-        WHERE Name = N'EffectiveTimeLow' 
-          AND Object_ID = Object_ID(N'dbo.Section')
+        WHERE Name = N'ValueED_CDATAContent' 
+          AND Object_ID = Object_ID(N'dbo.Characteristic')
     )
-        ALTER TABLE [dbo].[Section] ADD [EffectiveTimeLow] DATETIME NULL;
-
-    -- Add EffectiveTimeHigh column
-    PRINT ' -> Adding [EffectiveTimeHigh] column if not exists.';
-    IF NOT EXISTS (
-        SELECT 1 FROM sys.columns 
-        WHERE Name = N'EffectiveTimeHigh' 
-          AND Object_ID = Object_ID(N'dbo.Section')
-    )
-        ALTER TABLE [dbo].[Section] ADD [EffectiveTimeHigh] DATETIME NULL;
+        ALTER TABLE [dbo].[Characteristic] ADD [ValueED_CDATAContent] NVARCHAR(MAX) NULL;
 
     -- Add/Update Extended Properties
-    PRINT ' -> Updating extended properties for [dbo].[Section].';
+    PRINT ' -> Updating extended properties for [dbo].[Characteristic].';
 
     DECLARE @SchemaName NVARCHAR(128) = N'dbo';
-    DECLARE @TableName NVARCHAR(128) = N'Section';
+    DECLARE @TableName NVARCHAR(128) = N'Characteristic';
     DECLARE @ColumnName NVARCHAR(128);
     DECLARE @PropValue SQL_VARIANT;
 
-    -- Table description
-    SET @PropValue = N'Sections of the document that group related text and metadata such as titles and codes.';
+    -- Update table description to reflect substance indexing support
+    SET @PropValue = N'Stores characteristics of products, packages, or substance moieties ([subjectOf][characteristic]). Enhanced for FDA Substance Indexing to support chemical structure data including MOLFILE format and InChI identifiers per ISO/FDIS 11238.';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, NULL, NULL))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
@@ -75,9 +67,9 @@ BEGIN TRY
             @level0type = N'SCHEMA', @level0name = @SchemaName,
             @level1type = N'TABLE', @level1name = @TableName;
 
-    -- Column: SectionLinkGUID
-    SET @ColumnName = N'SectionLinkGUID';
-    SET @PropValue = N'Attribute identifying the section link ([section][ID]), used for cross-references within the document e.g. [section ID="ID_1dc7080f-1d52-4bf7-b353-3c13ec291810"].';
+    -- Column: MoietyID
+    SET @ColumnName = N'MoietyID';
+    SET @PropValue = N'Foreign key to Moiety table (if characteristic applies to a chemical moiety). Used for substance indexing to link chemical structure data to specific molecular components within a substance definition per ISO/FDIS 11238. No database constraint - managed by ApplicationDbContext.';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
@@ -89,9 +81,9 @@ BEGIN TRY
             @level1type = N'TABLE', @level1name = @TableName,
             @level2type = N'COLUMN', @level2name = @ColumnName;
 
-    -- Column: EffectiveTimeLow
-    SET @ColumnName = N'EffectiveTimeLow';
-    SET @PropValue = N'Low boundary of the effective time period for the section ([effectiveTime][low value]). Used for reporting periods and date ranges, particularly in Warning Letters and Compounded Drug Labels.';
+    -- Column: ValueED_CDATAContent
+    SET @ColumnName = N'ValueED_CDATAContent';
+    SET @PropValue = N'Raw CDATA content for ED type chemical structure characteristics. Contains molecular structure data in format specified by ValueED_MediaType (MOLFILE, InChI, InChI-Key). Preserves exact formatting for scientific integrity per FDA Substance Registration System requirements.';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
@@ -103,22 +95,27 @@ BEGIN TRY
             @level1type = N'TABLE', @level1name = @TableName,
             @level2type = N'COLUMN', @level2name = @ColumnName;
 
-    -- Column: EffectiveTimeHigh
-    SET @ColumnName = N'EffectiveTimeHigh';
-    SET @PropValue = N'High boundary of the effective time period for the section ([effectiveTime][high value]). Used for reporting periods and date ranges, particularly in Warning Letters and Compounded Drug Labels.';
+    -- Update existing CharacteristicCode column description to include substance indexing
+    SET @ColumnName = N'CharacteristicCode';
+    SET @PropValue = N'Code identifying the characteristic property. Traditional: SPLCOLOR, SPLSHAPE, SPLSIZE, SPLIMPRINT, SPLFLAVOR, SPLSCORE, SPLIMAGE, SPLCMBPRDTP, SPLPRODUCTIONAMOUNT, SPLUSE, SPLSTERILEUSE, SPLPROFESSIONALUSE, SPLSMALLBUSINESS. Enhanced for substance indexing: C103240 for Chemical Structure characteristics.';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
             @level1type = N'TABLE', @level1name = @TableName,
             @level2type = N'COLUMN', @level2name = @ColumnName;
-    ELSE
-        EXEC sp_addextendedproperty @name = N'MS_Description', @value = @PropValue,
+
+    -- Update existing ValueED_MediaType column description to include chemical structure formats
+    SET @ColumnName = N'ValueED_MediaType';
+    SET @PropValue = N'Media type for ED type. Enhanced for chemical structure data: application/x-mdl-molfile (MDL MOLFILE format), application/x-inchi (IUPAC International Chemical Identifier), application/x-inchi-key (InChI hash keys).';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
+        EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
             @level1type = N'TABLE', @level1name = @TableName,
             @level2type = N'COLUMN', @level2name = @ColumnName;
 
     COMMIT TRANSACTION;
     PRINT 'Script completed successfully.';
+    PRINT 'Characteristic table enhanced for substance indexing support.';
 
 END TRY
 BEGIN CATCH

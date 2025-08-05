@@ -2988,16 +2988,19 @@ namespace MedRecPro.DataAccess
         /// <summary>
         /// Builds a list of IdentifiedSubstance DTOs for the specified section.
         /// Retrieves substance details such as active moieties and pharmacologic class identifiers used in indexing contexts.
+        /// ENHANCED: Now includes chemical moiety data for substance structure information.
         /// </summary>
         /// <param name="db">The database context.</param>
         /// <param name="sectionId">The section ID to find identified substances for.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
-        /// <returns>List of IdentifiedSubstance DTOs with encrypted IDs.</returns>
+        /// <returns>List of IdentifiedSubstance DTOs with encrypted IDs including moiety data.</returns>
         /// <seealso cref="Label.IdentifiedSubstance"/>
         /// <seealso cref="Label.SubstanceSpecification"/>
+        /// <seealso cref="Label.Moiety"/>
         /// <seealso cref="IdentifiedSubstanceDto"/>
         /// <seealso cref="SubstanceSpecificationDto"/>
+        /// <seealso cref="MoietyDto"/>
         private static async Task<List<IdentifiedSubstanceDto>> buildIdentifiedSubstancesAsync(ApplicationDbContext db, int? sectionId, string pkSecret, ILogger logger)
         {
             #region implementation
@@ -3012,7 +3015,7 @@ namespace MedRecPro.DataAccess
             if (items == null || !items.Any())
                 return new List<IdentifiedSubstanceDto>();
 
-            // For each identified substance, build its substance specifications
+            // For each identified substance, build its related entities
             // Transform entities to DTOs with encrypted IDs
             var dtos = new List<IdentifiedSubstanceDto>();
             foreach (var item in items)
@@ -3024,16 +3027,81 @@ namespace MedRecPro.DataAccess
 
                 var pharmacologicClasses = await buildPharmacologicClassesAsync(db, item.IdentifiedSubstanceID, pkSecret, logger);
 
+                // ENHANCED: Build moieties for substance structure information
+                var moieties = await buildMoietyAsync(db, item.IdentifiedSubstanceID, pkSecret, logger);
+
                 dtos.Add(new IdentifiedSubstanceDto
                 {
                     IdentifiedSubstance = item.ToEntityWithEncryptedId(pkSecret, logger),
                     SubstanceSpecifications = specs,
                     ContributingFactors = contributingFactors,
-                    PharmacologicClasses = pharmacologicClasses
+                    PharmacologicClasses = pharmacologicClasses,
+                    Moiety = moieties // Add moiety data to the DTO
                 });
             }
 
             return dtos;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of moiety DTOs for the specified identified substance ID.
+        /// Retrieves chemical moiety records that define the molecular structure and 
+        /// quantity information for substance indexing contexts.
+        /// </summary>
+        /// <param name="db">The application database context for data access operations</param>
+        /// <param name="identifiedSubstanceID">The unique identifier of the identified substance to find moieties for. Returns empty list if null</param>
+        /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
+        /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
+        /// <returns>A list of MoietyDto objects representing the chemical moieties, or an empty list if none found</returns>
+        /// <remarks>
+        /// This method follows the data flow: IdentifiedSubstanceDto > MoietyDto
+        /// The method uses AsNoTracking() for read-only operations to improve performance.
+        /// All returned DTOs contain encrypted IDs for security purposes.
+        /// Moieties contain molecular structure and quantity information per FDA Substance Registration System.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var moieties = await buildMoietyAsync(dbContext, 123, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Moiety"/>
+        /// <seealso cref="MoietyDto"/>
+        private static async Task<List<MoietyDto>> buildMoietyAsync(ApplicationDbContext db, int? identifiedSubstanceID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Early return if no identified substance ID provided
+            if (identifiedSubstanceID == null)
+                return new List<MoietyDto>();
+
+            // Query moieties for the specified identified substance using read-only tracking
+            var items = await db.Set<Label.Moiety>()
+                .AsNoTracking()
+                .Where(e => e.IdentifiedSubstanceID == identifiedSubstanceID)
+                .ToListAsync();
+
+            // Return empty list if no moieties found
+            if (items == null || !items.Any())
+                return new List<MoietyDto>();
+
+            // Transform entities to DTOs with encrypted IDs for security
+            var dtos = new List<MoietyDto>();
+            foreach (var item in items)
+            {
+                // Skip entities without valid IDs
+                if (item.MoietyID == null)
+                    continue;
+
+                // Create moiety DTO with encrypted ID
+                dtos.Add(new MoietyDto
+                {
+                    Moiety = item.ToEntityWithEncryptedId(pkSecret, logger)
+                });
+            }
+
+            // Ensure non-null result
+            return dtos ?? new List<MoietyDto>();
             #endregion
         }
 

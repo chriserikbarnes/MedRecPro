@@ -221,6 +221,13 @@
     }
 
     /**************************************************************/
+    /// <seealso cref="Label.Moiety"/>
+    public class MoietyDto
+    {
+        public required Dictionary<string, object?> Moiety { get; set; }
+    }
+
+    /**************************************************************/
     /// <seealso cref="Label.IdentifiedSubstance"/>
     public class IdentifiedSubstanceDto
     {
@@ -228,6 +235,7 @@
         public List<SubstanceSpecificationDto> SubstanceSpecifications { get; set; } = new();
         public List<ContributingFactorDto> ContributingFactors { get; set; } = new();
         public List<PharmacologicClassDto> PharmacologicClasses { get; set; } = new();
+        public List<MoietyDto> Moiety { get; set; } = new();
     }
 
     /**************************************************************/

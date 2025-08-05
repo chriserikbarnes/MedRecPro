@@ -370,6 +370,207 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Gets the value of a namespace-prefixed type attribute (like p3:type, p4:type, etc.).
+        /// This handles dynamic namespace prefixes that appear in XML documents.
+        /// </summary>
+        /// <param name="element">The XElement to check.</param>
+        /// <param name="typeAttributeName">The local name of the type attribute (default: "type").</param>
+        /// <returns>The value of the type attribute, or null if not found.</returns>
+        /// <example>
+        /// <code>
+        /// // For &lt;numerator xmlns:p3="http://www.w3.org/2001/XMLSchema-instance" p3:type="URG_PQ"&gt;
+        /// string typeValue = element.GetNamespacePrefixedType(); // Returns "URG_PQ"
+        /// </code>
+        /// </example>
+        public static string? GetNamespacePrefixedType(this XElement element, string typeAttributeName = "type")
+        {
+            #region implementation
+            if (element == null) return null;
+
+            // Look for any attribute with the local name "type" regardless of namespace
+            var typeAttribute = element.Attributes()
+                .FirstOrDefault(attr => attr.Name.LocalName == typeAttributeName);
+
+            return typeAttribute?.Value;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts CDATA content from an element, returning the raw text without CDATA wrapper.
+        /// Useful for chemical structure data and other embedded content.
+        /// </summary>
+        /// <param name="element">The XElement containing CDATA content.</param>
+        /// <returns>The CDATA content as string, or null if no CDATA found.</returns>
+        /// <example>
+        /// <code>
+        /// XElement chemicalStructure = element.GetSplElement("value");
+        /// string molFile = chemicalStructure.GetCDataContent();
+        /// // Returns the molecular structure data without CDATA wrapper
+        /// </code>
+        /// </example>
+        public static string? GetCDataContent(this XElement element)
+        {
+            #region implementation
+            if (element == null) return null;
+
+            // Look for CDATA nodes within the element
+            var cdataNode = element.Nodes()
+                .OfType<XCData>()
+                .FirstOrDefault();
+
+            return cdataNode?.Value?.Trim();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the media type attribute value from an element.
+        /// Commonly used for identifying content types like chemical structures, images, etc.
+        /// </summary>
+        /// <param name="element">The XElement to check for media type.</param>
+        /// <returns>The media type value, or null if not found.</returns>
+        /// <example>
+        /// <code>
+        /// string mediaType = valueElement.GetMediaType();
+        /// // Returns "application/x-mdl-molfile" or "application/x-inchi", etc.
+        /// </code>
+        /// </example>
+        public static string? GetMediaType(this XElement element)
+        {
+            #region implementation
+            return element?.Attribute("mediaType")?.Value;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Safely extracts chemical structure data based on media type.
+        /// Handles both CDATA and regular text content appropriately.
+        /// </summary>
+        /// <param name="element">The value element containing chemical data.</param>
+        /// <returns>A tuple containing the media type and content, or null if invalid.</returns>
+        /// <example>
+        /// <code>
+        /// var (mediaType, content) = valueElement.GetChemicalStructureData();
+        /// if (mediaType == "application/x-mdl-molfile") {
+        ///     // Handle MOL file data
+        /// }
+        /// </code>
+        /// </example>
+        public static (string mediaType, string content)? GetChemicalStructureData(this XElement element)
+        {
+            #region implementation
+            if (element == null) return null;
+
+            var mediaType = element.GetMediaType();
+            if (string.IsNullOrEmpty(mediaType)) return null;
+
+            // Try CDATA first, then regular content
+            var content = element.GetCDataContent() ?? element.Value?.Trim();
+
+            if (string.IsNullOrEmpty(content)) return null;
+
+            return (mediaType, content);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the inclusive attribute value as a boolean.
+        /// Used in quantity ranges and other numeric bounds.
+        /// </summary>
+        /// <param name="element">The XElement to check.</param>
+        /// <returns>The inclusive value as boolean, or null if not found or invalid.</returns>
+        /// <example>
+        /// <code>
+        /// bool? isInclusive = lowElement.GetInclusiveAttribute();
+        /// // Returns true, false, or null
+        /// </code>
+        /// </example>
+        public static bool? GetInclusiveAttribute(this XElement element)
+        {
+            #region implementation
+            var inclusiveValue = element?.Attribute("inclusive")?.Value;
+
+            if (string.IsNullOrEmpty(inclusiveValue)) return null;
+
+            return bool.TryParse(inclusiveValue, out bool result) ? result : null;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets all moiety elements from an identified substance.
+        /// Convenience method for accessing chemical compound components.
+        /// </summary>
+        /// <param name="identifiedSubstanceElement">The identifiedSubstance element.</param>
+        /// <returns>Collection of moiety elements.</returns>
+        /// <example>
+        /// <code>
+        /// var moieties = identifiedSubstanceElement.GetMoieties();
+        /// foreach (var moiety in moieties) {
+        ///     // Process each moiety component
+        /// }
+        /// </code>
+        /// </example>
+        public static IEnumerable<XElement> GetMoieties(this XElement identifiedSubstanceElement)
+        {
+            #region implementation
+            if (identifiedSubstanceElement == null)
+                return Enumerable.Empty<XElement>();
+
+            return identifiedSubstanceElement.Elements(ns + "moiety");
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Safely gets a unit attribute value from quantity-related elements.
+        /// </summary>
+        /// <param name="element">The element containing a unit attribute.</param>
+        /// <returns>The unit value, or null if not found.</returns>
+        /// <example>
+        /// <code>
+        /// string unit = numeratorElement.GetUnitAttribute();
+        /// // Returns "mg", "mL", "1", etc.
+        /// </code>
+        /// </example>
+        public static string? GetUnitAttribute(this XElement element)
+        {
+            #region implementation
+            return element?.Attribute("unit")?.Value;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets characteristics of a specific type from a moiety or other subject element.
+        /// </summary>
+        /// <param name="element">The element to search within.</param>
+        /// <param name="characteristicCode">The characteristic code to filter by (e.g., "C103240" for Chemical Structure).</param>
+        /// <returns>Collection of matching characteristic elements.</returns>
+        /// <example>
+        /// <code>
+        /// var chemicalStructures = moietyElement.GetCharacteristicsByCode("C103240");
+        /// foreach (var structure in chemicalStructures) {
+        ///     var structureData = structure.GetSplElement("value")?.GetChemicalStructureData();
+        /// }
+        /// </code>
+        /// </example>
+        public static IEnumerable<XElement> GetCharacteristicsByCode(this XElement element, string characteristicCode)
+        {
+            #region implementation
+            if (element == null || string.IsNullOrEmpty(characteristicCode))
+                return Enumerable.Empty<XElement>();
+
+            return element.SplElements("subjectOf", "characteristic")
+                .Where(c => c.GetSplElementAttrVal("code", "code") == characteristicCode);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets the decimal value of a specified attribute from an element.
         /// </summary>
         public static decimal? GetAttrDecimal(this XElement element, XName attributeName)

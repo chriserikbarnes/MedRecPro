@@ -642,6 +642,18 @@ namespace MedRecPro.Models
             /// Effective time for the section ([effectiveTime value]). For Compounded Drug Labels (Sec 4.2.2), low/high represent the reporting period.
             /// </summary>
             public DateTime? EffectiveTime { get; set; } // Made nullable
+
+            /// <summary>
+            /// Low boundary of the effective time period for the section ([effectiveTime][low value]).
+            /// Used for reporting periods and date ranges, particularly in Warning Letters and Compounded Drug Labels.
+            /// </summary>
+            public DateTime? EffectiveTimeLow { get; set; }
+
+            /// <summary>
+            /// High boundary of the effective time period for the section ([effectiveTime][high value]).
+            /// Used for reporting periods and date ranges, particularly in Warning Letters and Compounded Drug Labels.
+            /// </summary>
+            public DateTime? EffectiveTimeHigh { get; set; }
             #endregion properties
         }
 
@@ -2150,8 +2162,15 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores characteristics of a product or package ([subjectOf][characteristic]). Based on Section 3.1.9.
+        /// Stores characteristics of a product, package, or substance moiety ([subjectOf][characteristic]). 
+        /// Based on Section 3.1.9 with enhancements for FDA Substance Indexing to support chemical 
+        /// structure data including MOLFILE format and InChI identifiers per ISO/FDIS 11238.
         /// </summary>
+        /// <remarks>
+        /// ENHANCED: Now supports substance indexing characteristics for chemical structure data.
+        /// For chemical substances, characteristics include molecular structures represented by 
+        /// MOLFILE data and IUPAC International Chemical Identifier (InChI) stored in CDATA sections.
+        /// </remarks>
         public class Characteristic
         {
             #region properties
@@ -2162,17 +2181,29 @@ namespace MedRecPro.Models
 
             /// <summary>
             /// Foreign key to Product (if characteristic applies to product).
+            /// Used for traditional product-level characteristics like color, shape, imprint.
             /// </summary>
             public int? ProductID { get; set; } // Already nullable
 
             /// <summary>
             /// Foreign key to PackagingLevel (if characteristic applies to package).
+            /// Used for package-level characteristics like container type or labeling.
             /// </summary>
             public int? PackagingLevelID { get; set; } // Already nullable
 
+            /// <summary>
+            /// ENHANCED: Foreign key to Moiety (if characteristic applies to a chemical moiety).
+            /// Used for substance indexing to link chemical structure data to specific 
+            /// molecular components within a substance definition per ISO/FDIS 11238.
+            /// </summary>
+            public int? MoietyID { get; set; }
+
             private string? _characteristicCode;
             /// <summary>
-            /// Code identifying the characteristic property (e.g., SPLCOLOR, SPLSHAPE, SPLSIZE, SPLIMPRINT, SPLFLAVOR, SPLSCORE, SPLIMAGE, SPLCMBPRDTP, SPLPRODUCTIONAMOUNT, SPLUSE, SPLSTERILEUSE, SPLPROFESSIONALUSE, SPLSMALLBUSINESS).
+            /// Code identifying the characteristic property.
+            /// Traditional: SPLCOLOR, SPLSHAPE, SPLSIZE, SPLIMPRINT, SPLFLAVOR, SPLSCORE, SPLIMAGE, 
+            /// SPLCMBPRDTP, SPLPRODUCTIONAMOUNT, SPLUSE, SPLSTERILEUSE, SPLPROFESSIONALUSE, SPLSMALLBUSINESS.
+            /// ENHANCED: For substance indexing, typically "C103240" for Chemical Structure characteristics.
             /// </summary>
             public string? CharacteristicCode
             {
@@ -2183,6 +2214,7 @@ namespace MedRecPro.Models
             private string? _characteristicCodeSystem;
             /// <summary>
             /// Code system for CharacteristicCode.
+            /// Typically "2.16.840.1.113883.3.26.1.1" (NCI Thesaurus) for substance indexing.
             /// </summary>
             public string? CharacteristicCodeSystem
             {
@@ -2192,7 +2224,9 @@ namespace MedRecPro.Models
 
             private string? _valueType;
             /// <summary>
-            /// Indicates the XML Schema instance type of the [value] element (e.g., PQ, INT, CV, ST, BL, IVL_PQ, ED).
+            /// Indicates the XML Schema instance type of the [value] element.
+            /// Standard types: PQ, INT, CV, ST, BL, IVL_PQ, ED.
+            /// ENHANCED: "ED" (Encapsulated Data) used for chemical structure characteristics.
             /// </summary>
             public string? ValueType
             {
@@ -2298,6 +2332,8 @@ namespace MedRecPro.Models
             private string? _valueED_MediaType;
             /// <summary>
             /// Media type for ED type.
+            /// ENHANCED: For chemical structure data, specifies molecular representation format:
+            /// "application/x-mdl-molfile", "application/x-inchi", "application/x-inchi-key".
             /// </summary>
             public string? ValueED_MediaType
             {
@@ -2308,11 +2344,27 @@ namespace MedRecPro.Models
             private string? _valueED_FileName;
             /// <summary>
             /// File name for ED type.
+            /// ENHANCED: May reference chemical structure data files or internal identifiers.
             /// </summary>
             public string? ValueED_FileName
             {
                 get => _valueED_FileName;
                 set => _valueED_FileName = value?.RemoveHtmlXss();
+            }
+
+            private string? _valueED_CDATAContent;
+            /// <summary>
+            /// ENHANCED: Raw CDATA content for ED type chemical structure characteristics.
+            /// Contains molecular structure data in format specified by ValueED_MediaType.
+            /// For MOLFILE: Complete MDL connection table with atom coordinates and bonds.
+            /// For InChI: IUPAC International Chemical Identifier string.
+            /// For InChI-Key: Hash-based compact molecular identifier.
+            /// Preserves exact formatting for scientific integrity per ISO/FDIS 11238.
+            /// </summary>
+            public string? ValueED_CDATAContent
+            {
+                get => _valueED_CDATAContent;
+                set => _valueED_CDATAContent = value; // Preserve chemical data exactly - no HTML sanitization
             }
 
             private string? _valueNullFlavor;
@@ -2775,7 +2827,17 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores substance details (e.g., active moiety, pharmacologic class identifier) used in Indexing contexts ([subject][identifiedSubstance]). Based on Section 8.2.2, 8.2.3.
+        /// Stores substance details (e.g., active moiety, pharmacologic class identifier) used in 
+        /// Indexing contexts ([subject][identifiedSubstance]). Based on Section 8.2.2, 8.2.3 and 
+        /// ISO/FDIS 11238: Health Informatics - Identification of Medicinal Products.
+        /// Each record represents a single substance identified by a Unique Ingredient Identifier (UNII) 
+        /// </summary>
+        /// <remarks>
+        /// A Substance is defined by a unique set of identifying characteristics that vary depending 
+        /// on whether the substance is a chemical, protein, nucleic acid, polymer and/or structurally diverse.
+        /// Each Substance Index File contains the UNII, identifying characteristics, and hash codes 
+        /// computed based on the identifying characteristics.
+        /// </remarks>
         /// </summary>
         public class IdentifiedSubstance
         {
@@ -2783,17 +2845,23 @@ namespace MedRecPro.Models
             /// <summary>
             /// Primary key for the IdentifiedSubstance table.
             /// </summary>
-            public int? IdentifiedSubstanceID { get; set; } // Made nullable
+            public int? IdentifiedSubstanceID { get; set; }
 
             /// <summary>
             /// Foreign key to Section (The indexing section containing this substance).
+            /// Links to the SPL indexing section where this substance is defined or referenced.
             /// </summary>
-            public int? SectionID { get; set; } // Made nullable
+            public int? SectionID { get; set; }
 
             private string? _subjectType;
             /// <summary>
-            /// Indicates whether the identified substance represents an Active Moiety (8.2.2) or a Pharmacologic Class being defined (8.2.3).
+            /// Indicates whether the identified substance represents an Active Moiety (8.2.2) or 
+            /// a Pharmacologic Class being defined (8.2.3). Used to distinguish between substance 
+            /// definitions and substance references in indexing contexts.
             /// </summary>
+            /// <value>
+            /// Common values: "ActiveMoiety", "PharmacologicClass"
+            /// </value>
             public string? SubjectType
             {
                 get => _subjectType;
@@ -2802,8 +2870,15 @@ namespace MedRecPro.Models
 
             private string? _substanceIdentifierValue;
             /// <summary>
-            /// Identifier value - UNII for Active Moiety, MED-RT/MeSH code for Pharm Class.
+            /// The unique identifier value assigned by the FDA Substance Registration System.
+            /// For Active Moieties: UNII (Unique Ingredient Identifier) code.
+            /// For Pharmacologic Classes: MED-RT or MeSH classification code.
+            /// This identifier is the primary means of substance identification across FDA systems.
             /// </summary>
+            /// <example>
+            /// UNII example: "K56QT79S2O"
+            /// MED-RT example: "N0000175722"
+            /// </example>
             public string? SubstanceIdentifierValue
             {
                 get => _substanceIdentifierValue;
@@ -2812,8 +2887,15 @@ namespace MedRecPro.Models
 
             private string? _substanceIdentifierSystemOID;
             /// <summary>
-            /// Identifier system OID - UNII (2.16.840.1.113883.4.9), MED-RT (2.16.840.1.113883.6.345), or MeSH (2.16.840.1.113883.6.177).
+            /// Object Identifier (OID) for the substance identification system.
+            /// Specifies the authoritative system that assigned the substance identifier.
             /// </summary>
+            /// <value>
+            /// Standard OIDs:
+            /// - "2.16.840.1.113883.4.9" for UNII (FDA Substance Registration System)
+            /// - "2.16.840.1.113883.6.345" for MED-RT (Medication Reference Terminology)
+            /// - "2.16.840.1.113883.6.177" for MeSH (Medical Subject Headings)
+            /// </value>
             public string? SubstanceIdentifierSystemOID
             {
                 get => _substanceIdentifierSystemOID;
@@ -2821,9 +2903,139 @@ namespace MedRecPro.Models
             }
 
             /// <summary>
-            /// Indicates if this row defines the substance/class (8.2.3) or references it (8.2.2).
+            /// Indicates if this record defines the substance/class (8.2.3) or references it (8.2.2).
+            /// True for substance definitions that include complete identifying characteristics.
+            /// False for substance references used in classification or indexing relationships.
             /// </summary>
-            public bool? IsDefinition { get; set; } // Made nullable (Default is 0 (false) in SQL)
+            /// <value>
+            /// True: This record contains the authoritative definition of the substance
+            /// False: This record references a substance defined elsewhere
+            /// </value>
+            public bool? IsDefinition { get; set; }
+
+            /// <summary>
+            /// Navigation property to the moieties that define this substance's chemical structure.
+            /// Chemical substances are defined by one or more chemical structures, each represented 
+            /// as a separate moiety containing MOLFILE data and InChI identifiers.
+            /// </summary>
+            public virtual ICollection<Moiety> Moieties { get; set; } = new List<Moiety>();
+            #endregion properties
+        }
+
+        /*******************************************************************************/
+        /// <summary>
+        /// Represents a chemical moiety within an identified substance, containing the molecular 
+        /// structure and quantity information that defines part of a substance's identity. 
+        /// Based on FDA Substance Registration System standards and ISO/FDIS 11238.
+        /// </summary>
+        /// <remarks>
+        /// For chemical substances and mixtures, identifying characteristics include one or more 
+        /// chemical structures. Each chemical structure is represented by MOLFILE format data 
+        /// and accompanied by IUPAC International Chemical Identifier (InChI). Moieties capture 
+        /// both the structural representation and quantitative relationships within mixtures.
+        /// </remarks>
+        public class Moiety
+        {
+            #region properties
+            /// <summary>
+            /// Primary key for the Moiety table.
+            /// </summary>
+            public int? MoietyID { get; set; }
+
+            /// <summary>
+            /// Foreign key to IdentifiedSubstance (The substance this moiety helps define).
+            /// Links this molecular component to its parent substance record.
+            /// </summary>
+            public int? IdentifiedSubstanceID { get; set; }
+
+            private string? _moietyCode;
+            /// <summary>
+            /// Code identifying the type or role of this moiety within the substance definition.
+            /// Typically indicates whether this is a mixture component or other structural element.
+            /// </summary>
+            /// <example>
+            /// "C103243" for "mixture component" in multi-component substances
+            /// </example>
+            public string? MoietyCode
+            {
+                get => _moietyCode;
+                set => _moietyCode = value?.RemoveHtmlXss();
+            }
+
+            private string? _moietyCodeSystem;
+            /// <summary>
+            /// Code system OID for the moiety code, typically NCI Thesaurus.
+            /// </summary>
+            /// <value>
+            /// Standard value: "2.16.840.1.113883.3.26.1.1" (NCI Thesaurus)
+            /// </value>
+            public string? MoietyCodeSystem
+            {
+                get => _moietyCodeSystem;
+                set => _moietyCodeSystem = value?.RemoveHtmlXss();
+            }
+
+            private string? _moietyDisplayName;
+            /// <summary>
+            /// Human-readable name for the moiety code.
+            /// </summary>
+            /// <example>
+            /// "mixture component"
+            /// </example>
+            public string? MoietyDisplayName
+            {
+                get => _moietyDisplayName;
+                set => _moietyDisplayName = value?.RemoveHtmlXss();
+            }
+
+            #region Quantity Structure Properties
+            /// <summary>
+            /// Lower bound value for the quantity numerator in mixture ratios.
+            /// Used to specify ranges or minimum quantities for this moiety component.
+            /// </summary>
+            public decimal? QuantityNumeratorLowValue { get; set; }
+
+            private string? _quantityNumeratorUnit;
+            /// <summary>
+            /// Unit of measure for the quantity numerator.
+            /// Typically "1" for dimensionless ratios in mixture specifications.
+            /// </summary>
+            public string? QuantityNumeratorUnit
+            {
+                get => _quantityNumeratorUnit;
+                set => _quantityNumeratorUnit = value?.RemoveHtmlXss();
+            }
+
+            /// <summary>
+            /// Indicates whether the numerator low value boundary is inclusive in range specifications.
+            /// False typically indicates "greater than" rather than "greater than or equal to".
+            /// </summary>
+            public bool? QuantityNumeratorInclusive { get; set; }
+
+            /// <summary>
+            /// Denominator value for quantity ratios in mixture specifications.
+            /// Provides the base for calculating relative proportions of mixture components.
+            /// </summary>
+            public decimal? QuantityDenominatorValue { get; set; }
+
+            private string? _quantityDenominatorUnit;
+            /// <summary>
+            /// Unit of measure for the quantity denominator.
+            /// Typically "1" for dimensionless ratios in mixture specifications.
+            /// </summary>
+            public string? QuantityDenominatorUnit
+            {
+                get => _quantityDenominatorUnit;
+                set => _quantityDenominatorUnit = value?.RemoveHtmlXss();
+            }
+            #endregion
+
+            /// <summary>
+            /// Navigation property to the characteristics that define this moiety's chemical structure.
+            /// Includes MOLFILE data, InChI identifiers, and other physicochemical properties 
+            /// that serve as identifying characteristics per ISO/FDIS 11238 standards.
+            /// </summary>
+            public virtual ICollection<Characteristic> Characteristics { get; set; } = new List<Characteristic>();
             #endregion properties
         }
 

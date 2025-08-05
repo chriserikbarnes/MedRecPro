@@ -237,6 +237,9 @@
             public const string Performer = "performer";
             public const string SequenceNumber = "sequenceNumber";
             public const string OriginalText = "originalText";
+            public const string AsEquivalentSubstance = "asEquivalentSubstance";
+            public const string Moiety = "moiety";
+            public const string PartMoiety = "partMoiety";
 
             #endregion
         }
