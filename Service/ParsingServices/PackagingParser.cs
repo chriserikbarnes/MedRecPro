@@ -191,7 +191,7 @@ namespace MedRecPro.Service.ParsingServices
             // 4. Parse and save package identifiers (e.g., NDC Package Code) for this level.
             if (cppEl != null)
             {
-                count += await parseAndSavePackageIdentifiersAsync(cppEl, packagingLevel, context);
+                count += await parseAndSavePackageIdentifiersAsync(cppEl, asContentEl, packagingLevel, context);
 
                 // Use the orphaned method to get the ID of the level we just created.
                 var newPackagingLevelId = await getPackagingLevelIdFromContextAsync(cppEl, context);
@@ -250,6 +250,7 @@ namespace MedRecPro.Service.ParsingServices
         /// It also orchestrates the parsing of any compliance actions associated with this specific package.
         /// </summary>
         /// <param name="containerPackagedProductEl">The [containerPackagedProduct] XElement to parse.</param>
+        /// <param name="asContentEl">Alternative element for indexing files</param>
         /// <param name="packagingLevel">The PackagingLevel entity to link the identifiers to.</param>
         /// <param name="context">The parsing context for repository access and logging.</param>
         /// <returns>The number of PackageIdentifier and related records created.</returns>
@@ -266,6 +267,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private async Task<int> parseAndSavePackageIdentifiersAsync(
             XElement containerPackagedProductEl,
+            XElement asContentEl,
             PackagingLevel packagingLevel,
             SplParseContext context)
         {
@@ -345,6 +347,39 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // CRITICAL: Restore the context to prevent this package from "leaking"
                 // into the parsing of sibling or parent elements.
+                context.CurrentPackageIdentifier = oldIdentifier;
+            }
+            // --- END: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+
+            // --- START: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+            oldIdentifier = context.CurrentPackageIdentifier;
+            context.CurrentPackageIdentifier = packageIdentifier; // Set the context
+
+            try
+            {
+                // FIXED: Look for compliance actions at asContent level, not containerPackagedProduct level
+                var subjectOfElements = asContentEl.SplElements(sc.E.SubjectOf); 
+                foreach (var subjectEl in subjectOfElements)
+                {
+                    if (subjectEl.SplElement(sc.E.Action) != null)
+                    {
+                        var complianceParser = new ComplianceActionParser();
+                        var complianceResult = await complianceParser.ParseAsync(subjectEl, context, null);
+
+                        if (complianceResult.Success)
+                        {
+                            count += complianceResult.ProductElementsCreated;
+                        }
+                        else
+                        {
+                            context.Logger.LogError("Failed to parse compliance action for PackageIdentifierID {PackageIdentifierID}.",
+                                packageIdentifier.PackageIdentifierID);
+                        }
+                    }
+                }
+            }
+            finally
+            {
                 context.CurrentPackageIdentifier = oldIdentifier;
             }
             // --- END: CONTEXT MANAGEMENT AND ORCHESTRATION ---

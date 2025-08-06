@@ -3036,7 +3036,7 @@ namespace MedRecPro.DataAccess
                     SubstanceSpecifications = specs,
                     ContributingFactors = contributingFactors,
                     PharmacologicClasses = pharmacologicClasses,
-                    Moiety = moieties // Add moiety data to the DTO
+                    Moiety = moieties 
                 });
             }
 
@@ -3079,6 +3079,7 @@ namespace MedRecPro.DataAccess
             var items = await db.Set<Label.Moiety>()
                 .AsNoTracking()
                 .Where(e => e.IdentifiedSubstanceID == identifiedSubstanceID)
+                .OrderBy(e => e.SequenceNumber)
                 .ToListAsync();
 
             // Return empty list if no moieties found
@@ -3093,15 +3094,62 @@ namespace MedRecPro.DataAccess
                 if (item.MoietyID == null)
                     continue;
 
-                // Create moiety DTO with encrypted ID
+                // ENHANCED: Build characteristics for this moiety
+                var characteristics = await buildMoietyCharacteristicsAsync(
+                    db,
+                    item.MoietyID,
+                    pkSecret,
+                    logger);
+
+                // Create moiety DTO with encrypted ID and characteristics
                 dtos.Add(new MoietyDto
                 {
-                    Moiety = item.ToEntityWithEncryptedId(pkSecret, logger)
+                    Moiety = item.ToEntityWithEncryptedId(pkSecret, logger),
+                    Characteristics = characteristics // Add characteristics to the DTO
                 });
             }
 
             // Ensure non-null result
             return dtos ?? new List<MoietyDto>();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of characteristic DTOs for a specified moiety ID.
+        /// Retrieves chemical structure data including MOLFILE, InChI, and InChI-Key.
+        /// </summary>
+        private static async Task<List<CharacteristicDto>> buildMoietyCharacteristicsAsync(
+            ApplicationDbContext db,
+            int? moietyID,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+            // Return empty list if no moiety ID is provided
+            if (moietyID == null)
+                return new List<CharacteristicDto>();
+
+            // Query characteristics for the specified moiety
+            var entities = await db.Set<Label.Characteristic>()
+                .AsNoTracking()
+                .Where(e => e.MoietyID == moietyID)
+                .ToListAsync();
+
+            var dtos = new List<CharacteristicDto>();
+
+            // Process each characteristic
+            foreach (var item in entities)
+            {
+                // Create characteristic DTO
+                dtos.Add(new CharacteristicDto
+                {
+                    Characteristic = item.ToEntityWithEncryptedId(pkSecret, logger)
+                    // Note: For moiety characteristics, PackagingLevels would be empty
+                });
+            }
+
+            return dtos;
             #endregion
         }
 

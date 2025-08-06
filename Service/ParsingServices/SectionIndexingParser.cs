@@ -107,8 +107,25 @@ namespace MedRecPro.Service.ParsingServices
         }
         #endregion
 
+        #region Constants
+        /// <summary>
+        /// Constants for database parsing operations to avoid magic strings.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        private static class DbParsingConstants
+        {
+            public const string EquivalentEntityLogMessage = "Created or retrieved EquivalentEntity for product {ProductId} with code {Code}";
+            public const string MarketingCategoryLogMessage = "Created or retrieved MarketingCategory for approval {ApprovalId} for product {ProductId}";
+            public const string MissingProductContextWarning = "Cannot process {EntityType} without current product context";
+            public const string ProcessingErrorMessage = "Error processing {EntityType} for product {ProductId}";
+
+            public const string EquivalentEntityType = "subject-level equivalent entity";
+            public const string ApprovalEntityType = "subject-level approval";
+        }
+        #endregion
+
         /**************************************************************/
-        public SectionIndexingParser(){ }
+        public SectionIndexingParser() { }
 
         /**************************************************************/
         /// <summary>
@@ -151,6 +168,21 @@ namespace MedRecPro.Service.ParsingServices
                 // Parse Identified Substances for Pharmacologic Class Indexing
                 var identifiedSubstancesCreated = await parseAndSaveIdentifiedSubstancesAsync(element, section, context);
                 result.ProductElementsCreated += identifiedSubstancesCreated;
+
+                // Parse compliance actions for FDA-initiated compliance action documents
+                if (context.Document.DocumentCode == "89600-1") // FDA-INITIATED COMPLIANCE ACTION DRUG REGISTRATION AND LISTING
+                {
+                    var complianceResult = await parseIndexingComplianceActionsAsync(element, section, context);
+                    result.ProductElementsCreated += complianceResult;
+                }
+
+                // Parse general indexing products for documents with code 73815-3
+                if (context.Document.DocumentCode == "73815-3"
+                    && section.SectionCode == c.WARNING_LETTER_SECTION_CODE)
+                {
+                    var indexingProductResult = await parseAndSaveIndexingProductsAsync(element, section, context);
+                    result.ProductElementsCreated += indexingProductResult;
+                }
 
                 // Parse Billing Unit Indexing if applicable
                 // Check if this is a Billing Unit Indexing section (Code 48779-3)
@@ -249,7 +281,13 @@ namespace MedRecPro.Service.ParsingServices
             count++;
 
             // ENHANCED: Parse associated moieties and their characteristics
+            // This is critical for substance indexing as each substance may have multiple 
+            // chemical components (moieties) each with their own structural data
             count += await parseAndSaveMoietiesAsync(dbContext, identifiedSubstanceEl, mainIdentifiedSubstance, context);
+
+            // Log summary of what was processed for this substance
+            context?.Logger?.LogInformation("Substance {UNII} processing complete: {TotalRecords} total records created",
+                mainSubjectInfo.Identifier, count);
 
             // Process based on subject type (Active Moiety or Pharmacologic Class)
             if (mainSubjectInfo.SubjectType == "ActiveMoiety")
@@ -307,10 +345,14 @@ namespace MedRecPro.Service.ParsingServices
             context?.Logger?.LogInformation("Found {Count} moiety elements for substance {UNII}",
                 moietyElements.Count, identifiedSubstance.SubstanceIdentifierValue);
 
+            // CORRECTED: Use sequence number to distinguish moieties with same code
+            int sequenceNumber = 0;
             foreach (var moietyEl in moietyElements)
             {
                 try
                 {
+                    sequenceNumber++; // Increment for each moiety in this substance
+
                     // Extract moiety code information
                     var moietyCodeEl = moietyEl.GetSplElement(sc.E.Code);
                     var moietyCode = moietyCodeEl?.GetAttrVal(sc.A.CodeValue);
@@ -320,6 +362,9 @@ namespace MedRecPro.Service.ParsingServices
                     // Extract quantity information
                     var quantityInfo = extractMoietyQuantityInfo(moietyEl);
 
+                    context?.Logger?.LogDebug("Processing moiety {Sequence} with code {Code} for substance {UNII}",
+                        sequenceNumber, moietyCode, identifiedSubstance.SubstanceIdentifierValue);
+
                     // Create or get the moiety record
                     var moiety = await getOrCreateMoietyAsync(
                         dbContext,
@@ -327,19 +372,26 @@ namespace MedRecPro.Service.ParsingServices
                         moietyCode,
                         moietyCodeSystem,
                         moietyDisplayName,
-                        quantityInfo);
+                        quantityInfo,
+                        sequenceNumber);
                     count++;
 
                     // Parse characteristics for this moiety
                     count += await parseAndSaveCharacteristicsAsync(dbContext, moietyEl, moiety, context);
+
+                    context?.Logger?.LogDebug("Created moiety {MoietyID} (sequence {Sequence}) with {CharCount} characteristics",
+                        moiety.MoietyID, sequenceNumber, moietyEl.SplElements(sc.E.SubjectOf, sc.E.Characteristic).Count());
                 }
                 catch (Exception ex)
                 {
-                    context?.Logger?.LogError(ex, "Error parsing moiety for substance {UNII}",
-                        identifiedSubstance.SubstanceIdentifierValue);
+                    context?.Logger?.LogError(ex, "Error parsing moiety {Sequence} for substance {UNII}",
+                        sequenceNumber, identifiedSubstance.SubstanceIdentifierValue);
                     throw; // Re-throw to maintain existing error handling behavior
                 }
             }
+
+            context?.Logger?.LogInformation("Completed processing {MoietyCount} moieties for substance {UNII}: {TotalRecords} total records created",
+                moietyElements.Count, identifiedSubstance.SubstanceIdentifierValue, count);
 
             return count;
             #endregion
@@ -426,8 +478,8 @@ namespace MedRecPro.Service.ParsingServices
                             content);
                         count++;
 
-                        context?.Logger?.LogDebug("Created characteristic for moiety {MoietyID}: {MediaType}",
-                            moiety.MoietyID, mediaType);
+                        context?.Logger?.LogDebug("Created characteristic {CharID} for moiety {MoietyID}: {MediaType} ({ContentLength} chars)",
+                            characteristic.CharacteristicID, moiety.MoietyID, mediaType, content?.Length ?? 0);
                     }
                     else
                     {
@@ -917,7 +969,7 @@ namespace MedRecPro.Service.ParsingServices
         /**************************************************************/
         /// <summary>
         /// Gets an existing Moiety or creates and saves it if not found.
-        /// Implements deduplication based on substance ID and moiety characteristics.
+        /// CORRECTED: Modified deduplication to allow multiple moieties with same code but different structures.
         /// </summary>
         /// <param name="dbContext">The database context for entity operations.</param>
         /// <param name="identifiedSubstanceId">The ID of the parent IdentifiedSubstance.</param>
@@ -925,10 +977,13 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="moietyCodeSystem">The code system for the moiety code.</param>
         /// <param name="moietyDisplayName">The display name for the moiety code.</param>
         /// <param name="quantityInfo">Tuple containing quantity information.</param>
+        /// <param name="sequenceNumber">Sequence number to distinguish moieties with same code.</param>
         /// <returns>The existing or newly created Moiety entity.</returns>
         /// <remarks>
         /// Creates moiety records representing chemical components within substance definitions.
-        /// Handles quantity information including mixture ratios and range specifications.
+        /// ENHANCED: Multiple moieties can have the same type code (e.g., "mixture component") 
+        /// but represent different chemical structures. Uses sequence-based deduplication 
+        /// to allow multiple moieties with the same code within a single substance.
         /// </remarks>
         /// <seealso cref="Moiety"/>
         /// <seealso cref="IdentifiedSubstance"/>
@@ -940,15 +995,23 @@ namespace MedRecPro.Service.ParsingServices
             string? moietyCode,
             string? moietyCodeSystem,
             string? moietyDisplayName,
-            (decimal? numeratorLow, string? numeratorUnit, bool? inclusive, decimal? denominatorValue, string? denominatorUnit)? quantityInfo)
+            (decimal? numeratorLow, string? numeratorUnit, bool? inclusive, decimal? denominatorValue, string? denominatorUnit)? quantityInfo,
+            int sequenceNumber)
         {
             #region implementation
-            // Search for existing moiety based on substance ID and moiety code
-            // Deduplication based on IdentifiedSubstanceID and MoietyCode
+            // Deduplication that includes quantity information
+            // to distinguish between moieties with same code but different structures
+            var numLow = quantityInfo?.numeratorLow ?? null;
+            var numUnit = quantityInfo?.numeratorUnit ?? null;
+            var numDenom = quantityInfo?.denominatorValue ?? null;
             var existing = await dbContext.Set<Moiety>().FirstOrDefaultAsync(m =>
                 m.IdentifiedSubstanceID == identifiedSubstanceId &&
                 m.MoietyCode == moietyCode &&
-                m.MoietyCodeSystem == moietyCodeSystem);
+                m.MoietyCodeSystem == moietyCodeSystem &&
+                m.QuantityNumeratorLowValue == numLow &&
+                m.QuantityNumeratorUnit == numUnit &&
+                m.QuantityDenominatorValue == numDenom &&
+                m.SequenceNumber == sequenceNumber);
 
             if (existing != null)
             {
@@ -961,8 +1024,10 @@ namespace MedRecPro.Service.ParsingServices
                 IdentifiedSubstanceID = identifiedSubstanceId,
                 MoietyCode = moietyCode,
                 MoietyCodeSystem = moietyCodeSystem,
-                MoietyDisplayName = moietyDisplayName
+                MoietyDisplayName = moietyDisplayName,
+                SequenceNumber = sequenceNumber
             };
+
 
             // Add quantity information if provided
             if (quantityInfo.HasValue)
@@ -1951,5 +2016,672 @@ namespace MedRecPro.Service.ParsingServices
         }
 
         #endregion
+
+        #region Compliance Action Indexing
+        /**************************************************************/
+        /// <summary>
+        /// Parses compliance actions associated with package identifiers in indexing sections.
+        /// Handles inactivation/reactivation actions for drug listings.
+        /// </summary>
+        /// <param name="sectionEl">The section element containing indexing information.</param>
+        /// <param name="section">The current section entity.</param>
+        /// <param name="context">The parsing context for database access and logging.</param>
+        /// <returns>The count of compliance actions processed.</returns>
+        private async Task<int> parseIndexingComplianceActionsAsync(
+            XElement sectionEl,
+            Section section,
+            SplParseContext context)
+        {
+            int count = 0;
+
+            if (context?.ServiceProvider == null || !section.SectionID.HasValue)
+            {
+                Console.WriteLine("DEBUG: Context validation failed");
+                return count;
+            }
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // DEBUG: Log what we're starting with
+            Console.WriteLine($"DEBUG: Starting to parse section {section.SectionCode}");
+            Console.WriteLine($"DEBUG: Section XML name: {sectionEl.Name.LocalName}");
+
+            // Look for subject elements first
+            var subjectElements = sectionEl.SplElements(sc.E.Subject);
+            Console.WriteLine($"DEBUG: Found {subjectElements.Count()} subject elements");
+
+            foreach (var subjectEl in subjectElements)
+            {
+                // Look for manufactured products within each subject
+                var manufacturedProductElements = subjectEl.SplElements(sc.E.ManufacturedProduct);
+                Console.WriteLine($"DEBUG: Found {manufacturedProductElements.Count()} manufacturedProduct elements in subject");
+
+                foreach (var topLevelProductEl in manufacturedProductElements)
+                {
+                    // Look for nested manufactured product
+                    var nestedProductElements = topLevelProductEl.SplElements(sc.E.ManufacturedProduct);
+                    Console.WriteLine($"DEBUG: Found {nestedProductElements.Count()} nested manufacturedProduct elements");
+
+                    foreach (var manufacturedProductEl in nestedProductElements)
+                    {
+                        // Look for asContent elements
+                        var asContentElements = manufacturedProductEl.SplElements(sc.E.AsContent);
+                        Console.WriteLine($"DEBUG: Found {asContentElements.Count()} asContent elements");
+
+                        foreach (var asContentEl in asContentElements)
+                        {
+                            // 1. Get the package identifier from containerPackagedProduct
+                            var packageCodeEl = asContentEl.SplElement(sc.E.ContainerPackagedProduct, sc.E.Code);
+                            if (packageCodeEl == null)
+                            {
+                                Console.WriteLine("DEBUG: No packageCodeEl found in asContent");
+                                continue;
+                            }
+
+                            var packageCode = packageCodeEl.GetAttrVal(sc.A.CodeValue);
+                            var packageCodeSystem = packageCodeEl.GetAttrVal(sc.A.CodeSystem);
+
+                            Console.WriteLine($"DEBUG: Found package code: {packageCode}, system: {packageCodeSystem}");
+
+                            if (string.IsNullOrEmpty(packageCode) || string.IsNullOrEmpty(packageCodeSystem))
+                            {
+                                Console.WriteLine("DEBUG: Package code or system is null/empty");
+                                continue;
+                            }
+
+                            // 2. Find or create the PackageIdentifier
+                            var packageIdentifier = await getOrCreatePackageIdentifierAsync(
+                                dbContext, packageCode, packageCodeSystem, context);
+
+                            if (packageIdentifier?.PackageIdentifierID == null)
+                            {
+                                Console.WriteLine($"DEBUG: Failed to create PackageIdentifier for {packageCode}");
+                                continue;
+                            }
+
+                            Console.WriteLine($"DEBUG: Created PackageIdentifier {packageIdentifier.PackageIdentifierID} for {packageCode}");
+
+                            // 3. Look for subjectOf/action elements
+                            var subjectOfElements = asContentEl.SplElements(sc.E.SubjectOf);
+                            Console.WriteLine($"DEBUG: Found {subjectOfElements.Count()} subjectOf elements in asContent");
+
+                            foreach (var subjectOfEl in subjectOfElements)
+                            {
+                                if (subjectOfEl.SplElement(sc.E.Action) != null)
+                                {
+                                    Console.WriteLine($"DEBUG: Found action element! Processing for package {packageCode}");
+
+                                    // Set context for the ComplianceActionParser
+                                    var oldPackageIdentifier = context.CurrentPackageIdentifier;
+                                    context.CurrentPackageIdentifier = packageIdentifier;
+
+                                    try
+                                    {
+                                        // Delegate to existing ComplianceActionParser
+                                        var complianceParser = new ComplianceActionParser();
+                                        var result = await complianceParser.ParseAsync(subjectOfEl, context, null);
+
+                                        Console.WriteLine($"DEBUG: ComplianceActionParser result - Success: {result.Success}, Count: {result.ProductElementsCreated}");
+
+                                        if (result.Success)
+                                        {
+                                            count += result.ProductElementsCreated;
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine($"DEBUG: ComplianceActionParser errors: {string.Join(", ", result.Errors)}");
+                                        }
+                                    }
+                                    finally
+                                    {
+                                        // Restore context
+                                        context.CurrentPackageIdentifier = oldPackageIdentifier;
+                                    }
+                                }
+                                else
+                                {
+                                    Console.WriteLine("DEBUG: No action element found in subjectOf");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Console.WriteLine($"DEBUG: parseIndexingComplianceActionsAsync completed, total count: {count}");
+            return count;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds an existing PackageIdentifier or creates a new one for compliance action context.
+        /// </summary>
+        private async Task<PackageIdentifier?> getOrCreatePackageIdentifierAsync(
+            ApplicationDbContext dbContext,
+            string packageCode,
+            string packageCodeSystem,
+            SplParseContext context)
+        {
+            try
+            {
+                // Try to find existing package identifier
+                var existing = await dbContext.Set<PackageIdentifier>()
+                    .FirstOrDefaultAsync(pi =>
+                        pi.IdentifierValue == packageCode &&
+                        pi.IdentifierSystemOID == packageCodeSystem);
+
+                if (existing != null)
+                {
+                    return existing;
+                }
+
+                // Create new package identifier if not found
+                var newPackageIdentifier = new PackageIdentifier
+                {
+                    IdentifierValue = packageCode,
+                    IdentifierSystemOID = packageCodeSystem,
+                    IdentifierType = determinePackageIdentifierType(packageCodeSystem)
+                };
+
+                dbContext.Set<PackageIdentifier>().Add(newPackageIdentifier);
+                await dbContext.SaveChangesAsync();
+
+                return newPackageIdentifier;
+            }
+            catch (Exception ex)
+            {
+                context?.Logger?.LogError(ex, "Error finding/creating PackageIdentifier for {PackageCode}", packageCode);
+                return null;
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines package identifier type based on OID system.
+        /// </summary>
+        private static string? determinePackageIdentifierType(string? oidSystem)
+        {
+            return oidSystem switch
+            {
+                "2.16.840.1.113883.6.69" => "NDCPackage",
+                "1.3.160" => "GS1Package",
+                _ => "OTHER"
+            };
+        }
+
+        #endregion
+
+        #region Product Indexing for General Indexing Documents
+
+        // Replace the parseAndSaveIndexingProductsAsync method in SectionIndexingParser.cs
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses manufactured product information from general indexing documents (73815-3).
+        /// IMPROVED: Now leverages existing parsers for comprehensive product processing.
+        /// </summary>
+        /// <param name="sectionEl">The parent [section] XElement containing product data.</param>
+        /// <param name="section">The Section entity that has just been created and saved to database.</param>
+        /// <param name="context">The parsing context for repository and service access.</param>
+        /// <returns>The count of all product-related records created during processing.</returns>
+        /// <remarks>
+        /// This improved version reuses existing specialized parsers rather than duplicating logic.
+        /// It delegates to ManufacturedProductParser for comprehensive product processing while
+        /// handling indexing-specific requirements.
+        /// </remarks>
+        private async Task<int> parseAndSaveIndexingProductsAsync(
+            XElement sectionEl,
+            Section section,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+
+            // Validate required dependencies before processing
+            if (context?.ServiceProvider == null || context.Logger == null || !section.SectionID.HasValue)
+            {
+                return count;
+            }
+
+            // Store the original section context to restore later
+            var originalSection = context.CurrentSection;
+            context.CurrentSection = section;
+
+            try
+            {
+                // Create the manufactured product parser for delegation
+                var manufacturedProductParser = new ManufacturedProductParser();
+
+                // Find all subject elements containing manufactured products
+                var subjectElements = sectionEl.SplElements(sc.E.Subject);
+                context.Logger.LogInformation("Found {Count} subject elements in indexing section", subjectElements.Count());
+
+                foreach (var subjectEl in subjectElements)
+                {
+                    // Look for manufactured product element within current subject
+                    var manufacturedProductEl = subjectEl.SplElement(sc.E.ManufacturedProduct);
+                    if (manufacturedProductEl == null) continue;
+
+                    try
+                    {
+                        context.Logger.LogInformation("Processing indexing manufactured product");
+
+                        // This handles all aspects: products, ingredients, characteristics, marketing, etc.
+                        var productResult = await manufacturedProductParser.ParseAsync(manufacturedProductEl, context, null);
+
+                        // Merge results from the manufactured product parser
+                        count += productResult.ProductsCreated;
+                        count += productResult.IngredientsCreated;
+                        count += productResult.ProductElementsCreated;
+
+                        // Handle indexing-specific processing for equivalent entities and approvals
+                        // These are at the subject level in indexing documents, not product level
+                        await processIndexingSpecificElements(subjectEl, context, productResult.ProductsCreated);
+
+                        if (!productResult.Success)
+                        {
+                            context.Logger.LogWarning("ManufacturedProductParser reported errors: {Errors}",
+                                string.Join(", ", productResult.Errors));
+                        }
+
+                        context.Logger.LogInformation("Completed processing indexing product with {Records} total records",
+                            productResult.ProductsCreated + productResult.IngredientsCreated + productResult.ProductElementsCreated);
+
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log error but continue processing other products
+                        context.Logger.LogError(ex, "Error parsing indexing manufactured product in section {SectionId}", section.SectionID);
+                    }
+                }
+
+                context.Logger.LogInformation("Completed processing {Count} indexing products with {TotalRecords} total records",
+                    subjectElements.Count(), count);
+            }
+            finally
+            {
+                // Restore the original section context
+                context.CurrentSection = originalSection;
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes indexing-specific elements that appear at the subject level rather than product level.
+        /// Handles equivalent entities and approvals that are structured differently in indexing documents.
+        /// </summary>
+        /// <param name="subjectEl">The subject element containing indexing-specific structures.</param>
+        /// <param name="context">The parsing context for database access and logging.</param>
+        /// <param name="productsCreated">Number of products created (for logging purposes).</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <remarks>
+        /// In indexing documents, some elements like equivalent entities and approvals appear
+        /// at the subject level rather than nested within the manufactured product. This method
+        /// handles these indexing-specific structural differences.
+        /// </remarks>
+        private async Task processIndexingSpecificElements(
+            XElement subjectEl,
+            SplParseContext context,
+            int productsCreated)
+        {
+            #region implementation
+            if (context?.ServiceProvider == null || context.Logger == null)
+                return;
+
+            try
+            {
+                // Handle equivalent entities at subject level (indexing-specific structure)
+                var equivalentEntityElements = subjectEl.SplElements(sc.E.ManufacturedProduct, sc.E.AsEquivalentEntity);
+                foreach (var equivalentEntityEl in equivalentEntityElements)
+                {
+                    await processSubjectLevelEquivalentEntity(equivalentEntityEl, context);
+                }
+
+                // Handle approvals at subject level (indexing-specific structure)
+                var approvalElements = subjectEl.SplElements(sc.E.ManufacturedProduct, sc.E.SubjectOf, sc.E.Approval);
+                foreach (var approvalEl in approvalElements)
+                {
+                    await processSubjectLevelApproval(approvalEl, context);
+                }
+
+                context.Logger.LogDebug("Processed indexing-specific elements for subject with {ProductCount} products", productsCreated);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError(ex, "Error processing indexing-specific elements");
+                // Don't rethrow - this shouldn't stop the main parsing process
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes equivalent entity elements that appear at the subject level in indexing documents.
+        /// Uses getOrCreate pattern to avoid duplicate records.
+        /// </summary>
+        /// <param name="equivalentEntityEl">The equivalent entity XML element.</param>
+        /// <param name="context">The parsing context for database access and logging.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="EquivalentEntity"/>
+        /// <seealso cref="getOrCreateEquivalentEntity(ApplicationDbContext, int, string, string, string)"/>
+        /// <example>
+        /// <code>
+        /// await processSubjectLevelEquivalentEntity(xmlElement, parseContext);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method extracts equivalence and defining material information from XML elements
+        /// and creates or retrieves existing EquivalentEntity records to prevent duplicates.
+        /// </remarks>
+        private async Task processSubjectLevelEquivalentEntity(
+            XElement equivalentEntityEl,
+            SplParseContext context)
+        {
+            #region implementation
+            // Validate product context before processing
+            if (!validateProductContext(context, DbParsingConstants.EquivalentEntityType))
+                return;
+
+            var dbContext = context.ServiceProvider!.GetRequiredService<ApplicationDbContext>();
+
+            try
+            {
+                // Extract XML elements using helper method
+                var extractedData = extractEquivalentEntityData(equivalentEntityEl);
+
+                // Use getOrCreate pattern to avoid duplicates
+                var equivalentEntity = await getOrCreateEquivalentEntity(
+                    dbContext,
+                    context.CurrentProduct?.ProductID ?? 0,
+                    extractedData.EquivalenceCode,
+                    extractedData.EquivalenceCodeSystem,
+                    extractedData.DefiningMaterialKindCode);
+
+                // Log successful operation
+                context?.Logger?.LogInformation(
+                    DbParsingConstants.EquivalentEntityLogMessage,
+                    context.CurrentProduct.ProductID,
+                    equivalentEntity.EquivalenceCode);
+            }
+            catch (Exception ex)
+            {
+                context?.Logger?.LogError(ex,
+                    DbParsingConstants.ProcessingErrorMessage,
+                    DbParsingConstants.EquivalentEntityType,
+                    context.CurrentProduct?.ProductID);
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes approval elements that appear at the subject level in indexing documents.
+        /// Uses getOrCreate pattern to avoid duplicate records.
+        /// </summary>
+        /// <param name="approvalEl">The approval XML element.</param>
+        /// <param name="context">The parsing context for database access and logging.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="MarketingCategory"/>
+        /// <seealso cref="getOrCreateMarketingCategory(ApplicationDbContext, int, string, string, string, string, string, string)"/>
+        /// <example>
+        /// <code>
+        /// await processSubjectLevelApproval(xmlElement, parseContext);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method extracts approval identification and categorization elements from XML
+        /// and creates or retrieves existing MarketingCategory records to prevent duplicates.
+        /// </remarks>
+        private async Task processSubjectLevelApproval(
+            XElement approvalEl,
+            SplParseContext context)
+        {
+            #region implementation
+            // Validate product context before processing
+            if (!validateProductContext(context, DbParsingConstants.ApprovalEntityType))
+                return;
+
+
+
+            var dbContext = context.ServiceProvider!.GetRequiredService<ApplicationDbContext>();
+
+            try
+            {
+                // Extract XML elements using helper method
+                var extractedData = extractApprovalData(approvalEl);
+
+                // Use getOrCreate pattern to avoid duplicates
+                var marketingCategory = await getOrCreateMarketingCategory(
+                    dbContext,
+                    context.CurrentProduct?.ProductID ?? 0,
+                    extractedData.ApplicationOrMonographIDValue,
+                    extractedData.ApplicationOrMonographIDOID,
+                    extractedData.CategoryCode,
+                    extractedData.CategoryCodeSystem,
+                    extractedData.CategoryDisplayName,
+                    extractedData.TerritoryCode);
+
+                // Log successful operation
+                context?.Logger?.LogInformation(
+                    DbParsingConstants.MarketingCategoryLogMessage,
+                    marketingCategory.ApplicationOrMonographIDValue,
+                    context?.CurrentProduct?.ProductID ?? 0);
+            }
+            catch (Exception ex)
+            {
+                context?.Logger?.LogError(ex,
+                    DbParsingConstants.ProcessingErrorMessage,
+                    DbParsingConstants.ApprovalEntityType,
+                    context.CurrentProduct?.ProductID);
+            }
+            #endregion
+        }
+
+        #region Helper Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates that the parsing context contains a valid product for processing.
+        /// </summary>
+        /// <param name="context">The parsing context to validate.</param>
+        /// <param name="entityType">The type of entity being processed for logging purposes.</param>
+        /// <returns>True if context is valid, false otherwise.</returns>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="SplParseContext"/>
+        private static bool validateProductContext(SplParseContext context, string entityType)
+        {
+            #region implementation
+            if (context?.CurrentProduct?.ProductID == null)
+            {
+                context?.Logger?.LogWarning(
+                    DbParsingConstants.MissingProductContextWarning,
+                    entityType);
+                return false;
+            }
+            return true;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts equivalent entity data from XML element.
+        /// </summary>
+        /// <param name="equivalentEntityEl">The equivalent entity XML element.</param>
+        /// <returns>Extracted data structure containing equivalence information.</returns>
+        /// <seealso cref="Label"/>
+        private static (string? EquivalenceCode, string? EquivalenceCodeSystem, string? DefiningMaterialKindCode)
+            extractEquivalentEntityData(XElement equivalentEntityEl)
+        {
+            #region implementation
+            // Extract code element for equivalence information
+            var codeEl = equivalentEntityEl.GetSplElement(sc.E.Code);
+
+            // Extract defining material kind element
+            var definingKindEl = equivalentEntityEl.GetSplElement(sc.E.DefiningMaterialKind);
+
+            return (
+                        EquivalenceCode: codeEl?.GetAttrVal(sc.A.CodeValue),
+                        EquivalenceCodeSystem: codeEl?.GetAttrVal(sc.A.CodeSystem),
+                        DefiningMaterialKindCode: definingKindEl?.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue)
+                    );
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts approval data from XML element.
+        /// </summary>
+        /// <param name="approvalEl">The approval XML element.</param>
+        /// <returns>Extracted data structure containing approval information.</returns>
+        /// <seealso cref="Label"/>
+        private static (string? ApplicationOrMonographIDValue, string? ApplicationOrMonographIDOID,
+            string? CategoryCode, string? CategoryCodeSystem, string? CategoryDisplayName, string? TerritoryCode)
+            extractApprovalData(XElement approvalEl)
+        {
+            #region implementation
+            // Extract identification element
+            var idEl = approvalEl.GetSplElement(sc.E.Id);
+
+            // Extract code element for categorization
+            var codeEl = approvalEl.GetSplElement(sc.E.Code);
+
+            // Extract territory element from nested hierarchy
+            var territoryEl = approvalEl.SplElement(sc.E.Author, sc.E.TerritorialAuthority, sc.E.Territory, sc.E.Code);
+
+            return (
+                ApplicationOrMonographIDValue: idEl?.GetAttrVal(sc.A.Extension),
+                ApplicationOrMonographIDOID: idEl?.GetAttrVal(sc.A.Root),
+                CategoryCode: codeEl?.GetAttrVal(sc.A.CodeValue),
+                CategoryCodeSystem: codeEl?.GetAttrVal(sc.A.CodeSystem),
+                CategoryDisplayName: codeEl?.GetAttrVal(sc.A.DisplayName),
+                TerritoryCode: territoryEl?.GetAttrVal(sc.A.CodeValue)
+            );
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing EquivalentEntity or creates a new one if it doesn't exist.
+        /// Prevents duplicate records by checking unique constraints.
+        /// </summary>
+        /// <param name="dbContext">The database context for operations.</param>
+        /// <param name="productId">The product identifier.</param>
+        /// <param name="equivalenceCode">The equivalence code value.</param>
+        /// <param name="equivalenceCodeSystem">The equivalence code system.</param>
+        /// <param name="definingMaterialKindCode">The defining material kind code.</param>
+        /// <returns>The existing or newly created EquivalentEntity.</returns>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="EquivalentEntity"/>
+        /// <remarks>
+        /// This method implements the getOrCreate pattern to avoid duplicate database records.
+        /// It first attempts to find an existing record with matching criteria before creating a new one.
+        /// </remarks>
+        private static async Task<EquivalentEntity> getOrCreateEquivalentEntity(
+            ApplicationDbContext dbContext,
+            int productId,
+            string equivalenceCode,
+            string equivalenceCodeSystem,
+            string definingMaterialKindCode)
+        {
+            #region implementation
+            // Check for existing record to avoid duplicates
+            var existingEntity = await dbContext.Set<EquivalentEntity>()
+                .FirstOrDefaultAsync(ee =>
+                    ee.ProductID == productId &&
+                    ee.EquivalenceCode == equivalenceCode &&
+                    ee.EquivalenceCodeSystem == equivalenceCodeSystem &&
+                    ee.DefiningMaterialKindCode == definingMaterialKindCode);
+
+            // Return existing entity if found
+            if (existingEntity != null)
+                return existingEntity;
+
+            // Create new entity if not found
+            var newEntity = new EquivalentEntity
+            {
+                ProductID = productId,
+                EquivalenceCode = equivalenceCode,
+                EquivalenceCodeSystem = equivalenceCodeSystem,
+                DefiningMaterialKindCode = definingMaterialKindCode
+            };
+
+            dbContext.Set<EquivalentEntity>().Add(newEntity);
+            await dbContext.SaveChangesAsync();
+
+            return newEntity;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing MarketingCategory or creates a new one if it doesn't exist.
+        /// Prevents duplicate records by checking unique constraints.
+        /// </summary>
+        /// <param name="dbContext">The database context for operations.</param>
+        /// <param name="productId">The product identifier.</param>
+        /// <param name="applicationOrMonographIDValue">The application or monograph ID value.</param>
+        /// <param name="applicationOrMonographIDOID">The application or monograph ID OID.</param>
+        /// <param name="categoryCode">The category code value.</param>
+        /// <param name="categoryCodeSystem">The category code system.</param>
+        /// <param name="categoryDisplayName">The category display name.</param>
+        /// <param name="territoryCode">The territory code.</param>
+        /// <returns>The existing or newly created MarketingCategory.</returns>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="MarketingCategory"/>
+        /// <remarks>
+        /// This method implements the getOrCreate pattern to avoid duplicate database records.
+        /// It first attempts to find an existing record with matching criteria before creating a new one.
+        /// </remarks>
+        private static async Task<MarketingCategory> getOrCreateMarketingCategory(
+            ApplicationDbContext dbContext,
+            int productId,
+            string applicationOrMonographIDValue,
+            string applicationOrMonographIDOID,
+            string categoryCode,
+            string categoryCodeSystem,
+            string categoryDisplayName,
+            string territoryCode)
+        {
+            #region implementation
+            // Check for existing record to avoid duplicates
+            var existingCategory = await dbContext.Set<MarketingCategory>()
+                .FirstOrDefaultAsync(mc =>
+                    mc.ProductID == productId &&
+                    mc.ApplicationOrMonographIDValue == applicationOrMonographIDValue &&
+                    mc.ApplicationOrMonographIDOID == applicationOrMonographIDOID &&
+                    mc.CategoryCode == categoryCode &&
+                    mc.CategoryCodeSystem == categoryCodeSystem);
+
+            // Return existing category if found
+            if (existingCategory != null)
+                return existingCategory;
+
+            // Create new category if not found
+            var newCategory = new MarketingCategory
+            {
+                ProductID = productId,
+                ApplicationOrMonographIDValue = applicationOrMonographIDValue,
+                ApplicationOrMonographIDOID = applicationOrMonographIDOID,
+                CategoryCode = categoryCode,
+                CategoryCodeSystem = categoryCodeSystem,
+                CategoryDisplayName = categoryDisplayName,
+                TerritoryCode = territoryCode
+            };
+
+            dbContext.Set<MarketingCategory>().Add(newCategory);
+            await dbContext.SaveChangesAsync();
+
+            return newCategory;
+            #endregion
+        }
+
+        #endregion
     }
+
+    #endregion
 }

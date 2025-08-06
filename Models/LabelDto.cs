@@ -225,6 +225,7 @@
     public class MoietyDto
     {
         public required Dictionary<string, object?> Moiety { get; set; }
+        public List<CharacteristicDto> Characteristics { get; set; } = new List<CharacteristicDto>();
     }
 
     /**************************************************************/

@@ -10,6 +10,7 @@
 *       - Creates the table if it doesn't exist with all required columns.
 *       - Adds individual columns if table exists but columns are missing (idempotent).
 *       - Adds MS_Description extended properties for the table and its columns.
+*       - UPDATED: Added SequenceNumber column to distinguish multiple moieties with same code.
 *
 *   NOTES:
 *   - The script is idempotent and can be run multiple times safely.
@@ -40,6 +41,7 @@ BEGIN TRY
             [MoietyCode] VARCHAR(50) NULL,
             [MoietyCodeSystem] VARCHAR(100) NULL,
             [MoietyDisplayName] VARCHAR(255) NULL,
+            [SequenceNumber] INT NULL,
             [QuantityNumeratorLowValue] DECIMAL(18,6) NULL,
             [QuantityNumeratorUnit] VARCHAR(50) NULL,
             [QuantityNumeratorInclusive] BIT NULL,
@@ -94,6 +96,17 @@ BEGIN TRY
         BEGIN
             PRINT ' -> Adding [MoietyDisplayName] column.';
             ALTER TABLE [dbo].[Moiety] ADD [MoietyDisplayName] VARCHAR(255) NULL;
+        END
+
+        -- Add SequenceNumber column if missing
+        IF NOT EXISTS (
+            SELECT 1 FROM sys.columns 
+            WHERE Name = N'SequenceNumber' 
+              AND Object_ID = Object_ID(N'dbo.Moiety')
+        )
+        BEGIN
+            PRINT ' -> Adding [SequenceNumber] column.';
+            ALTER TABLE [dbo].[Moiety] ADD [SequenceNumber] INT NULL;
         END
 
         -- Add QuantityNumeratorLowValue column if missing
@@ -241,6 +254,20 @@ BEGIN TRY
             @level1type = N'TABLE', @level1name = @TableName,
             @level2type = N'COLUMN', @level2name = @ColumnName;
 
+    -- Column: SequenceNumber
+    SET @ColumnName = N'SequenceNumber';
+    SET @PropValue = N'Sequence number to distinguish between multiple moieties with the same type code within a single substance. Critical for substances with multiple chemical components of the same type but different molecular structures (e.g., peptides with multiple mixture components).';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
+        EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
+            @level0type = N'SCHEMA', @level0name = @SchemaName,
+            @level1type = N'TABLE', @level1name = @TableName,
+            @level2type = N'COLUMN', @level2name = @ColumnName;
+    ELSE
+        EXEC sp_addextendedproperty @name = N'MS_Description', @value = @PropValue,
+            @level0type = N'SCHEMA', @level0name = @SchemaName,
+            @level1type = N'TABLE', @level1name = @TableName,
+            @level2type = N'COLUMN', @level2name = @ColumnName;
+
     -- Column: QuantityNumeratorLowValue
     SET @ColumnName = N'QuantityNumeratorLowValue';
     SET @PropValue = N'Lower bound value for the quantity numerator in mixture ratios. Used to specify ranges or minimum quantities for this moiety component.';
@@ -313,7 +340,7 @@ BEGIN TRY
 
     COMMIT TRANSACTION;
     PRINT 'Script completed successfully.';
-    PRINT 'Moiety table created/enhanced for substance indexing support.';
+    PRINT 'Moiety table created/enhanced for substance indexing support with SequenceNumber for multi-moiety substances.';
 
 END TRY
 BEGIN CATCH

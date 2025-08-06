@@ -2948,6 +2948,11 @@ namespace MedRecPro.Models
             /// </summary>
             public int? IdentifiedSubstanceID { get; set; }
 
+            /// <summary>
+            /// Position of this moiety within the substance definition.
+            /// </summary>
+            public int? SequenceNumber { get; set; } // Already nullable
+
             private string? _moietyCode;
             /// <summary>
             /// Code identifying the type or role of this moiety within the substance definition.

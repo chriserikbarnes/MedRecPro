@@ -1,19 +1,20 @@
 
-using Microsoft.OpenApi.Models;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
-using System.Reflection;
-
 using MedRecPro.Data; // Namespace for ApplicationDbContext
-using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
-using MedRecPro.Service;
-using MedRecPro.Models; // Namespace for User model
 using MedRecPro.DataAccess;
+using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
+using MedRecPro.Models; // Namespace for User model
 using MedRecPro.Security;
+using MedRecPro.Service;
 using MedRecPro.Service.ParsingServices; 
+using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
+using System.Reflection;
 
 string? connectionString, googleClientId, googleClientSecret;
 
@@ -290,6 +291,20 @@ When you need to ensure fresh data from the database, use the `/REST/API/Utility
     }
 });
 #endregion
+
+
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.ValueLengthLimit = int.MaxValue;
+    options.MultipartBodyLengthLimit = int.MaxValue; // 2GB
+    options.MultipartHeadersLengthLimit = int.MaxValue;
+});
+
+builder.Services.Configure<KestrelServerOptions>(options =>
+{
+    options.Limits.MaxRequestBodySize = int.MaxValue; // 2GB
+});
+
 
 var app = builder.Build();
 
