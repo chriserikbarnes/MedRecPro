@@ -226,7 +226,8 @@ namespace MedRecPro.Service
                 Logger = _logger,
                 FileResult = fileResult,
                 FileNameInZip = fileNameInZip,
-                MainSectionParser = _mainSectionParser
+                MainSectionParser = _mainSectionParser,
+                DocumentElement = docEl
             };
 
             try

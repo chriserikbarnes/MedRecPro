@@ -173,6 +173,12 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         public Action<string>? ReportProgress { get; set; }
 
+        /// <summary>
+        /// Gets or sets the root document XElement for accessing document-level elements.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public XElement? DocumentElement { get; set; }
+
 
         #endregion
 

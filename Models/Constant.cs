@@ -18,7 +18,12 @@
         public const string PDF_MEDIA_TYPE = "application/pdf";
         public const string PDF_FILE_EXTENSION = ".pdf";
 
+        // Warning Letter Document and Section Codes
+        public const string WARNING_LETTER_DOCUMENT_CODE = "77288-9";
         public const string WARNING_LETTER_SECTION_CODE = "48779-3";
+
+        // Other indexing document codes for reference
+        public const string BIOLOGIC_DRUG_SUBSTANCE_DOCUMENT_CODE = "77648-4";
 
         public enum ActorType
         {

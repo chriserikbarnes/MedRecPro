@@ -10,11 +10,15 @@ using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
+using System.Text.Json.Serialization;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 string? connectionString, googleClientId, googleClientSecret;
 
@@ -168,7 +172,29 @@ builder.Services.AddAuthorization(options =>
     //    .Build();
 });
 
-builder.Services.AddControllers();
+#region Ignore Empty Fields When Serializing
+// Configure JSON options
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault;
+    options.SerializerOptions.WriteIndented = true; // Optional: for readable JSON
+});
+
+// For controllers/API endpoints, also configure:
+builder.Services.Configure<JsonOptions>(options =>
+{
+    options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault;
+    options.SerializerOptions.WriteIndented = true;
+}); 
+#endregion
+
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // This will ignore null values AND empty collections
+        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault;
+        options.JsonSerializerOptions.WriteIndented = true;
+    });
 
 #region Swagger Documentation
 builder.Services.AddSwaggerGen(c =>
@@ -292,12 +318,13 @@ When you need to ensure fresh data from the database, use the `/REST/API/Utility
 });
 #endregion
 
+#region File Limits
 
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.ValueLengthLimit = int.MaxValue;
-    options.MultipartBodyLengthLimit = int.MaxValue; // 2GB
-    options.MultipartHeadersLengthLimit = int.MaxValue;
+options.ValueLengthLimit = int.MaxValue;
+options.MultipartBodyLengthLimit = int.MaxValue; // 2GB
+options.MultipartHeadersLengthLimit = int.MaxValue;
 });
 
 builder.Services.Configure<KestrelServerOptions>(options =>
@@ -305,6 +332,7 @@ builder.Services.Configure<KestrelServerOptions>(options =>
     options.Limits.MaxRequestBodySize = int.MaxValue; // 2GB
 });
 
+#endregion
 
 var app = builder.Build();
 

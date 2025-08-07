@@ -7,6 +7,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using Windows.Services.Store;
 using static MedRecPro.Models.Label;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 using static System.Collections.Specialized.BitVector32;
 using static System.Net.Mime.MediaTypeNames;
 
@@ -1534,7 +1535,8 @@ namespace MedRecPro.DataAccess
                 // Build all child collections for this product
                 var additionalIds = await buildAdditionalIdentifiersAsync(db, product.ProductID, pkSecret, logger);
                 var businessOpLinks = await buildBusinessOperationProductLinksAsync(db, product.ProductID, pkSecret, logger);
-                var characteristics = await buildCharacteristicsDtoAsync(db, product.ProductID, pkSecret, logger);
+                var characteristics = await buildCharacteristicsDtoAsync(db, product.ProductID, pkSecret, logger, sectionId);
+                var packageIdentifiers = await buildDirectPackageIdentifiersAsync(db, product.ProductID, sectionId, pkSecret, logger);
                 var childLots = await buildLabelLotHierarchyDtoAsync(db, product.ProductID, pkSecret, logger);
                 var dosingSpecs = await buildDosingSpecificationsAsync(db, product.ProductID, pkSecret, logger);
                 var equivalents = await buildEquivalentEntitiesAsync(db, product.ProductID, pkSecret, logger);
@@ -1566,6 +1568,7 @@ namespace MedRecPro.DataAccess
                     MarketingCategories = marketingCats,
                     MarketingStatuses = marketingStatuses,
                     ProductIdentifiers = productIds,
+                    PackageIdentifiers = packageIdentifiers,
                     PackagingLevels = packageLevels,
                     ProductRouteOfAdministrations = productRoutes,
                     ProductWebLinks = webLinks,
@@ -2152,6 +2155,7 @@ namespace MedRecPro.DataAccess
         /// <param name="productID">The product identifier to filter characteristics.</param>
         /// <param name="pkSecret">The secret key used for encrypting entity IDs.</param>
         /// <param name="logger">The logger instance for tracking operations.</param>
+        /// <param name="sectionId">OPTIONAL used for compliance actions in indexing files</param>
         /// <returns>A list of CharacteristicDto objects with associated packaging levels.</returns>
         /// <seealso cref="Label.Characteristic"/>
         /// <seealso cref="CharacteristicDto"/>
@@ -2159,7 +2163,11 @@ namespace MedRecPro.DataAccess
         /// <remarks>
         /// Based on Section 3.1.9. Relates to the Characteristic table (ProductID and PackagingLevelID).
         /// </remarks>
-        private static async Task<List<CharacteristicDto>> buildCharacteristicsDtoAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        private static async Task<List<CharacteristicDto>> buildCharacteristicsDtoAsync(ApplicationDbContext db, 
+            int? productID, 
+            string pkSecret, 
+            ILogger logger,
+            int? sectionId = null)
         {
             #region implementation
             // Return empty list if no product ID is provided
@@ -2182,7 +2190,13 @@ namespace MedRecPro.DataAccess
                 if (item.PackagingLevelID != null)
                 {
                     // You might have one or many packaging levels per characteristic
-                    var pkgDto = await buildPackageIdentifierDtoAsync(db, item.PackagingLevelID, pkSecret, logger);
+                    var pkgDto = await buildPackageIdentifierDtoAsync(
+                        db,
+                        item.PackagingLevelID,
+                        pkSecret,
+                        logger,
+                        sectionId);
+
                     if (pkgDto?.PackageIdentifier != null)
                     {
                         packagingLevels.Add(pkgDto.PackageIdentifier);
@@ -4004,10 +4018,15 @@ namespace MedRecPro.DataAccess
         /// <param name="packagingLevelID">The packaging level identifier to retrieve package identifier for.</param>
         /// <param name="pkSecret">The secret key used for encrypting entity IDs.</param>
         /// <param name="logger">The logger instance for tracking operations.</param>
+        /// <param name="sectionId">OPTIONAL for indexing files with compliance actions</param>
         /// <returns>A PackageIdentifierDto object with encrypted ID, or null if not found.</returns>
         /// <seealso cref="Label.PackageIdentifier"/>
         /// <seealso cref="PackageIdentifierDto"/>
-        private static async Task<PackageIdentifierDto?> buildPackageIdentifierDtoAsync(ApplicationDbContext db, int? packagingLevelID, string pkSecret, ILogger logger)
+        private static async Task<PackageIdentifierDto?> buildPackageIdentifierDtoAsync(ApplicationDbContext db, 
+            int? packagingLevelID, 
+            string pkSecret, 
+            ILogger logger,
+            int? sectionId = null)
         {
             #region implementation
             // Return null if no packaging level ID is provided
@@ -4023,14 +4042,136 @@ namespace MedRecPro.DataAccess
             if (entity == null)
                 return null;
 
+            //  Build ComplianceActions for this PackageIdentifier
+            var complianceActions = await buildComplianceActionsForPackageAsync(
+                db,
+                entity.PackageIdentifierID,
+                pkSecret,
+                logger,
+                sectionId);
+
             // Transform entity to DTO with encrypted ID
             return new PackageIdentifierDto
             {
-                PackageIdentifier = entity.ToEntityWithEncryptedId(pkSecret, logger)
-                // Add children as needed
+                PackageIdentifier = entity.ToEntityWithEncryptedId(pkSecret, logger),
+                ComplianceActions = complianceActions
             };
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Asynchronously builds a list of compliance action DTOs for a specified package identifier.
+        /// Retrieves compliance actions from the database and converts them to encrypted DTOs.
+        /// </summary>
+        /// <param name="db">The application database context for data access</param>
+        /// <param name="packageIdentifierId">The unique identifier of the package to retrieve compliance actions for. If null, returns an empty list.</param>
+        /// <param name="pkSecret">The secret key used for encrypting entity IDs in the response DTOs</param>
+        /// <param name="logger">The logger instance for recording any errors or information during processing</param>
+        /// <param name="sectionId">OPTIONAL used for spl indexing files for compliance actions</param>
+        /// <returns>A list of ComplianceActionDto objects with encrypted IDs, or an empty list if no package identifier is provided</returns>
+        /// <remarks>
+        /// This method uses AsNoTracking() for better performance when the entities won't be modified.
+        /// The method handles null package identifiers gracefully by returning an empty collection.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var complianceActions = await buildComplianceActionsForPackageAsync(dbContext, 123, secretKey, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.ComplianceAction"/>
+        /// <seealso cref="ComplianceActionDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        private static async Task<List<ComplianceActionDto>> buildComplianceActionsForPackageAsync(
+            ApplicationDbContext db,
+            int? packageIdentifierId,
+            string pkSecret,
+            ILogger logger,
+            int? sectionId = null)
+        {
+            #region implementation
+
+            #region validation
+            // Return empty list immediately if no package identifier provided
+            if (packageIdentifierId == null)
+                return new List<ComplianceActionDto>();
+            #endregion
+
+            #region data retrieval
+            // Query compliance actions for the specified package identifier
+            // Using AsNoTracking for performance since we're not modifying entities
+            var query = db.Set<Label.ComplianceAction>()
+                .AsNoTracking()
+                .Where(e => e.PackageIdentifierID == packageIdentifierId);
+
+            // Add section filter if provided
+            if (sectionId != null)
+            {
+                query = query.Where(e => e.SectionID == sectionId);
+            }
+
+            var items = await query.ToListAsync();
+            #endregion
+
+            #region dto conversion
+            // Transform database entities to DTOs with encrypted IDs
+            return items
+                .Select(item => new ComplianceActionDto
+                {
+                    // Convert entity to DTO with encrypted ID using the provided secret
+                    ComplianceAction = item.ToEntityWithEncryptedId(pkSecret, logger)
+                })
+                .ToList();
+            #endregion
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds PackageIdentifier DTOs directly for a product, bypassing Characteristics.
+        /// Used for indexing documents and other cases where PackageIdentifiers exist 
+        /// without going through the Characteristic → PackagingLevel path.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="productID">The product ID to find package identifiers for.</param>
+        /// <param name="sectionId">The section ID for context when building compliance actions.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of PackageIdentifier DTOs with ComplianceActions.</returns>
+        private static async Task<List<PackageIdentifierDto>> buildDirectPackageIdentifiersAsync(
+            ApplicationDbContext db, int? productID, int? sectionId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            if (productID == null) return new List<PackageIdentifierDto>();
+
+            // Find PackageIdentifiers through join with PackagingLevel → Product relationship
+            var packageIdentifiers = await (from pi in db.Set<Label.PackageIdentifier>()
+                                            join pl in db.Set<Label.PackagingLevel>() on pi.PackagingLevelID equals pl.PackagingLevelID
+                                            where pl.ProductID == productID
+                                            select pi)
+                .AsNoTracking()
+                .ToListAsync();
+
+            var dtos = new List<PackageIdentifierDto>();
+
+            foreach (var pkgId in packageIdentifiers)
+            {
+                // Build ComplianceActions for this PackageIdentifier with section context
+                var complianceActions = await buildComplianceActionsForPackageAsync(
+                    db, pkgId.PackageIdentifierID, pkSecret, logger, sectionId);
+
+                dtos.Add(new PackageIdentifierDto
+                {
+                    PackageIdentifier = pkgId.ToEntityWithEncryptedId(pkSecret, logger),
+                    ComplianceActions = complianceActions
+                });
+            }
+
+            return dtos;
+            #endregion
+        }
+
         #endregion
 
         #region Organization & Contact Builders

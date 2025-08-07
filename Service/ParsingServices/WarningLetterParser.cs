@@ -101,7 +101,7 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 // Validate this is a Warning Letter Alert section (48779-3)
-                if (!isWarningLetterSection(context.CurrentSection))
+                if (!isWarningLetterSection(context.CurrentSection, context))
                 {
                     // Not an error - just not applicable for this parser
                     return new SplParseResult { Success = true };
@@ -714,20 +714,41 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Determines if the current section is a Warning Letter Alert section (48779-3).
+        /// Determines if the current section is a Warning Letter Alert section (48779-3) 
+        /// within a Warning Letter Alert document (77288-9).
         /// </summary>
         /// <param name="section">The Section entity to check.</param>
-        /// <returns>True if this is a Warning Letter Alert section, false otherwise.</returns>
+        /// <param name="context">The parsing context containing document information.</param>
+        /// <returns>True if this is a Warning Letter Alert section within a Warning Letter Alert document, false otherwise.</returns>
         /// <remarks>
-        /// Checks the section code to determine if this section should be processed
-        /// by the Warning Letter parser.
+        /// This method performs a dual check to ensure we only process warning letter content
+        /// when both conditions are met:
+        /// 1. The section code is "48779-3" (SPL indexing data elements section)
+        /// 2. The containing document code is "77288-9" (Warning Letter Alert document)
+        /// 
+        /// This prevents false positives from other indexing documents (like Biologic or Drug Substance 
+        /// documents with code "77648-4") that may contain the same section code but should not be 
+        /// processed for warning letter content.
         /// </remarks>
         /// <seealso cref="Section"/>
+        /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private bool isWarningLetterSection(Section section)
+        private bool isWarningLetterSection(Section section, SplParseContext context)
         {
             #region implementation
-            return section?.SectionCode?.Equals(WARNING_LETTER_SECTION_CODE, StringComparison.OrdinalIgnoreCase) == true;
+            // First check: Must be an SPL indexing data elements section (48779-3)
+            if (!section?.SectionCode?.Equals(c.WARNING_LETTER_SECTION_CODE, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return false;
+            }
+
+            // Second check: Must be within a Warning Letter Alert document (77288-9)
+            if (context?.Document?.DocumentCode?.Equals(c.WARNING_LETTER_DOCUMENT_CODE, StringComparison.OrdinalIgnoreCase) != true)
+            {
+                return false;
+            }
+
+            return true;
             #endregion
         }
 

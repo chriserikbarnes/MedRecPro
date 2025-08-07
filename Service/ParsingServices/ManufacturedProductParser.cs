@@ -136,7 +136,8 @@ namespace MedRecPro.Service.ParsingServices
                     SectionID = context.CurrentSection.SectionID.Value,
 
                     // Extract product name from the name element
-                    ProductName = mmEl.GetSplElementVal(sc.E.Name),
+                    ProductName = mmEl.GetSplElementVal(sc.E.Name) 
+                        ?? mmEl.GetSplElementVal(sc.E.ManufacturedProduct, sc.E.Name),
 
                     // Extract product suffix from the suffix element
                     ProductSuffix = mmEl.GetSplElementVal(sc.E.Suffix),

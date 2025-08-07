@@ -1,7 +1,9 @@
-﻿using System.Xml.Linq;
+﻿using MedRecPro.Data;
 using MedRecPro.DataAccess;
-using MedRecPro.Models;
 using MedRecPro.Helpers;
+using MedRecPro.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Xml.Linq;
 using static MedRecPro.Models.Label;
 using c = MedRecPro.Models.Constant;
 using sc = MedRecPro.Models.SplConstants;
@@ -177,6 +179,10 @@ namespace MedRecPro.Service.ParsingServices
                     var docRelResult = await parseDocumentRelationshipAsync(xEl, context, reportProgress);
                     result.MergeFrom(docRelResult);
 
+                    // Related docs for index files
+                    var docLevelRelatedDocResult = await parseDocumentLevelRelatedDocumentsAsync(context);
+                    result.MergeFrom(docLevelRelatedDocResult);
+
                     // 3. Delegate to specialized parsers for different aspects of section processing
 
                     // Parse the content within this section (text, highlights, etc.)
@@ -332,6 +338,153 @@ namespace MedRecPro.Service.ParsingServices
                 }
             }
             return new SplParseResult { Success = true };
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses document-level relatedDocument elements if they haven't been processed yet.
+        /// This method processes XML relatedDocument elements at the document level, extracts relationship
+        /// information, and creates RelatedDocument entities in the database. It includes duplicate
+        /// prevention logic to avoid reprocessing already handled documents.
+        /// </summary>
+        /// <param name="context">The parsing context containing document information and services</param>
+        /// <returns>A SplParseResult indicating success/failure and containing processing statistics</returns>
+        /// <remarks>
+        /// This method is designed to handle document-level related document parsing that may have
+        /// been missed in previous processing steps. The method checks for existing related documents
+        /// before processing to prevent duplicates.
+        /// 
+        /// The method expects the XML structure to contain relatedDocument elements with typeCode attributes
+        /// and nested relatedDocument elements containing setId elements with root attributes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var context = new SplParseContext 
+        /// { 
+        ///     Document = document, 
+        ///     ServiceProvider = serviceProvider,
+        ///     DocumentElement = xmlElement 
+        /// };
+        /// var result = await parseDocumentLevelRelatedDocumentsAsync(context);
+        /// if (result.Success)
+        /// {
+        ///     Console.WriteLine($"Created {result.ProductElementsCreated} related documents");
+        /// }
+        /// </code>
+        /// </example>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="RelatedDocument"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseDocumentLevelRelatedDocumentsAsync(SplParseContext context)
+        {
+            #region implementation
+
+            // Initialize result object to track processing outcome
+            var result = new SplParseResult();
+
+            try
+            {
+                #region duplicate prevention check
+
+                // Check if we've already processed related documents for this document
+                // This prevents duplicate processing and maintains data integrity
+                if (context.ServiceProvider != null && context.Document?.DocumentID != null)
+                {
+                    // Get database context from service provider for data access
+                    var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+                    // Query existing related documents count for this source document
+                    var existingCount = await dbContext.Set<RelatedDocument>()
+                        .CountAsync(rd => rd.SourceDocumentID == context.Document.DocumentID);
+
+                    if (existingCount > 0)
+                    {
+                        // Already processed, skip to avoid duplicates
+                        return new SplParseResult { Success = true };
+                    }
+                }
+
+                #endregion
+
+                #region xml document validation
+
+                // Use the stored document root element from context
+                var documentEl = context.DocumentElement;
+                if (documentEl == null)
+                {
+                    // No document element available, return success as this is not an error condition
+                    return new SplParseResult { Success = true };
+                }
+
+                #endregion
+
+                #region related document processing
+
+                // Use XmlHelpers and constants to find relatedDocument elements at document level
+                var relatedDocElements = documentEl.Elements(ns + sc.E.RelatedDocument);
+
+                // Process each related document element found in the XML
+                foreach (var relatedDocEl in relatedDocElements)
+                {
+                    #region extract relationship data
+
+                    // Extract the type code that defines the relationship type
+                    var typeCode = relatedDocEl.GetAttrVal(sc.A.TypeCode);
+
+                    // Get the nested relatedDocument element containing reference information
+                    var innerRelatedDocEl = relatedDocEl.GetSplElement(sc.E.RelatedDocument);
+
+                    // Extract the setId root attribute which contains the referenced document GUID
+                    var setIdRoot = innerRelatedDocEl?.GetSplElementAttrVal(sc.E.SetId, sc.A.Root);
+
+                    #endregion
+
+                    #region create related document entity
+
+                    // Only create entity if we have valid setId root data
+                    if (!string.IsNullOrEmpty(setIdRoot))
+                    {
+                        // Create new RelatedDocument entity with extracted data
+                        var relatedDoc = new RelatedDocument
+                        {
+                            SourceDocumentID = context.Document?.DocumentID,
+                            RelationshipTypeCode = typeCode,
+                            ReferencedSetGUID = Util.ParseNullableGuid(setIdRoot)
+                        };
+
+                        // Get repository instance and persist the related document
+                        var relatedDocRepo = context.GetRepository<RelatedDocument>();
+                        await relatedDocRepo.CreateAsync(relatedDoc);
+
+                        // Increment counter to track created elements
+                        result.ProductElementsCreated++;
+                    }
+
+                    #endregion
+                }
+
+                #endregion
+            }
+            catch (Exception ex)
+            {
+                #region error handling
+
+                // Set failure state and capture error information
+                result.Success = false;
+                result.Errors.Add($"Error parsing document-level related documents: {ex.Message}");
+
+                // Log error with context information for debugging
+                context?.Logger?.LogError(ex, "Error parsing document-level related documents for {FileName}", context.FileNameInZip);
+
+                #endregion
+            }
+
+            // Return processing result with success status and statistics
+            return result;
+
             #endregion
         }
 

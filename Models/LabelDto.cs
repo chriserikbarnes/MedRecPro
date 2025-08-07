@@ -422,6 +422,7 @@
     public class PackageIdentifierDto
     {
         public required Dictionary<string, object?> PackageIdentifier { get; set; }
+        public List<ComplianceActionDto> ComplianceActions { get; set; } = new();
     }
 
     /**************************************************************/

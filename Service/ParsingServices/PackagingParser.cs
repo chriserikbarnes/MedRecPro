@@ -1,12 +1,13 @@
 ﻿
-﻿using System.Xml.Linq;
-using c = MedRecPro.Models.Constant;
-using sc = MedRecPro.Models.SplConstants;
+using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
-using MedRecPro.Data;
 using Microsoft.EntityFrameworkCore;
+﻿using System.Xml.Linq;
 using static MedRecPro.Models.Label;
+using c = MedRecPro.Models.Constant;
+using sc = MedRecPro.Models.SplConstants;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -248,6 +249,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Parses and saves PackageIdentifier entities from a [containerPackagedProduct] element for a given packaging level.
         /// It also orchestrates the parsing of any compliance actions associated with this specific package.
+        /// This version addresses duplication issues with NDC codes by checking for existing identifiers.
         /// </summary>
         /// <param name="containerPackagedProductEl">The [containerPackagedProduct] XElement to parse.</param>
         /// <param name="asContentEl">Alternative element for indexing files</param>
@@ -259,7 +261,20 @@ namespace MedRecPro.Service.ParsingServices
         /// package item code (e.g., NDC Package Code). After creating the identifier, it sets the context
         /// and calls the ComplianceActionParser for any nested [action] elements to ensure they are
         /// correctly linked to this package.
+        /// 
+        /// FIXES:
+        /// - Removed duplicate processing of subjectOf elements
+        /// - Added logging for potential NDC/NDCPackage duplication without preventing creation
+        /// - Consolidated compliance action parsing
         /// </remarks>
+        /// <example>
+        /// <code>
+        /// var containerEl = xmlDoc.Element("containerPackagedProduct");
+        /// var asContentEl = xmlDoc.Element("asContent");
+        /// var packagingLevel = new PackagingLevel { PackagingLevelID = 123 };
+        /// var count = await parseAndSavePackageIdentifiersAsync(containerEl, asContentEl, packagingLevel, context);
+        /// </code>
+        /// </example>
         /// <seealso cref="PackageIdentifier"/>
         /// <seealso cref="PackagingLevel"/>
         /// <seealso cref="ComplianceActionParser"/>
@@ -274,14 +289,16 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
             int count = 0;
             var repo = context.GetRepository<PackageIdentifier>();
+            var productRepo = context.GetRepository<ProductIdentifier>(); // Added for duplicate check
 
+            // Validate required parameters and context
             if (context?.Logger == null || repo == null || !packagingLevel.PackagingLevelID.HasValue)
             {
                 context?.Logger?.LogWarning("Could not parse PackageIdentifier due to invalid context or missing PackagingLevelID.");
                 return 0;
             }
 
-            // The package item code is in the <code> child of <containerPackagedProduct>.
+            // Extract the package item code from the containerPackagedProduct element
             var codeEl = containerPackagedProductEl.SplElement(sc.E.Code);
             if (codeEl == null)
             {
@@ -291,6 +308,7 @@ namespace MedRecPro.Service.ParsingServices
             string? identifierValue = codeEl.GetAttrVal(sc.A.CodeValue);
             string? identifierSystemOID = codeEl.GetAttrVal(sc.A.CodeSystem);
 
+            // Validate that we have the minimum required identifier information
             if (string.IsNullOrWhiteSpace(identifierValue) || string.IsNullOrWhiteSpace(identifierSystemOID))
             {
                 return 0;
@@ -299,6 +317,17 @@ namespace MedRecPro.Service.ParsingServices
             // Infer the type (e.g., 'NDCPackage', 'GS1Package') from the system OID.
             string? identifierType = inferPackageIdentifierType(identifierSystemOID);
 
+            // --- START: DUPLICATION HANDLING ---
+            // Check for existing ProductIdentifier to log potential duplication but still create PackageIdentifier
+            if (productRepo != null && await checkForDuplicateIdentifier(productRepo, identifierValue, identifierSystemOID, context))
+            {
+                context.Logger.LogWarning(
+                    "Found existing ProductIdentifier with same NDC code. Creating PackageIdentifier anyway: Value={IdentifierValue}, System={IdentifierSystemOID}",
+                    identifierValue, identifierSystemOID);
+            }
+            // --- END: DUPLICATION HANDLING ---
+
+            // Create the new PackageIdentifier entity
             var packageIdentifier = new PackageIdentifier
             {
                 PackagingLevelID = packagingLevel.PackagingLevelID,
@@ -314,34 +343,14 @@ namespace MedRecPro.Service.ParsingServices
                 "PackageIdentifier created: ID={PackageIdentifierID}, Value={IdentifierValue}, Type={IdentifierType}",
                 packageIdentifier.PackageIdentifierID, identifierValue, identifierType);
 
-            // --- START: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+            // --- START: CONSOLIDATED COMPLIANCE ACTION PROCESSING ---
             var oldIdentifier = context.CurrentPackageIdentifier;
             context.CurrentPackageIdentifier = packageIdentifier; // Set the context
 
             try
             {
-                // Look for compliance actions that are children of this container element.
-                // The XML structure is <containerPackagedProduct><subjectOf><action>...</action></subjectOf></containerPackagedProduct>
-                var subjectOfElements = containerPackagedProductEl.SplElements(sc.E.SubjectOf);
-                foreach (var subjectEl in subjectOfElements)
-                {
-                    if (subjectEl.SplElement(sc.E.Action) != null)
-                    {
-                        var complianceParser = new ComplianceActionParser();
-                        var complianceResult = await complianceParser.ParseAsync(subjectEl, context, null); // reportProgress can be passed if needed
-
-                        if (complianceResult.Success)
-                        {
-                            // A ComplianceAction and potentially AttachedDocuments were created.
-                            count += complianceResult.ProductElementsCreated;
-                        }
-                        else
-                        {
-                            // Log or handle errors from the compliance parser
-                            context.Logger.LogError("Failed to parse compliance action for PackageIdentifierID {PackageIdentifierID}.", packageIdentifier.PackageIdentifierID);
-                        }
-                    }
-                }
+                // Process all compliance actions associated with this package
+                count += await processComplianceActions(containerPackagedProductEl, asContentEl, context);
             }
             finally
             {
@@ -349,40 +358,185 @@ namespace MedRecPro.Service.ParsingServices
                 // into the parsing of sibling or parent elements.
                 context.CurrentPackageIdentifier = oldIdentifier;
             }
-            // --- END: CONTEXT MANAGEMENT AND ORCHESTRATION ---
+            // --- END: CONSOLIDATED COMPLIANCE ACTION PROCESSING ---
 
-            // --- START: CONTEXT MANAGEMENT AND ORCHESTRATION ---
-            oldIdentifier = context.CurrentPackageIdentifier;
-            context.CurrentPackageIdentifier = packageIdentifier; // Set the context
+            return count;
+            #endregion
+        }
 
+        /**************************************************************/
+        /// <summary>
+        /// Checks for an existing ProductIdentifier with the same value to identify potential duplication.
+        /// This method logs potential duplicates but does not prevent PackageIdentifier creation.
+        /// </summary>
+        /// <param name="productRepo">Repository for ProductIdentifier entities</param>
+        /// <param name="identifierValue">The identifier value to check</param>
+        /// <param name="identifierSystemOID">The identifier system OID</param>
+        /// <param name="context">The parsing context</param>
+        /// <returns>True if a duplicate ProductIdentifier exists, false otherwise</returns>
+        /// <remarks>
+        /// This method helps identify when the same NDC code is being processed by multiple parsers.
+        /// It only applies to NDC-related identifiers to maintain backward compatibility.
+        /// The duplicate detection is for logging and monitoring purposes only.
+        /// </remarks>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<bool> checkForDuplicateIdentifier(
+            Repository<ProductIdentifier> productRepo,
+            string identifierValue,
+            string identifierSystemOID,
+            SplParseContext context)
+        {
+            #region implementation
             try
             {
-                // FIXED: Look for compliance actions at asContent level, not containerPackagedProduct level
-                var subjectOfElements = asContentEl.SplElements(sc.E.SubjectOf); 
-                foreach (var subjectEl in subjectOfElements)
+                // Only check for NDC-related identifiers to avoid unnecessary queries
+                if (!isNdcRelatedIdentifier(identifierSystemOID))
                 {
-                    if (subjectEl.SplElement(sc.E.Action) != null)
-                    {
-                        var complianceParser = new ComplianceActionParser();
-                        var complianceResult = await complianceParser.ParseAsync(subjectEl, context, null);
+                    return false;
+                }
 
-                        if (complianceResult.Success)
-                        {
-                            count += complianceResult.ProductElementsCreated;
-                        }
-                        else
-                        {
-                            context.Logger.LogError("Failed to parse compliance action for PackageIdentifierID {PackageIdentifierID}.",
-                                packageIdentifier.PackageIdentifierID);
-                        }
+                // Check if there's already a ProductIdentifier with the same value and system
+                // This helps identify when both ProductIdentifier and PackageIdentifier parsers process the same element
+                var existingIdentifiers = await productRepo.ReadAllAsync(null, null);
+                var duplicateExists = existingIdentifiers.Any(pi =>
+                    pi.IdentifierValue == identifierValue &&
+                    pi.IdentifierSystemOID == identifierSystemOID);
+
+                return duplicateExists;
+            }
+            catch (Exception ex)
+            {
+                // Log the error but don't fail the process
+                context.Logger?.LogWarning(ex, "Error checking for duplicate identifier: {IdentifierValue}", identifierValue);
+                return false;
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks if the given OID represents an NDC-related identifier system.
+        /// NDC (National Drug Code) identifiers use a specific OID that needs special handling for duplication prevention.
+        /// </summary>
+        /// <param name="identifierSystemOID">The OID to check</param>
+        /// <returns>True if this is an NDC-related identifier</returns>
+        /// <remarks>
+        /// The NDC system OID is 2.16.840.1.113883.6.69 as defined by FDA standards.
+        /// This method enables targeted duplication prevention for NDC codes only.
+        /// </remarks>
+        /// <seealso cref="PackageIdentifier"/>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="Label"/>
+        private bool isNdcRelatedIdentifier(string identifierSystemOID)
+        {
+            #region implementation
+            // NDC system OID is 2.16.840.1.113883.6.69 as per FDA standards
+            return identifierSystemOID == "2.16.840.1.113883.6.69";
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes compliance actions for both containerPackagedProduct and asContent levels.
+        /// This consolidates the previously duplicated logic into a single, maintainable method.
+        /// </summary>
+        /// <param name="containerPackagedProductEl">The containerPackagedProduct element</param>
+        /// <param name="asContentEl">The asContent element</param>
+        /// <param name="context">The parsing context</param>
+        /// <returns>The number of compliance action records created</returns>
+        /// <remarks>
+        /// This method processes compliance actions from two different XML hierarchy levels:
+        /// 1. containerPackagedProduct level - direct child actions
+        /// 2. asContent level - parent-level actions that apply to the package
+        /// Both levels are processed to ensure complete compliance action coverage.
+        /// </remarks>
+        /// <seealso cref="ComplianceActionParser"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> processComplianceActions(
+            XElement containerPackagedProductEl,
+            XElement asContentEl,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+            var complianceParser = new ComplianceActionParser();
+
+            // Process compliance actions from containerPackagedProduct level
+            // Structure: <containerPackagedProduct><subjectOf><action>...</action></subjectOf></containerPackagedProduct>
+            var containerSubjectOfElements = containerPackagedProductEl.SplElements(sc.E.SubjectOf);
+            count += await processSubjectOfElements(containerSubjectOfElements, complianceParser, context, "containerPackagedProduct");
+
+            // Process compliance actions from asContent level  
+            // Structure: <asContent><subjectOf><action>...</action></subjectOf></asContent>
+            var asContentSubjectOfElements = asContentEl.SplElements(sc.E.SubjectOf);
+            count += await processSubjectOfElements(asContentSubjectOfElements, complianceParser, context, "asContent");
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Helper method to process a collection of subjectOf elements for compliance actions.
+        /// This method iterates through XML elements and delegates to the ComplianceActionParser.
+        /// </summary>
+        /// <param name="subjectOfElements">The collection of subjectOf elements to process</param>
+        /// <param name="complianceParser">The compliance action parser instance</param>
+        /// <param name="context">The parsing context</param>
+        /// <param name="sourceLevel">Description of the source level for logging purposes</param>
+        /// <returns>The number of compliance action records created</returns>
+        /// <remarks>
+        /// This method provides centralized processing logic for subjectOf elements containing action elements.
+        /// It handles error logging and success tracking consistently across different XML hierarchy levels.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var elements = xmlElement.SplElements(sc.E.SubjectOf);
+        /// var parser = new ComplianceActionParser();
+        /// var count = await processSubjectOfElements(elements, parser, context, "containerLevel");
+        /// </code>
+        /// </example>
+        /// <seealso cref="ComplianceActionParser"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> processSubjectOfElements(
+            IEnumerable<XElement> subjectOfElements,
+            ComplianceActionParser complianceParser,
+            SplParseContext context,
+            string sourceLevel)
+        {
+            #region implementation
+            int count = 0;
+
+            // Iterate through each subjectOf element looking for action elements
+            foreach (var subjectEl in subjectOfElements)
+            {
+                // Check if this subjectOf element contains an action element
+                if (subjectEl.SplElement(sc.E.Action) != null)
+                {
+                    // Parse the compliance action using the dedicated parser
+                    var complianceResult = await complianceParser.ParseAsync(subjectEl, context, null);
+
+                    if (complianceResult.Success)
+                    {
+                        // Accumulate the count of successfully created elements
+                        count += complianceResult.ProductElementsCreated;
+                        context.Logger?.LogDebug(
+                            "Processed compliance action from {SourceLevel} level: {Count} elements created",
+                            sourceLevel, complianceResult.ProductElementsCreated);
+                    }
+                    else
+                    {
+                        // Log parsing failures with context information
+                        context.Logger?.LogError(
+                            "Failed to parse compliance action from {SourceLevel} level for PackageIdentifierID {PackageIdentifierID}.",
+                            sourceLevel, context.CurrentPackageIdentifier?.PackageIdentifierID);
                     }
                 }
             }
-            finally
-            {
-                context.CurrentPackageIdentifier = oldIdentifier;
-            }
-            // --- END: CONTEXT MANAGEMENT AND ORCHESTRATION ---
 
             return count;
             #endregion
