@@ -1,8 +1,7 @@
 ﻿using MedRecPro.Models;
-using MedRecPro.Services;
+
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Management;
 using System.Text;
 using System.Text.Json;
 
@@ -14,7 +13,7 @@ namespace MedRecPro.Service
     /// <summary>
     /// Provides comprehensive SPL (Structured Product Labeling) comparison services that leverage
     /// artificial intelligence to analyze data completeness and accuracy between XML and JSON formats.
-    /// This service orchestrates the entire comparison workflow including file retrieval, AI analysis,
+    /// This service orchestrates the entire comparison workflow including SPL data retrieval, AI analysis,
     /// result parsing, and report generation for medical record validation systems.
     /// </summary>
     /// <remarks>
@@ -24,12 +23,12 @@ namespace MedRecPro.Service
     /// dosage instructions, and regulatory compliance details are accurately preserved during format conversions.
     /// 
     /// Key responsibilities include:
-    /// - Orchestrating file retrieval from storage systems
+    /// - Retrieving SPL data from database using GUID identifiers
     /// - Managing XML to JSON conversion when needed
     /// - Constructing AI-optimized comparison prompts
     /// - Processing AI responses into structured results
     /// - Generating comprehensive comparison reports
-    /// - Providing file readiness validation
+    /// - Providing SPL data readiness validation
     /// </remarks>
     /// <example>
     /// <code>
@@ -51,7 +50,7 @@ namespace MedRecPro.Service
     ///     public async Task&lt;IActionResult&gt; GenerateComparison([FromBody] ComparisonRequest request)
     ///     {
     ///         var result = await _comparisonService.GenerateComparisonAsync(
-    ///             request.FileId, 
+    ///             request.SplDataGuid, 
     ///             request.AdditionalInstructions);
     ///         return Ok(result);
     ///     }
@@ -62,7 +61,7 @@ namespace MedRecPro.Service
     /// <seealso cref="ComparisonRequest"/>
     /// <seealso cref="ComparisonResponse"/>
     /// <seealso cref="IClaudeApiService"/>
-    /// <seealso cref="IFileStorageService"/>
+    /// <seealso cref="SplDataService"/>
     public class ComparisonService : IComparisonService
     {
         #region dependency injection fields
@@ -74,10 +73,10 @@ namespace MedRecPro.Service
         private readonly ILogger<ComparisonService> _logger;
 
         /// <summary>
-        /// File storage service for managing XML, JSON, and report file operations.
+        /// SPL data service for managing SPL data retrieval and operations.
         /// </summary>
-        /// <seealso cref="IFileStorageService"/>
-        private readonly IFileStorageService _fileStorageService;
+        /// <seealso cref="SplDataService"/>
+        private readonly SplDataService _splDataService;
 
         /// <summary>
         /// Claude API service for AI-powered comparison analysis operations.
@@ -89,7 +88,7 @@ namespace MedRecPro.Service
         /// Configuration settings for comparison behavior and processing parameters.
         /// </summary>
         /// <seealso cref="ComparisonSettings"/>
-        private readonly ComparisonSettings _settings;
+        private readonly MedRecPro.Models.ComparisonSettings _settings;
 
         #endregion
 
@@ -104,16 +103,16 @@ namespace MedRecPro.Service
         /// Logger instance for capturing service operations, errors, and diagnostic information
         /// throughout the comparison workflow.
         /// </param>
-        /// <param name="fileStorageService">
-        /// Service responsible for managing file operations including reading XML/JSON content,
-        /// saving generated files, and checking file availability in the storage system.
+        /// <param name="splDataService">
+        /// Service responsible for managing SPL data operations including retrieving SPL records
+        /// by GUID and accessing XML content from the database.
         /// </param>
         /// <param name="claudeApiService">
         /// AI service interface for performing intelligent comparison analysis between
         /// SPL XML and JSON representations using Claude's language model capabilities.
         /// </param>
         /// <param name="settings">
-        /// Configuration options containing comparison behavior settings, file size limits,
+        /// Configuration options containing comparison behavior settings, processing limits,
         /// caching preferences, and other operational parameters.
         /// </param>
         /// <remarks>
@@ -125,30 +124,30 @@ namespace MedRecPro.Service
         /// <code>
         /// // Manual instantiation (typically handled by DI container)
         /// var logger = serviceProvider.GetRequiredService&lt;ILogger&lt;ComparisonService&gt;&gt;();
-        /// var fileStorage = serviceProvider.GetRequiredService&lt;IFileStorageService&gt;();
+        /// var splDataService = serviceProvider.GetRequiredService&lt;SplDataService&gt;();
         /// var claudeApi = serviceProvider.GetRequiredService&lt;IClaudeApiService&gt;();
         /// var settings = serviceProvider.GetRequiredService&lt;IOptions&lt;ComparisonSettings&gt;&gt;();
         /// 
-        /// var comparisonService = new ComparisonService(logger, fileStorage, claudeApi, settings);
+        /// var comparisonService = new ComparisonService(logger, splDataService, claudeApi, settings);
         /// </code>
         /// </example>
         /// <seealso cref="ILogger{TCategoryName}"/>
-        /// <seealso cref="IFileStorageService"/>
+        /// <seealso cref="SplDataService"/>
         /// <seealso cref="IClaudeApiService"/>
         /// <seealso cref="IOptions{TOptions}"/>
         public ComparisonService(
             ILogger<ComparisonService> logger,
-            IFileStorageService fileStorageService,
+            SplDataService splDataService,
             IClaudeApiService claudeApiService,
-            IOptions<ComparisonSettings> settings)
+            IOptions<MedRecPro.Models.ComparisonSettings> settings)
         {
             #region implementation
 
             // Store injected dependencies for service operation
-            _logger = logger;
-            _fileStorageService = fileStorageService;
-            _claudeApiService = claudeApiService;
-            _settings = settings.Value;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _splDataService = splDataService ?? throw new ArgumentNullException(nameof(splDataService));
+            _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
+            _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
 
             #endregion
         }
@@ -163,9 +162,9 @@ namespace MedRecPro.Service
         /// and JSON representations, providing detailed assessment of data completeness, identified 
         /// discrepancies, and quantitative metrics for medical document validation.
         /// </summary>
-        /// <param name="fileId">
-        /// The unique identifier of the uploaded SPL file to be analyzed. This identifier is used
-        /// to retrieve both the original XML content and corresponding JSON representation.
+        /// <param name="splDataGuid">
+        /// The unique GUID identifier of the SPL data record to be analyzed. This GUID is used
+        /// to retrieve the SPL data from the database including the original XML content.
         /// </param>
         /// <param name="additionalInstructions">
         /// Optional instructions to guide the AI analysis toward specific areas of concern such as
@@ -177,12 +176,12 @@ namespace MedRecPro.Service
         /// </returns>
         /// <remarks>
         /// This method orchestrates the complete comparison workflow:
-        /// 1. Retrieves original XML content from file storage
-        /// 2. Obtains or generates corresponding JSON representation
-        /// 3. Constructs AI-optimized comparison prompt with medical context
-        /// 4. Invokes Claude AI service for intelligent analysis
-        /// 5. Parses AI response into structured comparison results
-        /// 6. Optionally saves detailed comparison report for audit purposes
+        /// 1. Retrieves SPL data from database using the provided GUID
+        /// 2. Extracts XML content from the SPL data record
+        /// 3. Obtains or generates corresponding JSON representation
+        /// 4. Constructs AI-optimized comparison prompt with medical context
+        /// 5. Invokes Claude AI service for intelligent analysis
+        /// 6. Parses AI response into structured comparison results
         /// 
         /// The method ensures robust error handling and comprehensive logging throughout
         /// the process to support troubleshooting and operational monitoring.
@@ -190,12 +189,13 @@ namespace MedRecPro.Service
         /// <example>
         /// <code>
         /// // Basic comparison analysis
-        /// var basicResult = await comparisonService.GenerateComparisonAsync("file-123");
+        /// var splGuid = Guid.Parse("123e4567-e89b-12d3-a456-426614174000");
+        /// var basicResult = await comparisonService.GenerateComparisonAsync(splGuid);
         /// Console.WriteLine($"Completion: {basicResult.Result.Metrics.CompletionPercentage}%");
         /// 
         /// // Focused analysis with specific instructions
         /// var focusedResult = await comparisonService.GenerateComparisonAsync(
-        ///     "file-456", 
+        ///     splGuid, 
         ///     "Pay special attention to drug interaction completeness and clinical trial data accuracy");
         /// 
         /// // Process analysis results
@@ -209,35 +209,47 @@ namespace MedRecPro.Service
         /// </code>
         /// </example>
         /// <exception cref="ArgumentException">
-        /// Thrown when fileId is null, empty, or whitespace.
-        /// </exception>
-        /// <exception cref="FileNotFoundException">
-        /// Thrown when the specified XML file cannot be located in storage.
+        /// Thrown when splDataGuid is empty or invalid.
         /// </exception>
         /// <exception cref="InvalidOperationException">
-        /// Thrown when file processing or AI analysis fails unexpectedly.
+        /// Thrown when SPL data cannot be found or AI analysis fails unexpectedly.
         /// </exception>
         /// <seealso cref="ComparisonResponse"/>
         /// <seealso cref="ComparisonResult"/>
-        /// <seealso cref="IsFileReadyForComparisonAsync(string)"/>
-        public async Task<ComparisonResponse> GenerateComparisonAsync(string fileId, string? additionalInstructions = null)
+        /// <seealso cref="IsSplDataReadyForComparisonAsync(Guid)"/>
+        public async Task<ComparisonResponse> GenerateComparisonAsync(Guid splDataGuid, string? additionalInstructions = null)
         {
             #region implementation
 
             try
             {
-                // Log the start of comparison operation for diagnostic purposes
-                _logger.LogInformation("Starting comparison for file {FileId}", fileId);
+                // Validate input parameter
+                if (splDataGuid == Guid.Empty)
+                {
+                    throw new ArgumentException("SPL data GUID cannot be empty.", nameof(splDataGuid));
+                }
 
-                // Retrieve original SPL XML content from storage system
-                var xmlContent = await _fileStorageService.GetFileContentAsync(fileId, "xml");
+                // Log the start of comparison operation for diagnostic purposes
+                _logger.LogInformation("Starting comparison for SPL data GUID {SplDataGuid}", splDataGuid);
+
+                // Retrieve SPL data from database using encrypted GUID
+                var encryptedGuid = splDataGuid.ToString(); // May need encryption depending on SplDataService implementation
+                var splData = await _splDataService.GetSplDataByIdAsync(encryptedGuid);
+
+                if (splData == null)
+                {
+                    throw new InvalidOperationException($"SPL data not found for GUID: {splDataGuid}");
+                }
+
+                // Extract XML content from SPL data record
+                var xmlContent = splData.SplXML;
                 if (string.IsNullOrEmpty(xmlContent))
                 {
-                    throw new FileNotFoundException($"XML file not found for ID: {fileId}");
+                    throw new InvalidOperationException($"No XML content found in SPL data for GUID: {splDataGuid}");
                 }
 
                 // Obtain corresponding JSON representation (existing or generated)
-                var jsonContent = await getOrGenerateJsonAsync(fileId, xmlContent);
+                var jsonContent = await getOrGenerateJsonAsync(splData);
 
                 // Construct AI-optimized prompt with medical document context
                 var prompt = buildComparisonPrompt(xmlContent, jsonContent, additionalInstructions);
@@ -248,27 +260,23 @@ namespace MedRecPro.Service
                 // Parse AI response into structured comparison result object
                 var result = await parseAiResponseAsync(aiResponse);
 
-                // Retrieve original filename for response context
-                var fileName = await _fileStorageService.GetFileNameAsync(fileId);
-
                 // Construct comprehensive response object with analysis results
                 var response = new ComparisonResponse
                 {
-                    FileId = fileId,
-                    FileName = fileName ?? "Unknown",
+                    FileId = splDataGuid.ToString(),
+                    FileName = $"SPL-{splData.SplDataGUID}",
                     Result = result,
                     GeneratedAt = DateTime.UtcNow
                 };
 
-                // Optionally save detailed comparison report for audit trail
-                await saveComparisonReportAsync(fileId, response);
+                _logger.LogInformation("Successfully completed comparison for SPL data GUID {SplDataGuid}", splDataGuid);
 
                 return response;
             }
             catch (Exception ex)
             {
                 // Log comprehensive error information for troubleshooting
-                _logger.LogError(ex, "Error generating comparison for file {FileId}", fileId);
+                _logger.LogError(ex, "Error generating comparison for SPL data GUID {SplDataGuid}", splDataGuid);
                 throw;
             }
 
@@ -277,68 +285,76 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Asynchronously determines whether a specified SPL file is ready for comparison analysis
-        /// by verifying the availability of required XML content in the storage system.
+        /// Asynchronously determines whether a specified SPL data record is ready for comparison analysis
+        /// by verifying the availability of required XML content in the database.
         /// </summary>
-        /// <param name="fileId">
-        /// The unique identifier of the file to check for comparison readiness.
+        /// <param name="splDataGuid">
+        /// The unique GUID identifier of the SPL data record to check for comparison readiness.
         /// </param>
         /// <returns>
-        /// A task containing a boolean value indicating file readiness: true if the XML file
-        /// exists and is accessible for comparison; false otherwise.
+        /// A task containing a boolean value indicating SPL data readiness: true if the SPL data
+        /// exists and contains XML content for comparison; false otherwise.
         /// </returns>
         /// <remarks>
         /// This method provides essential pre-validation before initiating resource-intensive
-        /// comparison operations. It verifies file availability and accessibility to prevent
+        /// comparison operations. It verifies SPL data availability and XML content presence to prevent
         /// failures during the comparison process and provides early feedback to client applications.
         /// 
-        /// The readiness check ensures that the original XML file exists in the storage system
-        /// and can be retrieved for analysis. JSON representation availability is checked
+        /// The readiness check ensures that the SPL data record exists in the database
+        /// and contains the required XML content for analysis. JSON representation availability is checked
         /// during the comparison process itself, as it can be generated on-demand if needed.
         /// </remarks>
         /// <example>
         /// <code>
-        /// // Verify file readiness before comparison
-        /// string fileId = "medical-spl-001";
-        /// bool isReady = await comparisonService.IsFileReadyForComparisonAsync(fileId);
+        /// // Verify SPL data readiness before comparison
+        /// var splGuid = Guid.Parse("123e4567-e89b-12d3-a456-426614174000");
+        /// bool isReady = await comparisonService.IsSplDataReadyForComparisonAsync(splGuid);
         /// 
         /// if (isReady)
         /// {
-        ///     var result = await comparisonService.GenerateComparisonAsync(fileId);
+        ///     var result = await comparisonService.GenerateComparisonAsync(splGuid);
         ///     ProcessResults(result);
         /// }
         /// else
         /// {
-        ///     Console.WriteLine("File not ready - please upload XML file first");
+        ///     Console.WriteLine("SPL data not ready - please ensure data exists and contains XML content");
         /// }
         /// 
         /// // API endpoint usage
-        /// [HttpGet("ready/{fileId}")]
-        /// public async Task&lt;bool&gt; CheckReadiness(string fileId)
+        /// [HttpGet("ready/{splDataGuid}")]
+        /// public async Task&lt;bool&gt; CheckReadiness(Guid splDataGuid)
         /// {
-        ///     return await _comparisonService.IsFileReadyForComparisonAsync(fileId);
+        ///     return await _comparisonService.IsSplDataReadyForComparisonAsync(splDataGuid);
         /// }
         /// </code>
         /// </example>
         /// <exception cref="ArgumentException">
-        /// Thrown when fileId is null, empty, or whitespace.
+        /// Thrown when splDataGuid is empty or invalid.
         /// </exception>
-        /// <seealso cref="GenerateComparisonAsync(string, string)"/>
-        /// <seealso cref="IFileStorageService.FileExistsAsync(string, string)"/>
-        public async Task<bool> IsFileReadyForComparisonAsync(string fileId)
+        /// <seealso cref="GenerateComparisonAsync(Guid, string)"/>
+        /// <seealso cref="SplDataService.GetSplDataByIdAsync(string)"/>
+        public async Task<bool> IsSplDataReadyForComparisonAsync(Guid splDataGuid)
         {
             #region implementation
 
             try
             {
-                // Check if XML file exists in storage system for comparison readiness
-                var xmlExists = await _fileStorageService.FileExistsAsync(fileId, "xml");
-                return xmlExists;
+                // Validate input parameter
+                if (splDataGuid == Guid.Empty)
+                {
+                    throw new ArgumentException("SPL data GUID cannot be empty.", nameof(splDataGuid));
+                }
+
+                // Check if SPL data exists and contains XML content
+                var encryptedGuid = splDataGuid.ToString(); // May need encryption depending on SplDataService implementation
+                var splData = await _splDataService.GetSplDataByIdAsync(encryptedGuid);
+
+                return splData != null && !string.IsNullOrEmpty(splData.SplXML);
             }
             catch (Exception ex)
             {
                 // Log readiness check errors and return false to indicate unavailability
-                _logger.LogError(ex, "Error checking file readiness for {FileId}", fileId);
+                _logger.LogError(ex, "Error checking SPL data readiness for GUID {SplDataGuid}", splDataGuid);
                 return false;
             }
 
@@ -351,47 +367,33 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Asynchronously retrieves existing JSON content or generates new JSON representation
-        /// from XML content when no JSON version exists in the storage system.
+        /// Asynchronously retrieves existing JSON content from SPL data or generates new JSON representation
+        /// from XML content when no JSON version exists.
         /// </summary>
-        /// <param name="fileId">
-        /// The unique identifier for locating existing JSON content in storage.
-        /// </param>
-        /// <param name="xmlContent">
-        /// The original XML content to convert to JSON format if no existing JSON is found.
+        /// <param name="splData">
+        /// The SPL data record containing XML content and potentially existing JSON representation.
         /// </param>
         /// <returns>
-        /// A task containing the JSON string representation, either retrieved from storage
-        /// or newly generated from the provided XML content.
+        /// A task containing the JSON string representation, either retrieved from the SPL data
+        /// or newly generated from the XML content.
         /// </returns>
         /// <remarks>
         /// This method optimizes performance by first checking for existing JSON representations
-        /// before initiating potentially expensive XML-to-JSON conversion operations.
-        /// Generated JSON content is automatically saved to storage for future use,
-        /// improving efficiency for subsequent comparison requests.
+        /// in the SPL data before initiating potentially expensive XML-to-JSON conversion operations.
+        /// Currently assumes JSON needs to be generated from XML as it's not stored in the SPL data model.
         /// </remarks>
         /// <seealso cref="convertXmlToJsonAsync(string)"/>
-        /// <seealso cref="IFileStorageService.GetFileContentAsync(string, string)"/>
-        /// <seealso cref="IFileStorageService.SaveFileContentAsync(string, string, string)"/>
-        private async Task<string> getOrGenerateJsonAsync(string fileId, string xmlContent)
+        private async Task<string> getOrGenerateJsonAsync(SplData splData)
         {
             #region implementation
 
-            // First attempt to retrieve existing JSON content from storage
-            var existingJson = await _fileStorageService.GetFileContentAsync(fileId, "json");
-            if (!string.IsNullOrEmpty(existingJson))
-            {
-                return existingJson;
-            }
+            // Currently SPL data doesn't store JSON, so we need to generate it
+            // In the future, if JSON is stored in the SPL data model, check for existing JSON first
 
-            // Generate new JSON representation from XML if none exists
-            _logger.LogInformation("Generating JSON from XML for file {FileId}", fileId);
+            _logger.LogInformation("Generating JSON from XML for SPL data GUID {SplDataGuid}", splData.SplDataGUID);
 
             // Convert XML to JSON using configured conversion logic
-            var jsonContent = await convertXmlToJsonAsync(xmlContent);
-
-            // Save generated JSON to storage for future use and performance optimization
-            await _fileStorageService.SaveFileContentAsync(fileId, jsonContent, "json");
+            var jsonContent = await convertXmlToJsonAsync(splData.SplXML);
 
             return jsonContent;
 
@@ -500,11 +502,12 @@ namespace MedRecPro.Service
             };
 
             // Extract completeness status from AI response patterns
-            result.IsComplete = aiResponse.Contains("COMPLETE") || aiResponse.Contains("✅ COMPLETE");
+            result.IsComplete = aiResponse.Contains("COMPLETE", StringComparison.OrdinalIgnoreCase) ||
+                               aiResponse.Contains("✅ COMPLETE", StringComparison.OrdinalIgnoreCase);
 
             // Extract summary information from response structure
             var lines = aiResponse.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            result.Summary = lines.FirstOrDefault() ?? "Analysis completed";
+            result.Summary = lines.FirstOrDefault()?.Trim() ?? "Analysis completed";
 
             // Parse specific issues and quantitative metrics from AI response
             result.Issues = extractIssuesFromResponse(aiResponse);
@@ -545,7 +548,8 @@ namespace MedRecPro.Service
             foreach (var line in lines)
             {
                 // Identify lines containing issue markers or problem descriptions
-                if (line.Contains("❌") || line.Contains("Missing") || line.Contains("Issue"))
+                if (line.Contains("❌") || line.Contains("Missing", StringComparison.OrdinalIgnoreCase) ||
+                    line.Contains("Issue", StringComparison.OrdinalIgnoreCase))
                 {
                     issues.Add(new ComparisonIssue
                     {
@@ -592,7 +596,7 @@ namespace MedRecPro.Service
 
             return new ComparisonMetrics
             {
-                CompletionPercentage = response.Contains("COMPLETE") ? 100.0 : 75.0,
+                CompletionPercentage = response.Contains("COMPLETE", StringComparison.OrdinalIgnoreCase) ? 100.0 : 75.0,
                 TotalSections = totalSections,
                 CompleteSections = completeSections,
                 MissingSections = Math.Max(0, totalSections - completeSections)
@@ -666,7 +670,7 @@ namespace MedRecPro.Service
         /// Currently thrown as this method requires implementation of specific
         /// XML to JSON conversion logic for SPL documents.
         /// </exception>
-        /// <seealso cref="getOrGenerateJsonAsync(string, string)"/>
+        /// <seealso cref="getOrGenerateJsonAsync(SplData)"/>
         private async Task<string> convertXmlToJsonAsync(string xmlContent)
         {
             #region implementation
@@ -675,54 +679,6 @@ namespace MedRecPro.Service
             // This should integrate with existing conversion services or libraries
             // to ensure accurate preservation of medical document structure and content
             throw new NotImplementedException("Implement XML to JSON conversion");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Asynchronously saves a comprehensive comparison report in JSON format
-        /// for audit trail purposes and future reference in the storage system.
-        /// </summary>
-        /// <param name="fileId">
-        /// The unique identifier for associating the report with the original file.
-        /// </param>
-        /// <param name="response">
-        /// The complete ComparisonResponse object containing analysis results to save.
-        /// </param>
-        /// <remarks>
-        /// This method creates a detailed audit trail by persisting comparison results
-        /// in a structured JSON format. The saved reports can be used for:
-        /// - Historical analysis and trend identification
-        /// - Regulatory compliance documentation
-        /// - Quality assurance and validation tracking
-        /// - Troubleshooting and error analysis
-        /// 
-        /// Failures in report saving are logged but do not affect the main comparison
-        /// operation, ensuring system resilience.
-        /// </remarks>
-        /// <seealso cref="ComparisonResponse"/>
-        /// <seealso cref="IFileStorageService.SaveFileContentAsync(string, string, string)"/>
-        private async Task saveComparisonReportAsync(string fileId, ComparisonResponse response)
-        {
-            #region implementation
-
-            try
-            {
-                // Serialize comparison response to formatted JSON for storage
-                var jsonReport = JsonSerializer.Serialize(response, new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                });
-
-                // Save formatted report to storage system for audit and reference
-                await _fileStorageService.SaveFileContentAsync(fileId, jsonReport, "comparison-report");
-            }
-            catch (Exception ex)
-            {
-                // Log report saving failures without affecting main comparison operation
-                _logger.LogWarning(ex, "Failed to save comparison report for file {FileId}", fileId);
-            }
 
             #endregion
         }

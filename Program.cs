@@ -40,8 +40,8 @@ if (string.IsNullOrEmpty(connectionString))
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
-builder.Services.Configure<ClaudeApiSettings>(builder.Configuration.GetSection("ClaudeApi"));
-builder.Services.Configure<ComparisonSettings>(builder.Configuration.GetSection("Comparison"));
+builder.Services.Configure<ClaudeApiSettings>(builder.Configuration.GetSection("ClaudeApiSettings"));
+builder.Services.Configure<MedRecPro.Models.ComparisonSettings>(builder.Configuration.GetSection("ComparisonSettings"));
 
 googleClientId = builder.Configuration["Authentication:Google:ClientId"];
 
@@ -56,6 +56,12 @@ builder.Services.AddHttpContextAccessor();
 // --- Custom Services ---
 builder.Services.AddScoped<UserDataAccess>();
 
+builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>();
+
+builder.Services.AddScoped<IComparisonService, ComparisonService>();
+
+builder.Services.AddScoped<IClaudeApiService, ClaudeApiService>();
+
 builder.Services.AddUserLogger(); // custom service
 
 builder.Services.AddScoped<IPermissionService, PermissionService>();
@@ -65,6 +71,8 @@ builder.Services.AddScoped(typeof(Repository<>), typeof(Repository<>));
 builder.Services.AddScoped<SplXmlParser>();
 
 builder.Services.AddScoped<SplImportService>();
+
+builder.Services.AddScoped<SplDataService>();
 
 builder.Services.AddTransient<StringCipher>();
 

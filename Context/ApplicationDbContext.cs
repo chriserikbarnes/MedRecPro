@@ -1,7 +1,8 @@
-﻿using Microsoft.AspNetCore.Identity;
+﻿using MedRecPro.DataAccess;
+using MedRecPro.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
-using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -29,9 +30,11 @@ namespace MedRecPro.Data
         /// Gets or sets the DbSet for MedRecPro Users in the application.
         /// ASP.NET Core Identity will use `base.Users` for IdentityUser operations.
         /// This `AppUsers` can be used for querying your custom `User` entity directly if needed,
-        /// but usually, you'd interact via `UserManager<User>`.
+        /// but usually, you'd interact via `UserManager[User]`.
         /// </summary>
         public DbSet<User> AppUsers { get; set; } // This will map to the same table as Identity's Users.
+
+        public DbSet<SplData> SplData { get; set; }
 
         /// <summary>
         /// Configures the model for the database context.

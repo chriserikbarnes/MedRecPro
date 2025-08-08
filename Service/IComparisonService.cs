@@ -1,4 +1,6 @@
-﻿namespace MedRecPro.Services
+﻿using MedRecPro.Service;
+
+namespace MedRecPro.Service
 {
     #region comparison service interface
 
@@ -11,9 +13,12 @@
     /// </summary>
     /// <remarks>
     /// The comparison service leverages artificial intelligence to perform systematic analysis of SPL documents,
-    /// comparing original XML structured product labeling files with their JSON representations to identify
+    /// comparing original XML structured product labeling data with their JSON representations to identify
     /// missing data, structural discrepancies, and completeness metrics. This is critical for maintaining
     /// data integrity in pharmaceutical and medical device documentation systems.
+    /// 
+    /// The service operates on SPL data records stored in the database, accessed via GUID identifiers,
+    /// rather than file system operations, providing better performance and data consistency.
     /// </remarks>
     /// <example>
     /// <code>
@@ -23,12 +28,12 @@
     /// // Usage in controller or service
     /// public async Task&lt;IActionResult&gt; GenerateReport(ComparisonRequest request)
     /// {
-    ///     var isReady = await _comparisonService.IsFileReadyForComparisonAsync(request.FileId);
+    ///     var isReady = await _comparisonService.IsSplDataReadyForComparisonAsync(request.SplDataGuid);
     ///     if (!isReady)
-    ///         return BadRequest("File not ready for comparison");
+    ///         return BadRequest("SPL data not ready for comparison");
     ///         
     ///     var result = await _comparisonService.GenerateComparisonAsync(
-    ///         request.FileId, 
+    ///         request.SplDataGuid, 
     ///         request.AdditionalInstructions);
     ///     return Ok(result);
     /// }
@@ -38,7 +43,7 @@
     /// <seealso cref="Models.ComparisonResponse"/>
     /// <seealso cref="Models.ComparisonResult"/>
     /// <seealso cref="IClaudeApiService"/>
-    /// <seealso cref="IFileStorageService"/>
+    /// <seealso cref="SplDataService"/>
     public interface IComparisonService
     {
         #region comparison analysis methods
@@ -47,9 +52,9 @@
         /// Asynchronously generates a comprehensive comparison analysis between SPL XML and JSON representations
         /// using AI-powered analysis to assess data completeness, identify discrepancies, and provide detailed metrics.
         /// </summary>
-        /// <param name="fileId">
-        /// The unique identifier of the uploaded SPL file to be analyzed. This identifier is used to retrieve
-        /// both the original XML file and its corresponding JSON representation for comparison.
+        /// <param name="splDataGuid">
+        /// The unique GUID identifier of the SPL data record to be analyzed. This GUID is used to retrieve
+        /// the SPL data from the database including the original XML content and any associated metadata.
         /// </param>
         /// <param name="additionalInstructions">
         /// Optional additional instructions to guide the AI comparison analysis. These can specify particular
@@ -64,8 +69,10 @@
         /// <remarks>
         /// This method performs the core comparison functionality of the system, orchestrating the following operations:
         /// <list type="number">
-        /// <item>Retrieves the original SPL XML content and corresponding JSON representation</item>
-        /// <item>Constructs an AI-optimized prompt incorporating the file contents and any additional instructions</item>
+        /// <item>Retrieves the SPL data record from the database using the provided GUID</item>
+        /// <item>Extracts the original SPL XML content from the database record</item>
+        /// <item>Generates or retrieves the corresponding JSON representation</item>
+        /// <item>Constructs an AI-optimized prompt incorporating the content and any additional instructions</item>
         /// <item>Invokes the Claude AI service to perform detailed comparison analysis</item>
         /// <item>Parses the AI response to extract completeness assessment, issues, and metrics</item>
         /// <item>Returns structured results for consumption by client applications</item>
@@ -77,11 +84,12 @@
         /// <example>
         /// <code>
         /// // Basic comparison without additional instructions
-        /// var basicResult = await comparisonService.GenerateComparisonAsync("file-123");
+        /// var splGuid = Guid.Parse("123e4567-e89b-12d3-a456-426614174000");
+        /// var basicResult = await comparisonService.GenerateComparisonAsync(splGuid);
         /// 
         /// // Targeted comparison with specific focus areas
         /// var targetedResult = await comparisonService.GenerateComparisonAsync(
-        ///     "file-456", 
+        ///     splGuid, 
         ///     "Focus on drug interaction data completeness and clinical trial section accuracy");
         /// 
         /// // Process results
@@ -100,99 +108,99 @@
         /// </code>
         /// </example>
         /// <exception cref="ArgumentException">
-        /// Thrown when the fileId is null, empty, or whitespace.
-        /// </exception>
-        /// <exception cref="FileNotFoundException">
-        /// Thrown when the specified file cannot be found in the storage system.
+        /// Thrown when the splDataGuid is empty or invalid.
         /// </exception>
         /// <exception cref="InvalidOperationException">
-        /// Thrown when the file is not ready for comparison or when required file formats are missing.
+        /// Thrown when the SPL data cannot be found in the database or when XML content is missing or invalid.
         /// </exception>
         /// <exception cref="ExternalServiceException">
         /// Thrown when the Claude AI service is unavailable or returns an error response.
         /// </exception>
         /// <seealso cref="Models.ComparisonResponse"/>
         /// <seealso cref="Models.ComparisonResult"/>
-        /// <seealso cref="IsFileReadyForComparisonAsync(string)"/>
+        /// <seealso cref="IsSplDataReadyForComparisonAsync(Guid)"/>
         /// <seealso cref="IClaudeApiService.GenerateCompletionAsync(string)"/>
-        Task<Models.ComparisonResponse> GenerateComparisonAsync(string fileId, string? additionalInstructions = null);
+        /// <seealso cref="SplDataService.GetSplDataByIdAsync(string)"/>
+        Task<Models.ComparisonResponse> GenerateComparisonAsync(Guid splDataGuid, string? additionalInstructions = null);
 
         #endregion
 
-        #region file readiness validation methods
+        #region SPL data readiness validation methods
 
         /*******************************************************************************/
         /// <summary>
-        /// Asynchronously determines whether a specified file is ready for comparison analysis
-        /// by verifying the availability of both XML and JSON representations in the storage system.
+        /// Asynchronously determines whether a specified SPL data record is ready for comparison analysis
+        /// by verifying the availability of required XML content in the database.
         /// </summary>
-        /// <param name="fileId">
-        /// The unique identifier of the file to check for readiness. This identifier should correspond
-        /// to a previously uploaded SPL file that has undergone initial processing and conversion.
+        /// <param name="splDataGuid">
+        /// The unique GUID identifier of the SPL data record to check for readiness. This GUID should correspond
+        /// to a previously created SPL data record that contains the required XML content for comparison.
         /// </param>
         /// <returns>
         /// A task that represents the asynchronous readiness check operation. The task result is
-        /// <c>true</c> if both XML and JSON representations are available and accessible for comparison;
+        /// <c>true</c> if the SPL data record exists and contains valid XML content for comparison;
         /// otherwise, <c>false</c>.
         /// </returns>
         /// <remarks>
         /// This method performs essential validation before attempting comparison analysis, ensuring that:
         /// <list type="bullet">
-        /// <item>The original SPL XML file exists and is accessible in the storage system</item>
-        /// <item>A corresponding JSON representation has been generated and is available</item>
-        /// <item>Both files are in a valid state for AI comparison processing</item>
-        /// <item>File permissions and access controls allow for reading the content</item>
+        /// <item>The SPL data record exists in the database with the specified GUID</item>
+        /// <item>The SPL data record contains valid XML content in the SplXML field</item>
+        /// <item>The XML content is not null or empty and is accessible for processing</item>
+        /// <item>The SPL data record is not archived or in an invalid state</item>
         /// </list>
         /// This pre-check helps prevent failures during the more resource-intensive comparison process
-        /// and provides early feedback to client applications about file availability.
+        /// and provides early feedback to client applications about data availability. JSON representation
+        /// availability is validated during the comparison process itself, as it can be generated on-demand.
         /// </remarks>
         /// <example>
         /// <code>
-        /// // Check file readiness before initiating comparison
-        /// string fileId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        /// // Check SPL data readiness before initiating comparison
+        /// var splGuid = Guid.Parse("123e4567-e89b-12d3-a456-426614174000");
         /// 
-        /// if (await comparisonService.IsFileReadyForComparisonAsync(fileId))
+        /// if (await comparisonService.IsSplDataReadyForComparisonAsync(splGuid))
         /// {
-        ///     // File is ready, proceed with comparison
-        ///     var comparisonResult = await comparisonService.GenerateComparisonAsync(fileId);
+        ///     // SPL data is ready, proceed with comparison
+        ///     var comparisonResult = await comparisonService.GenerateComparisonAsync(splGuid);
         ///     ProcessComparisonResults(comparisonResult);
         /// }
         /// else
         /// {
-        ///     // File not ready, inform user or retry later
-        ///     Console.WriteLine("File is not ready for comparison. Please try again later.");
+        ///     // SPL data not ready, inform user or handle appropriately
+        ///     Console.WriteLine("SPL data is not ready for comparison. Please ensure data exists and contains XML content.");
         /// }
         /// 
         /// // Usage in API endpoint with proper error handling
-        /// [HttpGet("ready/{fileId}")]
-        /// public async Task&lt;IActionResult&gt; CheckFileReadiness(string fileId)
+        /// [HttpGet("ready/{splDataGuid}")]
+        /// public async Task&lt;IActionResult&gt; CheckSplDataReadiness(Guid splDataGuid)
         /// {
         ///     try
         ///     {
-        ///         var isReady = await _comparisonService.IsFileReadyForComparisonAsync(fileId);
-        ///         return Ok(isReady);
+        ///         var isReady = await _comparisonService.IsSplDataReadyForComparisonAsync(splDataGuid);
+        ///         return Ok(new { IsReady = isReady, SplDataGuid = splDataGuid });
         ///     }
         ///     catch (ArgumentException)
         ///     {
-        ///         return BadRequest("Invalid file identifier");
+        ///         return BadRequest("Invalid SPL data GUID");
         ///     }
         /// }
         /// </code>
         /// </example>
         /// <exception cref="ArgumentException">
-        /// Thrown when the fileId parameter is null, empty, or contains only whitespace characters.
+        /// Thrown when the splDataGuid parameter is empty or invalid (Guid.Empty).
         /// </exception>
         /// <exception cref="UnauthorizedAccessException">
-        /// Thrown when the application lacks sufficient permissions to access the file storage system
-        /// or specific file locations.
+        /// Thrown when the application lacks sufficient permissions to access the database
+        /// or specific SPL data records.
         /// </exception>
-        /// <exception cref="IOException">
-        /// Thrown when there are underlying file system issues preventing access to storage locations.
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when there are underlying database connectivity issues preventing access to SPL data.
         /// </exception>
-        /// <seealso cref="GenerateComparisonAsync(string, string)"/>
-        /// <seealso cref="IFileStorageService"/>
+        /// <seealso cref="GenerateComparisonAsync(Guid, string)"/>
+        /// <seealso cref="SplDataService"/>
         /// <seealso cref="Models.ComparisonRequest"/>
-        Task<bool> IsFileReadyForComparisonAsync(string fileId);
+        /// <seealso cref="Models.SplData"/>
+        Task<bool> IsSplDataReadyForComparisonAsync(Guid splDataGuid);
 
         #endregion
     }

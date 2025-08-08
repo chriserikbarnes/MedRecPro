@@ -1,10 +1,12 @@
-using Microsoft.AspNetCore.Mvc;
-using System.Reflection;
-using MedRecPro.Models; // From LabelClasses.cs
 using MedRecPro.DataAccess; // From LabelDataAccess.cs (Repository)
 using MedRecPro.Helpers;   // From DtoTransformer.cs (DtoTransformer, StringCipher)
+using MedRecPro.Models; // From LabelClasses.cs
 using MedRecPro.Service;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json; // From SplImportService.cs (SplImportService)
+using System.Reflection;
+using System.Security.Claims;
 
 namespace MedRecPro.Api.Controllers
 {
@@ -284,6 +286,33 @@ namespace MedRecPro.Api.Controllers
             }
 
             #endregion
+        }
+
+        /**************************************************************/
+        // <summary>
+        /// Gets the current user ID from the HTTP context.
+        /// This method should be called while the HTTP context is still available.
+        /// </summary>
+        /// <returns>The current user's ID if authenticated; otherwise, null.</returns>
+        private long? getCurrentUserId()
+        {
+            try
+            {
+                if (HttpContext?.User?.Identity?.IsAuthenticated == true)
+                {
+                    var userIdClaim = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                    if (long.TryParse(userIdClaim, out long userId))
+                    {
+                        return userId;
+                    }
+                }
+                return null; // No authenticated user or invalid user ID
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get current user ID from context");
+                return null;
+            }
         }
 
         #endregion
@@ -927,6 +956,7 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="SplZipImportResult"/>
         /// <seealso cref="Label"/>
         [HttpPost("import")]
+        [Authorize]
         [ProducesResponseType(typeof(ImportOperationStatus), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status499ClientClosedRequest)]
@@ -952,6 +982,8 @@ namespace MedRecPro.Api.Controllers
 
             CancellationTokenSource source = CancellationTokenSource
                 .CreateLinkedTokenSource(cancellationToken, disconnectedToken);
+
+            long? currentUserId = getCurrentUserId();
 
             try
             {
@@ -998,6 +1030,7 @@ namespace MedRecPro.Api.Controllers
                         // Process ZIP files with progress and status callbacks
                         List<SplZipImportResult> results = await _splImportService.ProcessZipFilesAsync(
                             bufferedFiles,
+                            currentUserId,
                             source.Token,
                             progress =>
                             {
@@ -1406,5 +1439,7 @@ namespace MedRecPro.Api.Controllers
 
             #endregion
         }
+
+
     }
 }

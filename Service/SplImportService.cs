@@ -1,13 +1,14 @@
-﻿using System;
+﻿using MedRecPro.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
-using MedRecPro.Models;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
 
 namespace MedRecPro.Service
 {
@@ -29,6 +30,7 @@ namespace MedRecPro.Service
         private readonly ILogger<SplImportService> _logger;
 
         private readonly IServiceScopeFactory _scopeFactory;
+
         #endregion
 
         /**************************************************************/
@@ -55,10 +57,11 @@ namespace MedRecPro.Service
         /// Each ZIP file is extracted and its XML entries are parsed and saved to the database.
         /// </summary>
         /// <param name="bufferedFiles">Collection of uploaded ZIP files to process</param>
+        /// <param name="currentUserId">The ID of the user who initiated the import operation</param>
         /// <param name="token">Cancellation token from caller</param>
         /// <param name="fileCounter">Delegate for tracking progress</param>
         /// <param name="updateStatus">Delegate for tracking import status</param>
-        /// <param name="results">Delegate for tracking the results </param>
+        /// <param name="results">Delegate for tracking the results</param>
         /// <returns>A list of SplZipImportResult objects containing the results for each ZIP file processed</returns>
         /// <example>
         /// <code>
@@ -82,13 +85,16 @@ namespace MedRecPro.Service
         /// <seealso cref="SplXmlParser"/>
         /// <seealso cref="Label"/>
         public async Task<List<SplZipImportResult>> ProcessZipFilesAsync(
-            List<BufferedFile> bufferedFiles,
+             List<BufferedFile> bufferedFiles,
+            long? currentUserId,  // Add this parameter
             CancellationToken token,
             Action<int> fileCounter,
             Action<string>? updateStatus = null,
             Action<List<SplZipImportResult>>? results = null)
         {
             #region implementation
+            Guid xmlFileGuid;
+
             // Initialize collection to store results from all ZIP files
             var allZipResults = new List<SplZipImportResult>();
 
@@ -141,14 +147,46 @@ namespace MedRecPro.Service
                             using (var reader = new StreamReader(entryStream, Encoding.UTF8)) // Assuming UTF-8
                             {
                                 xmlContent = await reader.ReadToEndAsync();
+                                Guid.TryParse(entry.Name.Split(".").FirstOrDefault(), out xmlFileGuid);
                             }
 
                             // Create a new scope for dependency injection to ensure proper resource management
                             using (var scope = _scopeFactory.CreateScope())
                             {
+
+                                //Store raw XML content in SplData table
+                                var splDataService = scope.ServiceProvider
+                                  .GetRequiredService<SplDataService>();
+
                                 // Get the XML parser service from the scoped provider
                                 var xmlParser = scope.ServiceProvider
                                     .GetRequiredService<SplXmlParser>();
+
+                                try
+                                {
+                                    // Store or find existing XML content
+                                    var encryptedSplDataId = await splDataService
+                                        .GetOrCreateSplDataAsync(xmlContent, xmlFileGuid, currentUserId);
+
+                                    _logger.LogInformation("Stored XML content with encrypted SplData ID: {EncryptedSplDataId} for file {XmlFileName}",
+                                        encryptedSplDataId, entry.FullName);
+
+                                    updateStatus?.Invoke($"Stored XML content for {entry.FullName}");
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex, "Failed to store XML content for file {XmlFileName}", entry.FullName);
+
+                                    // Add error result but continue processing
+                                    var errorResult = new SplFileImportResult
+                                    {
+                                        FileName = entry.FullName,
+                                        Success = false,
+                                        Message = $"Failed to store XML content: {ex.Message}"
+                                    };
+                                    zipResult.FileResults.Add(errorResult);
+                                    continue;
+                                }
 
                                 // Parse and save the SPL data from the XML content
                                 var fileImportResult = await xmlParser
