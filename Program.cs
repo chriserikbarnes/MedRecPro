@@ -5,7 +5,6 @@ using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
 using MedRecPro.Models; // Namespace for User model
 using MedRecPro.Security;
 using MedRecPro.Service;
-using MedRecPro.Service.ParsingServices; 
 using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -15,15 +14,16 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
+using Newtonsoft.Json;
+using System.Management;
 using System.Reflection;
 using System.Text.Json.Serialization;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
 
 string? connectionString, googleClientId, googleClientSecret;
 
 var builder = WebApplication.CreateBuilder(args);
 var configuration = builder.Configuration;
+bool ignoreEmptyCollections;
 
 // Set the static configuration for User class immediately
 User.SetConfiguration(configuration);
@@ -40,11 +40,16 @@ if (string.IsNullOrEmpty(connectionString))
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
+builder.Services.Configure<ClaudeApiSettings>(builder.Configuration.GetSection("ClaudeApi"));
+builder.Services.Configure<ComparisonSettings>(builder.Configuration.GetSection("Comparison"));
+
 googleClientId = builder.Configuration["Authentication:Google:ClientId"];
 
 googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"];
 
 builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSettings"));
+
+Boolean.TryParse(builder.Configuration["IgnoreEmptyObjectsWhenSerializing"], out ignoreEmptyCollections);
 
 builder.Services.AddHttpContextAccessor();
 
@@ -147,7 +152,7 @@ builder.Services.AddAuthentication(options =>
         options.Scope.Add("profile");
         options.Scope.Add("email");
         options.SaveTokens = true;
-    }); 
+    });
 #endregion
 
 // Register our custom IPasswordHasher for MedRecPro.Models.User.
@@ -185,15 +190,31 @@ builder.Services.Configure<JsonOptions>(options =>
 {
     options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault;
     options.SerializerOptions.WriteIndented = true;
-}); 
+});
+
 #endregion
 
 builder.Services.AddControllers()
-    .AddJsonOptions(options =>
+    .AddNewtonsoftJson(options =>
     {
-        // This will ignore null values AND empty collections
-        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault;
-        options.JsonSerializerOptions.WriteIndented = true;
+        // Ignore null values
+        options.SerializerSettings.NullValueHandling = NullValueHandling.Ignore;
+
+        // Ignore default values (empty collections, default primitives)
+        options.SerializerSettings.DefaultValueHandling = DefaultValueHandling.Ignore;
+
+        // Pretty print JSON
+        options.SerializerSettings.Formatting = Formatting.Indented;
+
+        // Custom configuration - ignore empty collections and objects
+        if (ignoreEmptyCollections)
+            options.SerializerSettings.ContractResolver = new ConfigurableIgnoreEmptyContractHelper(
+                ignoreEmptyCollections: true,
+                ignoreEmptyObjects: true);
+        else
+            options.SerializerSettings.ContractResolver = new ConfigurableIgnoreEmptyContractHelper(
+                ignoreEmptyCollections: false,
+                ignoreEmptyObjects: false);
     });
 
 #region Swagger Documentation
@@ -322,9 +343,9 @@ When you need to ensure fresh data from the database, use the `/REST/API/Utility
 
 builder.Services.Configure<FormOptions>(options =>
 {
-options.ValueLengthLimit = int.MaxValue;
-options.MultipartBodyLengthLimit = int.MaxValue; // 2GB
-options.MultipartHeadersLengthLimit = int.MaxValue;
+    options.ValueLengthLimit = int.MaxValue;
+    options.MultipartBodyLengthLimit = int.MaxValue; // 2GB
+    options.MultipartHeadersLengthLimit = int.MaxValue;
 });
 
 builder.Services.Configure<KestrelServerOptions>(options =>

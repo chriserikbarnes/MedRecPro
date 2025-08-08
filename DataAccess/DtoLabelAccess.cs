@@ -1,15 +1,10 @@
-﻿using MedRecPro.Data;
+﻿
+using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
+using static MedRecPro.Models.Label;
+using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
-using Microsoft.EntityFrameworkCore;
-using System;
-using System.ComponentModel;
-using System.Diagnostics;
-using Windows.Services.Store;
-using static MedRecPro.Models.Label;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
-using static System.Collections.Specialized.BitVector32;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace MedRecPro.DataAccess
 {
