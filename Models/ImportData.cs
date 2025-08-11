@@ -92,6 +92,19 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
+        /// Gets or sets the hexadecimal hash value representing the cryptographic 
+        /// hash of the SplXML content. Used for data integrity verification, 
+        /// duplicate detection, and caching optimization.
+        /// </summary>
+        /// <remarks>
+        /// Typically contains SHA-256 hash in hexadecimal format (64 characters).
+        /// NULL values indicate hash has not been computed.
+        /// </remarks>
+        [Column(TypeName = "char(64)")]
+        public string? SplXMLHash { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets or sets the encrypted ID for this SPL data record.
         /// This property is used for external API communication and is not stored in the database.
         /// </summary>

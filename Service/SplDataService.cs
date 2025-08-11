@@ -78,26 +78,34 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Creates or retrieves an existing SPL data record based on XML content hash.
-        /// This method prevents duplicate XML content from being stored multiple times.
+        /// Determines whether a duplicate SPL data record exists based on XML content hash and GUID match.
+        /// This predicate method identifies duplicate XML content to prevent redundant storage.
         /// </summary>
-        /// <param name="xmlContent">The SPL XML content to store or find.</param>
-        /// <param name="userId">Optional user ID creating this record.</param>
-        /// <returns>The encrypted ID of the created or existing SPL data record.</returns>
+        /// <param name="xmlContent">The SPL XML content to check for duplicates.</param>
+        /// <param name="splDataGuid">The GUID to match against existing records.</param>
+        /// <returns>
+        /// <c>true</c> if a duplicate SPL data record exists with matching content hash and GUID;
+        /// otherwise, <c>false</c>.
+        /// </returns>
         /// <exception cref="ArgumentException">Thrown when xmlContent is null or empty.</exception>
         /// <exception cref="InvalidOperationException">Thrown when database operations fail.</exception>
         /// <remarks>
-        /// This method uses a hash of the XML content to check for duplicates before creating new records.
-        /// If an identical XML document already exists, it returns the existing record's ID.
+        /// This method generates a hash of the XML content and searches for existing records
+        /// with the same hash. If found, it verifies the GUID matches before returning true.
+        /// Only non-archived records are considered during the duplication check.
         /// </remarks>
         /// <example>
         /// <code>
-        /// var encryptedId = await splDataService.GetOrCreateSplDataAsync(xmlContent, userId);
+        /// bool isDuplicate = await splDataService.IsDuplicateSplDataAsync(xmlContent, splDataGuid);
+        /// if (isDuplicate)
+        /// {
+        ///     // Handle duplicate case
+        /// }
         /// </code>
         /// </example>
         /// <seealso cref="SplData"/>
-        /// <seealso cref="CreateSplDataAsync"/>
-        public async Task<string> GetOrCreateSplDataAsync(string xmlContent, Guid? splDataGuid = null, long? userId = null)
+        /// <seealso cref="GetOrCreateSplDataAsync"/>
+        public async Task<bool> IsDuplicateSplDataAsync(string xmlContent, Guid splDataGuid)
         {
             #region implementation
             if (string.IsNullOrWhiteSpace(xmlContent))
@@ -113,17 +121,73 @@ namespace MedRecPro.Service
                 // Check if identical content already exists (not archived)
                 var existingSplData = await findExistingSplDataByHashAsync(contentHash);
 
-                if (existingSplData != null)
+                if (existingSplData != null && existingSplData.SplDataGUID.Equals(splDataGuid))
                 {
                     _logger.LogInformation("Found existing SPL data record with ID {SplDataId} for content hash {ContentHash}",
                         existingSplData.SplDataID, contentHash);
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in IsDuplicateSplDataAsync for GUID {SplDataGuid}", splDataGuid);
+                throw;
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates or retrieves an existing SPL data record based on XML content hash.
+        /// This method prevents duplicate XML content from being stored multiple times.
+        /// </summary>
+        /// <param name="xmlContent">The SPL XML content to store or find.</param>
+        /// <param name="splDataGuid">The GUID to associate with the SPL data record.</param>
+        /// <param name="userId">Optional user ID creating this record.</param>
+        /// <returns>The encrypted ID of the created or existing SPL data record.</returns>
+        /// <exception cref="ArgumentException">Thrown when xmlContent is null or empty.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when database operations fail.</exception>
+        /// <remarks>
+        /// This method first checks for duplicates using CheckForDuplicateSplDataAsync.
+        /// If an identical XML document already exists with matching GUID, it returns the existing record's ID.
+        /// Otherwise, it creates a new record using CreateSplDataAsync.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var encryptedId = await splDataService.GetOrCreateSplDataAsync(xmlContent, splDataGuid, userId);
+        /// </code>
+        /// </example>
+        /// <seealso cref="SplData"/>
+        /// <seealso cref="CreateSplDataAsync"/>
+        /// <seealso cref="IsDuplicateSplDataAsync"/>
+        public async Task<string> GetOrCreateSplDataAsync(string xmlContent, Guid splDataGuid, long? userId = null)
+        {
+            #region implementation
+            if (string.IsNullOrWhiteSpace(xmlContent))
+            {
+                throw new ArgumentException("XML content cannot be null or empty.", nameof(xmlContent));
+            }
+
+            try
+            {
+                // Check if duplicate exists
+                bool isDuplicate = await IsDuplicateSplDataAsync(xmlContent, splDataGuid);
+
+                if (isDuplicate)
+                {
+                    // Get the existing record for ID extraction
+                    string contentHash = generateXmlContentHash(xmlContent);
+                    var existingSplData = await findExistingSplDataByHashAsync(contentHash);
 
                     // Return encrypted ID of existing record
-                    return StringCipher.Encrypt(existingSplData.SplDataID.ToString(), _encryptionKey, StringCipher.EncryptionStrength.Fast);
+                    return StringCipher.Encrypt(existingSplData!.SplDataID.ToString(), 
+                        _encryptionKey, StringCipher.EncryptionStrength.Fast);
                 }
 
                 // Create new record if no duplicate found
-                return await CreateSplDataAsync(xmlContent, (Guid)splDataGuid, userId);
+                return await CreateSplDataAsync(xmlContent, splDataGuid, userId);
             }
             catch (Exception ex)
             {
@@ -165,6 +229,9 @@ namespace MedRecPro.Service
             try
             {
                 var splData = new SplData(xmlContent, splDataGuid, userId);
+
+                // Set the hash for duplicate detection
+                splData.SplXMLHash = generateXmlContentHash(xmlContent);
 
                 _logger.LogInformation("Creating new SPL data record for user {UserId} with GUID {SplDataGuid}",
                     userId, splData.SplDataGUID);
@@ -378,7 +445,7 @@ namespace MedRecPro.Service
         /// to store the hash in a separate column for better performance.
         /// </remarks>
         /// <seealso cref="generateXmlContentHash"/>
-        private async Task<SplData> findExistingSplDataByHashAsync(string contentHash)
+        private async Task<SplData?> findExistingSplDataByHashAsync(string contentHash)
         {
             #region implementation
             try
@@ -389,34 +456,13 @@ namespace MedRecPro.Service
                 // Use the non-generic Set method to get the DbSet
                 var dbSet = _context.Set<SplData>();
 
-                // TODO STORE HASH IN DATABASE FOR BETTER PERFORMANCE   
-
                 // Get all records
-                var allRecords = await _context.SplData
-                    .Where(sd => sd.Archive != true)
+                var record = await _context.SplData
+                    .Where(sd => sd.Archive != true && sd.SplXMLHash == contentHash)
                     .AsNoTracking()
-                    .ToListAsync();
+                    .FirstOrDefaultAsync();
 
-                foreach (var record in allRecords)
-                {
-
-                    // Use reflection to get the SplXML property value
-                    var splXmlProperty = splDataType.GetProperty("SplXML");
-                    if (splXmlProperty != null)
-                    {
-                        var xmlContent = splXmlProperty.GetValue(record) as string;
-                        if (!string.IsNullOrEmpty(xmlContent))
-                        {
-                            var recordHash = generateXmlContentHash(xmlContent);
-                            if (recordHash.Equals(contentHash, StringComparison.OrdinalIgnoreCase))
-                            {
-                                return record;
-                            }
-                        }
-                    }
-                }
-
-                return null;
+                return record;
             }
             catch (Exception ex)
             {

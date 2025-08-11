@@ -162,6 +162,9 @@ namespace MedRecPro.Service
                                 var xmlParser = scope.ServiceProvider
                                     .GetRequiredService<SplXmlParser>();
 
+                                // Don't process dupes
+                                if (await splDataService.IsDuplicateSplDataAsync(xmlContent, xmlFileGuid)) continue;
+
                                 try
                                 {
                                     // Store or find existing XML content
