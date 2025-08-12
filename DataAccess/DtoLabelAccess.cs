@@ -55,14 +55,11 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            Stopwatch? stopwatch = Stopwatch.StartNew();
-
-            // 1. Fetch top-level Documents with optional pagination
+            // Build query for paginated documents
             var query = db.Set<Label.Document>().AsNoTracking();
 
             if (page.HasValue && size.HasValue)
             {
-                // Apply pagination using LINQ skip/take
                 query = query
                     .OrderBy(d => d.DocumentID)
                     .Skip((page.Value - 1) * size.Value)
@@ -70,15 +67,97 @@ namespace MedRecPro.DataAccess
             }
 
             var docs = await query.ToListAsync();
+            return await buildDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of Document DTOs for a specific document identified by its GUID.
+        /// Constructs complete document hierarchies including structured bodies, authors, 
+        /// relationships, and legal authenticators for the specified document.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="documentGuid">The unique identifier for the specific document to retrieve.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="DocumentDto"/> containing the document if found, empty list otherwise.</returns>
+        /// <example>
+        /// <code>
+        /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
+        /// var documents = await DtoLabelHelper.BuildDocumentsAsync(db, documentGuid, secret, logger);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method uses sequential awaits instead of Task.WhenAll to ensure DbContext thread-safety.
+        /// Returns a list for consistency with the paginated overload, but will contain at most one document.
+        /// </remarks>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="Label.Document.DocumentGUID"/>
+        /// <seealso cref="Label.StructuredBody"/>
+        /// <seealso cref="Label.DocumentAuthor"/>
+        /// <seealso cref="Label.RelatedDocument"/>
+        /// <seealso cref="Label.DocumentRelationship"/>
+        /// <seealso cref="Label.LegalAuthenticator"/>
+        public static async Task<List<DocumentDto>> BuildDocumentsAsync(
+           ApplicationDbContext db,
+           Guid documentGuid,
+           string pkSecret,
+           ILogger logger)
+        {
+            #region implementation
+
+            // Build query for specific document by GUID
+            var docs = await db.Set<Label.Document>()
+                .AsNoTracking()
+                .Where(d => d.DocumentGUID == documentGuid)
+                .ToListAsync();
+
+            return await buildDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger);
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Private Implementation Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds complete Document DTO objects from a collection of Document entities.
+        /// Constructs the full hierarchy of related data for each document including
+        /// structured bodies, authors, relationships, and legal authenticators.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="docs">Collection of Document entities to process.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="DocumentDto"/> with complete hierarchical data.</returns>
+        /// <remarks>
+        /// This is the shared implementation used by both public overloads to maintain DRY principles.
+        /// Uses sequential processing to ensure DbContext thread-safety.
+        /// </remarks>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="DocumentDto"/>
+        private static async Task<List<DocumentDto>> buildDocumentDtosFromEntitiesAsync(
+            ApplicationDbContext db,
+            List<Label.Document> docs,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            Stopwatch? stopwatch = Stopwatch.StartNew();
             var docDtos = new List<DocumentDto>();
 
-            // 2. For each Document, build its complete DTO graph
+            // Process each Document to build its complete DTO graph
             foreach (var doc in docs)
             {
                 // Convert base document entity with encrypted ID
                 var docDict = doc.ToEntityWithEncryptedId(pkSecret, logger);
 
-                // 3. Sequentially build all direct children of the Document.
+                // Sequentially build all direct children of the Document.
                 // NOTE: We are intentionally using sequential awaits instead of Task.WhenAll to ensure
                 // the DbContext is not used concurrently, addressing thread-safety concerns.
                 var structuredBodies = await buildStructuredBodiesAsync(db, doc.DocumentID, pkSecret, logger);
@@ -101,9 +180,11 @@ namespace MedRecPro.DataAccess
 
                 stopwatch.Restart();
             }
+
             stopwatch.Stop();
             stopwatch = null;
             return docDtos;
+
             #endregion
         }
         #endregion

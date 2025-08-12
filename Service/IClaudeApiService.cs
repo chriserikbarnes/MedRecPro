@@ -1,4 +1,6 @@
-﻿namespace MedRecPro.Service
+﻿using MedRecPro.Models;
+
+namespace MedRecPro.Service
 {
     #region claude api service interface
 
@@ -172,10 +174,10 @@
         /// Thrown when AI completion requests exceed configured timeout limits, typically
         /// occurring with extremely large medical documents or complex analysis requirements.
         /// </exception>
-        /// <seealso cref="IComparisonService.GenerateComparisonAsync(string, string)"/>
+        /// <seealso cref="IComparisonService.GenerateComparisonAsync(Guid, string)"/>
         /// <seealso cref="Models.ComparisonResult"/>
         /// <seealso cref="System.Net.Http.HttpClient"/>
-        Task<string> GenerateCompletionAsync(string prompt);
+        Task<string> GenerateDocumentComparisonAsync(string prompt);
 
         #endregion
     }

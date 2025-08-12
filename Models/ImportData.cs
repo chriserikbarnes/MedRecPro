@@ -142,6 +142,7 @@ namespace MedRecPro.Models
         /// Initializes a new instance of the <see cref="SplData"/> class with the specified XML content.
         /// </summary>
         /// <param name="xmlContent">The SPL XML content to store.</param>
+        /// <param name="splDataGuid">The Guid assigned by the imported XML filename</param>
         /// <param name="userId">Optional user ID who is creating this record.</param>
         /// <exception cref="ArgumentException">Thrown when xmlContent is null or empty.</exception>
         /// <remarks>

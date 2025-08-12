@@ -84,7 +84,10 @@ Security settings including encryption keys should be configured in your user se
         "Issuer": "MedRecPro",
         "Audience": "MedRecUsers",
         "ExpirationMinutes": 60
-    }
+    },
+    "ClaudeApiSettings": {
+        "ApiKey": "your-claude-api-key-here"
+  }
 }
 ```
 

@@ -27,6 +27,14 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
+        /// Gets the GUID for the label processed.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public Guid SplGUID => Guid.TryParse(FileName?.Replace(".xml", string.Empty), out var guid)
+            ? guid : Guid.Empty;
+
+        /**************************************************************/
+        /// <summary>
         /// Gets or sets a value indicating whether the file import was successful.
         /// </summary>
         /// <seealso cref="Label"/>

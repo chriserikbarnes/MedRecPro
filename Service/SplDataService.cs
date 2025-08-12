@@ -257,14 +257,14 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Retrieves an SPL data record by its encrypted ID.
+        /// Retrieves an SPL data record by its GUID.
         /// </summary>
-        /// <param name="encryptedId">The encrypted ID of the SPL data record to retrieve.</param>
+        /// <param name="SplDataGuid">The GUID of the SPL data record to retrieve.</param>
         /// <returns>The SPL data record if found; otherwise, null.</returns>
         /// <exception cref="ArgumentException">Thrown when encryptedId is null or empty.</exception>
         /// <remarks>
         /// This method uses the repository pattern to retrieve records and includes
-        /// the encrypted ID in the returned object for API usage.
+        /// the GUID in the returned object for API usage.
         /// </remarks>
         /// <example>
         /// <code>
@@ -273,29 +273,36 @@ namespace MedRecPro.Service
         /// </example>
         /// <seealso cref="SplData"/>
         /// <seealso cref="Repository{T}.ReadByIdAsync"/>
-        public async Task<SplData?> GetSplDataByIdAsync(string encryptedId)
+        public async Task<SplData?> GetSplDataByGuidAsync(Guid SplDataGuid)
         {
             #region implementation
-            if (string.IsNullOrWhiteSpace(encryptedId))
+
+           SplData? ret = null;
+
+            if (SplDataGuid.IsNullOrEmpty())
             {
-                throw new ArgumentException("Encrypted ID cannot be null or empty.", nameof(encryptedId));
+                throw new ArgumentException("GUID cannot be null or empty.", nameof(SplDataGuid));
             }
 
             try
             {
-                var splData = await _splDataRepository.ReadByIdAsync(encryptedId);
 
-                if (splData != null)
-                {
-                    // Set the encrypted ID for API usage
-                    splData.EncryptedSplDataId = encryptedId;
-                }
+                // Use the non-generic Set method to get the DbSet
+                var dbSet = _context.Set<SplData>();
 
-                return splData;
+                // Get all records
+                var record = await _context.SplData
+                    .Where(sd => sd.Archive != true && sd.SplDataGUID.Equals(SplDataGuid))
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync();
+
+                if (record != null) ret = record;
+              
+                return ret;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving SPL data record with encrypted ID {EncryptedId}", encryptedId);
+                _logger.LogError(ex, "Error retrieving SPL data record with encrypted ID {EncryptedId}", SplDataGuid);
                 throw;
             }
             #endregion

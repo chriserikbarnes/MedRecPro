@@ -29,7 +29,7 @@ namespace MedRecPro.Api.Controllers
     [Route("api/[controller]")]
     public class LabelController : ControllerBase
     {
-        #region implementation
+        #region Private Properties
 
         private const int DefaultPageNumber = 1;
         private const int DefaultPageSize = 10;
@@ -93,7 +93,7 @@ namespace MedRecPro.Api.Controllers
             IBackgroundTaskQueueService queue,
             IOperationStatusStore statusStore)
         {
-            #region implementation
+            #region Implementation
 
             // Validate all required dependencies are provided
             _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
@@ -124,7 +124,7 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         private Type? getEntityType(string menuSelection)
         {
-            #region implementation
+            #region Implementation
 
             // Return null for empty or whitespace menu selections
             if (string.IsNullOrWhiteSpace(menuSelection)) return null;
@@ -149,7 +149,7 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         private object getRepository(Type entityType)
         {
-            #region implementation
+            #region Implementation
 
             // Create the generic repository type for the specific entity
             var repoType = typeof(Repository<>).MakeGenericType(entityType);
@@ -185,7 +185,7 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         private PropertyInfo? getPrimaryKeyProperty(Type entityType)
         {
-            #region implementation
+            #region Implementation
 
             // Try convention 1: {EntityName}ID
             string pkNameConvention1 = entityType.Name + "ID";
@@ -232,7 +232,7 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         private bool tryDecryptPk(string? encryptedPk, Type pkPropertyType, out object? decryptedPkValue)
         {
-            #region implementation
+            #region Implementation
 
             decryptedPkValue = null;
 
@@ -342,12 +342,12 @@ namespace MedRecPro.Api.Controllers
         /// Uses DtoTransformer.ToEntityMenu to generate the list of available sections.
         /// Returns an empty list if an error occurs during menu generation.
         /// </remarks>
-        [HttpGet("SectionMenu")]
+        [HttpGet("sectionMenu")]
         [ProducesResponseType(typeof(List<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult<List<string>> GetLabelSectionMenu()
         {
-            #region implementation
+            #region Implementation
 
             try
             {
@@ -379,7 +379,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If the menuSelection is invalid or not found.</response>
         /// <response code="500">If an internal server error occurs while retrieving documentation.</response>
         /// <remarks>
-        /// GET /api/Label/Document/Documentation
+        /// GET /api/label/document/Documentation
         ///   
         /// Response (200):
         /// ```json
@@ -405,13 +405,13 @@ namespace MedRecPro.Api.Controllers
         /// }
         /// ```
         /// </remarks>
-        [HttpGet("{menuSelection}/Documentation")]
+        [HttpGet("{menuSelection}/documentation")]
         [ProducesResponseType(typeof(ClassDocumentation), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult<ClassDocumentation> GetSectionDocumentation(string menuSelection)
         {
-            #region implementation
+            #region Implementation
             var entityType = getEntityType(menuSelection);
             if (entityType == null)
             {
@@ -476,7 +476,7 @@ namespace MedRecPro.Api.Controllers
         /// GET /api/Label/Section
         /// 
         /// To get paged records (e.g., page 2, 20 items per page):
-        /// GET /api/Label/Section?pageNumber=2&amp;pageSize=20
+        /// GET /api/label/section?pageNumber=2&amp;pageSize=20
         /// 
         /// Response (200 for paged request):
         ///   
@@ -496,7 +496,7 @@ namespace MedRecPro.Api.Controllers
         /// All numeric primary keys are replaced with encrypted equivalents for security.
         /// </remarks>
 
-        [HttpGet("Section/{menuSelection}")]
+        [HttpGet("section/{menuSelection}")]
         [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -522,7 +522,7 @@ namespace MedRecPro.Api.Controllers
             }
             #endregion
 
-            #region implementation
+            #region Implementation
 
             var entityType = getEntityType(menuSelection);
             if (entityType == null)
@@ -601,61 +601,128 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Retrieves a collection of "complete" label structures, with optional paging.
-        /// Each item in the collection is a hierarchical object starting with a Document
-        /// and including its related child entities (authors, sections, text, etc.).
+        /// Retrieves a single "complete" label structure by its unique document identifier.
+        /// Returns a hierarchical object starting with the Document and including all
+        /// related child entities (authors, sections, structured bodies, relationships, etc.).
         /// </summary>
-        /// <param name="pageNumber">Optional. The 1-based page number to retrieve. Defaults to 1.</param>
-        /// <param name="pageSize">Optional. The number of records per page. Defaults to 10.</param>
-        /// <returns>A list of complete, hierarchical label objects.</returns>
-        /// <response code="200">Returns the list of complete labels.</response>
-        /// <response code="400">If paging parameters are invalid.</response>
+        /// <param name="documentGuid">The unique identifier (GUID) for the document to retrieve.</param>
+        /// <returns>A complete, hierarchical label object for the specified document.</returns>
+        /// <response code="200">Returns the complete label structure for the specified document.</response>
+        /// <response code="400">If the document GUID parameter is invalid.</response>
+        /// <response code="404">If no document is found with the specified GUID.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/Label/Complete?pageNumber=1&amp;pageSize=5
+        /// GET /api/label/single?documentGuid=12345678-1234-1234-1234-123456789012
         /// 
-        /// This endpoint fetches a deep object graph for each document. The response can be large.
+        /// This endpoint fetches a deep object graph for a single document. The response includes
+        /// the complete hierarchy of structured bodies, authors, relationships, and authenticators.
         /// All primary keys within the structure are encrypted for security.
+        /// Use this endpoint when you need to retrieve a specific document by its GUID rather than browsing paginated results.
         /// </remarks>
-        [HttpGet("Complete")]
-        [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="Label.Document.DocumentGUID"/>
+        [HttpGet("single/{documentGuid}")]
+        [ProducesResponseType(typeof(Dictionary<string, object?>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<IEnumerable<Dictionary<string, object?>>>> GetCompleteLabels(
-            [FromQuery] int? pageNumber,
-            [FromQuery] int? pageSize)
+        public async Task<ActionResult<Dictionary<string, object?>>> GetSingleCompleteLabel(Guid documentGuid)
         {
             #region Input Validation
-            if (pageNumber.HasValue && pageNumber.Value <= 0)
+            if (documentGuid == Guid.Empty)
             {
-                return BadRequest("Page number must be greater than 0 if provided.");
+                return BadRequest("Document GUID cannot be empty.");
             }
-            if (pageSize.HasValue && pageSize.Value <= 0)
-            {
-                return BadRequest("Page size must be greater than 0 if provided.");
-            }
-            // Use defaults if one is provided but not the other, or if neither is.
-            var usePaging = pageNumber.HasValue || pageSize.HasValue;
-            var finalPageNumber = usePaging ? (pageNumber ?? DefaultPageNumber) : (int?)null;
-            var finalPageSize = usePaging ? (pageSize ?? DefaultPageSize) : (int?)null;
             #endregion
 
+            #region Implmentation
             try
             {
                 // We need the specific repository for Label.Document
                 var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
 
-                //var completeLabels = await documentRepository.ReadAllCompleteLabelsAsync(finalPageNumber, finalPageSize);
+                var completeLabels = await documentRepository.GetCompleteLabelsAsync(documentGuid);
 
-                var completeLabels = await documentRepository.GetCompleteLabelsAsync(finalPageNumber, finalPageSize);
-
-                if (usePaging)
+                // Check if document was found
+                if (completeLabels == null || !completeLabels.Any())
                 {
-                    int totalCount = completeLabels?.Count() ?? 0;
-                    Response.Headers.Append("X-Page-Number", (finalPageNumber ?? DefaultPageNumber).ToString());
-                    Response.Headers.Append("X-Page-Size", (finalPageSize ?? DefaultPageSize).ToString());
-                    Response.Headers.Append("X-Total-Count", totalCount.ToString());
+                    _logger.LogWarning("Document with GUID {DocumentGuid} was not found.", documentGuid);
+                    return NotFound($"Document with GUID {documentGuid} was not found.");
                 }
+
+                // Return the first (and should be only) document from the result
+                var singleDocument = completeLabels.First();
+
+                // Add response headers for tracking
+                Response.Headers.Append("X-Document-Guid", documentGuid.ToString());
+                Response.Headers.Append("X-Document-Found", "true");
+
+                return Ok(singleDocument);
+            }
+            catch (NotSupportedException ex)
+            {
+                // This would indicate a developer error (calling the method on the wrong repository type).
+                _logger.LogError(ex, "Developer error: GetCompleteLabelsAsync was called on an incorrect repository type for GUID {DocumentGuid}.", documentGuid);
+                return StatusCode(StatusCodes.Status500InternalServerError, "A server configuration error occurred.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while fetching complete label for document GUID {DocumentGuid}.", documentGuid);
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing your request.");
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves a collection of "complete" label structures, with optional paging.
+        /// Each item in the collection is a hierarchical object starting with a Document
+        /// and including its related child entities (authors, sections, text, etc.).
+        /// </summary>
+        /// <param name="pageNumber">The 1-based page number to retrieve. Defaults to 1.</param>
+        /// <param name="pageSize">The number of records per page. Defaults to 10.</param>
+        /// <returns>A list of complete, hierarchical label objects.</returns>
+        /// <response code="200">Returns the list of complete labels.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/Label/complete?pageNumber=1&amp;pageSize=5
+        /// 
+        /// This endpoint fetches a deep object graph for each document. The response can be large.
+        /// All primary keys within the structure are encrypted for security.
+        /// </remarks>
+        [HttpGet("complete/{pageNumber?}/{pageSize?}")]
+        [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<Dictionary<string, object?>>>> GetCompleteLabels(
+            int pageNumber = 1,
+            int pageSize = 10)
+        {
+            #region Input Validation
+            if (pageNumber <= 0)
+            {
+                return BadRequest("Page number must be greater than 0.");
+            }
+            if (pageSize <= 0)
+            {
+                return BadRequest("Page size must be greater than 0.");
+            }
+            #endregion
+
+            #region Implementation
+            try
+            {
+                // We need the specific repository for Label.Document
+                var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
+
+                var completeLabels = await documentRepository.GetCompleteLabelsAsync(pageNumber, pageSize);
+
+                int totalCount = completeLabels?.Count() ?? 0;
+                Response.Headers.Append("X-Page-Number", (pageNumber).ToString());
+                Response.Headers.Append("X-Page-Size", (pageSize).ToString());
+                Response.Headers.Append("X-Total-Count", totalCount.ToString());
+
 
                 return Ok(completeLabels);
             }
@@ -670,6 +737,127 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogError(ex, "An error occurred while fetching complete labels.");
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing your request.");
             }
+            #endregion
+        }
+
+        // Add this simplified method to the LabelController class
+        // Replace the previous complex implementation with this lean version
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates an AI-powered comparison analysis between the original SPL XML data and the 
+        /// structured DTO representation for a specific document. This endpoint leverages 
+        /// Claude AI to identify data transformation differences, missing elements, and 
+        /// completeness metrics between the source XML and the processed Label entity structure.
+        /// </summary>
+        /// <param name="documentGuid">
+        /// The unique GUID identifier of the document to analyze. This corresponds to the 
+        /// DocumentGUID property in the Label.Document entity.
+        /// </param>
+        /// <returns>
+        /// A comprehensive analysis report comparing XML source data with DTO representation,
+        /// including completeness assessment, identified differences, and detailed metrics.
+        /// </returns>
+        /// <response code="200">Returns the comparison analysis results.</response>
+        /// <response code="400">If the document GUID parameter is invalid.</response>
+        /// <response code="404">If no document is found with the specified GUID.</response>
+        /// <response code="500">If an internal server error occurs during analysis.</response>
+        /// <remarks>
+        /// This endpoint delegates the comparison analysis to the ComparisonService, which handles:
+        /// - Retrieving the complete label DTO structure from the database
+        /// - Finding the corresponding SplData record containing original XML
+        /// - Converting the DTO to JSON for standardized comparison
+        /// - Using Claude AI to perform intelligent difference analysis
+        /// - Parsing AI response into structured comparison results
+        /// 
+        /// The analysis focuses on data preservation during XML-to-DTO transformation,
+        /// identifying missing fields, structural differences, and completeness metrics
+        /// critical for regulatory compliance and data integrity validation.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/label/comparison/analysis/12345678-1234-1234-1234-123456789012
+        /// 
+        /// Response:
+        /// {
+        ///   "documentGuid": "12345678-1234-1234-1234-123456789012",
+        ///   "isComplete": true,
+        ///   "completionPercentage": 95.5,
+        ///   "summary": "Analysis shows high data preservation with minor formatting differences",
+        ///   "differences": [
+        ///     {
+        ///       "type": "Missing",
+        ///       "section": "ClinicalPharmacology", 
+        ///       "description": "Pharmacokinetics subsection not fully preserved",
+        ///       "severity": "Medium"
+        ///     }
+        ///   ],
+        ///   "detailedAnalysis": "Full AI analysis text...",
+        ///   "generatedAt": "2024-01-15T10:30:00Z"
+        /// }
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="Label.Document.DocumentGUID"/>
+        /// <seealso cref="IComparisonService.GenerateDocumentComparisonAsync(Guid)"/>
+        /// <seealso cref="GetSingleCompleteLabel(Guid)"/>
+        [HttpGet("comparison/analysis/{documentGuid}")]
+        [ProducesResponseType(typeof(DocumentComparisonResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<DocumentComparisonResult>> GetDocumentComparisonAnalysis(Guid documentGuid)
+        {
+            #region implementation
+
+            #region input validation
+            if (documentGuid == Guid.Empty)
+            {
+                _logger.LogWarning("Invalid empty GUID provided for document comparison analysis");
+                return BadRequest("Document GUID cannot be empty.");
+            }
+            #endregion
+
+            try
+            {
+                _logger.LogInformation("Starting document comparison analysis for GUID {DocumentGuid}", documentGuid);
+
+                // Delegate to comparison service for business logic
+                var comparisonService = _serviceProvider.GetRequiredService<IComparisonService>();
+                var analysisResult = await comparisonService.GenerateDocumentComparisonAsync(documentGuid);
+
+                _logger.LogInformation("Successfully completed document comparison analysis for GUID {DocumentGuid}", documentGuid);
+
+                // Add response headers for tracking
+                Response.Headers.Append("X-Document-Guid", documentGuid.ToString());
+                Response.Headers.Append("X-Analysis-Type", "DocumentComparison");
+                Response.Headers.Append("X-Analysis-Timestamp", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"));
+
+                return Ok(analysisResult);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid argument for document comparison analysis: {DocumentGuid}", documentGuid);
+                return BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
+            {
+                _logger.LogWarning(ex, "Document or related data not found for GUID {DocumentGuid}", documentGuid);
+                return NotFound(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Invalid operation during document comparison for GUID {DocumentGuid}", documentGuid);
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error performing document comparison analysis for GUID {DocumentGuid}", documentGuid);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while performing document comparison analysis.");
+            }
+
+            #endregion
         }
 
         /**************************************************************/
@@ -685,7 +873,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="404">If the record with the specified ID is not found in the section.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/Label/Document/some_encrypted_string
+        /// GET /api/label/{Document}/some_encrypted_string
         ///   
         /// Response (200):
         /// ```json
@@ -709,7 +897,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<Dictionary<string, object?>>> GetByIdAsync(string menuSelection, string encryptedId)
         {
-            #region implementation
+            #region Implementation
 
             // Resolve the entity type from the menu selection
             var entityType = getEntityType(menuSelection);
@@ -764,7 +952,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If menuSelection is invalid or input data is invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// POST /api/Label/Document
+        /// POST /api/label/document
         ///   
         /// Request Body:
         /// ```json
@@ -795,7 +983,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<object>> CreateAsync(string menuSelection, [FromBody] object? jsonData)
         {
-            #region implementation
+            #region Implementation
 
             string? json;
 
@@ -944,7 +1132,7 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         /// <example>
         /// <code>
-        /// POST /api/spl/import
+        /// POST /api/label/import
         /// Content-Type: multipart/form-data
         /// 
         /// // Upload multiple ZIP files containing SPL XML documents
@@ -963,7 +1151,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UploadSplZips(List<IFormFile> files, CancellationToken cancellationToken)
         {
-            #region implementation
+            #region Implementation
             List<BufferedFile>? bufferedFiles = null;
 
             // Validate that files were provided in the request
@@ -1016,7 +1204,8 @@ namespace MedRecPro.Api.Controllers
                 _queue.Enqueue(operationId, async token =>
                 {
                     // Update status to indicate processing has started
-                    var status = new ImportOperationStatus {
+                    var status = new ImportOperationStatus
+                    {
                         Status = "Queued",
                         PercentComplete = 0,
                         OperationId = operationId,
@@ -1135,7 +1324,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("import/progress/{operationId}")]
         public IActionResult GetImportProgress(string operationId)
         {
-            #region implementation
+            #region Implementation
             // Attempt to retrieve the operation status from the store
             if (_statusStore.TryGet(operationId, out var status))
                 return Ok(status);
@@ -1158,7 +1347,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="404">If the record with the specified ID is not found in the section.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// PUT /api/Label/Document/some_encrypted_string
+        /// PUT /api/label/{Document}/some_encrypted_string
         ///   
         /// Request Body:
         /// ```json
@@ -1183,7 +1372,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UpdateAsync(string menuSelection, string encryptedId, [FromBody] object? jsonData)
         {
-            #region implementation
+            #region Implementation
 
             string? json;
 
@@ -1366,7 +1555,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="404">If the record with the specified ID is not found in the section.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// DELETE /api/Label/Document/some_encrypted_string
+        /// DELETE /api/label/{Document}/some_encrypted_string
         ///   
         /// Response (204): No Content  
         /// Response (404): Not Found
@@ -1382,7 +1571,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteAsync(string menuSelection, string encryptedId)
         {
-            #region implementation
+            #region Implementation
 
             // Resolve the entity type from the menu selection
             var entityType = getEntityType(menuSelection);

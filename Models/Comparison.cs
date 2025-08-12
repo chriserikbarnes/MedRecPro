@@ -1,4 +1,6 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using MedRecPro.Service;
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace MedRecPro.Models
 {
@@ -333,6 +335,242 @@ namespace MedRecPro.Models
 
         #endregion
     }
+
+    #region document comparison result models
+
+    /**************************************************************/
+    /// <summary>
+    /// Represents the comprehensive results of an AI-powered comparison analysis between
+    /// SPL XML source data and its corresponding DTO JSON representation. This model
+    /// contains completeness assessment, identified differences, and detailed metrics
+    /// for medical document transformation validation.
+    /// </summary>
+    /// <remarks>
+    /// This result model is specifically designed for SPL (Structured Product Labeling)
+    /// document analysis, providing structured feedback on data preservation during
+    /// XML-to-DTO transformation processes. The model supports regulatory compliance
+    /// validation and data integrity assessment for pharmaceutical documentation systems.
+    /// 
+    /// The analysis results include both quantitative metrics (completion percentages,
+    /// difference counts) and qualitative assessments (detailed findings, recommendations)
+    /// to support comprehensive document validation workflows.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var result = new DocumentComparisonResult
+    /// {
+    ///     DocumentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012"),
+    ///     IsComplete = true,
+    ///     CompletionPercentage = 95.5,
+    ///     Summary = "High data preservation with minor formatting differences",
+    ///     Differences = new List&lt;DocumentComparisonDifference&gt;
+    ///     {
+    ///         new DocumentComparisonDifference
+    ///         {
+    ///             Type = "Missing",
+    ///             Section = "ClinicalPharmacology",
+    ///             Description = "Pharmacokinetics subsection formatting differs",
+    ///             Severity = "Medium"
+    ///         }
+    ///     },
+    ///     GeneratedAt = DateTime.UtcNow
+    /// };
+    /// </code>
+    /// </example>
+    /// <seealso cref="DocumentComparisonDifference"/>
+    /// <seealso cref="Label.Document"/>
+    /// <seealso cref="IClaudeApiService"/>
+    /// <summary>
+    /// Represents the comprehensive results of an AI-powered comparison analysis between
+    /// SPL XML source data and its corresponding DTO JSON representation.
+    /// </summary>
+    public class DocumentComparisonResult
+    {
+        #region identification properties
+
+        /// <summary>
+        /// Gets or sets the unique GUID identifier of the SPL document that was analyzed.
+        /// </summary>
+        [JsonPropertyName("documentGuid")]
+        public Guid DocumentGuid { get; set; }
+
+        /// <summary>
+        /// Gets or sets the timestamp when this comparison analysis was generated.
+        /// </summary>
+        [JsonPropertyName("generatedAt")]
+        public DateTime GeneratedAt { get; set; }
+
+        #endregion
+
+        #region completion assessment properties
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the DTO representation completely
+        /// preserves all data from the original XML source.
+        /// </summary>
+        [JsonPropertyName("isComplete")]
+        public bool IsComplete { get; set; }
+
+        /// <summary>
+        /// Gets or sets the numerical completion percentage representing the degree
+        /// of data preservation between XML source and DTO representation.
+        /// </summary>
+        [JsonPropertyName("completionPercentage")]
+        public double CompletionPercentage { get; set; }
+
+        /// <summary>
+        /// Gets or sets a concise summary of the comparison analysis findings.
+        /// </summary>
+        [JsonPropertyName("summary")]
+        public string Summary { get; set; } = string.Empty;
+
+        #endregion
+
+        #region detailed analysis properties
+
+        /// <summary>
+        /// Gets or sets the structured detailed analysis as a list of analysis sections,
+        /// where each string represents a complete analysis section (e.g., "Overall Assessment",
+        /// "Completeness Assessment", etc.) for improved readability and UI rendering.
+        /// </summary>
+        /// <remarks>
+        /// Each element in the list represents a major analysis section with complete
+        /// content that can be rendered as separate paragraphs or sections in the UI.
+        /// This structure eliminates escape character issues and provides better control
+        /// over formatting and display of detailed analysis results.
+        /// 
+        /// Typical sections include:
+        /// - Overall Assessment
+        /// - Completeness Assessment  
+        /// - Structural Integrity
+        /// - Data Accuracy
+        /// - Medical Content Validation
+        /// - Regulatory Compliance
+        /// - Impact Assessment
+        /// - Conclusion
+        /// </remarks>
+        [JsonPropertyName("detailedAnalysis")]
+        public List<string> DetailedAnalysis { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Gets or sets the collection of specific differences and issues identified
+        /// during the comparison analysis.
+        /// </summary>
+        [JsonPropertyName("differences")]
+        public List<DocumentComparisonDifference> Differences { get; set; } = new List<DocumentComparisonDifference>();
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Represents a specific difference or issue identified during SPL document comparison
+    /// analysis between XML source and DTO representation. This model provides detailed
+    /// information about data preservation problems, missing elements, or transformation
+    /// errors that require attention for maintaining data integrity.
+    /// </summary>
+    /// <remarks>
+    /// Each difference represents a discrete issue found during AI-powered comparison
+    /// analysis, providing categorization, location information, and severity assessment
+    /// to enable targeted remediation efforts. The model supports prioritization of
+    /// fixes based on medical importance and regulatory compliance requirements.
+    /// 
+    /// Differences are automatically classified by type and severity to help development
+    /// teams focus on the most critical data preservation issues first, ensuring that
+    /// patient safety and regulatory compliance concerns are addressed appropriately.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var difference = new DocumentComparisonDifference
+    /// {
+    ///     Type = "Missing",
+    ///     Section = "ClinicalPharmacology",
+    ///     Description = "Pharmacokinetics subsection data not fully preserved in DTO",
+    ///     Severity = "High"
+    /// };
+    /// </code>
+    /// </example>
+    /// <seealso cref="DocumentComparisonResult"/>
+    /// <seealso cref="Label.Document"/>
+    public class DocumentComparisonDifference
+    {
+        #region classification properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the type classification of this difference, categorizing
+        /// the nature of the data preservation issue for systematic analysis
+        /// and remediation planning.
+        /// </summary>
+        /// <remarks>
+        /// Common difference types include:
+        /// - Missing: Data present in XML but absent in DTO
+        /// - Mismatch: Data present in both but with different values
+        /// - Incomplete: Data partially preserved with some loss
+        /// - Structural: Hierarchical or organizational differences
+        /// - General: Other unclassified differences
+        /// </remarks>
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the SPL document section where this difference was identified,
+        /// providing location context for targeted remediation efforts and impact
+        /// assessment of the data preservation issue.
+        /// </summary>
+        /// <remarks>
+        /// Section names typically correspond to standard SPL document structure
+        /// including ClinicalPharmacology, Dosage, Administration, Contraindications,
+        /// Warnings, AdverseReactions, DrugInteractions, and other regulatory sections.
+        /// This information helps prioritize fixes based on medical importance.
+        /// </remarks>
+        [JsonPropertyName("section")]
+        public string Section { get; set; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the severity level of this difference, indicating the
+        /// medical and regulatory importance of the data preservation issue
+        /// for prioritization of remediation efforts.
+        /// </summary>
+        /// <remarks>
+        /// Severity levels are classified as:
+        /// - Critical: Safety-related data, dosage information, contraindications
+        /// - High: Drug interactions, adverse reactions, clinical data
+        /// - Medium: Missing or incomplete non-critical sections
+        /// - Low: Formatting or minor structural differences
+        /// 
+        /// Critical and High severity differences should be addressed immediately
+        /// to ensure patient safety and regulatory compliance.
+        /// </remarks>
+        [JsonPropertyName("severity")]
+        public string Severity { get; set; } = string.Empty;
+
+        #endregion
+
+        #region description properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the detailed description of this specific difference,
+        /// providing comprehensive information about the data preservation issue
+        /// including context, impact, and specific elements affected.
+        /// </summary>
+        /// <remarks>
+        /// The description contains human-readable explanation of the difference,
+        /// typically including specific field names, data values, and context
+        /// information that helps developers understand and address the issue.
+        /// This text is suitable for technical documentation and remediation planning.
+        /// </remarks>
+        [JsonPropertyName("description")]
+        public string Description { get; set; } = string.Empty;
+
+        #endregion
+    }
+
+    #endregion
+
 
     #endregion
 }

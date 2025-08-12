@@ -1,9 +1,13 @@
-﻿using MedRecPro.Models;
-
+﻿using MedRecPro.DataAccess;
+using MedRecPro.Helpers;
+using MedRecPro.Models;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace MedRecPro.Service
 {
@@ -13,8 +17,8 @@ namespace MedRecPro.Service
     /// <summary>
     /// Provides comprehensive SPL (Structured Product Labeling) comparison services that leverage
     /// artificial intelligence to analyze data completeness and accuracy between XML and JSON formats.
-    /// This service orchestrates the entire comparison workflow including SPL data retrieval, AI analysis,
-    /// result parsing, and report generation for medical record validation systems.
+    /// This enhanced service orchestrates both standard XML-to-JSON comparison and specialized
+    /// XML-to-DTO transformation analysis for medical record validation systems.
     /// </summary>
     /// <remarks>
     /// The ComparisonService serves as the primary implementation of medical document comparison functionality,
@@ -22,44 +26,17 @@ namespace MedRecPro.Service
     /// It ensures that critical medical information including drug safety data, clinical trial results,
     /// dosage instructions, and regulatory compliance details are accurately preserved during format conversions.
     /// 
-    /// Key responsibilities include:
-    /// - Retrieving SPL data from database using GUID identifiers
-    /// - Managing XML to JSON conversion when needed
-    /// - Constructing AI-optimized comparison prompts
-    /// - Processing AI responses into structured results
-    /// - Generating comprehensive comparison reports
-    /// - Providing SPL data readiness validation
+    /// Enhanced capabilities include:
+    /// - Standard SPL XML to generated JSON comparison analysis
+    /// - Document-specific XML to DTO transformation validation
+    /// - AI-powered analysis with medical terminology understanding
+    /// - Structured result parsing and metric extraction
+    /// - Comprehensive error handling and diagnostic logging
     /// </remarks>
-    /// <example>
-    /// <code>
-    /// // Dependency injection registration
-    /// services.AddScoped&lt;IComparisonService, ComparisonService&gt;();
-    /// services.Configure&lt;ComparisonSettings&gt;(configuration.GetSection("Comparison"));
-    /// 
-    /// // Usage in controller
-    /// public class ComparisonController : ControllerBase
-    /// {
-    ///     private readonly IComparisonService _comparisonService;
-    ///     
-    ///     public ComparisonController(IComparisonService comparisonService)
-    ///     {
-    ///         _comparisonService = comparisonService;
-    ///     }
-    ///     
-    ///     [HttpPost("generate")]
-    ///     public async Task&lt;IActionResult&gt; GenerateComparison([FromBody] ComparisonRequest request)
-    ///     {
-    ///         var result = await _comparisonService.GenerateComparisonAsync(
-    ///             request.SplDataGuid, 
-    ///             request.AdditionalInstructions);
-    ///         return Ok(result);
-    ///     }
-    /// }
-    /// </code>
-    /// </example>
     /// <seealso cref="IComparisonService"/>
     /// <seealso cref="ComparisonRequest"/>
     /// <seealso cref="ComparisonResponse"/>
+    /// <seealso cref="DocumentComparisonResult"/>
     /// <seealso cref="IClaudeApiService"/>
     /// <seealso cref="SplDataService"/>
     public class ComparisonService : IComparisonService
@@ -90,6 +67,12 @@ namespace MedRecPro.Service
         /// <seealso cref="ComparisonSettings"/>
         private readonly MedRecPro.Models.ComparisonSettings _settings;
 
+        /// <summary>
+        /// Service provider for resolving additional dependencies during document comparison operations.
+        /// </summary>
+        /// <seealso cref="IServiceProvider"/>
+        private readonly IServiceProvider _serviceProvider;
+
         #endregion
 
         #region constructor
@@ -115,31 +98,26 @@ namespace MedRecPro.Service
         /// Configuration options containing comparison behavior settings, processing limits,
         /// caching preferences, and other operational parameters.
         /// </param>
+        /// <param name="serviceProvider">
+        /// Service provider for resolving additional dependencies such as repositories
+        /// during document comparison operations.
+        /// </param>
         /// <remarks>
         /// This constructor follows dependency injection patterns to ensure loose coupling
         /// and testability. All dependencies are required and validated for null values
         /// through the dependency injection container configuration.
         /// </remarks>
-        /// <example>
-        /// <code>
-        /// // Manual instantiation (typically handled by DI container)
-        /// var logger = serviceProvider.GetRequiredService&lt;ILogger&lt;ComparisonService&gt;&gt;();
-        /// var splDataService = serviceProvider.GetRequiredService&lt;SplDataService&gt;();
-        /// var claudeApi = serviceProvider.GetRequiredService&lt;IClaudeApiService&gt;();
-        /// var settings = serviceProvider.GetRequiredService&lt;IOptions&lt;ComparisonSettings&gt;&gt;();
-        /// 
-        /// var comparisonService = new ComparisonService(logger, splDataService, claudeApi, settings);
-        /// </code>
-        /// </example>
         /// <seealso cref="ILogger{TCategoryName}"/>
         /// <seealso cref="SplDataService"/>
         /// <seealso cref="IClaudeApiService"/>
         /// <seealso cref="IOptions{TOptions}"/>
+        /// <seealso cref="IServiceProvider"/>
         public ComparisonService(
             ILogger<ComparisonService> logger,
             SplDataService splDataService,
             IClaudeApiService claudeApiService,
-            IOptions<MedRecPro.Models.ComparisonSettings> settings)
+            IOptions<MedRecPro.Models.ComparisonSettings> settings,
+            IServiceProvider serviceProvider)
         {
             #region implementation
 
@@ -148,6 +126,7 @@ namespace MedRecPro.Service
             _splDataService = splDataService ?? throw new ArgumentNullException(nameof(splDataService));
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
             _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
+            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
 
             #endregion
         }
@@ -186,34 +165,6 @@ namespace MedRecPro.Service
         /// The method ensures robust error handling and comprehensive logging throughout
         /// the process to support troubleshooting and operational monitoring.
         /// </remarks>
-        /// <example>
-        /// <code>
-        /// // Basic comparison analysis
-        /// var splGuid = Guid.Parse("123e4567-e89b-12d3-a456-426614174000");
-        /// var basicResult = await comparisonService.GenerateComparisonAsync(splGuid);
-        /// Console.WriteLine($"Completion: {basicResult.Result.Metrics.CompletionPercentage}%");
-        /// 
-        /// // Focused analysis with specific instructions
-        /// var focusedResult = await comparisonService.GenerateComparisonAsync(
-        ///     splGuid, 
-        ///     "Pay special attention to drug interaction completeness and clinical trial data accuracy");
-        /// 
-        /// // Process analysis results
-        /// if (!focusedResult.Result.IsComplete)
-        /// {
-        ///     foreach (var issue in focusedResult.Result.Issues)
-        ///     {
-        ///         Console.WriteLine($"{issue.Severity}: {issue.Description} in {issue.Section}");
-        ///     }
-        /// }
-        /// </code>
-        /// </example>
-        /// <exception cref="ArgumentException">
-        /// Thrown when splDataGuid is empty or invalid.
-        /// </exception>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown when SPL data cannot be found or AI analysis fails unexpectedly.
-        /// </exception>
         /// <seealso cref="ComparisonResponse"/>
         /// <seealso cref="ComparisonResult"/>
         /// <seealso cref="IsSplDataReadyForComparisonAsync(Guid)"/>
@@ -232,9 +183,7 @@ namespace MedRecPro.Service
                 // Log the start of comparison operation for diagnostic purposes
                 _logger.LogInformation("Starting comparison for SPL data GUID {SplDataGuid}", splDataGuid);
 
-                // Retrieve SPL data from database using encrypted GUID
-                var encryptedGuid = splDataGuid.ToString(); // May need encryption depending on SplDataService implementation
-                var splData = await _splDataService.GetSplDataByIdAsync(encryptedGuid);
+                var splData = await _splDataService.GetSplDataByGuidAsync(splDataGuid);
 
                 if (splData == null)
                 {
@@ -255,7 +204,7 @@ namespace MedRecPro.Service
                 var prompt = buildComparisonPrompt(xmlContent, jsonContent, additionalInstructions);
 
                 // Invoke Claude AI service for intelligent comparison analysis
-                var aiResponse = await _claudeApiService.GenerateCompletionAsync(prompt);
+                var aiResponse = await _claudeApiService.GenerateDocumentComparisonAsync(prompt);
 
                 // Parse AI response into structured comparison result object
                 var result = await parseAiResponseAsync(aiResponse);
@@ -285,6 +234,103 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Asynchronously generates a comprehensive AI-powered comparison analysis between the original 
+        /// SPL XML data and the structured DTO representation for a specific document. This method provides
+        /// detailed assessment of data transformation accuracy, missing elements, and completeness metrics
+        /// between the source XML and the processed Label entity structure.
+        /// </summary>
+        /// <param name="documentGuid">
+        /// The unique GUID identifier of the document to analyze. This corresponds to the DocumentGUID 
+        /// property in the Label.Document entity and is used to retrieve both the DTO structure and 
+        /// locate the corresponding SPL XML source data.
+        /// </param>
+        /// <returns>
+        /// A task containing a DocumentComparisonResult with comprehensive analysis results including
+        /// completeness assessment, identified differences between XML and DTO, detailed findings,
+        /// and quantitative metrics for data preservation validation.
+        /// </returns>
+        /// <remarks>
+        /// This method extends the standard SPL comparison capabilities to focus specifically on 
+        /// XML-to-DTO transformation analysis, which is critical for validating data integrity
+        /// during the import and processing workflow. The analysis identifies:
+        /// 
+        /// - Missing data elements in the DTO that exist in the source XML
+        /// - Structural differences between XML hierarchy and DTO relationships
+        /// - Data accuracy issues during transformation processes
+        /// - Completeness metrics for regulatory compliance validation
+        /// 
+        /// The method orchestrates the complete document comparison workflow including DTO retrieval,
+        /// XML source location, content formatting, AI analysis, and result parsing into structured
+        /// objects suitable for programmatic consumption and reporting.
+        /// </remarks>
+        /// <exception cref="ArgumentException">
+        /// Thrown when documentGuid is empty or invalid.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the document cannot be found, corresponding SPL data is unavailable,
+        /// or AI analysis fails unexpectedly.
+        /// </exception>
+        /// <seealso cref="DocumentComparisonResult"/>
+        /// <seealso cref="DocumentComparisonDifference"/>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="GenerateComparisonAsync(Guid, string)"/>
+        public async Task<DocumentComparisonResult> GenerateDocumentComparisonAsync(Guid documentGuid)
+        {
+            #region implementation
+
+            try
+            {
+                // Validate input parameter
+                if (documentGuid == Guid.Empty)
+                {
+                    throw new ArgumentException("Document GUID cannot be empty.", nameof(documentGuid));
+                }
+
+                _logger.LogInformation("Starting document comparison analysis for GUID {DocumentGuid}", documentGuid);
+
+                // Get the complete label DTO structure
+                var completeLabels = await getCompleteLabelDataAsync(documentGuid);
+                if (completeLabels == null || !completeLabels.Any())
+                {
+                    throw new InvalidOperationException($"Document with GUID {documentGuid} was not found.");
+                }
+
+                var labelData = completeLabels.First();
+
+                // Retrieve the SPL data and XML content
+                var splData = await _splDataService.GetSplDataByGuidAsync(documentGuid);
+                if (splData == null || string.IsNullOrEmpty(splData.SplXML))
+                {
+                    throw new InvalidOperationException($"SPL XML data not found for GUID: {documentGuid}");
+                }
+
+                // Convert DTO to JSON for comparison
+                var dtoJson = convertDtoToJson(labelData);
+
+                // Build specialized prompt for document comparison
+                var prompt = buildDocumentComparisonPrompt(splData.SplXML, dtoJson);
+
+                // Perform AI analysis
+                var aiResponse = await _claudeApiService.GenerateDocumentComparisonAsync(prompt);
+
+                // Parse AI response into document-specific result format
+                var analysisResult = parseDocumentAnalysisResponse(aiResponse, documentGuid);
+
+                _logger.LogInformation("Successfully completed document comparison analysis for GUID {DocumentGuid}", documentGuid);
+
+                return analysisResult;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error performing document comparison analysis for GUID {DocumentGuid}", documentGuid);
+                throw;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Asynchronously determines whether a specified SPL data record is ready for comparison analysis
         /// by verifying the availability of required XML content in the database.
         /// </summary>
@@ -304,35 +350,11 @@ namespace MedRecPro.Service
         /// and contains the required XML content for analysis. JSON representation availability is checked
         /// during the comparison process itself, as it can be generated on-demand if needed.
         /// </remarks>
-        /// <example>
-        /// <code>
-        /// // Verify SPL data readiness before comparison
-        /// var splGuid = Guid.Parse("123e4567-e89b-12d3-a456-426614174000");
-        /// bool isReady = await comparisonService.IsSplDataReadyForComparisonAsync(splGuid);
-        /// 
-        /// if (isReady)
-        /// {
-        ///     var result = await comparisonService.GenerateComparisonAsync(splGuid);
-        ///     ProcessResults(result);
-        /// }
-        /// else
-        /// {
-        ///     Console.WriteLine("SPL data not ready - please ensure data exists and contains XML content");
-        /// }
-        /// 
-        /// // API endpoint usage
-        /// [HttpGet("ready/{splDataGuid}")]
-        /// public async Task&lt;bool&gt; CheckReadiness(Guid splDataGuid)
-        /// {
-        ///     return await _comparisonService.IsSplDataReadyForComparisonAsync(splDataGuid);
-        /// }
-        /// </code>
-        /// </example>
         /// <exception cref="ArgumentException">
         /// Thrown when splDataGuid is empty or invalid.
         /// </exception>
         /// <seealso cref="GenerateComparisonAsync(Guid, string)"/>
-        /// <seealso cref="SplDataService.GetSplDataByIdAsync(string)"/>
+        /// <seealso cref="SplDataService.GetSplDataByGuidAsync(Guid)"/>
         public async Task<bool> IsSplDataReadyForComparisonAsync(Guid splDataGuid)
         {
             #region implementation
@@ -340,14 +362,12 @@ namespace MedRecPro.Service
             try
             {
                 // Validate input parameter
-                if (splDataGuid == Guid.Empty)
+                if (splDataGuid.IsNullOrEmpty())
                 {
                     throw new ArgumentException("SPL data GUID cannot be empty.", nameof(splDataGuid));
                 }
 
-                // Check if SPL data exists and contains XML content
-                var encryptedGuid = splDataGuid.ToString(); // May need encryption depending on SplDataService implementation
-                var splData = await _splDataService.GetSplDataByIdAsync(encryptedGuid);
+                var splData = await _splDataService.GetSplDataByGuidAsync(splDataGuid);
 
                 return splData != null && !string.IsNullOrEmpty(splData.SplXML);
             }
@@ -363,7 +383,7 @@ namespace MedRecPro.Service
 
         #endregion
 
-        #region private helper methods
+        #region private helper methods for standard comparison
 
         /**************************************************************/
         /// <summary>
@@ -428,7 +448,6 @@ namespace MedRecPro.Service
         /// This method ensures consistent prompt formatting and comprehensive analysis
         /// coverage for reliable AI-powered comparison results.
         /// </remarks>
-        /// <seealso cref="IClaudeApiService.GenerateCompletionAsync(string)"/>
         private string buildComparisonPrompt(string xmlContent, string jsonContent, string? additionalInstructions)
         {
             #region implementation
@@ -681,6 +700,467 @@ namespace MedRecPro.Service
             throw new NotImplementedException("Implement XML to JSON conversion");
 
             #endregion
+        }
+
+        #endregion
+
+        #region private helper methods for document comparison
+
+        /**************************************************************/
+        /// <summary>
+        /// Asynchronously retrieves complete label data structure for the specified document GUID,
+        /// including all related entities and hierarchical relationships for comprehensive analysis.
+        /// </summary>
+        /// <param name="documentGuid">The unique identifier of the document to retrieve.</param>
+        /// <returns>
+        /// A task containing an enumerable collection of complete label data structures,
+        /// or null if no document is found.
+        /// </returns>
+        /// <remarks>
+        /// This method leverages the existing repository infrastructure to obtain the complete
+        /// object graph for a document, ensuring all related data is available for comparison
+        /// analysis. The method reuses existing GetCompleteLabelsAsync functionality.
+        /// </remarks>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="Repository{T}.GetCompleteLabelsAsync(Guid)"/>
+        private async Task<IEnumerable<DocumentDto>?> getCompleteLabelDataAsync(Guid documentGuid)
+        {
+            #region implementation
+
+            try
+            {
+                // Use existing repository infrastructure to get complete label data
+                var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
+                var completeLabels = await documentRepository.GetCompleteLabelsAsync(documentGuid);
+
+                return completeLabels;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving complete label data for document GUID {DocumentGuid}", documentGuid);
+                throw;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts the DTO label data structure to JSON format for standardized comparison
+        /// with the original XML source. This method ensures consistent formatting and
+        /// structure for AI-powered analysis.
+        /// </summary>
+        /// <param name="dtoData">The DTO object structure to convert to JSON.</param>
+        /// <returns>A formatted JSON string representation of the DTO data.</returns>
+        /// <remarks>
+        /// The conversion uses JsonSerializer with specific formatting options to ensure
+        /// consistent output that can be effectively compared with XML source data.
+        /// The formatting includes indentation for readability and null value handling
+        /// appropriate for comparison analysis.
+        /// </remarks>
+        /// <seealso cref="System.Text.Json.JsonSerializer"/>
+        /// <seealso cref="JsonSerializerOptions"/>
+        private string convertDtoToJson(object dtoData)
+        {
+            #region implementation
+
+            try
+            {
+                // Configure JSON serialization options for comparison analysis
+                var options = new JsonSerializerOptions
+                {
+                    WriteIndented = true, // Format for readability in AI analysis
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                };
+
+                var jsonString = JsonSerializer.Serialize(dtoData, options);
+
+                _logger.LogTrace("Successfully converted DTO to JSON. JSON length: {Length} characters", jsonString.Length);
+
+                return jsonString;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error converting DTO to JSON for comparison");
+                throw;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Constructs a comprehensive AI-optimized prompt for comparing SPL document XML source
+        /// with DTO JSON representation, requesting structured JSON response for enhanced
+        /// data processing and user interface integration.
+        /// </summary>
+        /// <param name="xmlContent">The original SPL XML source content to be analyzed.</param>
+        /// <param name="jsonContent">The DTO JSON representation to compare against the XML.</param>
+        /// <returns>
+        /// A structured prompt string optimized for Claude AI analysis that requests JSON output
+        /// matching the DocumentComparisonResult model structure for seamless integration.
+        /// </returns>
+        /// <remarks>
+        /// The prompt construction follows medical document analysis best practices while requesting
+        /// structured JSON output instead of markdown text, providing:
+        /// - Clear analysis objectives for SPL data comparison with JSON response format
+        /// - Structured output schema matching DocumentComparisonResult model
+        /// - Medical terminology context for accurate pharmaceutical analysis
+        /// - Specific focus areas for regulatory compliance validation
+        /// - JSON-only response requirements for improved parsing and display
+        /// </remarks>
+        /// <seealso cref="DocumentComparisonResult"/>
+        private string buildDocumentComparisonPrompt(string xmlContent, string jsonContent)
+        {
+            #region implementation
+
+            var prompt = new StringBuilder();
+
+            prompt.AppendLine("# SPL Document XML-to-DTO Transformation Analysis");
+            prompt.AppendLine();
+            prompt.AppendLine("Analyze the XML and JSON documents below and provide ONLY a JSON response with the exact structure shown.");
+            prompt.AppendLine();
+            prompt.AppendLine("**CRITICAL: Your response must be ONLY the JSON object below. No explanations, no markdown, no additional text.**");
+            prompt.AppendLine();
+            prompt.AppendLine("Required JSON structure:");
+            prompt.AppendLine("{");
+            prompt.AppendLine("  \"documentGuid\": \"240fa4f4-d357-9079-e063-6394a90a77e2\",");
+            prompt.AppendLine("  \"generatedAt\": \"2025-08-12T17:45:00.000Z\",");
+            prompt.AppendLine("  \"isComplete\": true,");
+            prompt.AppendLine("  \"completionPercentage\": 95.0,");
+            prompt.AppendLine("  \"summary\": \"Brief one-sentence summary of findings\",");
+            prompt.AppendLine("  \"detailedAnalysis\": [");
+            prompt.AppendLine("    \"Overall Assessment: [Your analysis of overall transformation quality]\",");
+            prompt.AppendLine("    \"Completeness Assessment: [Analysis of data completeness]\",");
+            prompt.AppendLine("    \"Structural Integrity: [Analysis of hierarchical preservation]\",");
+            prompt.AppendLine("    \"Data Accuracy: [Analysis of data precision]\",");
+            prompt.AppendLine("    \"Medical Content Validation: [Analysis of pharmaceutical content]\",");
+            prompt.AppendLine("    \"Regulatory Compliance: [Analysis of FDA requirements]\",");
+            prompt.AppendLine("    \"Impact Assessment: [Analysis of any issues found]\",");
+            prompt.AppendLine("    \"Conclusion: [Final recommendation and approval status]\"");
+            prompt.AppendLine("  ],");
+            prompt.AppendLine("  \"differences\": [");
+            prompt.AppendLine("    {");
+            prompt.AppendLine("      \"type\": \"Missing|Mismatch|Structural|General\",");
+            prompt.AppendLine("      \"section\": \"Specific section name\",");
+            prompt.AppendLine("      \"severity\": \"Critical|High|Medium|Low\",");
+            prompt.AppendLine("      \"description\": \"Brief description of this specific issue\"");
+            prompt.AppendLine("    }");
+            prompt.AppendLine("  ]");
+            prompt.AppendLine("}");
+            prompt.AppendLine();
+            prompt.AppendLine("Requirements:");
+            prompt.AppendLine("- Each detailedAnalysis array element should be a complete paragraph");
+            prompt.AppendLine("- Start each element with the section name followed by colon");
+            prompt.AppendLine("- Compare ALL sections between XML and JSON");
+            prompt.AppendLine("- Check if ingredient data, product info, warnings, dosage, etc. are preserved");
+            prompt.AppendLine("- Each difference should be a specific issue, not entire analysis");
+            prompt.AppendLine("- Provide completion percentage 0-100 based on data preservation");
+            prompt.AppendLine();
+            prompt.AppendLine("Documents to compare:");
+            prompt.AppendLine();
+            prompt.AppendLine("XML Source:");
+            prompt.AppendLine(xmlContent);
+            prompt.AppendLine();
+            prompt.AppendLine("JSON Target:");
+            prompt.AppendLine(jsonContent);
+
+            var promptText = prompt.ToString();
+
+            if (promptText.Length > _settings.MaxPromptLength)
+            {
+                _logger.LogWarning("Generated prompt length ({Length}) exceeds configured maximum ({MaxLength})",
+                    promptText.Length, _settings.MaxPromptLength);
+                throw new ArgumentException($"Prompt length ({promptText.Length}) exceeds maximum allowed ({_settings.MaxPromptLength})");
+            }
+
+            return promptText;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the AI-generated JSON comparison analysis response into a structured DocumentComparisonResult
+        /// object, handling both JSON-structured responses and fallback text parsing for legacy compatibility.
+        /// </summary>
+        /// <param name="aiResponse">The JSON or text response from Claude AI containing comparison analysis.</param>
+        /// <param name="documentGuid">The document GUID being analyzed for result association.</param>
+        /// <returns>
+        /// A structured DocumentComparisonResult containing parsed completeness status,
+        /// difference analysis, metrics, and detailed findings.
+        /// </returns>
+        /// <remarks>
+        /// This parsing method first attempts to parse structured JSON responses from Claude AI.
+        /// If JSON parsing fails, it falls back to text pattern recognition for compatibility
+        /// with legacy response formats, ensuring robust handling of various AI response types.
+        /// </remarks>
+        /// <seealso cref="DocumentComparisonResult"/>
+        /// <seealso cref="DocumentComparisonDifference"/>
+        private DocumentComparisonResult parseDocumentAnalysisResponse(string aiResponse, Guid documentGuid)
+        {
+            #region implementation
+            try
+            {
+                // Clean the response of any markdown or extra formatting
+                string cleanedResponse = cleanJsonResponse(aiResponse);
+
+                _logger.LogDebug("Attempting to parse Claude response for document {DocumentGuid}", documentGuid);
+
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    AllowTrailingCommas = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
+
+                var result = JsonSerializer.Deserialize<DocumentComparisonResult>(cleanedResponse, options);
+
+                if (result == null)
+                {
+                    _logger.LogWarning("JSON deserialization returned null for document {DocumentGuid}", documentGuid);
+                    return createFallbackResult(aiResponse, documentGuid);
+                }
+
+                // Ensure required fields are set correctly
+                result.DocumentGuid = documentGuid;
+                result.GeneratedAt = DateTime.UtcNow;
+
+                // Clean up any malformed data
+                result = cleanupParsedResult(result);
+
+                _logger.LogInformation("Successfully parsed JSON response for document {DocumentGuid}. " +
+                                     "Completion: {IsComplete}, Percentage: {Percentage}, Differences: {DifferenceCount}",
+                    documentGuid, result.IsComplete, result.CompletionPercentage, result.Differences.Count);
+
+                return result;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Failed to parse JSON response for document {DocumentGuid}. Response: {Response}",
+                    documentGuid, aiResponse.Substring(0, Math.Min(500, aiResponse.Length)));
+
+                return createFallbackResult(aiResponse, documentGuid);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error parsing response for document {DocumentGuid}", documentGuid);
+                return createFallbackResult(aiResponse, documentGuid);
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Cleans the Claude AI response to extract valid JSON, removing markdown formatting
+        /// and other artifacts that might interfere with JSON parsing.
+        /// </summary>
+        private string cleanJsonResponse(string response)
+        {
+            if (string.IsNullOrWhiteSpace(response))
+                return "{}";
+
+            // Remove markdown code blocks
+            response = response.Replace("```json", "").Replace("```", "");
+
+            // Find the JSON object boundaries
+            var startIndex = response.IndexOf('{');
+            var lastIndex = response.LastIndexOf('}');
+
+            if (startIndex >= 0 && lastIndex > startIndex)
+            {
+                response = response.Substring(startIndex, lastIndex - startIndex + 1);
+            }
+
+            return response.Trim();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Cleans up parsed results to fix common issues from Claude responses.
+        /// </summary>
+        private DocumentComparisonResult cleanupParsedResult(DocumentComparisonResult result)
+        {
+            // Fix summary if it contains JSON syntax
+            if (result.Summary.Contains("\"summary\":"))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    result.Summary,
+                    "\"summary\":\\s*\"([^\"]+)\"");
+                if (match.Success)
+                {
+                    result.Summary = match.Groups[1].Value;
+                }
+            }
+
+            // Clean up detailedAnalysis list - remove any malformed entries
+            if (result.DetailedAnalysis != null)
+            {
+                result.DetailedAnalysis = result.DetailedAnalysis
+                    .Where(item => !string.IsNullOrWhiteSpace(item) &&
+                                  item.Length > 10 &&
+                                  !item.Contains("```json") &&
+                                  !item.StartsWith("{"))
+                    .Select(item => item.Trim())
+                    .ToList();
+            }
+            else
+            {
+                result.DetailedAnalysis = new List<string>();
+            }
+
+            // Filter out malformed differences
+            result.Differences = result.Differences
+                .Where(d => !string.IsNullOrWhiteSpace(d.Description) &&
+                           !d.Description.Contains("\"detailedAnalysis\":") &&
+                           d.Description.Length < 1000) // Reasonable length limit
+                .ToList();
+
+            // Ensure completion percentage is within valid range
+            if (result.CompletionPercentage < 0) result.CompletionPercentage = 0;
+            if (result.CompletionPercentage > 100) result.CompletionPercentage = 100;
+
+            return result;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a fallback result when JSON parsing fails, using text pattern matching.
+        /// </summary>
+        private DocumentComparisonResult createFallbackResult(string aiResponse, Guid documentGuid)
+        {
+            return new DocumentComparisonResult
+            {
+                DocumentGuid = documentGuid,
+                GeneratedAt = DateTime.UtcNow,
+                IsComplete = extractCompletionStatusFromText(aiResponse),
+                CompletionPercentage = extractCompletionPercentageFromText(aiResponse),
+                Summary = extractSummaryFromText(aiResponse),
+                DetailedAnalysis = convertTextToAnalysisList(aiResponse),
+                Differences = extractDifferencesFromText(aiResponse)
+            };
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts a text response to a structured analysis list by splitting on section headers.
+        /// </summary>
+        private List<string> convertTextToAnalysisList(string text)
+        {
+            var analysisList = new List<string>();
+
+            // Split text into sections based on common headers
+            var sectionHeaders = new[]
+            {
+        "Overall Assessment:",
+        "Completeness Assessment:",
+        "Structural Integrity:",
+        "Data Accuracy:",
+        "Medical Content Validation:",
+        "Regulatory Compliance:",
+        "Impact Assessment:",
+        "Conclusion:"
+    };
+
+            var sections = new List<string>();
+            var currentSection = new StringBuilder();
+            var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+
+                // Check if this line starts a new section
+                if (sectionHeaders.Any(header => trimmedLine.StartsWith(header, StringComparison.OrdinalIgnoreCase)))
+                {
+                    // Save previous section if it has content
+                    if (currentSection.Length > 0)
+                    {
+                        sections.Add(currentSection.ToString().Trim());
+                        currentSection.Clear();
+                    }
+
+                    // Start new section
+                    currentSection.AppendLine(trimmedLine);
+                }
+                else if (currentSection.Length > 0)
+                {
+                    // Continue current section
+                    currentSection.AppendLine(trimmedLine);
+                }
+                else if (trimmedLine.Length > 20) // Standalone content
+                {
+                    sections.Add(trimmedLine);
+                }
+            }
+
+            // Add final section
+            if (currentSection.Length > 0)
+            {
+                sections.Add(currentSection.ToString().Trim());
+            }
+
+            // If no structured sections found, split by double line breaks
+            if (sections.Count == 0)
+            {
+                sections = text.Split(new[] { "\n\n" }, StringSplitOptions.RemoveEmptyEntries)
+                              .Where(s => s.Trim().Length > 20)
+                              .ToList();
+            }
+
+            return sections;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts completion status from text using pattern matching.
+        /// </summary>
+        private bool extractCompletionStatusFromText(string text)
+        {
+            return text.Contains("COMPLETE", StringComparison.OrdinalIgnoreCase) ||
+                   text.Contains("\"isComplete\": true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Extracts completion percentage from text using pattern matching.
+        /// </summary>
+        private double extractCompletionPercentageFromText(string text)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(text, @"(\d+)%");
+            if (match.Success && double.TryParse(match.Groups[1].Value, out double percentage))
+            {
+                return percentage;
+            }
+
+            var jsonMatch = System.Text.RegularExpressions.Regex.Match(text, @"""completionPercentage"":\s*(\d+\.?\d*)");
+            if (jsonMatch.Success && double.TryParse(jsonMatch.Groups[1].Value, out double jsonPercentage))
+            {
+                return jsonPercentage;
+            }
+
+            return 0;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts summary from text, taking the first meaningful sentence.
+        /// </summary>
+        private string extractSummaryFromText(string text)
+        {
+            var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            return lines.FirstOrDefault(l => l.Length > 20 && !l.StartsWith("#"))?.Trim()
+                   ?? "Analysis completed";
+        }
+
+        /// <summary>
+        /// Extracts differences from text using pattern matching.
+        /// </summary>
+        private List<DocumentComparisonDifference> extractDifferencesFromText(string text)
+        {
+            // Return empty list for text fallback - this would need more sophisticated parsing
+            return new List<DocumentComparisonDifference>();
         }
 
         #endregion

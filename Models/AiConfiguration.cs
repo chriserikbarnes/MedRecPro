@@ -34,7 +34,9 @@ namespace MedRecPro.Models
     ///   "ClaudeApi": {
     ///     "ApiKey": "sk-ant-your-secure-api-key-here",
     ///     "Model": "claude-3-sonnet-20240229",
-    ///     "MaxTokens": 4000
+    ///     "MaxTokens": 4000,
+    ///     "EnableThinking": true,
+    ///     "Temperature": 0.1
     ///   }
     /// }
     /// 
@@ -54,6 +56,7 @@ namespace MedRecPro.Models
     ///     options.ApiKey = Environment.GetEnvironmentVariable("CLAUDE_API_KEY") ?? 
     ///                      throw new InvalidOperationException("Claude API key not found");
     ///     options.MaxTokens = Environment.GetEnvironmentVariable("ENVIRONMENT") == "Production" ? 8000 : 4000;
+    ///     options.Temperature = Environment.GetEnvironmentVariable("ENVIRONMENT") == "Production" ? 0.0 : 0.1;
     /// });
     /// </code>
     /// </example>
@@ -136,8 +139,145 @@ namespace MedRecPro.Models
         /// </code>
         /// </example>
         /// <seealso cref="MaxTokens"/>
-        /// <seealso cref="IClaudeApiService.GenerateCompletionAsync(string)"/>
-        public string Model { get; set; } = "claude-3-sonnet-20240229";
+        /// <seealso cref="Temperature"/>
+        /// <seealso cref="EnableThinking"/>
+        public string Model { get; set; } = "claude-sonnet-4-20250514";
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets a value indicating whether to enable Claude AI's thinking mode
+        /// for enhanced reasoning and analysis during medical document processing operations.
+        /// When enabled, the AI model provides additional reasoning steps and detailed
+        /// analytical processes that improve accuracy for complex pharmaceutical documentation.
+        /// </summary>
+        /// <remarks>
+        /// Thinking mode enables Claude to perform more deliberate, step-by-step reasoning
+        /// when analyzing medical documents, resulting in higher accuracy and more thorough
+        /// analysis for critical healthcare applications. Benefits include:
+        /// 
+        /// - Enhanced accuracy for complex SPL document validation and comparison
+        /// - Improved detection of subtle inconsistencies in pharmaceutical labeling
+        /// - More comprehensive analysis of regulatory compliance requirements
+        /// - Better handling of medical terminology disambiguation and context
+        /// - Detailed reasoning trails for audit and quality assurance purposes
+        /// 
+        /// For medical document processing, thinking mode is particularly valuable for:
+        /// - Critical pharmaceutical safety documentation requiring high accuracy
+        /// - Regulatory compliance validation with detailed justification requirements
+        /// - Complex clinical trial data analysis and interpretation
+        /// - Medical device labeling validation with safety-critical considerations
+        /// 
+        /// Performance considerations:
+        /// - Increased processing time and token usage for enhanced analysis
+        /// - Higher API costs due to extended reasoning processes
+        /// - More detailed responses requiring additional storage and processing capacity
+        /// 
+        /// Thinking mode should be enabled for production healthcare applications where
+        /// accuracy is paramount and disabled for high-volume processing scenarios where
+        /// speed is prioritized over detailed analytical reasoning.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Enable thinking mode for critical medical document analysis
+        /// settings.EnableThinking = true;
+        /// 
+        /// // Disable for high-volume batch processing
+        /// settings.EnableThinking = false;
+        /// 
+        /// // Conditional thinking based on document criticality
+        /// settings.EnableThinking = documentType == "PharmaceuticalSafety" || 
+        ///                          documentType == "ClinicalTrial";
+        /// 
+        /// // Environment-based configuration
+        /// settings.EnableThinking = Environment.GetEnvironmentVariable("ENVIRONMENT") == "Production" &&
+        ///                          Environment.GetEnvironmentVariable("ENABLE_DETAILED_ANALYSIS") == "true";
+        /// 
+        /// // Dynamic thinking mode based on document complexity
+        /// settings.EnableThinking = documentSize > 50000 || containsComplexMedicalTerminology;
+        /// </code>
+        /// </example>
+        /// <seealso cref="Temperature"/>
+        /// <seealso cref="MaxTokens"/>
+        /// <seealso cref="Model"/>
+        public bool EnableThinking { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the temperature value controlling the randomness and creativity
+        /// of Claude AI responses during medical document analysis operations. Lower values
+        /// produce more deterministic and consistent results, while higher values introduce
+        /// controlled variability for comprehensive analysis perspectives in healthcare applications.
+        /// </summary>
+        /// <remarks>
+        /// Temperature significantly impacts the consistency and variability of AI analysis
+        /// for medical documents, with critical implications for healthcare data processing:
+        /// 
+        /// Temperature ranges and medical application suitability:
+        /// - 0.0: Maximum determinism for regulatory compliance and safety-critical analysis
+        /// - 0.1-0.3: Controlled consistency for standard SPL comparison and validation
+        /// - 0.4-0.7: Moderate creativity for comprehensive analysis and alternative perspectives
+        /// - 0.8-1.0: High variability for exploratory analysis and research applications
+        /// 
+        /// For healthcare applications requiring regulatory compliance and audit trails,
+        /// lower temperature values (0.0-0.2) ensure consistent, reproducible results
+        /// that meet FDA and other regulatory body requirements for pharmaceutical documentation.
+        /// 
+        /// AUTHOR NOTE 08/11/2025: I'm not aware of any specific regulation that surrounds the temperature setting.
+        /// I don't even think there is a guidance.
+        /// 
+        /// Medical document processing considerations:
+        /// - Pharmaceutical safety documentation requires deterministic analysis (temperature 0.0)
+        /// - SPL comparison operations benefit from slight variability (temperature 0.1-0.2)
+        /// - Clinical research analysis may use moderate creativity (temperature 0.3-0.5)
+        /// - Medical literature review can accommodate higher variability (temperature 0.5-0.7)
+        /// 
+        /// Consistency requirements for healthcare applications:
+        /// - Regulatory submissions must produce identical results for identical inputs
+        /// - Quality assurance workflows require reproducible validation outcomes
+        /// - Audit compliance necessitates consistent analysis methodologies
+        /// - Patient safety documentation demands deterministic processing
+        /// 
+        /// Temperature selection should align with the criticality of medical decisions
+        /// based on the AI analysis results and regulatory compliance requirements.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Maximum determinism for regulatory compliance
+        /// settings.Temperature = 0.0;
+        /// 
+        /// // Standard SPL comparison with slight variability
+        /// settings.Temperature = 0.1;
+        /// 
+        /// // Comprehensive analysis with controlled creativity
+        /// settings.Temperature = 0.3;
+        /// 
+        /// // Research applications with moderate variability
+        /// settings.Temperature = 0.5;
+        /// 
+        /// // Environment-based temperature configuration
+        /// settings.Temperature = Environment.GetEnvironmentVariable("ENVIRONMENT") == "Production" ? 0.0 : 0.2;
+        /// 
+        /// // Document-type specific temperature settings
+        /// settings.Temperature = documentType switch
+        /// {
+        ///     "PharmaceuticalSafety" => 0.0,
+        ///     "SPLComparison" => 0.1,
+        ///     "ClinicalResearch" => 0.3,
+        ///     "MedicalLiterature" => 0.5,
+        ///     _ => 0.1
+        /// };
+        /// 
+        /// // Validation for medical document processing
+        /// if (settings.Temperature > 0.3 && documentContainsSafetyData)
+        /// {
+        ///     throw new ArgumentException("Safety-critical documents require temperature ≤ 0.3");
+        /// }
+        /// </code>
+        /// </example>
+        /// <seealso cref="EnableThinking"/>
+        /// <seealso cref="Model"/>
+        /// <seealso cref="MaxTokens"/>
+        public double Temperature { get; set; } = 0.1;
 
         #endregion
 
@@ -184,6 +324,8 @@ namespace MedRecPro.Models
         /// </code>
         /// </example>
         /// <seealso cref="Model"/>
+        /// <seealso cref="Temperature"/>
+        /// <seealso cref="EnableThinking"/>
         /// <seealso cref="ComparisonSettings.MaxPromptLength"/>
         public int MaxTokens { get; set; } = 4000;
 
@@ -294,7 +436,6 @@ namespace MedRecPro.Models
         /// settings.SaveReports = Environment.GetEnvironmentVariable("ENVIRONMENT") != "Development";
         /// </code>
         /// </example>
-        /// <seealso cref="IFileStorageService"/>
         /// <seealso cref="Models.ComparisonResponse"/>
         public bool SaveReports { get; set; } = true;
 
@@ -350,7 +491,6 @@ namespace MedRecPro.Models
         /// </code>
         /// </example>
         /// <seealso cref="ClaudeApiSettings.MaxTokens"/>
-        /// <seealso cref="IClaudeApiService.GenerateCompletionAsync(string)"/>
         public int MaxPromptLength { get; set; } = 100000;
 
         #endregion

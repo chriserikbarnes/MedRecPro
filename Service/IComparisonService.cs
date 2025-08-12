@@ -1,4 +1,5 @@
-﻿using MedRecPro.Service;
+﻿using MedRecPro.Models;
+using MedRecPro.Service;
 
 namespace MedRecPro.Service
 {
@@ -113,15 +114,74 @@ namespace MedRecPro.Service
         /// <exception cref="InvalidOperationException">
         /// Thrown when the SPL data cannot be found in the database or when XML content is missing or invalid.
         /// </exception>
-        /// <exception cref="ExternalServiceException">
-        /// Thrown when the Claude AI service is unavailable or returns an error response.
-        /// </exception>
         /// <seealso cref="Models.ComparisonResponse"/>
         /// <seealso cref="Models.ComparisonResult"/>
         /// <seealso cref="IsSplDataReadyForComparisonAsync(Guid)"/>
-        /// <seealso cref="IClaudeApiService.GenerateCompletionAsync(string)"/>
-        /// <seealso cref="SplDataService.GetSplDataByIdAsync(string)"/>
+        /// <seealso cref="SplDataService.GetSplDataByGuidAsync(Guid)"/>
         Task<Models.ComparisonResponse> GenerateComparisonAsync(Guid splDataGuid, string? additionalInstructions = null);
+
+        /**************************************************************/
+        /// <summary>
+        /// Asynchronously generates a comprehensive AI-powered comparison analysis between the original 
+        /// SPL XML data and the structured DTO representation for a specific document. This method provides
+        /// detailed assessment of data transformation accuracy, missing elements, and completeness metrics
+        /// between the source XML and the processed Label entity structure.
+        /// </summary>
+        /// <param name="documentGuid">
+        /// The unique GUID identifier of the document to analyze. This corresponds to the DocumentGUID 
+        /// property in the Label.Document entity and is used to retrieve both the DTO structure and 
+        /// locate the corresponding SPL XML source data.
+        /// </param>
+        /// <returns>
+        /// A task containing a DocumentComparisonResult with comprehensive analysis results including
+        /// completeness assessment, identified differences between XML and DTO, detailed findings,
+        /// and quantitative metrics for data preservation validation.
+        /// </returns>
+        /// <remarks>
+        /// This method extends the standard SPL comparison capabilities to focus specifically on 
+        /// XML-to-DTO transformation analysis, which is critical for validating data integrity
+        /// during the import and processing workflow. The analysis identifies:
+        /// 
+        /// - Missing data elements in the DTO that exist in the source XML
+        /// - Structural differences between XML hierarchy and DTO relationships
+        /// - Data accuracy issues during transformation processes
+        /// - Completeness metrics for regulatory compliance validation
+        /// 
+        /// The method orchestrates the complete document comparison workflow including DTO retrieval,
+        /// XML source location, content formatting, AI analysis, and result parsing into structured
+        /// objects suitable for programmatic consumption and reporting.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Generate document comparison analysis
+        /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
+        /// var result = await comparisonService.GenerateDocumentComparisonAsync(documentGuid);
+        /// 
+        /// // Process analysis results
+        /// Console.WriteLine($"Document {documentGuid}:");
+        /// Console.WriteLine($"Complete: {result.IsComplete}");
+        /// Console.WriteLine($"Completion: {result.CompletionPercentage}%");
+        /// Console.WriteLine($"Issues found: {result.Differences.Count}");
+        /// 
+        /// // Review specific differences
+        /// foreach (var difference in result.Differences.Where(d => d.Severity == "Critical"))
+        /// {
+        ///     Console.WriteLine($"CRITICAL: {difference.Description} in {difference.Section}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <exception cref="ArgumentException">
+        /// Thrown when documentGuid is empty or invalid.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the document cannot be found, corresponding SPL data is unavailable,
+        /// or AI analysis fails unexpectedly.
+        /// </exception>
+        /// <seealso cref="DocumentComparisonResult"/>
+        /// <seealso cref="DocumentComparisonDifference"/>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="GenerateComparisonAsync(Guid, string)"/>
+        Task<DocumentComparisonResult> GenerateDocumentComparisonAsync(Guid documentGuid);
 
         #endregion
 
