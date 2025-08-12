@@ -740,9 +740,6 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
-        // Add this simplified method to the LabelController class
-        // Replace the previous complex implementation with this lean version
-
         /**************************************************************/
         /// <summary>
         /// Generates an AI-powered comparison analysis between the original SPL XML data and the 
