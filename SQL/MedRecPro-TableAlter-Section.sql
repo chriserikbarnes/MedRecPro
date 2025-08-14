@@ -36,7 +36,7 @@ BEGIN TRY
         WHERE Name = N'SectionLinkGUID' 
           AND Object_ID = Object_ID(N'dbo.Section')
     )
-        ALTER TABLE [dbo].[Section] ADD [SectionLinkGUID] VARCHAR(64) NULL;
+        ALTER TABLE [dbo].[Section] ADD [SectionLinkGUID] NVARCHAR(255) NULL;
 
     -- Add EffectiveTimeLow column
     PRINT ' -> Adding [EffectiveTimeLow] column if not exists.';

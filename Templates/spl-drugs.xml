@@ -1,0 +1,171 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+	<id root="7cc20155-c4ce-4bab-bc9f-ee32e4c04724"/>
+	<code code="34391-3" codeSystem="2.16.840.1.113883.6.1" displayName="HUMAN PRESCRIPTION DRUG LABEL"/>
+	<title/>
+	<effectiveTime value="20250814"/>
+	<setId root="4c04f38b-dc23-4769-8e31-f433e75dfe96"/>
+	<versionNumber value="1"/>
+	<author>
+		<time/>
+		<assignedEntity>
+			<representedOrganization>
+				<id root="1.3.6.1.4.1.519.1" extension=""/>
+				<name/>
+				<assignedEntity>
+					<assignedOrganization>
+						<assignedEntity>
+							<assignedOrganization>
+								<id root="1.3.6.1.4.1.519.1" extension=""/>
+								<name/>
+							</assignedOrganization>
+							<performance>
+								<actDefinition>
+									<code code="C43360" displayName="manufacture" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+								</actDefinition>
+							</performance>
+						</assignedEntity>
+					</assignedOrganization>
+				</assignedEntity>
+			</representedOrganization>
+		</assignedEntity>
+	</author>
+	<component>
+		<structuredBody>
+			<component>
+				<section>
+					<id root="c244f5de-97f2-49a7-8b11-58a34bc281a7"/>
+					<code code="48780-1" codeSystem="2.16.840.1.113883.6.1" displayName="SPL product data elements section"/>
+					<title/>
+					<text/>
+					<effectiveTime value="20250814"/>
+					<subject>
+						<manufacturedProduct>
+							<manufacturedProduct>
+								<code code="" codeSystem="2.16.840.1.113883.6.69"/>
+								<name/>
+								<formCode code="" codeSystem="2.16.840.1.113883.3.26.1.1" displayName=""/>
+								<asEntityWithGeneric>
+									<genericMedicine>
+										<name/>
+									</genericMedicine>
+								</asEntityWithGeneric>
+								<ingredient classCode="ACTIM">
+									<quantity>
+										<numerator value="" unit="1"/>
+										<denominator value="1" unit="1"/>
+									</quantity>
+									<ingredientSubstance>
+										<code code="" codeSystem="2.16.840.1.113883.4.9"/>
+										<name/>
+										<activeMoiety>
+											<activeMoiety>
+												<code code="" codeSystem="2.16.840.1.113883.4.9"/>
+												<name/>
+											</activeMoiety>
+										</activeMoiety>
+									</ingredientSubstance>
+								</ingredient>
+								<ingredient classCode="IACT">
+									<quantity>
+										<numerator value="" unit="1"/>
+										<denominator value="1" unit="1"/>
+									</quantity>
+									<ingredientSubstance>
+										<code code="" codeSystem="2.16.840.1.113883.4.9"/>
+										<name/>
+									</ingredientSubstance>
+								</ingredient>
+								<asContent>
+									<quantity>
+										<numerator value="" unit="1"/>
+										<denominator value="1" unit="1"/>
+									</quantity>
+									<containerPackagedProduct>
+										<code code="" codeSystem="2.16.840.1.113883.6.69"/>
+										<formCode code="C43233" displayName="PACKAGE" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+									</containerPackagedProduct>
+								</asContent>
+							</manufacturedProduct>
+							<subjectOf>
+								<marketingAct>
+									<code code="C53292" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+									<statusCode code="active"/>
+									<effectiveTime>
+										<low value=""/>
+									</effectiveTime>
+								</marketingAct>
+							</subjectOf>
+							<subjectOf>
+								<approval>
+									<id extension="ANADA" root="2.16.840.1.113883.3.150"/>
+									<code code="C73583" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="ANADA"/>
+									<author>
+										<territorialAuthority>
+											<territory>
+												<code code="USA" codeSystem="2.16.840.1.113883.5.28"/>
+											</territory>
+										</territorialAuthority>
+									</author>
+								</approval>
+							</subjectOf>
+							<subjectOf>
+								<characteristic>
+									<code code="SPLCOLOR" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value code="C48325" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="white" xsi:type="CE"/>
+								</characteristic>
+							</subjectOf>
+							<subjectOf>
+								<characteristic>
+									<code code="SPLSHAPE" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value code="C48336" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="capsule" xsi:type="CE"/>
+								</characteristic>
+							</subjectOf>
+							<subjectOf>
+								<characteristic>
+									<code code="SPLSIZE" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value unit="mm" value="" xsi:type="PQ"/>
+								</characteristic>
+							</subjectOf>
+							<subjectOf>
+								<characteristic>
+									<code code="SPLSCORE" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value value="" xsi:type="INT"/>
+								</characteristic>
+							</subjectOf>
+							<subjectOf>
+								<characteristic>
+									<code code="SPLIMPRINT" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value xsi:type="ST"/>
+								</characteristic>
+							</subjectOf>
+							<subjectOf>
+								<characteristic>
+									<code code="SPLFLAVOR" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value code="C73391" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="grape" xsi:type="CE"/>
+								</characteristic>
+							</subjectOf>
+							<consumedIn>
+								<substanceAdministration>
+									<routeCode code="" codeSystem="2.16.840.1.113883.3.26.1.1" displayName=""/>
+								</substanceAdministration>
+							</consumedIn>
+						</manufacturedProduct>
+					</subject>
+				</section>
+			</component>
+			<component>
+				<section ID="Ld04767c3-6750-4fa0-a338-24da9f81295c">
+					<id root="51f20433-7d41-4733-93c6-1575ff49477e"/>
+					<code code="43685-7" codeSystem="2.16.840.1.113883.6.1" displayName="WARNINGS AND PRECAUTIONS SECTION"/>
+					<title/>
+					<text>
+						<paragraph/>
+					</text>
+					<effectiveTime value="20250814"/>
+				</section>
+			</component>
+		</structuredBody>
+	</component>
+</document>

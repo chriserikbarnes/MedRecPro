@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+	<id root="019e6336-2a9d-4a72-b591-2f9dcb7cac61"/>
+	<code code="53411-5" codeSystem="2.16.840.1.113883.6.1" displayName="OUT OF BUSINESS NOTIFICATION"/>
+	<effectiveTime value="20250814"/>
+	<setId root="206578f7-7e48-41f0-9f6d-516646c1aff8"/>
+	<versionNumber value="1"/>
+	<component>
+		<structuredBody/>
+	</component>
+</document>

@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+	<id root="a301f98e-b7a3-40a8-bf7a-0d74a0102513"/>
+	<code code="69403-4" codeSystem="2.16.840.1.113883.6.1" displayName="OTC MEDICAL DEVICE LABEL"/>
+	<title/>
+	<effectiveTime value="20250814"/>
+	<setId root="bdadba5e-ef66-42ce-a264-b0b4a38768a7"/>
+	<versionNumber value="1"/>
+	<component>
+		<structuredBody>
+			<component>
+				<section>
+					<id root="bb7a6fdd-52f9-425f-b19d-c6c65f525cc4"/>
+					<code code="48780-1" codeSystem="2.16.840.1.113883.6.1" displayName="SPL product data elements section"/>
+					<title/>
+					<text/>
+					<effectiveTime value="20250814"/>
+				</section>
+			</component>
+		</structuredBody>
+	</component>
+</document>

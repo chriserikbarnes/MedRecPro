@@ -1,0 +1,171 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+	<id root="7dae1343-6f67-464a-9ea0-671b00e413e7"/>
+	<code code="66105-8" codeSystem="2.16.840.1.113883.6.1" displayName="LOT DISTRIBUTION DATA"/>
+	<title/>
+	<effectiveTime value="20250814"/>
+	<setId root="3411ec0b-31e7-46ee-93f1-8f6c51948f9f"/>
+	<versionNumber value="1"/>
+	<author>
+		<time/>
+		<assignedEntity>
+			<representedOrganization>
+				<id extension="" root="1.3.6.1.4.1.519.1"/>
+				<id extension="" root="1.3.6.1.4.1.32366.1.3.1.2"/>
+				<name/>
+				<contactParty>
+					<telecom value="mailto:"/>
+					<contactPerson>
+						<name/>
+					</contactPerson>
+				</contactParty>
+				<assignedEntity>
+					<assignedOrganization>
+						<assignedEntity>
+							<assignedOrganization>
+								<id root="1.3.6.1.4.1.519.1" extension=""/>
+								<name/>
+							</assignedOrganization>
+						</assignedEntity>
+					</assignedOrganization>
+				</assignedEntity>
+			</representedOrganization>
+		</assignedEntity>
+	</author>
+	<component>
+		<structuredBody>
+			<component>
+				<section>
+					<id root="0a8a3d4c-b99b-4f57-ad43-9c0e45e898ae"/>
+					<code code="48780-1" codeSystem="2.16.840.1.113883.6.1" displayName="SPL product data elements section"/>
+					<effectiveTime>
+						<low value=""/>
+						<high value=""/>
+					</effectiveTime>
+					<subject>
+						<manufacturedProduct>
+							<manufacturedProduct>
+								<code codeSystem="2.16.840.1.113883.6.69" code=""/>
+								<name/>
+								<formCode code="" codeSystem="2.16.840.1.113883.3.26.1.1" displayName=""/>
+								<ingredient classCode="ACTIM">
+									<quantity>
+										<numerator value="" unit="1"/>
+										<denominator value="1" unit="1"/>
+									</quantity>
+									<ingredientSubstance>
+										<code code="" codeSystem="2.16.840.1.113883.4.9"/>
+										<name/>
+										<activeMoiety>
+											<activeMoiety>
+												<code code="" codeSystem="2.16.840.1.113883.4.9"/>
+												<name/>
+											</activeMoiety>
+										</activeMoiety>
+									</ingredientSubstance>
+								</ingredient>
+								<instanceOfKind>
+									<productInstance>
+										<id root="1.3.6.1.4.1.32366.1.2.10." extension=""/>
+										<ingredient>
+											<quantity>
+												<numerator value="" unit=""/>
+												<denominator value="1" unit="1"/>
+											</quantity>
+											<ingredientProductInstance>
+												<id root="1.3.6.1.4.1.32366.1.2.10." extension=""/>
+												<asInstanceOfKind>
+													<kindOfMaterialKind>
+														<code code="" codeSystem="2.16.840.1.113883.4.9"/>
+														<name/>
+													</kindOfMaterialKind>
+												</asInstanceOfKind>
+											</ingredientProductInstance>
+											<subjectOf>
+												<productEvent>
+													<code code="C43360" displayName="manufacture" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+													<performer>
+														<assignedEntity>
+															<representedOrganization>
+																<id root="1.3.6.1.4.1.519.1" extension=""/>
+															</representedOrganization>
+														</assignedEntity>
+													</performer>
+												</productEvent>
+											</subjectOf>
+										</ingredient>
+										<member>
+											<memberProductInstance>
+												<id root="1.3.6.1.4.1.32366.1.2.10." extension=""/>
+												<expirationTime>
+													<high value=""/>
+												</expirationTime>
+												<asContent>
+													<quantity>
+														<numerator value="" unit=""/>
+														<denominator value="1" unit="1"/>
+													</quantity>
+													<container>
+														<code code="" codeSystem="2.16.840.1.113883.6.69"/>
+														<formCode code="" codeSystem="2.16.840.1.113883.3.26.1.1" displayName=""/>
+													</container>
+													<subjectOf>
+														<quantity value="" unit="1"/>
+														<productEvent>
+															<code code="C106325" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="Distributed per reporting interval"/>
+															<effectiveTime>
+																<low value=""/>
+															</effectiveTime>
+														</productEvent>
+													</subjectOf>
+													<subjectOf>
+														<quantity value="0" unit="1"/>
+														<productEvent>
+															<code code="C106328" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="Returned"/>
+														</productEvent>
+													</subjectOf>
+												</asContent>
+											</memberProductInstance>
+										</member>
+									</productInstance>
+									<subjectOf>
+										<productEvent>
+											<code code="C43360" displayName="manufacture" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+											<performer>
+												<assignedEntity>
+													<representedOrganization>
+														<id root="1.3.6.1.4.1.519.1" extension=""/>
+													</representedOrganization>
+												</assignedEntity>
+											</performer>
+										</productEvent>
+									</subjectOf>
+								</instanceOfKind>
+							</manufacturedProduct>
+							<subjectOf>
+								<approval>
+									<id extension="BLA" root="2.16.840.1.113883.3.150"/>
+									<code code="C73585" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="BLA"/>
+									<author>
+										<territorialAuthority>
+											<territory>
+												<code code="USA" codeSystem="2.16.840.1.113883.5.28"/>
+											</territory>
+										</territorialAuthority>
+									</author>
+								</approval>
+							</subjectOf>
+							<consumedIn>
+								<substanceAdministration1 classCode="SBADM" moodCode="DEF">
+									<routeCode code="" codeSystem="2.16.840.1.113883.3.26.1.1" displayName=""/>
+									<doseQuantity value="" unit=""/>
+								</substanceAdministration1>
+							</consumedIn>
+						</manufacturedProduct>
+					</subject>
+				</section>
+			</component>
+		</structuredBody>
+	</component>
+</document>

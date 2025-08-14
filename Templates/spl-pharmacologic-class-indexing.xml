@@ -1,0 +1,57 @@
+﻿<?xml version="1.0" encodin<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+  <id root="3a646409-6e3f-4900-9290-1fb01409b2c2"/>
+  <code code="60685-5" codeSystem="2.16.840.1.113883.6.1" displayName="Indexing - Pharmacologic Class"/>
+  <title/>
+  <effectiveTime value="20250814"/>
+  <setId root="ab2e1b15-8f3e-4bbb-a34f-7ec8cd8f158a"/>
+  <versionNumber value="1"/>
+  <author>
+    <time/>
+    <assignedEntity>
+      <representedOrganization>
+        <id root="1.3.6.1.4.1.519.1" extension="927645523"/>
+        <name>Food and Drug Administration</name>
+      </representedOrganization>
+    </assignedEntity>
+  </author>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <id root="00f4ff64-e9f1-4e3c-b857-d985e1061909"/>
+          <code code="48779-3" codeSystem="2.16.840.1.113883.6.1" displayName="SPL indexing data elements section"/>
+          <title/>
+          <text/>
+          <effectiveTime value="20250814"/>
+          <subject>
+            <identifiedSubstance>
+              <id extension="" root="2.16.840.1.113883.4.9"/>
+              <identifiedSubstance>
+                <code code="" codeSystem="2.16.840.1.113883.4.9"/>
+                <name use="L"/>
+                <asSpecializedKind>
+                  <generalizedMaterialKind>
+                    <code code="" codeSystem="2.16.840.1.113883.6.345" displayName=""/>
+                    <name use="L"/>
+                  </generalizedMaterialKind>
+                </asSpecializedKind>
+                <asSpecializedKind>
+                  <generalizedMaterialKind>
+                    <code code="" codeSystem="2.16.840.1.113883.6.345" displayName=""/>
+                  </generalizedMaterialKind>
+                </asSpecializedKind>
+                <asSpecializedKind>
+                  <generalizedMaterialKind>
+                    <code code="" codeSystem="2.16.840.1.113883.6.345" displayName=""/>
+                  </generalizedMaterialKind>
+                </asSpecializedKind>
+              </identifiedSubstance>
+            </identifiedSubstance>
+          </subject>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</document>

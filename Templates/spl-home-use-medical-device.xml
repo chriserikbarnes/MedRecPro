@@ -1,0 +1,111 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+	<id root="67c47b13-5b2c-4594-aa0b-0cf48aff489b"/>
+	<code code="55439-4" codeSystem="2.16.840.1.113883.6.1" displayName="MEDICAL DEVICE"/>
+	<title>Home Use Medical Device</title>
+	<effectiveTime value="20250814"/>
+	<setId root="f362e3b6-9ae0-45f2-b214-bdd70ceb2929"/>
+	<versionNumber value="1"/>
+	<author>
+		<time/>
+		<assignedEntity>
+			<representedOrganization>
+				<id root="1.3.6.1.4.1.519.1" extension=""/>
+				<name/>
+				<assignedEntity>
+					<assignedOrganization>
+						<assignedEntity>
+							<assignedOrganization>
+								<id root="1.3.6.1.4.1.519.1" extension=""/>
+								<name/>
+								<telecom value="tel:"/>
+								<telecom value="mailto:"/>
+							</assignedOrganization>
+						</assignedEntity>
+					</assignedOrganization>
+				</assignedEntity>
+			</representedOrganization>
+		</assignedEntity>
+	</author>
+	<component>
+		<structuredBody>
+			<component>
+				<section>
+					<id root="57ca2f0d-cfa9-43b3-a235-06acea59c46c"/>
+					<code code="48780-1" codeSystem="2.16.840.1.113883.6.1" displayName="SPL product data elements section"/>
+					<title/>
+					<text/>
+					<effectiveTime value="20250814"/>
+					<subject>
+						<manufacturedProduct>
+							<manufacturedProduct>
+								<code code="" codeSystem="2.16.840.1.113883.6.69"/>
+								<name/>
+								<asIdentifiedEntity classCode="IDENT">
+									<id extension="" root="1.3.6.1.4.1.32366.3."/>
+									<code code="C99286" displayName="Model Number" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+								</asIdentifiedEntity>
+								<asSpecializedKind classCode="GEN">
+									<generalizedMaterialKind>
+										<code code="" displayName="" codeSystem="2.16.840.1.113883.6.303"/>
+									</generalizedMaterialKind>
+								</asSpecializedKind>
+								<asContent>
+									<quantity>
+										<numerator value="" unit="1"/>
+										<denominator value="1" unit="1"/>
+									</quantity>
+									<containerPackagedProduct>
+										<code code="" codeSystem="2.16.840.1.113883.6.69"/>
+										<formCode code="C43233" displayName="PACKAGE" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+									</containerPackagedProduct>
+								</asContent>
+							</manufacturedProduct>
+							<subjectOf>
+								<approval>
+									<id extension="K" root="2.16.840.1.113883.3.150"/>
+									<code code="C80442" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="premarket notification"/>
+									<author>
+										<territorialAuthority>
+											<territory>
+												<code code="USA" codeSystem="2.16.840.1.113883.5.28"/>
+											</territory>
+										</territorialAuthority>
+									</author>
+								</approval>
+							</subjectOf>
+							<subjectOf>
+								<marketingAct>
+									<code code="C53292" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+									<statusCode code="active"/>
+									<effectiveTime>
+										<low value=""/>
+									</effectiveTime>
+								</marketingAct>
+							</subjectOf>
+							<subjectOf>
+								<characteristic>
+									<code code="SPLUSE" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value xsi:type="INT" value="1"/>
+								</characteristic>
+							</subjectOf>
+							<subjectOf>
+								<characteristic>
+									<code code="SPLSTERILEUSE" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value xsi:type="BL" value=""/>
+								</characteristic>
+							</subjectOf>
+							<subjectOf>
+								<characteristic>
+									<code code="SPLMRISAFE" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value value="" xsi:type="BL"/>
+								</characteristic>
+							</subjectOf>
+						</manufacturedProduct>
+					</subject>
+				</section>
+			</component>
+		</structuredBody>
+	</component>
+</document>

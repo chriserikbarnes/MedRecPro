@@ -43,8 +43,4 @@
     <PackageReference Include="System.Runtime.Caching" Version="9.0.4" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Templates\" />
-  </ItemGroup>
-
 </Project>

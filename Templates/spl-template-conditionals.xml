@@ -1,0 +1,1620 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet href="https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3"
+          xmlns:voc="http://www.hl7.org/v3/voc"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+
+	<!-- Document Header - Maps to Label.Document -->
+	<id root="{Document.DocumentGUID}" />
+	<code code="{Document.DocumentCode}"
+          codeSystem="{Document.DocumentCodeSystem}"
+          {#if="" Document.DocumentCodeSystem}codeSystemName="LOINC"{/if}
+	displayName="{Document.DocumentDisplayName}" />
+	{#if Document.Title}
+	<title mediaType="text/x-hl7-title+xml">{Document.Title}</title>
+	{#else}
+	<title/>
+	{/if}
+	<effectiveTime value="{Document.EffectiveTime}" />
+	<setId root="{Document.SetGUID}" />
+	<versionNumber value="{Document.VersionNumber}" />
+
+	<!-- Document Author Section - Maps to Label.DocumentAuthor and Organization hierarchy -->
+	{#foreach DocumentAuthor in DocumentAuthors}
+	<author>
+		<time/>
+		<assignedEntity>
+			{#if DocumentAuthor.AuthorType == "Labeler"}
+			<!-- Complex Labeler Author Pattern with Establishment Hierarchy -->
+			<representedOrganization>
+				<id extension="{AuthorOrganization.OrganizationIdentifiers[0].IdentifierValue}"
+                    root="{AuthorOrganization.OrganizationIdentifiers[0].IdentifierSystemOID}" />
+				<name>{AuthorOrganization.OrganizationName}</name>
+				{#if AuthorOrganization.IsConfidential}
+				<confidentialityCode code="B"/>
+				{/if}
+
+				<!-- Registrant Level (if present) -->
+				{#foreach RegistrantRelationship in DocumentRelationships where RelationshipType == "LabelerToRegistrant"}
+				<assignedEntity>
+					<assignedOrganization>
+						<id extension="{RegistrantOrganization.OrganizationIdentifiers[0].IdentifierValue}"
+                            root="{RegistrantOrganization.OrganizationIdentifiers[0].IdentifierSystemOID}" />
+						<name>{RegistrantOrganization.OrganizationName}</name>
+
+						<!-- Establishment Level -->
+						{#foreach EstablishmentRelationship in DocumentRelationships where RelationshipType == "RegistrantToEstablishment"}
+						<assignedEntity>
+							<assignedOrganization>
+								<id extension="{EstablishmentOrganization.OrganizationIdentifiers[0].IdentifierValue}"
+                                    root="{EstablishmentOrganization.OrganizationIdentifiers[0].IdentifierSystemOID}" />
+								<name>{EstablishmentOrganization.OrganizationName}</name>
+
+								<!-- Address if present -->
+								{#if EstablishmentOrganization.Address}
+								<addr>
+									{#if Address.StreetAddressLine1}<streetAddressLine>{Address.StreetAddressLine1}</streetAddressLine>{/if}
+									{#if Address.StreetAddressLine2}<streetAddressLine>{Address.StreetAddressLine2}</streetAddressLine>{/if}
+									{#if Address.City}<city>{Address.City}</city>{/if}
+									{#if Address.StateProvince}<state>{Address.StateProvince}</state>{/if}
+									{#if Address.PostalCode}<postalCode>{Address.PostalCode}</postalCode>{/if}
+									{#if Address.CountryCode}<country code="{Address.CountryCode}">{Address.CountryName}</country>{/if}
+								</addr>
+								{/if}
+
+								<!-- Contact Party if present -->
+								{#if ContactParty}
+								<contactParty>
+									{#if ContactParty.Address}
+									<addr>
+										{#if ContactParty.Address.StreetAddressLine1}<streetAddressLine>{ContactParty.Address.StreetAddressLine1}</streetAddressLine>{/if}
+										{#if ContactParty.Address.StreetAddressLine2}<streetAddressLine>{ContactParty.Address.StreetAddressLine2}</streetAddressLine>{/if}
+										{#if ContactParty.Address.City}<city>{ContactParty.Address.City}</city>{/if}
+										{#if ContactParty.Address.StateProvince}<state>{ContactParty.Address.StateProvince}</state>{/if}
+										{#if ContactParty.Address.PostalCode}<postalCode>{ContactParty.Address.PostalCode}</postalCode>{/if}
+										{#if ContactParty.Address.CountryCode}<country code="{ContactParty.Address.CountryCode}">{ContactParty.Address.CountryName}</country>{/if}
+									</addr>
+									{/if}
+									{#foreach ContactPartyTelecom in ContactPartyTelecoms}
+									<telecom value="{Telecom.TelecomValue}"/>
+									{/foreach}
+									{#if ContactPerson}
+									<contactPerson>
+										<name>{ContactPerson.ContactPersonName}</name>
+									</contactPerson>
+									{/if}
+								</contactParty>
+								{/if}
+
+								<!-- US Agent if present -->
+								{#foreach USAgentRelationship in DocumentRelationships where RelationshipType == "EstablishmentToUSagent"}
+								<assignedEntity>
+									<assignedOrganization>
+										<id extension="{USAgentOrganization.OrganizationIdentifiers[0].IdentifierValue}"
+                                            root="{USAgentOrganization.OrganizationIdentifiers[0].IdentifierSystemOID}" />
+										<name>{USAgentOrganization.OrganizationName}</name>
+										{#foreach OrganizationTelecom in OrganizationTelecoms}
+										<telecom value="{Telecom.TelecomValue}"/>
+										{/foreach}
+									</assignedOrganization>
+									<performance>
+										<actDefinition>
+											<code code="C73330" displayName="united states agent" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+										</actDefinition>
+									</performance>
+								</assignedEntity>
+								{/foreach}
+
+								<!-- Importer if present -->
+								{#foreach ImporterRelationship in DocumentRelationships where RelationshipType == "EstablishmentToImporter"}
+								<assignedEntity>
+									<assignedOrganization>
+										<id extension="{ImporterOrganization.OrganizationIdentifiers[0].IdentifierValue}"
+                                            root="{ImporterOrganization.OrganizationIdentifiers[0].IdentifierSystemOID}" />
+										<name>{ImporterOrganization.OrganizationName}</name>
+										{#foreach OrganizationTelecom in OrganizationTelecoms}
+										<telecom value="{Telecom.TelecomValue}"/>
+										{/foreach}
+									</assignedOrganization>
+									<performance>
+										<actDefinition>
+											<code code="C73599" displayName="import" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+										</actDefinition>
+									</performance>
+								</assignedEntity>
+								{/foreach}
+							</assignedOrganization>
+
+							<!-- Business Operations for Establishment -->
+							{#foreach BusinessOperation in BusinessOperations}
+							<performance>
+								<actDefinition>
+									<code code="{BusinessOperation.OperationCode}"
+                                          displayName="{BusinessOperation.OperationDisplayName}"
+                                          codeSystem="{BusinessOperation.OperationCodeSystem}" />
+
+									<!-- Business Operation Qualifiers -->
+									{#foreach BusinessOperationQualifier in BusinessOperationQualifiers}
+									<subjectOf>
+										<approval>
+											<code code="{BusinessOperationQualifier.QualifierCode}"
+                                                  codeSystem="{BusinessOperationQualifier.QualifierCodeSystem}"
+                                                  displayName="{BusinessOperationQualifier.QualifierDisplayName}" />
+										</approval>
+									</subjectOf>
+									{/foreach}
+
+									<!-- Product Links -->
+									{#foreach BusinessOperationProductLink in BusinessOperationProductLinks}
+									<product>
+										<manufacturedProduct classCode="MANU">
+											<manufacturedMaterialKind>
+												<code code="{ProductIdentifier.IdentifierValue}"
+                                                      codeSystem="{ProductIdentifier.IdentifierSystemOID}" />
+											</manufacturedMaterialKind>
+										</manufacturedProduct>
+									</product>
+									{/foreach}
+								</actDefinition>
+							</performance>
+							{/foreach}
+						</assignedEntity>
+						{/foreach}
+					</assignedOrganization>
+				</assignedEntity>
+				{/foreach}
+			</representedOrganization>
+
+			{#elseif DocumentAuthor.AuthorType == "FDA"}
+			<!-- Simple FDA Author Pattern -->
+			<representedOrganization>
+				<id root="1.3.6.1.4.1.519.1" extension="{AuthorOrganization.OrganizationIdentifiers[0].IdentifierValue}" />
+				<name>{AuthorOrganization.OrganizationName}</name>
+			</representedOrganization>
+
+			{#elseif DocumentAuthor.AuthorType == "Simple"}
+			<!-- Simple Author Pattern -->
+			<id root="{AuthorOrganization.OrganizationIdentifiers[0].IdentifierSystemOID}" />
+			<representedOrganization>
+				<name>{AuthorOrganization.OrganizationName}</name>
+				<addr />
+			</representedOrganization>
+			{/if}
+		</assignedEntity>
+	</author>
+	{/foreach}
+
+	<!-- Related Documents -->
+	{#foreach RelatedDocument in RelatedDocuments}
+	<relatedDocument typeCode="{RelatedDocument.RelationshipTypeCode}">
+		<relatedDocument>
+			{#if RelatedDocument.ReferencedDocumentGUID}
+			<id root="{RelatedDocument.ReferencedDocumentGUID}"/>
+			{#else}
+			<id root=""/>
+			{/if}
+			<setId root="{RelatedDocument.ReferencedSetGUID}"/>
+			{#if RelatedDocument.ReferencedVersionNumber}
+			<versionNumber value="{RelatedDocument.ReferencedVersionNumber}"/>
+			{#else}
+			<versionNumber value=""/>
+			{/if}
+			{#if RelatedDocument.ReferencedDocumentCode}
+			<code code="{RelatedDocument.ReferencedDocumentCode}"
+                  codeSystem="{RelatedDocument.ReferencedDocumentCodeSystem}"
+                  displayName="{RelatedDocument.ReferencedDocumentDisplayName}"/>
+			{/if}
+		</relatedDocument>
+	</relatedDocument>
+	{/foreach}
+
+	<!-- Legal Authenticator (for signed documents) -->
+	{#if LegalAuthenticator}
+	<legalAuthenticator>
+		<time value="{LegalAuthenticator.TimeValue}"/>
+		<signatureText>{LegalAuthenticator.SignatureText}</signatureText>
+		{#if LegalAuthenticator.NoteText}
+		<noteText>{LegalAuthenticator.NoteText}</noteText>
+		{/if}
+		<assignedEntity>
+			<assignedPerson>
+				<name>{LegalAuthenticator.AssignedPersonName}</name>
+			</assignedPerson>
+			{#if LegalAuthenticator.SignerOrganizationID}
+			<representedOrganization>
+				<id extension="{SignerOrganization.OrganizationIdentifiers[0].IdentifierValue}"
+                    root="{SignerOrganization.OrganizationIdentifiers[0].IdentifierSystemOID}" />
+				<name>{SignerOrganization.OrganizationName}</name>
+			</representedOrganization>
+			{/if}
+		</assignedEntity>
+	</legalAuthenticator>
+	{/if}
+
+	<!-- Main Content -->
+	<component>
+		<structuredBody>
+
+			<!-- SPL Product Data Elements Section (if products are defined) -->
+			{#foreach Product in Products where SectionID != null}
+			<component>
+				<section{#if ProductSection.SectionLinkGUID=""} ID="{ProductSection.SectionLinkGUID}"{/if}>
+				<id root="{ProductSection.SectionGUID}" />
+				<code code="{ProductSection.SectionCode}"
+					  codeSystem="{ProductSection.SectionCodeSystem}"
+						if="" ProductSection.SectionCodeSystem =""= "2.16.840.1.113883.6.1"}codeSystemName="LOINC"{/if}
+				displayName="{ProductSection.SectionDisplayName}" />
+				{#if ProductSection.Title}
+				<title mediaType="text/x-hl7-title+xml">{ProductSection.Title}</title>
+				{#else}
+				<title/>
+				{/if}
+				<text/>
+				<effectiveTime value="{ProductSection.EffectiveTime}" />
+
+				<!-- Product Definition -->
+				<subject>
+					<manufacturedProduct>
+						<manufacturedProduct>
+							<!-- Basic Product Information -->
+							{#foreach ProductIdentifier in ProductIdentifiers}
+							<code code="{ProductIdentifier.IdentifierValue}"
+								  codeSystem="{ProductIdentifier.IdentifierSystemOID}" />
+							{/foreach}
+							<name>{Product.ProductName}</name>
+							{#if Product.ProductSuffix}
+							<suffix>{Product.ProductSuffix}</suffix>
+							{/if}
+							{#if Product.DescriptionText}
+							<desc>{Product.DescriptionText}</desc>
+							{/if}
+
+							{#if Product.FormCode}
+							<formCode code="{Product.FormCode}"
+									  codeSystem="{Product.FormCodeSystem}"
+									  displayName="{Product.FormDisplayName}" />
+							{/if}
+
+							<!-- Generic Medicine -->
+							{#foreach GenericMedicine in GenericMedicines}
+							<asEntityWithGeneric>
+								<genericMedicine>
+									<name>{GenericMedicine.GenericName}</name>
+									{#if GenericMedicine.PhoneticName}
+									<name use="PHON">{GenericMedicine.PhoneticName}</name>
+									{/if}
+								</genericMedicine>
+							</asEntityWithGeneric>
+							{/foreach}
+
+							<!-- Specialized Kind (for devices/cosmetics) -->
+							{#foreach SpecializedKind in SpecializedKinds}
+							<asSpecializedKind classCode="GEN">
+								<generalizedMaterialKind>
+									<code code="{SpecializedKind.KindCode}"
+										  displayName="{SpecializedKind.KindDisplayName}"
+										  codeSystem="{SpecializedKind.KindCodeSystem}" />
+								</generalizedMaterialKind>
+							</asSpecializedKind>
+							{/foreach}
+
+							<!-- Equivalent Entity (product equivalence relationships) -->
+							{#foreach EquivalentEntity in EquivalentEntities}
+							<asEquivalentEntity>
+								<code code="{EquivalentEntity.EquivalenceCode}"
+									  codeSystem="{EquivalentEntity.EquivalenceCodeSystem}" />
+								<definingMaterialKind>
+									<code code="{EquivalentEntity.DefiningMaterialKindCode}"
+										  codeSystem="{EquivalentEntity.DefiningMaterialKindSystem}" />
+								</definingMaterialKind>
+							</asEquivalentEntity>
+							{/foreach}
+
+							<!-- Additional Identifiers (Model Number, etc.) -->
+							{#foreach AdditionalIdentifier in AdditionalIdentifiers}
+							<asIdentifiedEntity classCode="IDENT">
+								<id extension="{AdditionalIdentifier.IdentifierValue}"
+									root="{AdditionalIdentifier.IdentifierRootOID}" />
+								<code code="{AdditionalIdentifier.IdentifierTypeCode}"
+									  displayName="{AdditionalIdentifier.IdentifierTypeDisplayName}"
+									  codeSystem="{AdditionalIdentifier.IdentifierTypeCodeSystem}" />
+							</asIdentifiedEntity>
+							{/foreach}
+
+							<!-- Active Ingredients -->
+							{#foreach Ingredient in Ingredients where ClassCode contains "ACT"}
+							<{Ingredient.OriginatingElement} classCode="{Ingredient.ClassCode}">
+								{#if Ingredient.QuantityNumerator}
+								<quantity>
+									<numerator unit="{Ingredient.QuantityNumeratorUnit}"
+											 value="{Ingredient.QuantityNumerator}">
+										{#if Ingredient.NumeratorTranslationCode}
+										<translation code="{Ingredient.NumeratorTranslationCode}"
+												   codeSystem="{Ingredient.NumeratorCodeSystem}"
+												   displayName="{Ingredient.NumeratorDisplayName}"
+												   value="{Ingredient.NumeratorValue}" />
+										{/if}
+									</numerator>
+									{#if Ingredient.QuantityDenominator}
+									<denominator unit="{Ingredient.QuantityDenominatorUnit}"
+											   value="{Ingredient.QuantityDenominator}">
+										{#if Ingredient.DenominatorTranslationCode}
+										<translation code="{Ingredient.DenominatorTranslationCode}"
+												   codeSystem="{Ingredient.DenominatorCodeSystem}"
+												   displayName="{Ingredient.DenominatorDisplayName}"
+												   value="{Ingredient.DenominatorValue}" />
+										{/if}
+									</denominator>
+									{/if}
+								</quantity>
+								{/if}
+
+								<!-- Ingredient Substance -->
+								<{IngredientSubstance.OriginatingElement}>
+									{#if IngredientSubstance.UNII}
+									<code code="{IngredientSubstance.UNII}"
+										  codeSystem="2.16.840.1.113883.4.9"
+										  codeSystemName="FDA SRS" />
+									{#else}
+									<code />
+									{/if}
+									<name>{IngredientSubstance.SubstanceName}</name>
+
+									<!-- Active Moiety if present -->
+									{#foreach ActiveMoiety in ActiveMoieties}
+									<activeMoiety>
+										<activeMoiety>
+											<code code="{ActiveMoiety.MoietyUNII}"
+												  codeSystem="2.16.840.1.113883.4.9"
+												  codeSystemName="FDA SRS" />
+											<name>{ActiveMoiety.MoietyName}</name>
+										</activeMoiety>
+									</activeMoiety>
+									{/foreach}
+
+									<!-- Reference Substance if present -->
+									{#foreach ReferenceSubstance in ReferenceSubstances}
+									<definingSubstance>
+										<code code="{ReferenceSubstance.RefSubstanceUNII}"
+											  codeSystem="2.16.840.1.113883.4.9"
+											  codeSystemName="FDA SRS" />
+										<name>{ReferenceSubstance.RefSubstanceName}</name>
+									</definingSubstance>
+									{/foreach}
+
+									<!-- Specified Substance (for biologics) -->
+									{#if SpecifiedSubstance}
+									<asEquivalentSubstance>
+										<definingSubstance>
+											<code code="{SpecifiedSubstance.SubstanceCode}"
+												  codeSystem="{SpecifiedSubstance.SubstanceCodeSystem}"
+													if="" SpecifiedSubstance.SubstanceCodeSystemName}codeSystemName="{SpecifiedSubstance.SubstanceCodeSystemName}"{/if} />
+										</definingSubstance>
+									</asEquivalentSubstance>
+									{/if}
+								</{IngredientSubstance.OriginatingElement}>
+							</{Ingredient.OriginatingElement}>
+							{/foreach}
+
+							<!-- Inactive Ingredients -->
+							{#foreach Ingredient in Ingredients where ClassCode == "IACT"}
+							<inactiveIngredient{#if Ingredient.IsConfidential=""} confidentialityCode="B"{/if}>
+							{#if Ingredient.QuantityNumerator}
+							<quantity>
+								<numerator unit="{Ingredient.QuantityNumeratorUnit}"
+										 value="{Ingredient.QuantityNumerator}">
+									{#if Ingredient.NumeratorTranslationCode}
+									<translation code="{Ingredient.NumeratorTranslationCode}"
+											   codeSystem="{Ingredient.NumeratorCodeSystem}"
+											   displayName="{Ingredient.NumeratorDisplayName}"
+											   value="{Ingredient.NumeratorValue}" />
+									{/if}
+								</numerator>
+								{#if Ingredient.QuantityDenominator}
+								<denominator unit="{Ingredient.QuantityDenominatorUnit}"
+										   value="{Ingredient.QuantityDenominator}" />
+								{/if}
+							</quantity>
+							{/if}
+							<inactiveIngredientSubstance>
+								{#if IngredientSubstance.UNII}
+								<code code="{IngredientSubstance.UNII}"
+									  codeSystem="2.16.840.1.113883.4.9"
+									  codeSystemName="FDA SRS" />
+								{#else}
+								<code />
+								{/if}
+								<name>{IngredientSubstance.SubstanceName}</name>
+							</inactiveIngredientSubstance>
+							</inactiveIngredient>
+							{/foreach}
+
+							<!-- Other Ingredient Types (CNTM, COLR, etc.) -->
+							{#foreach Ingredient in Ingredients where ClassCode in ["CNTM", "COLR", "ADJV", "INGR"]}
+							<ingredient classCode="{Ingredient.ClassCode}">
+								{#if Ingredient.QuantityNumerator or Ingredient.ClassCode == "CNTM"}
+								<quantity>
+									<numerator unit="{Ingredient.QuantityNumeratorUnit}"
+											 value="{Ingredient.QuantityNumerator}">
+										{#if Ingredient.NumeratorTranslationCode}
+										<translation code="{Ingredient.NumeratorTranslationCode}"
+												   codeSystem="{Ingredient.NumeratorCodeSystem}"
+												   displayName="{Ingredient.NumeratorDisplayName}"
+												   value="{Ingredient.NumeratorValue}" />
+										{/if}
+									</numerator>
+									{#if Ingredient.QuantityDenominator}
+									<denominator unit="{Ingredient.QuantityDenominatorUnit}"
+											   value="{Ingredient.QuantityDenominator}" />
+									{/if}
+								</quantity>
+								{/if}
+								<ingredientSubstance>
+									{#if IngredientSubstance.UNII}
+									<code code="{IngredientSubstance.UNII}"
+										  codeSystem="2.16.840.1.113883.4.9"
+										  codeSystemName="FDA SRS" />
+									{#else}
+									<code />
+									{/if}
+									<name>{IngredientSubstance.SubstanceName}</name>
+								</ingredientSubstance>
+							</ingredient>
+							{/foreach}
+
+							<!-- Packaging Hierarchy -->
+							{#foreach PackagingLevel in PackagingLevels}
+							<asContent>
+								<quantity>
+									<numerator unit="{PackagingLevel.QuantityNumeratorUnit}"
+											 value="{PackagingLevel.QuantityNumerator}">
+										{#if PackagingLevel.TranslationCode}
+										<translation code="{PackagingLevel.TranslationCode}"
+												   codeSystem="{PackagingLevel.TranslationCodeSystem}"
+												   displayName="{PackagingLevel.TranslationDisplayName}"
+												   value="{PackagingLevel.TranslationValue}" />
+										{/if}
+									</numerator>
+									{#if PackagingLevel.QuantityDenominator}
+									<denominator value="{PackagingLevel.QuantityDenominator}">
+										{#if PackagingLevel.DenominatorTranslation}
+										<translation value="{PackagingLevel.QuantityDenominator}" />
+										{/if}
+									</denominator>
+									{/if}
+								</quantity>
+								<containerPackagedProduct>
+									{#foreach PackageIdentifier in PackageIdentifiers}
+									<code code="{PackageIdentifier.IdentifierValue}"
+										  codeSystem="{PackageIdentifier.IdentifierSystemOID}"
+										  codeSystemName="{PackageIdentifier.IdentifierType}" />
+									{/foreach}
+									{#if not PackageIdentifiers}
+									<code />
+									{/if}
+									<formCode code="{PackagingLevel.PackageFormCode}"
+											  codeSystem="{PackagingLevel.PackageFormCodeSystem}"
+											  displayName="{PackagingLevel.PackageFormDisplayName}" />
+
+									<!-- Marketing Status for Package -->
+									{#foreach MarketingStatus in MarketingStatuses where PackagingLevelID == PackagingLevel.PackagingLevelID}
+									<subjectOf>
+										<marketingAct>
+											<code code="{MarketingStatus.MarketingActCode}"
+												  codeSystem="{MarketingStatus.MarketingActCodeSystem}" />
+											<statusCode code="{MarketingStatus.StatusCode}" />
+											<effectiveTime>
+												<low value="{MarketingStatus.EffectiveStartDate}" />
+												{#if MarketingStatus.EffectiveEndDate}
+												<high value="{MarketingStatus.EffectiveEndDate}" />
+												{/if}
+											</effectiveTime>
+										</marketingAct>
+									</subjectOf>
+									{/foreach}
+
+									<!-- Product Events for Package -->
+									{#foreach ProductEvent in ProductEvents where PackagingLevelID == PackagingLevel.PackagingLevelID}
+									<subjectOf>
+										<productEvent>
+											<code code="{ProductEvent.EventCode}"
+												  codeSystem="{ProductEvent.EventCodeSystem}"
+												  displayName="{ProductEvent.EventDisplayName}" />
+											{#if ProductEvent.QuantityValue}
+											<quantity value="{ProductEvent.QuantityValue}"
+													   if="" ProductEvent.QuantityUnit}unit="{ProductEvent.QuantityUnit}"{/if} />
+											{/if}
+											{#if ProductEvent.EffectiveTimeLow}
+											<effectiveTime>
+												<low value="{ProductEvent.EffectiveTimeLow}" />
+											</effectiveTime>
+											{/if}
+										</productEvent>
+									</subjectOf>
+									{/foreach}
+
+									<!-- Nested packaging levels handled recursively -->
+									{#foreach ChildPackaging in PackagingHierarchy where OuterPackagingLevelID == PackagingLevel.PackagingLevelID}
+									<!-- Recursive asContent structure for nested packaging -->
+									{/foreach}
+								</containerPackagedProduct>
+							</asContent>
+							{/foreach}
+
+							<!-- Kit Parts -->
+							{#foreach ProductPart in ProductParts}
+							<part>
+								<quantity>
+									<numerator unit="{ProductPart.PartQuantityNumeratorUnit}"
+											 value="{ProductPart.PartQuantityNumerator}"/>
+									<denominator value="1"/>
+								</quantity>
+								<partProduct>
+									{#foreach PartProductIdentifier in PartProduct.ProductIdentifiers}
+									<code code="{PartProductIdentifier.IdentifierValue}"
+										  codeSystem="{PartProductIdentifier.IdentifierSystemOID}"/>
+									{/foreach}
+									<name>{PartProduct.ProductName}</name>
+									{#if PartProduct.FormCode}
+									<formCode code="{PartProduct.FormCode}"
+											  codeSystem="{PartProduct.FormCodeSystem}"
+											  displayName="{PartProduct.FormDisplayName}" />
+									{/if}
+
+									<!-- Part Generic Medicine -->
+									{#foreach PartGenericMedicine in PartProduct.GenericMedicines}
+									<asEntityWithGeneric>
+										<genericMedicine>
+											<name>{PartGenericMedicine.GenericName}</name>
+										</genericMedicine>
+									</asEntityWithGeneric>
+									{/foreach}
+
+									<!-- Part Ingredients -->
+									{#foreach PartIngredient in PartProduct.Ingredients}
+									<ingredient classCode="{PartIngredient.ClassCode}">
+										{#if PartIngredient.QuantityNumerator}
+										<quantity>
+											<numerator unit="{PartIngredient.QuantityNumeratorUnit}"
+													 value="{PartIngredient.QuantityNumerator}"/>
+											{#if PartIngredient.QuantityDenominator}
+											<denominator unit="{PartIngredient.QuantityDenominatorUnit}"
+													   value="{PartIngredient.QuantityDenominator}"/>
+											{/if}
+										</quantity>
+										{/if}
+										<ingredientSubstance>
+											{#if PartIngredientSubstance.UNII}
+											<code code="{PartIngredientSubstance.UNII}"
+												  codeSystem="2.16.840.1.113883.4.9"/>
+											{/if}
+											<name>{PartIngredientSubstance.SubstanceName}</name>
+										</ingredientSubstance>
+									</ingredient>
+									{/foreach}
+								</partProduct>
+
+								<!-- Part Marketing Category -->
+								{#foreach PartMarketingCategory in PartProduct.MarketingCategories}
+								<subjectOf>
+									<approval>
+										<id extension="{PartMarketingCategory.ApplicationOrMonographIDValue}"
+											root="{PartMarketingCategory.ApplicationOrMonographIDOID}" />
+										<code code="{PartMarketingCategory.CategoryCode}"
+											  codeSystem="{PartMarketingCategory.CategoryCodeSystem}"
+											  displayName="{PartMarketingCategory.CategoryDisplayName}" />
+										<author>
+											<territorialAuthority>
+												<territory>
+													<code code="{PartMarketingCategory.TerritoryCode}" />
+												</territory>
+											</territorialAuthority>
+										</author>
+									</approval>
+								</subjectOf>
+								{/foreach}
+
+								<!-- Part Marketing Status -->
+								{#foreach PartMarketingStatus in PartProduct.MarketingStatuses}
+								<subjectOf>
+									<marketingAct>
+										<code code="{PartMarketingStatus.MarketingActCode}"
+											  codeSystem="{PartMarketingStatus.MarketingActCodeSystem}" />
+										<statusCode code="{PartMarketingStatus.StatusCode}" />
+										<effectiveTime>
+											<low value="{PartMarketingStatus.EffectiveStartDate}" />
+										</effectiveTime>
+									</marketingAct>
+								</subjectOf>
+								{/foreach}
+
+								<!-- Part Route of Administration -->
+								{#foreach PartRouteOfAdministration in PartProduct.RoutesOfAdministration}
+								<consumedIn>
+									<substanceAdministration>
+										<routeCode code="{PartRouteOfAdministration.RouteCode}"
+												   codeSystem="{PartRouteOfAdministration.RouteCodeSystem}"
+												   displayName="{PartRouteOfAdministration.RouteDisplayName}"
+													 if="" PartRouteOfAdministration.RouteNullFlavor}nullFlavor="{PartRouteOfAdministration.RouteNullFlavor}"{/if} />
+									</substanceAdministration>
+								</consumedIn>
+								{/foreach}
+							</part>
+							{/foreach}
+
+							<!-- Part of Assembly (for related products sold separately) -->
+							{#foreach PartOfAssembly in PartsOfAssembly}
+							<asPartOfAssembly>
+								<wholeProduct>
+									<part>
+										<partProduct>
+											<code code="{AccessoryProduct.ProductIdentifiers[0].IdentifierValue}"
+												  codeSystem="{AccessoryProduct.ProductIdentifiers[0].IdentifierSystemOID}"/>
+										</partProduct>
+									</part>
+								</wholeProduct>
+							</asPartOfAssembly>
+							{/foreach}
+
+							<!-- Product Characteristics -->
+							{#foreach Characteristic in Characteristics where ProductID == Product.ProductID}
+							<subjectOf>
+								<characteristic classCode="OBS">
+									<code code="{Characteristic.CharacteristicCode}"
+										  codeSystem="{Characteristic.CharacteristicCodeSystem}" />
+									<!-- Dynamic value rendering based on ValueType -->
+									{#if Characteristic.ValueType == "CV"}
+									<value code="{Characteristic.ValueCV_Code}"
+										   codeSystem="{Characteristic.ValueCV_CodeSystem}"
+										   displayName="{Characteristic.ValueCV_DisplayName}"
+										   xsi:type="CE" />
+									{#elseif Characteristic.ValueType == "PQ"}
+									<value value="{Characteristic.ValuePQ_Value}"
+										   unit="{Characteristic.ValuePQ_Unit}"
+										   xsi:type="PQ" />
+									{#elseif Characteristic.ValueType == "ST"}
+									<value xsi:type="ST">{Characteristic.ValueST}</value>
+									{#elseif Characteristic.ValueType == "INT"}
+									<value xsi:type="INT" value="{Characteristic.ValueINT}"
+											 if="" Characteristic.ValueNullFlavor}nullFlavor="{Characteristic.ValueNullFlavor}"{/if}/>
+									{#elseif Characteristic.ValueType == "BL"}
+									<value xsi:type="BL" value="{Characteristic.ValueBL}"/>
+									{#elseif Characteristic.ValueType == "IVL_PQ"}
+									<value xsi:type="IVL_PQ">
+										<low value="{Characteristic.ValueIVLPQ_LowValue}" unit="{Characteristic.ValueIVLPQ_LowUnit}"/>
+										<high value="{Characteristic.ValueIVLPQ_HighValue}" unit="{Characteristic.ValueIVLPQ_HighUnit}"/>
+									</value>
+									{#elseif Characteristic.ValueType == "ED"}
+									<value mediaType="{Characteristic.ValueED_MediaType}" xsi:type="ED">
+										{#if Characteristic.ValueED_FileName}
+										<reference value="{Characteristic.ValueED_FileName}" />
+										{/if}
+										{#if Characteristic.ValueED_CDATAContent}
+										<![CDATA[{Characteristic.ValueED_CDATAContent}]]>
+										{/if}
+									</value>
+									{/if}
+								</characteristic>
+							</subjectOf>
+							{/foreach}
+						</manufacturedProduct>
+
+						<!-- Marketing Approval Information -->
+						{#foreach MarketingCategory in MarketingCategories where ProductID == Product.ProductID}
+						<subjectOf>
+							<approval>
+								<id extension="{MarketingCategory.ApplicationOrMonographIDValue}"
+									root="{MarketingCategory.ApplicationOrMonographIDOID}" />
+								<code code="{MarketingCategory.CategoryCode}"
+									  codeSystem="{MarketingCategory.CategoryCodeSystem}"
+									  displayName="{MarketingCategory.CategoryDisplayName}" />
+								{#if MarketingCategory.ApprovalDate}
+								<effectiveTime>
+									<low value="{MarketingCategory.ApprovalDate}" />
+								</effectiveTime>
+								{/if}
+								<author>
+									<territorialAuthority>
+										<territory>
+											<code code="{MarketingCategory.TerritoryCode}" />
+										</territory>
+									</territorialAuthority>
+								</author>
+							</approval>
+						</subjectOf>
+						{/foreach}
+
+						<!-- Product Marketing Status -->
+						{#foreach MarketingStatus in MarketingStatuses where ProductID == Product.ProductID}
+						<subjectOf>
+							<marketingAct>
+								<code code="{MarketingStatus.MarketingActCode}"
+									  codeSystem="{MarketingStatus.MarketingActCodeSystem}" />
+								<statusCode code="{MarketingStatus.StatusCode}" />
+								<effectiveTime>
+									<low value="{MarketingStatus.EffectiveStartDate}" />
+									{#if MarketingStatus.EffectiveEndDate}
+									<high value="{MarketingStatus.EffectiveEndDate}" />
+									{/if}
+								</effectiveTime>
+							</marketingAct>
+						</subjectOf>
+						{/foreach}
+
+						<!-- Product Policy (DEA Schedule, etc.) -->
+						{#foreach Policy in Policies where ProductID == Product.ProductID}
+						<subjectOf>
+							<policy classCode="{Policy.PolicyClassCode}">
+								<code code="{Policy.PolicyCode}"
+									  codeSystem="{Policy.PolicyCodeSystem}"
+									  displayName="{Policy.PolicyDisplayName}" />
+							</policy>
+						</subjectOf>
+						{/foreach}
+
+						<!-- Product Route of Administration -->
+						{#foreach ProductRouteOfAdministration in RoutesOfAdministration where ProductID == Product.ProductID}
+						<consumedIn>
+							<substanceAdministration>
+								<routeCode code="{ProductRouteOfAdministration.RouteCode}"
+										   codeSystem="{ProductRouteOfAdministration.RouteCodeSystem}"
+										   displayName="{ProductRouteOfAdministration.RouteDisplayName}"
+											 if="" ProductRouteOfAdministration.RouteNullFlavor}nullFlavor="{ProductRouteOfAdministration.RouteNullFlavor}"{/if} />
+							</substanceAdministration>
+						</consumedIn>
+						{/foreach}
+
+						<!-- Dosing Specification (for Lot Distribution) -->
+						{#foreach DosingSpecification in DosingSpecifications where ProductID == Product.ProductID}
+						<consumedIn>
+							<substanceAdministration>
+								<routeCode code="{DosingSpecification.RouteCode}"
+										   codeSystem="{DosingSpecification.RouteCodeSystem}"
+										   displayName="{DosingSpecification.RouteDisplayName}"
+											 if="" DosingSpecification.RouteNullFlavor}nullFlavor="{DosingSpecification.RouteNullFlavor}"{/if} />
+								{#if DosingSpecification.DoseQuantityValue}
+								<doseQuantity value="{DosingSpecification.DoseQuantityValue}"
+											 unit="{DosingSpecification.DoseQuantityUnit}" />
+								{/if}
+							</substanceAdministration>
+						</consumedIn>
+						{/foreach}
+
+						<!-- Application Holder (for REMS) -->
+						{#foreach Holder in Holders}
+						<holder>
+							<role>
+								<playingOrganization>
+									<id extension="{HolderOrganization.OrganizationIdentifiers[0].IdentifierValue}"
+										root="{HolderOrganization.OrganizationIdentifiers[0].IdentifierSystemOID}" />
+									<name>{HolderOrganization.OrganizationName}</name>
+								</playingOrganization>
+							</role>
+						</holder>
+						{/foreach}
+
+						<!-- Product Web Link (for cosmetics) -->
+						{#foreach ProductWebLink in ProductWebLinks where ProductID == Product.ProductID}
+						<subjectOf>
+							<document>
+								<text>
+									<reference value="{ProductWebLink.WebURL}" />
+								</text>
+							</document>
+						</subjectOf>
+						{/foreach}
+					</manufacturedProduct>
+				</subject>
+
+				<!-- Section-level Observation Media (product images) -->
+				{#foreach ObservationMedia in ObservationMedias where SectionID == ProductSection.SectionID}
+				<component>
+					<observationMedia ID="{ObservationMedia.MediaID}">
+						<text>{ObservationMedia.DescriptionText}</text>
+						<value mediaType="{ObservationMedia.MediaType}" xsi:type="{ObservationMedia.XsiType}">
+							<reference value="{ObservationMedia.FileName}" />
+						</value>
+					</observationMedia>
+				</component>
+				{/foreach}
+				</section>
+			</component>
+			{/foreach}
+
+			<!-- Content Sections - Maps to Label.Section -->
+			{#foreach Section in ContentSections}
+			<component>
+				<section{#if Section.SectionLinkGUID=""} ID="{Section.SectionLinkGUID}"{/if}>
+				<id root="{Section.SectionGUID}" />
+				{#if Section.SectionCode}
+				<code code="{Section.SectionCode}"
+					  codeSystem="{Section.SectionCodeSystem}"
+						if="" Section.SectionCodeSystem =""= "2.16.840.1.113883.6.1"}codeSystemName="LOINC"{/if}
+				displayName="{Section.SectionDisplayName}" />
+				{/if}
+				{#if Section.Title}
+				<title mediaType="text/x-hl7-title+xml">{Section.Title}</title>
+				{#else}
+				<title/>
+				{/if}
+				<effectiveTime value="{Section.EffectiveTime}"
+								 if="" Section.EffectiveTimeLow=""
+                                   >
+					<low value="{Section.EffectiveTimeLow}" />
+					{#if Section.EffectiveTimeHigh}
+					<high value="{Section.EffectiveTimeHigh}" />
+					{/if}
+				</effectiveTime>
+				{#else}/>
+				{/if}
+
+				<!-- Rich Text Content -->
+				<text>
+					{#foreach SectionTextContent in Section.TextContent}
+					{#if SectionTextContent.ContentType == "Paragraph"}
+					<paragraph{#if SectionTextContent.StyleCode=""} styleCode="{SectionTextContent.StyleCode}"{/if}>
+					{SectionTextContent.ContentText}
+					<!-- Inline images handled by RenderedMedia -->
+					{#foreach RenderedMedia in RenderedMedias where SectionTextContentID == SectionTextContent.SectionTextContentID and IsInline == true}
+					<renderMultiMedia referencedObject="{ObservationMedia.MediaID}" />
+					{/foreach}
+					</paragraph>
+					{#elseif SectionTextContent.ContentType == "List"}
+					{#foreach TextList in TextLists where SectionTextContentID == SectionTextContent.SectionTextContentID}
+					<list listType="{TextList.ListType}"{#if="" TextList.StyleCode=""} styleCode="{TextList.StyleCode}"{/if}>
+					{#foreach TextListItem in TextList.Items}
+					<item>
+						{#if TextListItem.ItemCaption}
+						<caption>{TextListItem.ItemCaption}</caption>
+						{/if}
+						{TextListItem.ItemText}
+					</item>
+					{/foreach}
+					</list>
+					{/foreach}
+					{#elseif SectionTextContent.ContentType == "Table"}
+					{#foreach TextTable in TextTables where SectionTextContentID == SectionTextContent.SectionTextContentID}
+					<table{#if TextTable.Width=""} width="{TextTable.Width}"{/if} frame="hsides">
+					<caption />
+					<colgroup>
+						<!-- Column definitions based on table structure -->
+					</colgroup>
+					{#if TextTable.HasHeader}
+					<thead>
+						{#foreach TextTableRow in HeaderRows where TextTableID == TextTable.TextTableID and RowGroupType == "Header"}
+						<tr{#if TextTableRow.StyleCode=""} styleCode="{TextTableRow.StyleCode}"{/if}>
+						{#foreach TextTableCell in TextTableRow.Cells}
+						<th{#if TextTableCell.Align=""} align="{TextTableCell.Align}"{/if}
+						{#if TextTableCell.VAlign} valign="{TextTableCell.VAlign}"{/if}
+						{#if TextTableCell.StyleCode} styleCode="{TextTableCell.StyleCode}"{/if}
+						{#if TextTableCell.RowSpan} rowspan="{TextTableCell.RowSpan}"{/if}
+						{#if TextTableCell.ColSpan} colspan="{TextTableCell.ColSpan}"{/if}>
+						{TextTableCell.CellText}
+						</th>
+						{/foreach}
+						</tr>
+						{/foreach}
+					</thead>
+					{/if}
+					<tbody>
+						{#foreach TextTableRow in BodyRows where TextTableID == TextTable.TextTableID and RowGroupType == "Body"}
+						<tr{#if TextTableRow.StyleCode=""} styleCode="{TextTableRow.StyleCode}"{/if}>
+						{#foreach TextTableCell in TextTableRow.Cells}
+						<td{#if TextTableCell.Align=""} align="{TextTableCell.Align}"{/if}
+						{#if TextTableCell.VAlign} valign="{TextTableCell.VAlign}"{/if}
+						{#if TextTableCell.StyleCode} styleCode="{TextTableCell.StyleCode}"{/if}
+						{#if TextTableCell.RowSpan} rowspan="{TextTableCell.RowSpan}"{/if}
+						{#if TextTableCell.ColSpan} colspan="{TextTableCell.ColSpan}"{/if}>
+						{TextTableCell.CellText}
+						</td>
+						{/foreach}
+						</tr>
+						{/foreach}
+					</tbody>
+					{#if TextTable.HasFooter}
+					<tfoot>
+						{#foreach TextTableRow in FooterRows where TextTableID == TextTable.TextTableID and RowGroupType == "Footer"}
+						<tr{#if TextTableRow.StyleCode=""} styleCode="{TextTableRow.StyleCode}"{/if}>
+						{#foreach TextTableCell in TextTableRow.Cells}
+						<td{#if TextTableCell.Align=""} align="{TextTableCell.Align}"{/if}
+						{#if TextTableCell.VAlign} valign="{TextTableCell.VAlign}"{/if}
+						{#if TextTableCell.StyleCode} styleCode="{TextTableCell.StyleCode}"{/if}
+						{#if TextTableCell.RowSpan} rowspan="{TextTableCell.RowSpan}"{/if}
+						{#if TextTableCell.ColSpan} colspan="{TextTableCell.ColSpan}"{/if}>
+						{TextTableCell.CellText}
+						</td>
+						{/foreach}
+						</tr>
+						{/foreach}
+					</tfoot>
+					{/if}
+					</table>
+					{/foreach}
+					{#elseif SectionTextContent.ContentType == "BlockImage"}
+					{#foreach RenderedMedia in RenderedMedias where SectionTextContentID == SectionTextContent.SectionTextContentID and IsInline == false}
+					<renderMultiMedia referencedObject="{ObservationMedia.MediaID}" />
+					{/foreach}
+					{/if}
+					{/foreach}
+				</text>
+
+				<!-- Section Highlights/Excerpts -->
+				{#foreach SectionExcerptHighlight in SectionExcerptHighlights where SectionID == Section.SectionID}
+				<excerpt>
+					<highlight>
+						<text>{SectionExcerptHighlight.HighlightText}</text>
+					</highlight>
+				</excerpt>
+				{/foreach}
+
+				<!-- Indexing Content for various document types -->
+
+				<!-- Substance Indexing (Active Moiety/Pharmacologic Class) -->
+				{#foreach IdentifiedSubstance in IdentifiedSubstances where SectionID == Section.SectionID}
+				<subject>
+					<identifiedSubstance>
+						<code code="{IdentifiedSubstance.SubstanceIdentifierValue}"
+							  codeSystem="{IdentifiedSubstance.SubstanceIdentifierSystemOID}"
+								if="" IdentifiedSubstance.SubstanceIdentifierSystemOID =""= "2.16.840.1.113883.4.9"}codeSystemName="FDA SRS"{/if} />
+
+						<!-- Chemical Structure for Substance Definition -->
+						{#if IdentifiedSubstance.IsDefinition and IdentifiedSubstance.SubjectType == "ActiveMoiety"}
+						{#foreach Moiety in IdentifiedSubstance.Moieties}
+						<moiety>
+							<code code="{Moiety.MoietyCode}"
+								  codeSystem="{Moiety.MoietyCodeSystem}"
+								  displayName="{Moiety.MoietyDisplayName}" />
+							{#if Moiety.QuantityNumeratorLowValue}
+							<quantity>
+								<numerator>
+									<low value="{Moiety.QuantityNumeratorLowValue}"
+										 unit="{Moiety.QuantityNumeratorUnit}"
+										 inclusive="{Moiety.QuantityNumeratorInclusive}" />
+								</numerator>
+								{#if Moiety.QuantityDenominatorValue}
+								<denominator value="{Moiety.QuantityDenominatorValue}"
+										   unit="{Moiety.QuantityDenominatorUnit}" />
+								{/if}
+							</quantity>
+							{/if}
+
+							<!-- Chemical Structure Characteristics -->
+							{#foreach Characteristic in Moiety.Characteristics}
+							<subjectOf>
+								<characteristic>
+									<code code="{Characteristic.CharacteristicCode}"
+										  codeSystem="{Characteristic.CharacteristicCodeSystem}" />
+									{#if Characteristic.ValueType == "ED"}
+									<value mediaType="{Characteristic.ValueED_MediaType}" xsi:type="ED">
+										{#if Characteristic.ValueED_FileName}
+										<reference value="{Characteristic.ValueED_FileName}" />
+										{/if}
+										{#if Characteristic.ValueED_CDATAContent}
+										<![CDATA[{Characteristic.ValueED_CDATAContent}]]>
+										{/if}
+									</value>
+									{/if}
+								</characteristic>
+							</subjectOf>
+							{/foreach}
+						</moiety>
+						{/foreach}
+						{/if}
+
+						<!-- Pharmacologic Class Links for Active Moiety -->
+						{#if IdentifiedSubstance.SubjectType == "ActiveMoiety"}
+						{#foreach PharmacologicClassLink in PharmacologicClassLinks where ActiveMoietySubstanceID == IdentifiedSubstance.IdentifiedSubstanceID}
+						<asSpecializedKind>
+							<generalizedMaterialKind>
+								<code code="{PharmacologicClass.ClassCode}"
+									  codeSystem="{PharmacologicClass.ClassCodeSystem}"
+									  displayName="{PharmacologicClass.ClassDisplayName}" />
+							</generalizedMaterialKind>
+						</asSpecializedKind>
+						{/foreach}
+						{/if}
+
+						<!-- Pharmacologic Class Definition -->
+						{#if IdentifiedSubstance.IsDefinition and IdentifiedSubstance.SubjectType == "PharmacologicClass"}
+						{#foreach PharmacologicClassName in PharmacologicClassNames}
+						<name use="{PharmacologicClassName.NameUse}">{PharmacologicClassName.NameValue}</name>
+						{/foreach}
+
+						<!-- Pharmacologic Class Hierarchy -->
+						{#foreach PharmacologicClassHierarchy in PharmacologicClassHierarchies where ChildPharmacologicClassID == PharmacologicClass.PharmacologicClassID}
+						<asSpecializedKind>
+							<generalizedMaterialKind>
+								<code code="{ParentPharmacologicClass.ClassCode}"
+									  codeSystem="{ParentPharmacologicClass.ClassCodeSystem}"
+									  displayName="{ParentPharmacologicClass.ClassDisplayName}" />
+							</generalizedMaterialKind>
+						</asSpecializedKind>
+						{/foreach}
+						{/if}
+					</identifiedSubstance>
+				</subject>
+				{/foreach}
+
+				<!-- Product Concept Indexing -->
+				{#foreach ProductConcept in ProductConcepts where SectionID == Section.SectionID}
+				<subject>
+					<manufacturedProduct>
+						<manufacturedProduct>
+							<code code="{ProductConcept.ConceptCode}"
+								  codeSystem="{ProductConcept.ConceptCodeSystem}" />
+							{#if ProductConcept.FormCode}
+							<formCode code="{ProductConcept.FormCode}"
+									  codeSystem="{ProductConcept.FormCodeSystem}"
+									  displayName="{ProductConcept.FormDisplayName}" />
+							{/if}
+
+							<!-- Product Concept Ingredients -->
+							{#foreach Ingredient in Ingredients where ProductConceptID == ProductConcept.ProductConceptID}
+							<ingredient classCode="{Ingredient.ClassCode}">
+								{#if Ingredient.QuantityNumerator}
+								<quantity>
+									<numerator unit="{Ingredient.QuantityNumeratorUnit}"
+											 value="{Ingredient.QuantityNumerator}"/>
+									{#if Ingredient.QuantityDenominator}
+									<denominator unit="{Ingredient.QuantityDenominatorUnit}"
+											   value="{Ingredient.QuantityDenominator}"/>
+									{/if}
+								</quantity>
+								{/if}
+								<ingredientSubstance>
+									<code code="{IngredientSubstance.UNII}"
+										  codeSystem="2.16.840.1.113883.4.9" />
+									<name>{IngredientSubstance.SubstanceName}</name>
+								</ingredientSubstance>
+							</ingredient>
+							{/foreach}
+
+							<!-- Product Concept Equivalence -->
+							{#foreach ProductConceptEquivalence in ProductConceptEquivalences where ApplicationProductConceptID == ProductConcept.ProductConceptID}
+							<asEquivalentEntity>
+								<code code="{ProductConceptEquivalence.EquivalenceCode}"
+									  codeSystem="{ProductConceptEquivalence.EquivalenceCodeSystem}" />
+								<definingMaterialKind>
+									<code code="{AbstractProductConcept.ConceptCode}"
+										  codeSystem="{AbstractProductConcept.ConceptCodeSystem}" />
+								</definingMaterialKind>
+							</asEquivalentEntity>
+							{/foreach}
+						</manufacturedProduct>
+
+						<!-- Product Concept Marketing Categories -->
+						{#foreach MarketingCategory in MarketingCategories where ProductConceptID == ProductConcept.ProductConceptID}
+						<subjectOf>
+							<approval>
+								<id extension="{MarketingCategory.ApplicationOrMonographIDValue}"
+									root="{MarketingCategory.ApplicationOrMonographIDOID}" />
+								<code code="{MarketingCategory.CategoryCode}"
+									  codeSystem="{MarketingCategory.CategoryCodeSystem}"
+									  displayName="{MarketingCategory.CategoryDisplayName}" />
+								<author>
+									<territorialAuthority>
+										<territory>
+											<code code="{MarketingCategory.TerritoryCode}" />
+										</territory>
+									</territorialAuthority>
+								</author>
+							</approval>
+						</subjectOf>
+						{/foreach}
+					</manufacturedProduct>
+				</subject>
+				{/foreach}
+
+				<!-- Billing Unit Index -->
+				{#foreach BillingUnitIndex in BillingUnitIndexes where SectionID == Section.SectionID}
+				<subject>
+					<manufacturedProduct>
+						<manufacturedProduct>
+							<asContent>
+								<containerPackagedProduct>
+									<code code="{BillingUnitIndex.PackageNDCValue}"
+										  codeSystem="{BillingUnitIndex.PackageNDCSystemOID}" />
+									<subjectOf>
+										<characteristic>
+											<code code="SPLBILLINGUNIT" codeSystem="2.16.840.1.113883.1.11.19255"/>
+											<value code="{BillingUnitIndex.BillingUnitCode}"
+												   codeSystem="{BillingUnitIndex.BillingUnitCodeSystemOID}"
+												   xsi:type="CE"/>
+										</characteristic>
+									</subjectOf>
+								</containerPackagedProduct>
+							</asContent>
+						</manufacturedProduct>
+					</manufacturedProduct>
+				</subject>
+				{/foreach}
+
+				<!-- Substance Specification (Tolerance) -->
+				{#foreach SubstanceSpecification in SubstanceSpecifications}
+				<subject>
+					<identifiedSubstance>
+						<code code="{IdentifiedSubstance.SubstanceIdentifierValue}"
+							  codeSystem="{IdentifiedSubstance.SubstanceIdentifierSystemOID}" />
+						<subjectOf>
+							<substanceSpecification>
+								<code code="{SubstanceSpecification.SpecCode}"
+									  codeSystem="{SubstanceSpecification.SpecCodeSystem}" />
+
+								<!-- Analytes -->
+								{#foreach Analyte in Analytes where SubstanceSpecificationID == SubstanceSpecification.SubstanceSpecificationID}
+								<analyte>
+									<identifiedSubstance>
+										<code code="{AnalyteSubstance.SubstanceIdentifierValue}"
+											  codeSystem="{AnalyteSubstance.SubstanceIdentifierSystemOID}" />
+									</identifiedSubstance>
+								</analyte>
+								{/foreach}
+
+								<!-- Enforcement Method -->
+								{#if SubstanceSpecification.EnforcementMethodCode}
+								<subjectOf>
+									<observation>
+										<code code="{SubstanceSpecification.EnforcementMethodCode}"
+											  codeSystem="{SubstanceSpecification.EnforcementMethodCodeSystem}"
+											  displayName="{SubstanceSpecification.EnforcementMethodDisplayName}" />
+									</observation>
+								</subjectOf>
+								{/if}
+
+								<!-- Observation Criteria (Tolerance Values) -->
+								{#foreach ObservationCriterion in ObservationCriteria where SubstanceSpecificationID == SubstanceSpecification.SubstanceSpecificationID}
+								<referenceRange>
+									<observationCriterion>
+										<code code="tolerance" />
+										<value xsi:type="IVL_PQ">
+											<high value="{ObservationCriterion.ToleranceHighValue}"
+												  unit="{ObservationCriterion.ToleranceHighUnit}" />
+										</value>
+										{#if ObservationCriterion.ExpirationDate}
+										<effectiveTime>
+											<high value="{ObservationCriterion.ExpirationDate}" />
+										</effectiveTime>
+										{/if}
+										{#if ObservationCriterion.TextNote}
+										<text>{ObservationCriterion.TextNote}</text>
+										{/if}
+
+										<!-- Commodity Subject -->
+										{#if ObservationCriterion.CommodityID}
+										<subject>
+											<presentSubstance>
+												<presentSubstance>
+													<code code="{Commodity.CommodityCode}"
+														  codeSystem="{Commodity.CommodityCodeSystem}"
+														  displayName="{Commodity.CommodityDisplayName}" />
+													{#if Commodity.CommodityName}
+													<name>{Commodity.CommodityName}</name>
+													{/if}
+												</presentSubstance>
+
+												<!-- Application Type -->
+												{#if ObservationCriterion.ApplicationTypeID}
+												<subjectOf>
+													<approval>
+														<code code="{ApplicationType.AppTypeCode}"
+															  codeSystem="{ApplicationType.AppTypeCodeSystem}"
+															  displayName="{ApplicationType.AppTypeDisplayName}" />
+													</approval>
+												</subjectOf>
+												{/if}
+											</presentSubstance>
+										</subject>
+										{/if}
+									</observationCriterion>
+								</referenceRange>
+								{/foreach}
+							</substanceSpecification>
+						</subjectOf>
+					</identifiedSubstance>
+				</subject>
+				{/foreach}
+
+				<!-- Warning Letter Product Info -->
+				{#foreach WarningLetterProductInfo in WarningLetterProductInfos where SectionID == Section.SectionID}
+				<subject>
+					<manufacturedProduct>
+						<manufacturedProduct>
+							<name>{WarningLetterProductInfo.ProductName}</name>
+							{#if WarningLetterProductInfo.FormCode}
+							<formCode code="{WarningLetterProductInfo.FormCode}"
+									  codeSystem="{WarningLetterProductInfo.FormCodeSystem}"
+									  displayName="{WarningLetterProductInfo.FormDisplayName}" />
+							{/if}
+							{#if WarningLetterProductInfo.GenericName}
+							<asEntityWithGeneric>
+								<genericMedicine>
+									<name>{WarningLetterProductInfo.GenericName}</name>
+								</genericMedicine>
+							</asEntityWithGeneric>
+							{/if}
+
+							<!-- Strength and Item Codes as Characteristics -->
+							{#if WarningLetterProductInfo.StrengthText}
+							<subjectOf>
+								<characteristic>
+									<code code="SPLSTRENGTH" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value xsi:type="ST">{WarningLetterProductInfo.StrengthText}</value>
+								</characteristic>
+							</subjectOf>
+							{/if}
+							{#if WarningLetterProductInfo.ItemCodesText}
+							<subjectOf>
+								<characteristic>
+									<code code="SPLITEMCODES" codeSystem="2.16.840.1.113883.1.11.19255"/>
+									<value xsi:type="ST">{WarningLetterProductInfo.ItemCodesText}</value>
+								</characteristic>
+							</subjectOf>
+							{/if}
+						</manufacturedProduct>
+					</manufacturedProduct>
+				</subject>
+				{/foreach}
+
+				<!-- Warning Letter Dates -->
+				{#foreach WarningLetterDate in WarningLetterDates where SectionID == Section.SectionID}
+				<subjectOf>
+					<substanceAdministration>
+						<effectiveTime value="{WarningLetterDate.AlertIssueDate}" />
+						{#if WarningLetterDate.ResolutionDate}
+						<subjectOf>
+							<observation>
+								<code code="resolution" />
+								<effectiveTime value="{WarningLetterDate.ResolutionDate}" />
+							</observation>
+						</subjectOf>
+						{/if}
+					</substanceAdministration>
+				</subjectOf>
+				{/foreach}
+
+				<!-- NCT Links -->
+				{#foreach NCTLink in NCTLinks where SectionID == Section.SectionID}
+				<subject>
+					<protocol>
+						<id extension="{NCTLink.NCTNumber}" root="{NCTLink.NCTRootOID}" />
+					</protocol>
+				</subject>
+				{/foreach}
+
+				<!-- Drug Interaction Issues -->
+				{#foreach InteractionIssue in InteractionIssues where SectionID == Section.SectionID}
+				<subject2>
+					<substanceAdministration>
+						<subjectOf>
+							<issue>
+								<code code="{InteractionIssue.InteractionCode}"
+									  codeSystem="{InteractionIssue.InteractionCodeSystem}"
+									  displayName="{InteractionIssue.InteractionDisplayName}" />
+
+								<!-- Interaction Consequences -->
+								{#foreach InteractionConsequence in InteractionConsequences where InteractionIssueID == InteractionIssue.InteractionIssueID}
+								<risk>
+									<consequenceObservation>
+										<code code="{InteractionConsequence.ConsequenceTypeCode}"
+											  codeSystem="{InteractionConsequence.ConsequenceTypeCodeSystem}"
+											  displayName="{InteractionConsequence.ConsequenceTypeDisplayName}" />
+										<value code="{InteractionConsequence.ConsequenceValueCode}"
+											   displayName="{InteractionConsequence.ConsequenceValueDisplayName}"
+											   codeSystem="{InteractionConsequence.ConsequenceValueCodeSystem}"
+											   xsi:type="CE"/>
+									</consequenceObservation>
+								</risk>
+								{/foreach}
+
+								<!-- Contributing Factors -->
+								{#foreach ContributingFactor in ContributingFactors where InteractionIssueID == InteractionIssue.InteractionIssueID}
+								<subject>
+									<substanceAdministrationCriterion>
+										<consumable>
+											<administrableMaterial>
+												<administrableMaterialKind>
+													<code code="{FactorSubstance.SubstanceIdentifierValue}"
+														  displayName="{FactorSubstance.SubstanceName}"
+														  codeSystem="{FactorSubstance.SubstanceIdentifierSystemOID}"/>
+												</administrableMaterialKind>
+											</administrableMaterial>
+										</consumable>
+									</substanceAdministrationCriterion>
+								</subject>
+								{/foreach}
+							</issue>
+						</subjectOf>
+					</substanceAdministration>
+				</subject2>
+				{/foreach}
+
+				<!-- REMS Protocols -->
+				{#foreach Protocol in Protocols where SectionID == Section.SectionID}
+				<protocol>
+					<code code="{Protocol.ProtocolCode}"
+						  codeSystem="{Protocol.ProtocolCodeSystem}"
+						  displayName="{Protocol.ProtocolDisplayName}" />
+
+					<!-- REMS Requirements -->
+					{#foreach Requirement in Requirements where ProtocolID == Protocol.ProtocolID}
+					<component>
+						<sequenceNumber value="{Requirement.RequirementSequenceNumber}" />
+						{#if Requirement.PauseQuantityValue}
+						<pauseQuantity value="{Requirement.PauseQuantityValue}"
+									 unit="{Requirement.PauseQuantityUnit}" />
+						{/if}
+						{#if Requirement.IsMonitoringObservation}
+						<monitoringObservation>
+							{#else}
+							<requirement>
+								{/if}
+								<code code="{Requirement.RequirementCode}"
+                                      codeSystem="{Requirement.RequirementCodeSystem}"
+                                      displayName="{Requirement.RequirementDisplayName}" />
+								{#if Requirement.OriginalTextReference}
+								<originalText>
+									<reference value="{Requirement.OriginalTextReference}" />
+								</originalText>
+								{/if}
+								{#if Requirement.PeriodValue}
+								<effectiveTime>
+									<period value="{Requirement.PeriodValue}" unit="{Requirement.PeriodUnit}" />
+								</effectiveTime>
+								{/if}
+
+								<!-- Stakeholder -->
+								{#if Requirement.StakeholderID}
+								<participation>
+									<stakeholder>
+										<code code="{Stakeholder.StakeholderCode}"
+                                              codeSystem="{Stakeholder.StakeholderCodeSystem}"
+                                              displayName="{Stakeholder.StakeholderDisplayName}" />
+									</stakeholder>
+								</participation>
+								{/if}
+
+								<!-- REMS Material Reference -->
+								{#if Requirement.REMSMaterialID}
+								<subjectOf>
+									<document>
+										<id root="{REMSMaterial.MaterialDocumentGUID}" />
+										<title>
+											{REMSMaterial.Title}
+											{#if REMSMaterial.TitleReference}
+											<reference value="{REMSMaterial.TitleReference}" />
+											{/if}
+										</title>
+										{#if REMSMaterial.AttachedDocumentID}
+										<text mediaType="{AttachedDocument.MediaType}">
+											<reference value="{AttachedDocument.FileName}" />
+										</text>
+										{/if}
+									</document>
+								</subjectOf>
+								{/if}
+								{#if Requirement.IsMonitoringObservation}
+							</monitoringObservation>
+						{#else}
+						</requirement>
+						{/if}
+					</component>
+					{/foreach}
+
+					<!-- REMS Approval (first protocol only) -->
+					{#if REMSApproval and Protocol == FirstProtocol}
+					<subjectOf>
+						<approval>
+							<code code="{REMSApproval.ApprovalCode}"
+								  codeSystem="{REMSApproval.ApprovalCodeSystem}"
+								  displayName="{REMSApproval.ApprovalDisplayName}" />
+							<effectiveTime value="{REMSApproval.ApprovalDate}" />
+							<author>
+								<territorialAuthority>
+									<territory>
+										<code code="{REMSApproval.TerritoryCode}" />
+									</territory>
+								</territorialAuthority>
+							</author>
+						</approval>
+					</subjectOf>
+					{/if}
+				</protocol>
+				{/foreach}
+
+				<!-- REMS Materials -->
+				{#foreach REMSMaterial in REMSMaterials where SectionID == Section.SectionID}
+				<component>
+					<document>
+						<id root="{REMSMaterial.MaterialDocumentGUID}" />
+						<title>
+							{REMSMaterial.Title}
+							{#if REMSMaterial.TitleReference}
+							<reference value="{REMSMaterial.TitleReference}" />
+							{/if}
+						</title>
+						{#if REMSMaterial.AttachedDocumentID}
+						<text mediaType="{AttachedDocument.MediaType}">
+							<reference value="{AttachedDocument.FileName}" />
+						</text>
+						{/if}
+					</document>
+				</component>
+				{/foreach}
+
+				<!-- REMS Electronic Resources -->
+				{#foreach REMSElectronicResource in REMSElectronicResources where SectionID == Section.SectionID}
+				<component>
+					<document>
+						<id root="{REMSElectronicResource.ResourceDocumentGUID}" />
+						<title>
+							{REMSElectronicResource.Title}
+							{#if REMSElectronicResource.TitleReference}
+							<reference value="{REMSElectronicResource.TitleReference}" />
+							{/if}
+						</title>
+						<text>
+							<reference value="{REMSElectronicResource.ResourceReferenceValue}" />
+						</text>
+					</document>
+				</component>
+				{/foreach}
+
+				<!-- Compliance Actions (Drug Listing/Establishment Inactivation) -->
+				{#foreach ComplianceAction in ComplianceActions where SectionID == Section.SectionID}
+				{#if ComplianceAction.PackageIdentifierID}
+				<!-- Drug Listing Inactivation -->
+				<subject>
+					<manufacturedProduct>
+						<manufacturedProduct>
+							<asContent>
+								<containerPackagedProduct>
+									<code code="{PackageIdentifier.IdentifierValue}"
+										  codeSystem="{PackageIdentifier.IdentifierSystemOID}" />
+									<subjectOf>
+										<action>
+											<code code="{ComplianceAction.ActionCode}"
+												  codeSystem="{ComplianceAction.ActionCodeSystem}"
+												  displayName="{ComplianceAction.ActionDisplayName}" />
+											<effectiveTime>
+												<low value="{ComplianceAction.EffectiveTimeLow}" />
+												{#if ComplianceAction.EffectiveTimeHigh}
+												<high value="{ComplianceAction.EffectiveTimeHigh}" />
+												{/if}
+											</effectiveTime>
+										</action>
+									</subjectOf>
+								</containerPackagedProduct>
+							</asContent>
+						</manufacturedProduct>
+					</manufacturedProduct>
+				</subject>
+				{#elseif ComplianceAction.DocumentRelationshipID}
+				<!-- Establishment Inactivation -->
+				<subject>
+					<organizationPartOf>
+						<wholeOrganization>
+							<id extension="{EstablishmentOrganization.OrganizationIdentifiers[0].IdentifierValue}"
+								root="{EstablishmentOrganization.OrganizationIdentifiers[0].IdentifierSystemOID}" />
+							<name>{EstablishmentOrganization.OrganizationName}</name>
+							<subjectOf>
+								<action>
+									<code code="{ComplianceAction.ActionCode}"
+										  codeSystem="{ComplianceAction.ActionCodeSystem}"
+										  displayName="{ComplianceAction.ActionDisplayName}" />
+									<effectiveTime>
+										<low value="{ComplianceAction.EffectiveTimeLow}" />
+										{#if ComplianceAction.EffectiveTimeHigh}
+										<high value="{ComplianceAction.EffectiveTimeHigh}" />
+										{/if}
+									</effectiveTime>
+								</action>
+							</subjectOf>
+						</wholeOrganization>
+					</organizationPartOf>
+				</subject>
+				{/if}
+				{/foreach}
+
+				<!-- Facility Licensing (WDD/3PL) -->
+				{#foreach License in Licenses}
+				<subjectOf>
+					<approval>
+						<id extension="{License.LicenseNumber}" root="{License.LicenseRootOID}" />
+						<code code="{License.LicenseTypeCode}"
+							  codeSystem="{License.LicenseTypeCodeSystem}"
+							  displayName="{License.LicenseTypeDisplayName}" />
+						<statusCode code="{License.StatusCode}" />
+						{#if License.ExpirationDate}
+						<effectiveTime>
+							<high value="{License.ExpirationDate}" />
+						</effectiveTime>
+						{/if}
+						<author>
+							<territorialAuthority>
+								<territory>
+									<code code="{TerritorialAuthority.TerritoryCode}"
+										  codeSystem="{TerritorialAuthority.TerritoryCodeSystem}" />
+								</territory>
+								{#if TerritorialAuthority.GoverningAgencyIdExtension}
+								<governingAgency>
+									<id extension="{TerritorialAuthority.GoverningAgencyIdExtension}"
+										root="{TerritorialAuthority.GoverningAgencyIdRoot}" />
+									<name>{TerritorialAuthority.GoverningAgencyName}</name>
+								</governingAgency>
+								{/if}
+							</territorialAuthority>
+						</author>
+
+						<!-- Disciplinary Actions -->
+						{#foreach DisciplinaryAction in DisciplinaryActions where LicenseID == License.LicenseID}
+						<subjectOf>
+							<action>
+								<code code="{DisciplinaryAction.ActionCode}"
+									  codeSystem="{DisciplinaryAction.ActionCodeSystem}"
+									  displayName="{DisciplinaryAction.ActionDisplayName}" />
+								{#if DisciplinaryAction.ActionText}
+								<text>{DisciplinaryAction.ActionText}</text>
+								{/if}
+								<effectiveTime value="{DisciplinaryAction.EffectiveTime}" />
+
+								<!-- Attached Documents for Disciplinary Action -->
+								{#foreach AttachedDocument in AttachedDocuments where ParentEntityType == "DisciplinaryAction" and ParentEntityID == DisciplinaryAction.DisciplinaryActionID}
+								<subjectOf>
+									<document>
+										<id root="{AttachedDocument.DocumentIdRoot}" />
+										<title>
+											{AttachedDocument.Title}
+											{#if AttachedDocument.TitleReference}
+											<reference value="{AttachedDocument.TitleReference}" />
+											{/if}
+										</title>
+										<text mediaType="{AttachedDocument.MediaType}">
+											<reference value="{AttachedDocument.FileName}" />
+										</text>
+									</document>
+								</subjectOf>
+								{/foreach}
+							</action>
+						</subjectOf>
+						{/foreach}
+					</approval>
+				</subjectOf>
+				{/foreach}
+
+				<!-- Nested Subsections -->
+				{#foreach ChildSection in Section.ChildSections}
+				<component>
+					<section{#if ChildSection.SectionLinkGUID=""} ID="{ChildSection.SectionLinkGUID}"{/if}>
+					<id root="{ChildSection.SectionGUID}" />
+					<code code="{ChildSection.SectionCode}"
+						  codeSystem="{ChildSection.SectionCodeSystem}"
+						  displayName="{ChildSection.SectionDisplayName}" />
+					<title mediaType="text/x-hl7-title+xml">{ChildSection.Title}</title>
+					<text>
+						<!-- Recursive content processing for nested sections -->
+					</text>
+					<effectiveTime value="{ChildSection.EffectiveTime}" />
+					</section>
+				</component>
+				{/foreach}
+
+				<!-- Section-specific Observation Media -->
+				{#foreach ObservationMedia in ObservationMedias where SectionID == Section.SectionID}
+				<component>
+					<observationMedia ID="{ObservationMedia.MediaID}">
+						<id root="{Section.SectionGUID}" />
+						<text>{ObservationMedia.DescriptionText}</text>
+						<value mediaType="{ObservationMedia.MediaType}" xsi:type="{ObservationMedia.XsiType}">
+							<reference value="{ObservationMedia.FileName}" />
+						</value>
+					</observationMedia>
+				</component>
+				{/foreach}
+				</section>
+			</component>
+			{/foreach}
+
+		</structuredBody>
+	</component>
+</document>

@@ -1,0 +1,183 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="http://www.pragmaticdata.com/spl/test-stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+	<id root="f20962e6-e827-4bd8-9570-82a4345e0682"/>
+	<code code="82351-8" codeSystem="2.16.840.1.113883.6.1" displayName="RISK EVALUATION &amp; MITIGATION STRATEGIES"/>
+	<title/>
+	<effectiveTime value="20151008"/>
+	<setId root="97998744-d5b7-40b2-a5e3-fdb0aa427469"/>
+	<versionNumber value="1"/>
+	<author>
+		<assignedEntity>
+			<representedOrganization>
+				<id root="1.3.6.1.4.1.519.1" extension=""/>
+				<name/>
+			</representedOrganization>
+		</assignedEntity>
+	</author>
+	<relatedDocument typeCode="SUBJ">
+		<relatedDocument>
+			<code code="" codeSystem="2.16.840.1.113883.6.1" displayName=""/>
+			<setId root=""/>
+		</relatedDocument>
+	</relatedDocument>
+	<component>
+		<structuredBody>
+			<component>
+				<section>
+					<id root="46d88975-83d0-4e5d-ae7d-42facbfcc059"/>
+					<code code="48780-1" codeSystem="2.16.840.1.113883.6.1" displayName="SPL PRODUCT DATA ELEMENTS SECTION"/>
+					<effectiveTime value="20250814"/>
+					<subject>
+						<manufacturedProduct>
+							<manufacturedProduct>
+								<code code="" codeSystem="2.16.840.1.113883.6.69"/>
+								<name/>
+								<asEntityWithGeneric>
+									<genericMedicine>
+										<name/>
+									</genericMedicine>
+								</asEntityWithGeneric>
+							</manufacturedProduct>
+							<subjectOf>
+								<approval>
+									<id extension="BLA103948" root="2.16.840.1.113883.3.150"/>
+									<code code="C73585" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="BLA"/>
+									<author>
+										<territorialAuthority>
+											<territory>
+												<code code="USA" codeSystem="2.16.840.1.113883.5.28"/>
+											</territory>
+										</territorialAuthority>
+									</author>
+								</approval>
+							</subjectOf>
+						</manufacturedProduct>
+					</subject>
+				</section>
+			</component>
+			<component>
+				<section ID="L8ab36585-45ea-4ce4-92e0-2d7627795e67">
+					<id root="dfef5abc-e51d-4910-bd27-f97a2f7dbb9c"/>
+					<code code="82347-6" codeSystem="2.16.840.1.113883.6.1" displayName="REMS Summary"/>
+					<title/>
+					<text/>
+					<effectiveTime value="20150508"/>
+					<subject2>
+						<substanceAdministration>
+							<componentOf>
+								<sequenceNumber value="2"/>
+								<protocol>
+									<code code="" codeSystem="2.16.840.1.113883.3.26.1.1" displayName=""/>
+									<component>
+										<sequenceNumber value=""/>
+										<requirement>
+											<code code="" displayName="" codeSystem="2.16.840.1.113883.3.26.1.1">
+												<originalText>
+													<reference value=""/>
+												</originalText>
+											</code>
+											<participation typeCode="PPRF">
+												<stakeholder>
+													<code code="" displayName="" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+												</stakeholder>
+											</participation>
+										</requirement>
+									</component>
+								</protocol>
+							</componentOf>
+							<subjectOf>
+								<approval>
+									<code code="C128899" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="REMS Program Approval"/>
+									<effectiveTime>
+										<low value=""/>
+									</effectiveTime>
+									<author>
+										<territorialAuthority>
+											<territory>
+												<code code="USA" codeSystem="2.16.840.1.113883.5.28"/>
+											</territory>
+										</territorialAuthority>
+									</author>
+								</approval>
+							</subjectOf>
+						</substanceAdministration>
+					</subject2>
+				</section>
+			</component>
+			<component>
+				<section ID="L75babf7e-db7f-4882-a3fc-9a091d9c4d31">
+					<id root="4326996e-7f8a-4233-acb4-db933f5ed9cd"/>
+					<code code="82346-8" codeSystem="2.16.840.1.113883.6.1" displayName="REMS Material"/>
+					<title/>
+					<text/>
+					<effectiveTime value="20150508"/>
+					<subject>
+						<manufacturedProduct>
+							<subjectOf>
+								<document>
+									<id root=""/>
+									<title>
+										<reference value=""/>
+									</title>
+									<text mediaType="application/pdf">
+										<reference value=""/>
+									</text>
+								</document>
+							</subjectOf>
+						</manufacturedProduct>
+					</subject>
+				</section>
+			</component>
+			<component>
+				<section ID="L4f4d72fd-df25-4807-bc08-69a68f9fb911">
+					<id root="46d82056-77ea-4402-98c9-7ff8f5c43698"/>
+					<code code="82352-6" codeSystem="2.16.840.1.113883.6.1" displayName="REMS TIMETABLE FOR SUBMISSION ASSESSMENTS"/>
+					<title/>
+					<text/>
+					<effectiveTime value="20171211"/>
+					<subject2>
+						<substanceAdministration>
+							<componentOf>
+								<sequenceNumber value="2"/>
+								<protocol>
+									<code code="" codeSystem="2.16.840.1.113883.3.26.1.1" displayName=""/>
+									<component>
+										<sequenceNumber value=""/>
+										<requirement>
+											<code code="" displayName="" codeSystem="2.16.840.1.113883.3.26.1.1">
+												<originalText>
+													<reference value=""/>
+												</originalText>
+											</code>
+											<participation typeCode="PPRF">
+												<stakeholder>
+													<code code="" displayName="" codeSystem="2.16.840.1.113883.3.26.1.1"/>
+												</stakeholder>
+											</participation>
+										</requirement>
+									</component>
+								</protocol>
+							</componentOf>
+							<subjectOf>
+								<approval>
+									<code code="C128899" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="REMS Program Approval"/>
+									<effectiveTime>
+										<low value=""/>
+									</effectiveTime>
+									<author>
+										<territorialAuthority>
+											<territory>
+												<code code="USA" codeSystem="2.16.840.1.113883.5.28"/>
+											</territory>
+										</territorialAuthority>
+									</author>
+								</approval>
+							</subjectOf>
+						</substanceAdministration>
+					</subject2>
+				</section>
+			</component>
+		</structuredBody>
+	</component>
+</document>

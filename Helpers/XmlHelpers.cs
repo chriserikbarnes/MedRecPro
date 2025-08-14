@@ -31,6 +31,28 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Creates a deep clone of an <see cref="XNode"/> without losing
+        /// comments, CDATA, or processing instructions.
+        /// </summary>
+        /// <param name="node">The node to clone.</param>
+        /// <returns>A deep-cloned copy of the node.</returns>
+        /// <remarks>
+        /// This uses [see cref="XNode.CreateReader"/] internally to produce
+        /// a fresh instance without affecting the original.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var clone = myElement.CloneNode();
+        /// </code>
+        /// </example>
+        public static XNode CloneNode(this XNode node)
+        {
+            if (node == null) throw new ArgumentNullException(nameof(node));
+            return XNode.ReadFrom(node.CreateReader());
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets the value of a direct child element.
         /// </summary>
         /// <param name="element">The parent XElement.</param>

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0"<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+  <id root="588fcdd8-7cde-4db2-98b9-0bc3ae5d727b"/>
+  <code code="53410-7" codeSystem="2.16.840.1.113883.6.1" displayName="NO CHANGE NOTIFICATION"/>
+  <effectiveTime value="20250814"/>
+  <setId root="6e290dc8-bd58-46c4-b995-e026c2f49b1b"/>
+  <versionNumber value="1"/>
+  <component>
+    <structuredBody/>
+  </component>
+</document>

@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
+	<id root="b5504c53-b6bd-4252-8490-307b85706e93"/>
+	<code code="93723-5" codeSystem="2.16.840.1.113883.6.1" displayName="INDEXING - DRUG INTERACTIONS"/>
+	<effectiveTime value="20250814"/>
+	<setId root="429cd9ed-5681-43d6-9ff0-708849c67b00"/>
+	<versionNumber value="1"/>
+	<title/>
+	<author>
+		<assignedEntity>
+			<representedOrganization>
+				<id root="1.3.6.1.4.1.519.1" extension=""/>
+				<name/>
+			</representedOrganization>
+		</assignedEntity>
+	</author>
+	<relatedDocument typeCode="DRIV">
+		<relatedDocument>
+			<setId root=""/>
+		</relatedDocument>
+	</relatedDocument>
+	<component>
+		<structuredBody>
+			<component>
+				<section>
+					<id root="941d3ab8-859b-42db-9569-5183a220d41a"/>
+					<code code="34068-7" displayName="DOSAGE &amp; ADMINISTRATION SECTION" codeSystem="2.16.840.1.113883.6.1"/>
+					<effectiveTime value="20250814"/>
+					<subject2>
+						<substanceAdministration>
+							<subjectOf>
+								<issue>
+									<code code="C54708" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="INTERACTION"/>
+									<risk>
+										<consequenceObservation>
+											<code code="44100-6" codeSystem="2.16.840.1.113883.6.1" displayName="Medical Problem"/>
+											<value code="" displayName="" codeSystem="2.16.840.1.113883.6.96" xsi:type="CE"/>
+										</consequenceObservation>
+									</risk>
+									<subject>
+										<substanceAdministrationCriterion>
+											<consumable>
+												<administrableMaterial>
+													<administrableMaterialKind>
+														<code code="" displayName="" codeSystem="2.16.840.1.113883.4.9"/>
+													</administrableMaterialKind>
+												</administrableMaterial>
+											</consumable>
+										</substanceAdministrationCriterion>
+									</subject>
+								</issue>
+							</subjectOf>
+						</substanceAdministration>
+					</subject2>
+				</section>
+			</component>
+		</structuredBody>
+	</component>
+</document>
