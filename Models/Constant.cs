@@ -286,5 +286,210 @@
             public const string Representation = "representation";
             public const string IntegrityCheckAlgorithm = "integrityCheckAlgorithm";
         }
+
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Provides constant values for document comparison analysis operations to avoid magic strings.
+    /// </summary>
+    /// <remarks>
+    /// This class centralizes string constants used throughout the comparison analysis workflow,
+    /// improving maintainability and reducing the risk of typos in status messages and headers.
+    /// </remarks>
+    /// <seealso cref="Label"/>
+    public static class ComparisonConstants
+    {
+        #region implementation
+
+        #region status constants
+
+        /**************************************************************/
+        /// <summary>
+        /// Status indicating the comparison operation has been queued for processing.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string STATUS_QUEUED = "Queued";
+
+        /**************************************************************/
+        /// <summary>
+        /// Status indicating the comparison operation is currently being processed.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string STATUS_PROCESSING = "Processing";
+
+        /**************************************************************/
+        /// <summary>
+        /// Status indicating the comparison operation is analyzing document structure.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string STATUS_ANALYZING = "Analyzing document structure";
+
+        /**************************************************************/
+        /// <summary>
+        /// Status indicating the comparison operation is finalizing results.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string STATUS_FINALIZING = "Finalizing results";
+
+        /**************************************************************/
+        /// <summary>
+        /// Status indicating the comparison operation has completed successfully.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string STATUS_COMPLETED = "Completed";
+
+        /**************************************************************/
+        /// <summary>
+        /// Status indicating the comparison operation was canceled.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string STATUS_CANCELED = "Canceled";
+
+        /**************************************************************/
+        /// <summary>
+        /// Status indicating the comparison operation failed with an error.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string STATUS_FAILED = "Failed";
+
+        #endregion
+
+        #region http header constants
+
+        /**************************************************************/
+        /// <summary>
+        /// HTTP response header key for the document GUID being analyzed.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string HEADER_DOCUMENT_GUID = "X-Document-Guid";
+
+        /**************************************************************/
+        /// <summary>
+        /// HTTP response header key for the operation ID tracking the analysis.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string HEADER_OPERATION_ID = "X-Operation-Id";
+
+        /**************************************************************/
+        /// <summary>
+        /// HTTP response header key for the type of analysis being performed.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string HEADER_ANALYSIS_TYPE = "X-Analysis-Type";
+
+        /**************************************************************/
+        /// <summary>
+        /// HTTP response header key for the analysis method (synchronous or asynchronous).
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string HEADER_ANALYSIS_METHOD = "X-Analysis-Method";
+
+        /**************************************************************/
+        /// <summary>
+        /// HTTP response header key for the timestamp when analysis was initiated.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string HEADER_ANALYSIS_TIMESTAMP = "X-Analysis-Timestamp";
+
+        #endregion
+
+        #region analysis type constants
+
+        /**************************************************************/
+        /// <summary>
+        /// Analysis type identifier for document comparison operations.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string ANALYSIS_TYPE_DOCUMENT_COMPARISON = "DocumentComparison";
+
+        /**************************************************************/
+        /// <summary>
+        /// Analysis method identifier for synchronous processing.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string ANALYSIS_METHOD_SYNCHRONOUS = "Synchronous";
+
+        /**************************************************************/
+        /// <summary>
+        /// Analysis method identifier for asynchronous processing.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string ANALYSIS_METHOD_ASYNCHRONOUS = "Asynchronous";
+
+        #endregion
+
+        #region error message constants
+
+        /**************************************************************/
+        /// <summary>
+        /// Error message for empty or invalid document GUID parameters.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string ERROR_EMPTY_DOCUMENT_GUID = "Document GUID cannot be empty.";
+
+        /**************************************************************/
+        /// <summary>
+        /// Error message for empty or invalid operation ID parameters.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string ERROR_EMPTY_OPERATION_ID = "Operation ID cannot be empty.";
+
+        /**************************************************************/
+        /// <summary>
+        /// Generic error message for comparison analysis failures.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string ERROR_ANALYSIS_FAILED = "An error occurred while performing document comparison analysis.";
+
+        /**************************************************************/
+        /// <summary>
+        /// Error message for queuing operation failures.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const string ERROR_QUEUING_FAILED = "An error occurred while queuing document comparison analysis.";
+
+        #endregion
+
+        #region progress percentage constants
+
+        /**************************************************************/
+        /// <summary>
+        /// Progress percentage when operation is initially queued.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const int PROGRESS_QUEUED = 0;
+
+        /**************************************************************/
+        /// <summary>
+        /// Progress percentage when processing begins.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const int PROGRESS_PROCESSING_STARTED = 10;
+
+        /**************************************************************/
+        /// <summary>
+        /// Progress percentage during document structure analysis.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const int PROGRESS_ANALYZING = 30;
+
+        /**************************************************************/
+        /// <summary>
+        /// Progress percentage when finalizing results.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const int PROGRESS_FINALIZING = 90;
+
+        /**************************************************************/
+        /// <summary>
+        /// Progress percentage when operation is completed.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public const int PROGRESS_COMPLETED = 100;
+
+        #endregion
+
+        #endregion
     }
 }

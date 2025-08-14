@@ -573,4 +573,94 @@ namespace MedRecPro.Models
 
 
     #endregion
+
+    #region comparison status
+    /**************************************************************/
+    /// <summary>
+    /// Represents the current status and progress of a document comparison analysis operation.
+    /// </summary>
+    /// <remarks>
+    /// This model tracks the progress of background document comparison analysis operations,
+    /// providing status updates, completion percentage, and results when available.
+    /// Used for monitoring long-running comparison operations that leverage AI analysis.
+    /// </remarks>
+    /// <seealso cref="DocumentComparisonResult"/>
+    /// <seealso cref="Label"/>
+    public class ComparisonOperationStatus
+    {
+        #region implementation
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the unique identifier for this comparison operation.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public string? OperationId { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the current status of the comparison operation.
+        /// </summary>
+        /// <remarks>
+        /// Valid statuses include: Queued, Processing, Completed, Canceled, Failed.
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        public string Status { get; set; } = "Queued";
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the completion percentage of the comparison operation.
+        /// </summary>
+        /// <remarks>
+        /// Value ranges from 0 to 100, representing the progress of the analysis.
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        public int PercentComplete { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the URL for checking progress of this operation.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public string? ProgressUrl { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the document GUID being analyzed.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public Guid DocumentGuid { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the comparison analysis result when the operation completes successfully.
+        /// </summary>
+        /// <seealso cref="DocumentComparisonResult"/>
+        /// <seealso cref="Label"/>
+        public DocumentComparisonResult? Result { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets any error message if the operation fails.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public string? Error { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the timestamp when the operation was initiated.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the timestamp when the operation was last updated.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        #endregion
+    }
+    #endregion
 }
