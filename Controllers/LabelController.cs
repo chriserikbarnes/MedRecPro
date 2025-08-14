@@ -1,3 +1,4 @@
+using MedRecPro.Data;
 using MedRecPro.DataAccess; // From LabelDataAccess.cs (Repository)
 using MedRecPro.Helpers;   // From DtoTransformer.cs (DtoTransformer, StringCipher)
 using MedRecPro.Models; // From LabelClasses.cs
@@ -5,6 +6,7 @@ using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json; // From SplImportService.cs (SplImportService)
 using System.Reflection;
@@ -73,6 +75,8 @@ namespace MedRecPro.Api.Controllers
 
         private readonly IServiceScopeFactory _scopeFactory;
 
+        private readonly ApplicationDbContext _dbContext;
+
         #endregion
 
         /**************************************************************/
@@ -86,6 +90,8 @@ namespace MedRecPro.Api.Controllers
         /// <param name="splImportService">Service for importing zipped SPL files</param>
         /// <param name="queue">Service for long running background tasks</param>
         /// <param name="statusStore">Service for storing operation status</param>
+        /// <param name="scopeFactory"></param>
+        /// <param name="applicationDbContext"></param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null</exception>
         /// <exception cref="InvalidOperationException">Thrown when PKSecret configuration is missing</exception>
         public LabelController(
@@ -96,7 +102,8 @@ namespace MedRecPro.Api.Controllers
             SplImportService splImportService,
             IBackgroundTaskQueueService queue,
             IOperationStatusStore statusStore,
-            IServiceScopeFactory scopeFactory)
+            IServiceScopeFactory scopeFactory,
+            ApplicationDbContext applicationDbContext)
         {
             #region Implementation
 
@@ -106,13 +113,14 @@ namespace MedRecPro.Api.Controllers
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
             _splImportService = splImportService ?? throw new ArgumentNullException(nameof(splImportService));
+            _queue = queue ?? throw new ArgumentNullException(nameof(queue));
+            _statusStore = statusStore ?? throw new ArgumentNullException(nameof(statusStore));
+            _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
+            _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
 
             // Retrieve and validate the primary key encryption secret from configuration
             _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
-            _queue = queue;
-            _statusStore = statusStore;
-            _scopeFactory = scopeFactory;
 
             #endregion
         }
@@ -1717,6 +1725,54 @@ namespace MedRecPro.Api.Controllers
                 // Handle unexpected errors
                 _logger.LogError(ex, "Error queuing document comparison analysis for GUID {DocumentGuid}", documentGuid);
                 return StatusCode(StatusCodes.Status500InternalServerError, ComparisonConstants.ERROR_QUEUING_FAILED);
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates a populated XML document for the specified Label document GUID.
+        /// Processes the XML template with flow control and returns the populated result.
+        /// </summary>
+        /// <param name="documentGuid">The unique identifier for the document to process.</param>
+        /// <returns>HTTP response containing the populated XML document.</returns>
+        /// <example>
+        /// GET /api/xmldocument/generate/12345678-1234-1234-1234-123456789012
+        /// </example>
+        /// <remarks>
+        /// Returns the populated XML as text/xml content type.
+        /// Logs processing time and any errors encountered during generation.
+        /// </remarks>
+        [HttpGet("generate/{documentGuid:guid}")]
+        [ProducesResponseType(typeof(string), 200, "text/xml")]
+        [ProducesResponseType(404)]
+        [ProducesResponseType(500)]
+        public async Task<IActionResult> GenerateXmlDocument(Guid documentGuid)
+        {
+            #region implementation
+            try
+            {
+                _logger.LogInformation("Generating XML document for GUID: {DocumentGuid}", documentGuid);
+
+                var startTime = DateTime.UtcNow;
+                var splService = new SplExportService(_dbContext, _pkEncryptionSecret, _logger);
+                var xmlContent = await splService.ExportDocumentToSplAsync(documentGuid);
+                var processingTime = DateTime.UtcNow - startTime;
+
+                _logger.LogInformation("Successfully generated XML document for GUID: {DocumentGuid} in {ProcessingTime}ms",
+                    documentGuid, processingTime.TotalMilliseconds);
+
+                return Content(xmlContent, "text/xml");
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("No document found"))
+            {
+                _logger.LogWarning("Document not found for GUID: {DocumentGuid}", documentGuid);
+                return NotFound($"Document not found for GUID: {documentGuid}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating XML document for GUID: {DocumentGuid}", documentGuid);
+                return StatusCode(500, "An error occurred while generating the XML document");
             }
             #endregion
         }

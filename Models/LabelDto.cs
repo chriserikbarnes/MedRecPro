@@ -399,6 +399,40 @@
     }
 
     /**************************************************************/
+    /// <seealso cref="Label.Characteristic"/>
+    public class ProductCharacteristicDto
+    {
+        #region implementation
+
+        /**************************************************************/
+        /// <summary>
+        /// Product characteristic data dictionary containing attribute information.
+        /// Includes characteristic type, value, unit, and code information.
+        /// </summary>
+        /// <seealso cref="Label.Characteristic"/>
+        public Dictionary<string, object?> ProductCharacteristic { get; set; } = new();
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <seealso cref="Label.ProductRouteOfAdministration"/>
+    public class RouteDto
+    {
+        #region implementation
+
+        /**************************************************************/
+        /// <summary>
+        /// Route data dictionary containing administration method information.
+        /// Includes route code, code system, and display name.
+        /// </summary>
+        /// <seealso cref="Label.ProductRouteOfAdministration"/>
+        public Dictionary<string, object?> Route { get; set; } = new();
+
+        #endregion
+    }
+
+    /**************************************************************/
     /// <seealso cref="Label.OrganizationTelecom"/>
     public class OrganizationTelecomDto
     {
@@ -528,6 +562,8 @@
         public List<PartOfAssemblyDto> PartOfAssemblies { get; set; } = new();
         public List<PolicyDto> Policies { get; set; } = new();
         public List<SpecializedKindDto> SpecializedKinds { get; set; } = new();
+        public List<RouteDto> Routes { get; set; } = new();
+        public List<ProductCharacteristicDto> ProductCharacteristics { get; set; } = new();
     }
 
     /**************************************************************/
