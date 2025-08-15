@@ -21,15 +21,15 @@ namespace MedRecPro.Service
     /// public class UserAccessManager
     /// {
     ///     private readonly IPermissionService _permissionService;
-    ///     private readonly ILogger<UserAccessManager> _logger;
+    ///     private readonly ILogger[UserAccessManager] _logger;
     ///
-    ///     public UserAccessManager(IPermissionService permissionService, ILogger<UserAccessManager> logger)
+    ///     public UserAccessManager(IPermissionService permissionService, ILogger[UserAccessManager] logger)
     ///     {
     ///         _permissionService = permissionService;
     ///         _logger = logger;
     ///     }
     ///
-    ///     public void GrantReadAccessToPatientRecord(List<Permission> userPermissions, string patientIdResource)
+    ///     public void GrantReadAccessToPatientRecord(List[Permission] userPermissions, string patientIdResource)
     ///     {
     ///         if (!_permissionService.HasPermission(userPermissions, ActorType.Clinician, patientIdResource, PermissionType.Read))
     ///         {
@@ -70,7 +70,7 @@ namespace MedRecPro.Service
         /// </remarks>
         /// <example>
         /// <code>
-        /// var userPermissions = new List<Permission>
+        /// var userPermissions = new List[Permission]
         /// {
         ///     Permission.New(ActorType.Patient, "PatientRecord/Self", PermissionType.Read, false),
         ///     Permission.New(ActorType.Clinician, "PatientRecord/123", PermissionType.Write, false)
@@ -107,7 +107,7 @@ namespace MedRecPro.Service
         /// </remarks>
         /// <example>
         /// <code>
-        /// var permissions = new List<Permission>();
+        /// var permissions = new List[Permission]();
         /// var p1 = Permission.New(ActorType.Researcher, "Dataset/A", PermissionType.Read, true);
         ///
         /// permissions = _permissionService.Append(permissions, p1);
@@ -140,7 +140,7 @@ namespace MedRecPro.Service
         /// <code>
         /// var p1 = Permission.New(ActorType.Aggregator, "SummaryReport/All", PermissionType.Read, true);
         /// var p2 = Permission.New(ActorType.Clinician, "PatientRecord/123", PermissionType.Write, false);
-        /// var permissions = new List<Permission> { p1, p2 };
+        /// var permissions = new List[Permission] { p1, p2 };
         ///
         /// var permissionToRemove = Permission.New(ActorType.Aggregator, "SummaryReport/All", PermissionType.Read, true);
         /// permissions = _permissionService.Remove(permissions, permissionToRemove);
@@ -170,7 +170,7 @@ namespace MedRecPro.Service
         /// <example>
         /// <code>
         /// var p1 = Permission.New(ActorType.UserAdmin, "User/789", PermissionType.Read, false);
-        /// var permissions = new List<Permission> { p1 };
+        /// var permissions = new List[Permission] { p1 };
         ///
         /// // Update p1 to also have Write permission (assuming Permission object doesn't have sub-properties to change, so we replace it)
         /// var updatedP1 = Permission.New(ActorType.UserAdmin, "User/789", PermissionType.Write, false);
@@ -203,14 +203,14 @@ namespace MedRecPro.Service
         /// var p1 = Permission.New(ActorType.Patient, "Record/1", PermissionType.Read);
         /// var p2 = Permission.New(ActorType.Patient, "Record/1", PermissionType.Share);
         /// var p3 = Permission.New(ActorType.Clinician, "Record/2", PermissionType.Write);
-        /// var permissions = new List<Permission> { p1, p2, p3 };
+        /// var permissions = new List[Permission] { p1, p2, p3 };
         ///
         /// var dict = _permissionService.ToDictionary(permissions);
         /// // dict will have two keys: "Record/1" and "Record/2"
         /// // dict["Record/1"] will be a list containing p1 and p2.
         /// // dict["Record/2"] will be a list containing p3.
         ///
-        /// List<Permission> record1Permissions = dict.ContainsKey("Record/1") ? dict["Record/1"] : new List<Permission>();
+        /// List[Permission] record1Permissions = dict.ContainsKey("Record/1") ? dict["Record/1"] : new List[Permission]();
         /// </code>
         /// </example>
         Dictionary<string, List<Permission>> ToDictionary(List<Permission> permissions);
@@ -227,7 +227,7 @@ namespace MedRecPro.Service
         /// </remarks>
         /// <example>
         /// <code>
-        /// var originalPermissions = new List<Permission> { Permission.New(ActorType.Patient, "Data/A", PermissionType.Read) };
+        /// var originalPermissions = new List[Permission] { Permission.New(ActorType.Patient, "Data/A", PermissionType.Read) };
         /// var clonedPermissions = _permissionService.Clone(originalPermissions);
         ///
         /// // Modify the clone
@@ -250,7 +250,7 @@ namespace MedRecPro.Service
         /// </remarks>
         /// <example>
         /// <code>
-        /// var permissions = new List<Permission> { Permission.New(ActorType.Patient, "Record/XYZ", PermissionType.Own) };
+        /// var permissions = new List[Permission] { Permission.New(ActorType.Patient, "Record/XYZ", PermissionType.Own) };
         /// string json = _permissionService.ToJson(permissions);
         /// // json might be: "[{\"Actor\":0,\"Resource\":\"Record/XYZ\",\"Type\":2,\"MaskedPII\":true}]"
         /// // (Actual enum values depend on their definitions)
@@ -274,10 +274,10 @@ namespace MedRecPro.Service
         /// <example>
         /// <code>
         /// string json = "[{\"Actor\":0,\"Resource\":\"Record/XYZ\",\"Type\":2,\"MaskedPII\":true}]";
-        /// List<Permission> permissions = _permissionService.FromJson(json);
+        /// List[Permission] permissions = _permissionService.FromJson(json);
         /// // permissions will contain one Permission object if deserialization is successful.
         ///
-        /// List<Permission> emptyPermissions = _permissionService.FromJson(null);
+        /// List[Permission] emptyPermissions = _permissionService.FromJson(null);
         /// // emptyPermissions will be an empty list.
         /// </code>
         /// </example>
@@ -296,7 +296,7 @@ namespace MedRecPro.Service
         /// </remarks>
         /// <example>
         /// <code>
-        /// var permissionsToStore = new List<Permission> { Permission.New(ActorType.System, "Config", PermissionType.Manage) };
+        /// var permissionsToStore = new List[Permission] { Permission.New(ActorType.System, "Config", PermissionType.Manage) };
         /// try
         /// {
         ///     string encryptedData = _permissionService.Encrypt(permissionsToStore);
@@ -328,7 +328,7 @@ namespace MedRecPro.Service
         /// <example>
         /// <code>
         /// string encryptedDataFromStorage = "some_encrypted_string_here";
-        /// List<Permission> decryptedPermissions;
+        /// List[Permission] decryptedPermissions;
         ///
         /// if (_permissionService.TryDecrypt(encryptedDataFromStorage, out decryptedPermissions))
         /// {
@@ -360,7 +360,7 @@ namespace MedRecPro.Service
         /// string validEncryptedData = "previously_encrypted_valid_string";
         /// try
         /// {
-        ///     List<Permission> permissions = _permissionService.Decrypt(validEncryptedData);
+        ///     List[Permission] permissions = _permissionService.Decrypt(validEncryptedData);
         ///     // Use permissions
         /// }
         /// catch (Exception ex)

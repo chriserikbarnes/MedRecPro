@@ -2838,7 +2838,7 @@ namespace MedRecPro.Models
         /// Each Substance Index File contains the UNII, identifying characteristics, and hash codes 
         /// computed based on the identifying characteristics.
         /// </remarks>
-        /// </summary>
+
         public class IdentifiedSubstance
         {
             #region properties
@@ -4804,10 +4804,8 @@ namespace MedRecPro.Models
             public int? StakeholderID { get; set; } // Made nullable
 
             private string? _stakeholderCode;
+
             /// <summary>
-            /// Code identifying the stakeholder role (e.g., prescriber, patient).
-            /// </summary>
-            // <summary>
             /// Stakeholder code with automatic REMS validation.
             /// Validates stakeholder role codes (prescriber, patient, etc.)
             /// </summary>

@@ -302,7 +302,7 @@ namespace MedRecPro.Helpers
         /// true if the sequence is null or empty; otherwise, false.
         /// </returns>
         /// <example> 
-        /// var list = new List<int>();
+        /// var list = new List[int]();
         /// bool isEmpty = list.IsNullOrEmpty(); // Returns true
         /// 
         /// list.Add(1);
@@ -1126,7 +1126,6 @@ namespace MedRecPro.Helpers
         /// <param name="month"></param>
         /// <param name="year"></param>
         /// <param name="hour">EST</param>
-        /// <param name="UTCOffset"></param>
         /// <returns></returns>
         public static long GetJavaScriptTimestamp(int day, int month, int year, int hour)
         {
@@ -1244,6 +1243,7 @@ namespace MedRecPro.Helpers
         /// </summary>
         /// <param name="obj"></param>
         /// <param name="propName"></param>
+        /// <param name="propType"></param>
         /// <returns></returns>
         public static string GetPropertyValueAsString(this object obj, string propName, string propType)
         {

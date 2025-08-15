@@ -4,8 +4,6 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using MedRecPro.Helpers;
 using MedRecPro.Data;
 using MedRecPro.Models;
-using MedRecPro.Models;
-
 
 namespace MedRecPro.DataAccess
 {

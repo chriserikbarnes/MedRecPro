@@ -1,0 +1,37 @@
+﻿@using MedRecPro.Models;
+@using RazorLight.Razor;
+@using MedRecPro.Helpers;
+@inherits RazorLight.TemplatePage<MedRecPro.Models.PackagingLevelDto>;
+@model PackagingLevelDto
+
+<asContent>
+    <quantity>
+        <numerator @SplTemplateHelpers.SafeAttribute("value", Model.PackagingLevel,"quantityNumerator")>
+            @* Translations for quantity are complex and may need more logic based on data *@
+        </numerator>
+        <denominator @SplTemplateHelpers.SafeAttribute("value", Model.PackagingLevel,"quantityDenominator")>
+            @* Translations for quantity are complex and may need more logic based on data *@
+        </denominator>
+    </quantity>
+    <containerPackagedMedicine>
+        @* This part needs to be built from PackageIdentifier table, not directly from PackagingLevel in the sample DTO *@
+        @* <code code="0054-8221-25" codeSystem="2.16.840.1.113883.6.69" codeSystemName="NDC" /> *@
+        <formCode @SplTemplateHelpers.SafeAttribute("code", Model.PackagingLevel,"packageFormCode") 
+        @SplTemplateHelpers.SafeAttribute("codeSystem", Model.PackagingLevel,"packageFormCodeSystem") 
+        @SplTemplateHelpers.SafeAttribute("displayName", Model.PackagingLevel,"packageFormDisplayName") />
+
+        @* Recursive call for nested packaging *@
+        @if (Model.PackagingHierarchy != null)
+        {
+            foreach (var hierarchy in Model.PackagingHierarchy)
+            {
+                // FIX: Use hierarchy.ChildPackagingLevel if available, otherwise request clarification for correct property
+                var innerPackage = hierarchy.ChildPackagingLevel;
+                if (innerPackage != null)
+                {
+                    await IncludeAsync("_Packaging", innerPackage);
+                }
+            }
+        }
+    </containerPackagedMedicine>
+</asContent>

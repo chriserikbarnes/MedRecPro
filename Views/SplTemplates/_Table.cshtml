@@ -1,0 +1,48 @@
+﻿@using MedRecPro.Models
+@using RazorLight.Razor
+@using MedRecPro.Helpers
+@inherits RazorLight.TemplatePage<MedRecPro.Models.TextTableDto>
+@model TextTableDto
+
+<table @SplTemplateHelpers.SafeAttribute("ID", Model.TextTable["textTableID") 
+@SplTemplateHelpers.SafeAttribute("border", Model.TextTable, "border") 
+@SplTemplateHelpers.SafeAttribute("frame", Model.TextTable, "frame")
+@SplTemplateHelpers.SafeAttribute("width", Model.TextTable, "width")>
+    @if (Model.TextTable["Caption"] != null)
+    {
+        <caption>@Raw(Model.TextTable["Caption"]?.ToString() ?? "")</caption>
+    }
+    
+    @if (Model.TextTableRows.Any(r => r.TextTableRow["RowGroupType"]?.ToString() == "Header"))
+    {
+        <thead>
+            @foreach (var row in Model.TextTableRows.Where(r => r.TextTableRow["RowGroupType"]?.ToString() == "Header")
+                .OrderBy(r => r.TextTableRow["SequenceNumber"]))
+            {
+                await IncludeAsync("_TableRow", row);
+            }
+        </thead>
+    }
+
+    @if (Model.TextTableRows.Any(r => r.TextTableRow["RowGroupType"]?.ToString() == "Body"))
+    {
+        <tbody>
+            @foreach (var row in Model.TextTableRows.Where(r => r.TextTableRow["RowGroupType"]?.ToString() == "Body")
+                .OrderBy(r => r.TextTableRow["SequenceNumber"]))
+            {
+                await IncludeAsync("_TableRow", row);
+            }
+        </tbody>
+    }
+
+    @if (Model.TextTableRows.Any(r => r.TextTableRow["rowGroupType"]?.ToString() == "Footer"))
+    {
+        <tfoot>
+            @foreach (var row in Model.TextTableRows.Where(r => r.TextTableRow["rowGroupType"]?.ToString() == "Footer")
+                .OrderBy(r => r.TextTableRow["SequenceNumber"]))
+            {
+                await IncludeAsync("_TableRow", row);
+            }
+        </tfoot>
+    }
+</table>

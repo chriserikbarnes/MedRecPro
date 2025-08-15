@@ -1,0 +1,32 @@
+﻿@using MedRecPro.Models
+@using MedRecPro.Helpers
+@inherits RazorLight.TemplatePage<List<MedRecPro.Models.SectionTextContentDto>>
+@model List<SectionTextContentDto>
+
+<text>
+    @foreach (var content in Model.OrderBy(c => c.SectionTextContent["SequenceNumber"]))
+    {
+        var contentType = content.SectionTextContent["ContentType"]?.ToString();
+        switch (contentType)
+        {
+            case "Paragraph":
+                <paragraph>@Raw(content.SectionTextContent["ContentText"]?.ToString() ?? "")</paragraph>
+                break;
+            case "RenderMultiMedia":
+                <renderMultiMedia>@Raw(content.SectionTextContent["ContentText"]?.ToString() ?? "")</renderMultiMedia>
+                break;
+            case "List":
+                foreach (var list in content.TextLists)
+                {
+                    await IncludeAsync("_List", list);
+                }
+                break;
+            case "Table":
+                foreach (var table in content.TextTables)
+                {
+                    await IncludeAsync("_Table", table);
+                }
+                break;
+        }
+    }
+</text>

@@ -4031,10 +4031,27 @@ namespace MedRecPro.DataAccess
             if (entity == null)
                 return new List<PackagingHierarchyDto>();
 
-            // Transform entities to DTOs with encrypted IDs
-            return entity
-                .Select(e => new PackagingHierarchyDto { PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger) })
-                .ToList() ?? new List<PackagingHierarchyDto>();
+            var dtos = new List<PackagingHierarchyDto>();
+
+            // Build each hierarchy DTO with its child packaging level
+            foreach (var hierarchy in entity)
+            {
+                var dto = new PackagingHierarchyDto
+                {
+                    PackagingHierarchy = hierarchy.ToEntityWithEncryptedId(pkSecret, logger)
+                };
+
+                // Build the child packaging level if InnerPackagingLevelID exists
+                if (hierarchy.InnerPackagingLevelID != null)
+                {
+                    var innerPackagingLevels = await buildPackagingLevelsDtoAsync(db, hierarchy.InnerPackagingLevelID, pkSecret, logger);
+                    dto.ChildPackagingLevel = innerPackagingLevels?.FirstOrDefault();
+                }
+
+                dtos.Add(dto);
+            }
+
+            return dtos;
             #endregion
         }
 

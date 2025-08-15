@@ -1,7 +1,12 @@
 ﻿using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
-using c = MedRecPro.Models.Constant;
+#pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
+#pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+#pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+using c = MedRecPro.Models.Constant;
+#pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+
 using static MedRecPro.Models.Label;
 using MedRecPro.Helpers;
 using MedRecPro.Data;
@@ -342,7 +347,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Parses and creates an IngredientSourceProduct record if the ingredient XML
         /// specifies a source product NDC, which is common in compounded drug labels.
         /// </summary>
-        /// <param name="ingredientEl">The XML element for the <ingredient> which may contain the source product info.</param>
+        /// <param name="ingredientEl">The XML element for the [ingredient] which may contain the source product info.</param>
         /// <param name="ingredientId">The ID of the parent Ingredient record to link to.</param>
         /// <param name="context">The current parsing context for database access and logging.</param>
         /// <returns>A task representing the asynchronous operation.</returns>

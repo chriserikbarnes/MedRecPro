@@ -189,7 +189,7 @@ namespace MedRecPro.Models
         ///                          documentType == "ClinicalTrial";
         /// 
         /// // Environment-based configuration
-        /// settings.EnableThinking = Environment.GetEnvironmentVariable("ENVIRONMENT") == "Production" &&
+        /// settings.EnableThinking = Environment.GetEnvironmentVariable("ENVIRONMENT") == "Production" &amp;&amp;
         ///                          Environment.GetEnvironmentVariable("ENABLE_DETAILED_ANALYSIS") == "true";
         /// 
         /// // Dynamic thinking mode based on document complexity
@@ -268,7 +268,7 @@ namespace MedRecPro.Models
         /// };
         /// 
         /// // Validation for medical document processing
-        /// if (settings.Temperature > 0.3 && documentContainsSafetyData)
+        /// if (settings.Temperature > 0.3 &amp;&amp; documentContainsSafetyData)
         /// {
         ///     throw new ArgumentException("Safety-critical documents require temperature ≤ 0.3");
         /// }

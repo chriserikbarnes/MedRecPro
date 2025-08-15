@@ -1,0 +1,33 @@
+﻿@using MedRecPro.Models
+@using RazorLight.Razor
+@using MedRecPro.Helpers
+@inherits RazorLight.TemplatePage<MedRecPro.Models.TextTableRowDto>
+@model TextTableRowDto
+
+<tr @SplTemplateHelpers.SafeAttribute("ID", Model.TextTableRow,"textTableRowID") 
+    @SplTemplateHelpers.SafeAttribute("styleCode", Model.TextTableRow,"styleCode")>
+    @foreach (var cell in Model.TextTableCells.OrderBy(c => c.TextTableCell["SequenceNumber"]))
+    {
+        var cellType = cell.TextTableCell["CellType"]?.ToString() ?? "td";
+        if (cellType.Equals("th", StringComparison.OrdinalIgnoreCase))
+        {
+            <th @SplTemplateHelpers.SafeAttribute("align", cell.TextTableCell, "align") 
+                @SplTemplateHelpers.SafeAttribute("valign", cell.TextTableCell, "vAlign") 
+                @SplTemplateHelpers.SafeAttribute("colspan", cell.TextTableCell, "colSpan")
+                @SplTemplateHelpers.SafeAttribute("rowspan", cell.TextTableCell, "rowSpan") 
+                @SplTemplateHelpers.SafeAttribute("styleCode", cell.TextTableCell, "styleCode")>
+                @Raw(cell.TextTableCell["cellText"]?.ToString() ?? "")
+            </th>
+        }
+        else
+        {
+            <td @SplTemplateHelpers.SafeAttribute("align", cell.TextTableCell, "align") 
+                @SplTemplateHelpers.SafeAttribute("valign", cell.TextTableCell, "vAlign") 
+                @SplTemplateHelpers.SafeAttribute("colspan", cell.TextTableCell, "colSpan") 
+                @SplTemplateHelpers.SafeAttribute("rowspan", cell.TextTableCell, "rowSpan") 
+                @SplTemplateHelpers.SafeAttribute("styleCode", cell.TextTableCell, "styleCode")>
+                @Raw(cell.TextTableCell["CellText"]?.ToString() ?? "")
+            </td>
+        }
+    }
+</tr>

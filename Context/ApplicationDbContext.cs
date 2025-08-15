@@ -13,7 +13,7 @@ namespace MedRecPro.Data
     /// <summary>
     /// Represents the application's database context.
     /// It now uses MedRecPro.Models.User with a long as the primary key,
-    /// and IdentityRole<long> for roles with a long primary key.
+    /// and IdentityRole[long] for roles with a long primary key.
     /// </summary>
     public class ApplicationDbContext : IdentityDbContext<User, IdentityRole<long>, long, IdentityUserClaim<long>, IdentityUserRole<long>, IdentityUserLogin<long>, IdentityRoleClaim<long>, IdentityUserToken<long>>
     {

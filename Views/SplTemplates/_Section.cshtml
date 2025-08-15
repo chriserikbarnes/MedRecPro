@@ -1,0 +1,65 @@
+﻿@using MedRecPro.Models
+@using MedRecPro.Helpers
+@inherits RazorLight.TemplatePage<MedRecPro.Models.SectionDto>
+@model SectionDto
+@{
+    object? output;
+}
+<section @SplTemplateHelpers.SafeAttribute("ID", Model.Section, "sectionLinkGUID")>
+    <id @SplTemplateHelpers.SafeAttribute("root", Model.Section, "sectionGUID") />
+    @if (Model != null
+        && Model.Section != null
+        && Model.Section.TryGetValue("SectionCode", out output))
+    {
+        <code @SplTemplateHelpers.SafeAttribute("code", Model.Section, "sectionCode")
+              @SplTemplateHelpers.SafeAttribute("codeSystem", Model.Section, "sectionCodeSystem")
+              @SplTemplateHelpers.SafeAttribute("displayName", Model.Section, "sectionDisplayName") />
+    }
+    @if (
+        Model != null
+        && Model.Section != null
+        && Model.Section.TryGetValue("Title", out output))
+    {
+        <title mediaType="text/x-hl7-title+xml">@Raw(Model.Section["Title"]?.ToString() ?? "")</title>
+    }
+
+    @if (Model != null && Model.TextContents.Any())
+    {
+        await IncludeAsync("_TextContent", Model.TextContents);
+    }
+
+    <effectiveTime @SplTemplateHelpers.SafeAttributeDateTime("value", Model.Section, "effectiveTime") />
+
+    @if (Model.Products.Any())
+    {
+        foreach (var product in Model.Products)
+        {
+            foreach (var packaging in product.PackagingLevels)
+            {
+                <subject>
+                    @{
+                        await IncludeAsync("_Product", packaging);
+                    }
+                </subject>
+            }
+        }
+    }
+
+    @foreach (var childHierarchy in Model.ChildSectionHierarchies.OrderBy(h => h.SectionHierarchy["SequenceNumber"]))
+    {
+        var childSection = Model.StructuredBody.Sections.FirstOrDefault(s => s.Section["EncryptedSectionID"] == childHierarchy.SectionHierarchy["EncryptedChildSectionID"]);
+        if (childSection != null)
+        {
+            <component>
+                @{
+                    await IncludeAsync("_Section", childSection);
+                }
+            </component>
+        }
+    }
+
+    @foreach (var media in Model.ObservationMedia)
+    {
+        await IncludeAsync("_ObservationMedia", media);
+    }
+</section>

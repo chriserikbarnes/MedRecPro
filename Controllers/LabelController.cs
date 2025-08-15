@@ -303,7 +303,7 @@ namespace MedRecPro.Api.Controllers
         }
 
         /**************************************************************/
-        // <summary>
+        /// <summary>
         /// Gets the current user ID from the HTTP context.
         /// This method should be called while the HTTP context is still available.
         /// </summary>

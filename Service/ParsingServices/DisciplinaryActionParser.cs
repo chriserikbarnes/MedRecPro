@@ -7,8 +7,13 @@ using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Xml.Linq;
 using static MedRecPro.Models.Label;
+#pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
+#pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+#pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
+#pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -99,9 +104,9 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses a single <action> element, creating the DisciplinaryAction and any associated AttachedDocument records.
+        /// Parses a single [action] element, creating the DisciplinaryAction and any associated AttachedDocument records.
         /// </summary>
-        /// <param name="actionEl">The <action> XElement to parse.</param>
+        /// <param name="actionEl">The [action] XElement to parse.</param>
         /// <param name="context">The current parsing context.</param>
         /// <param name="reportProgress">Optional action to report progress.</param>
         /// <returns>A SplParseResult for the single action parsed.</returns>
@@ -390,6 +395,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <typeparam name="T">The type of the entity to validate.</typeparam>
         /// <param name="entity">The entity instance to validate.</param>
         /// <param name="logger">Logger for recording validation errors.</param>
+        /// <param name="context"></param>
         /// <returns>A list of validation error messages.</returns>
         /// <seealso cref="Label"/>
         private List<string> validateEntity<T>(T entity, ILogger logger, SplParseContext context) where T : class

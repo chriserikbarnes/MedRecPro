@@ -15,7 +15,6 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json;
-using System.Management;
 using System.Reflection;
 using System.Text.Json.Serialization;
 

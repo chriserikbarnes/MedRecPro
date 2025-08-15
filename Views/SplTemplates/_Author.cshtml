@@ -1,0 +1,11 @@
+﻿@using MedRecPro.Models;
+@model DocumentAuthorDto
+
+<author>
+    <time />
+    <assignedEntity>
+        <representedOrganization>
+            <name>@Model?.Organization?.Organization["OrganizationName"]</name>
+        </representedOrganization>
+    </assignedEntity>
+</author>

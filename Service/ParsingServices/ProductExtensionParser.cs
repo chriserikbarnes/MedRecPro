@@ -1,7 +1,12 @@
 ﻿
 ﻿using System.Xml.Linq;
-using c = MedRecPro.Models.Constant;
+#pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
+#pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+#pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+using c = MedRecPro.Models.Constant;
+#pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using static MedRecPro.Models.Label;

@@ -34,7 +34,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Creates a CertificationProductLink entity based on the current parsing context.
         /// </summary>
-        /// <param name="element">The XElement being parsed, typically the <product> element. Its contents are not directly used as data is sourced from the context.</param>
+        /// <param name="element">The XElement being parsed, typically the [product] element. Its contents are not directly used as data is sourced from the context.</param>
         /// <param name="context">The current parsing context, which must contain the CurrentDocumentRelationship and CurrentProductIdentifier.</param>
         /// <param name="reportProgress">Optional action to report progress.</param>
         /// <returns>A SplParseResult indicating success or failure.</returns>

@@ -464,6 +464,10 @@
     public class PackagingHierarchyDto
     {
         public required Dictionary<string, object?> PackagingHierarchy { get; set; }
+
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="Label.PackagingLevel"/>
+        public PackagingLevelDto? ChildPackagingLevel { get; set; }
     }
 
     /**************************************************************/
