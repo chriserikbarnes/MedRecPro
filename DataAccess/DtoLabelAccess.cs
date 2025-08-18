@@ -392,7 +392,7 @@ namespace MedRecPro.DataAccess
             {
                 var sectionDtos = await buildSectionsAsync(db, sb.StructuredBodyID, pkSecret, logger);
 
-                sbDtos.Add(new StructuredBodyDto
+                sbDtos.Add(new StructuredBodyDto(pkSecret)
                 {
                     StructuredBody = sb.ToEntityWithEncryptedId(pkSecret, logger),
                     Sections = sectionDtos
@@ -467,7 +467,7 @@ namespace MedRecPro.DataAccess
                 var warningLetterInfos = await buildWarningLetterProductInfosAsync(db, section.SectionID, pkSecret, logger);
 
                 // Assemble complete section DTO with all nested data
-                sectionDtos.Add(new SectionDto
+                sectionDtos.Add(new SectionDto(pkSecret)
                 {
                     BillingUnitIndexes = billingUnitIndexes,
                     ChildSectionHierarchies = children,
@@ -559,7 +559,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Transform entities to DTOs with encrypted IDs
-            return entity.Select(entity => new SectionHierarchyDto
+            return entity.Select(entity => new SectionHierarchyDto(pkSecret)
             {
                 SectionHierarchy = entity.ToEntityWithEncryptedId(pkSecret, logger)
             }).ToList();

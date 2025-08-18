@@ -2,33 +2,19 @@
 @using MedRecPro.Helpers
 @inherits RazorLight.TemplatePage<MedRecPro.Models.SectionDto>
 @model SectionDto
-@{
-    object? output;
-}
-<section @SplTemplateHelpers.SafeAttribute("ID", Model.Section, "sectionLinkGUID")>
-    <id @SplTemplateHelpers.SafeAttribute("root", Model.Section, "sectionGUID") />
-    @if (Model != null
-        && Model.Section != null
-        && Model.Section.TryGetValue("SectionCode", out output))
-    {
-        <code @SplTemplateHelpers.SafeAttribute("code", Model.Section, "sectionCode")
-              @SplTemplateHelpers.SafeAttribute("codeSystem", Model.Section, "sectionCodeSystem")
-              @SplTemplateHelpers.SafeAttribute("displayName", Model.Section, "sectionDisplayName") />
-    }
-    @if (
-        Model != null
-        && Model.Section != null
-        && Model.Section.TryGetValue("Title", out output))
-    {
-        <title mediaType="text/x-hl7-title+xml">@Raw(Model.Section["Title"]?.ToString() ?? "")</title>
-    }
 
-    @if (Model != null && Model.TextContents.Any())
+<section ID="@Model.SectionLinkGUID">
+    <id root="@Model.SectionGUID" />
+    <code code="@Model.SectionCode" codeSystem="@Model.SectionCodeSystem" Title="@Model.SectionDisplayName" />
+    <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
+
+
+   @*  @if (Model != null && Model.TextContents.Any())
     {
         await IncludeAsync("_TextContent", Model.TextContents);
     }
 
-    <effectiveTime @SplTemplateHelpers.SafeAttributeDateTime("value", Model.Section, "effectiveTime") />
+    <effectiveTime value="@Model.EffectiveTime" />
 
     @if (Model.Products.Any())
     {
@@ -45,9 +31,9 @@
         }
     }
 
-    @foreach (var childHierarchy in Model.ChildSectionHierarchies.OrderBy(h => h.SectionHierarchy["SequenceNumber"]))
+    @foreach (var childHierarchy in Model.ChildSectionHierarchies.OrderBy(h => h.SectionHierarchy.SequenceNumber))
     {
-        var childSection = Model.StructuredBody.Sections.FirstOrDefault(s => s.Section["EncryptedSectionID"] == childHierarchy.SectionHierarchy["EncryptedChildSectionID"]);
+        var childSection = Model.StructuredBody.Sections.FirstOrDefault(s => s.Section.SectionID == childHierarchy.ChildSectionID);
         if (childSection != null)
         {
             <component>
@@ -56,10 +42,10 @@
                 }
             </component>
         }
-    }
+    }*@
 
     @foreach (var media in Model.ObservationMedia)
     {
         await IncludeAsync("_ObservationMedia", media);
-    }
+    } 
 </section>

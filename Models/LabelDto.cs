@@ -1,6 +1,6 @@
 ﻿
 using Newtonsoft.Json;
-
+using MedRecPro.Helpers;
 namespace MedRecPro.Models
 {
     /**************************************************************/
@@ -4894,6 +4894,9 @@ namespace MedRecPro.Models
     /// <seealso cref="Label.Section"/>
     public class SectionDto
     {
+
+        private readonly string _pkSecret;
+
         public required Dictionary<string, object?> Section { get; set; }
         public StructuredBodyDto? StructuredBody { get; set; }
         public List<SectionHierarchyDto> ParentSectionHierarchies { get; set; } = new();
@@ -4918,8 +4921,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            Section.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            Section.TryGetValue("EncryptedSectionID", out var value)
+                 ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
                 : null;
 
         /// <summary>
@@ -4927,8 +4930,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? StructuredBodyID =>
-            Section.TryGetValue(nameof(StructuredBodyID), out var value)
-                ? value as int?
+            Section.TryGetValue("EncryptedStructuredBodyID", out var value)
+                 ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
                 : null;
 
         /// <summary>
@@ -5014,6 +5017,26 @@ namespace MedRecPro.Models
             Section.TryGetValue(nameof(EffectiveTimeHigh), out var value)
                 ? value as DateTime?
                 : null;
+
+
+        public SectionDto()
+        {
+            // Default constructor initializes with no encryption secret
+            _pkSecret = string.Empty;
+        }
+
+        public SectionDto(string pkSecret)
+        {
+            // Initialize with the provided encryption secret for SectionHierarchyID decryption
+            _pkSecret = pkSecret ?? throw new ArgumentNullException(nameof(pkSecret), "PK encryption secret cannot be null");
+        }
+        public SectionDto(IConfiguration? configuration)
+        {
+            // Initialize with the encryption secret for SectionHierarchyID decryption
+            _pkSecret = configuration?.GetSection("Security:DB:PKSecret").Value
+                ?? throw new InvalidOperationException("PK encryption secret not configured");
+           
+        }
     }
 
     /**************************************************************/
@@ -5055,6 +5078,7 @@ namespace MedRecPro.Models
     /// <seealso cref="Label.SectionHierarchy"/>
     public class SectionHierarchyDto
     {
+        private readonly string _pkSecret;
         public required Dictionary<string, object?> SectionHierarchy { get; set; }
 
         /// <summary>
@@ -5062,17 +5086,16 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionHierarchyID =>
-            SectionHierarchy.TryGetValue(nameof(SectionHierarchyID), out var value)
-                ? value as int?
+            SectionHierarchy.TryGetValue("EncryptedSectionID", out var value)
+                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
                 : null;
 
         /// <summary>
         /// Foreign key to Section (The parent section).
         /// </summary>
-        [Newtonsoft.Json.JsonIgnore]
         public int? ParentSectionID =>
-            SectionHierarchy.TryGetValue(nameof(ParentSectionID), out var value)
-                ? value as int?
+            SectionHierarchy.TryGetValue("EncryptedParentSectionID", out var value)
+                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
                 : null;
 
         /// <summary>
@@ -5080,8 +5103,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ChildSectionID =>
-            SectionHierarchy.TryGetValue(nameof(ChildSectionID), out var value)
-                ? value as int?
+            SectionHierarchy.TryGetValue("EncryptedChildSectionID", out var value)
+                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
                 : null;
 
         /// <summary>
@@ -5092,6 +5115,23 @@ namespace MedRecPro.Models
             SectionHierarchy.TryGetValue(nameof(SequenceNumber), out var value)
                 ? value as int?
                 : null;
+
+
+        public SectionHierarchyDto() { 
+            // Default constructor initializes with no encryption secret
+            _pkSecret = string.Empty;
+        }
+        public SectionHierarchyDto(string pkSecret)
+        {
+            // Initialize with the provided encryption secret for SectionHierarchyID decryption
+            _pkSecret = pkSecret ?? throw new ArgumentNullException(nameof(pkSecret), "PK encryption secret cannot be null");
+        }
+
+        public SectionHierarchyDto(IConfiguration? configuration)
+        {
+            _pkSecret = configuration?.GetSection("Security:DB:PKSecret").Value
+                ?? throw new InvalidOperationException("PK encryption secret not configured");
+        }
     }
 
     /**************************************************************/
@@ -5313,6 +5353,9 @@ namespace MedRecPro.Models
     /// <seealso cref="Label.StructuredBody"/>
     public class StructuredBodyDto
     {
+
+        private readonly string _pkSecret;
+
         public required Dictionary<string, object?> StructuredBody { get; set; }
         public DocumentDto? Document { get; set; }
         public List<SectionDto> Sections { get; set; } = new();
@@ -5322,8 +5365,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? StructuredBodyID =>
-            StructuredBody.TryGetValue(nameof(StructuredBodyID), out var value)
-                ? value as int?
+            StructuredBody.TryGetValue("EncryptedStructuredBodyID", out var value)
+                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
                 : null;
 
         /// <summary>
@@ -5331,9 +5374,23 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentID =>
-            StructuredBody.TryGetValue(nameof(DocumentID), out var value)
-                ? value as int?
+            StructuredBody.TryGetValue("EncryptedDocumentID", out var value)
+                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
                 : null;
+
+        public StructuredBodyDto()
+        {
+            // Default constructor for deserialization
+            _pkSecret = string.Empty; // Set to empty, will be overridden in other constructors
+        }
+
+        public StructuredBodyDto(string pkSecret){ _pkSecret = pkSecret; }
+
+        public StructuredBodyDto(IConfiguration? configuration)
+        {
+            _pkSecret = configuration?.GetSection("Security:DB:PKSecret").Value
+                 ?? throw new InvalidOperationException("PK encryption secret not configured");
+        }
     }
 
     /**************************************************************/

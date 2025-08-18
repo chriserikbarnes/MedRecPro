@@ -5,7 +5,7 @@
 @model StructuredBodyDto
 
 <structuredBody>
-    @foreach (var component in Model.Sections.GroupBy(s => s.Section["SectionGUID"]).Select(g => g.First()))
+    @foreach (var component in Model.Sections.GroupBy(s => s.SectionGUID).Select(g => g.First()))
     {
         <component>
             @{await IncludeAsync("_Section", component);}

@@ -9,23 +9,21 @@
 <document xmlns="urn:hl7-org:v3"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:schemaLocation="urn:hl7-org:v3 http://www.fda.gov/oc/datacouncil/schemas/spl/spl.xsd">
-    <id @SplTemplateHelpers.SafeAttribute("root", Model.Document, "DocumentGUID") />
-    <code @SplTemplateHelpers.SafeAttribute("code", Model.Document, "DocumentCode")
-          @SplTemplateHelpers.SafeAttribute("codeSystem", Model.Document,"DocumentCodeSystem")
-          @SplTemplateHelpers.SafeAttribute("displayName", Model.Document,"DocumentDisplayName") />
-    @if (Model.Document["Title"] != null)
+    <id root="@Model.DocumentGUID" />
+    <code code="@Model.DocumentCode" codeSystemName="@Model.DocumentCodeSystem" displayName="@Model.DocumentDisplayName" />
+    @if (Model.Title != null)
     {
-        <title mediaType="text/x-hl7-title+xml">@Raw(Model.Document["Title"]?.ToString() ?? "")</title>
+        <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
     }
-    <effectiveTime @SplTemplateHelpers.SafeAttributeDateTime("value", Model.Document,"EffectiveTime") />
-    <setId @SplTemplateHelpers.SafeAttribute("root", Model.Document,"SetGUID") />
-    <versionNumber @SplTemplateHelpers.SafeAttribute("value", Model.Document,"VersionNumber") />
-
+    <effectiveTime value="@Model.EffectiveTime" />
+    <setId root="@Model.SetGUID" />
+    <versionNumber value="@Model.VersionNumber" />
+@* 
     @foreach (var author in Model.DocumentAuthors)
     {
         await IncludeAsync("_Author", author);
     }
-
+ *@
     <component>
         @foreach (var body in Model.StructuredBodies)
         {

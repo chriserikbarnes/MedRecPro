@@ -4,9 +4,9 @@
 @model ObservationMediaDto
 
 <component>
-    <observationMedia @SplTemplateHelpers.SafeAttribute("ID", Model.ObservationMedia,"EncryptedMediaID")>
-        <value @SplTemplateHelpers.SafeAttribute("mediaType", Model.ObservationMedia,"MediaType") xsi:type="@Model.ObservationMedia["XsiType"]">
-            <reference @SplTemplateHelpers.SafeAttribute("value", Model.ObservationMedia,"FileName") />
+    <observationMedia ID="@Model.MediaID">
+        <value mediaType="@Model.MediaType" xsi:type="@Model.XsiType">
+            <reference value="@Model.FileName" />
         </value>
     </observationMedia>
 </component>
