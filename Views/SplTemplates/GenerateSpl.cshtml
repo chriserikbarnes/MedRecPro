@@ -18,12 +18,12 @@
     <effectiveTime value="@Model.EffectiveTime" />
     <setId root="@Model.SetGUID" />
     <versionNumber value="@Model.VersionNumber" />
-@* 
+
     @foreach (var author in Model.DocumentAuthors)
     {
         await IncludeAsync("_Author", author);
     }
- *@
+
     <component>
         @foreach (var body in Model.StructuredBodies)
         {

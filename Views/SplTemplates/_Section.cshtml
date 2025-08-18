@@ -9,7 +9,7 @@
     <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
 
 
-   @*  @if (Model != null && Model.TextContents.Any())
+    @*  @if (Model != null && Model.TextContents.Any())
     {
         await IncludeAsync("_TextContent", Model.TextContents);
     }
@@ -29,23 +29,29 @@
                 </subject>
             }
         }
-    }
-
-    @foreach (var childHierarchy in Model.ChildSectionHierarchies.OrderBy(h => h.SectionHierarchy.SequenceNumber))
-    {
-        var childSection = Model.StructuredBody.Sections.FirstOrDefault(s => s.Section.SectionID == childHierarchy.ChildSectionID);
-        if (childSection != null)
-        {
-            <component>
-                @{
-                    await IncludeAsync("_Section", childSection);
-                }
-            </component>
-        }
     }*@
+
+    @foreach (var childHierarchy in Model.ChildSectionHierarchies.OrderBy(h => h.SequenceNumber))
+    {
+        if (childHierarchy != null
+        && Model.StructuredBody != null
+        && Model.StructuredBody.Sections != null
+        && Model.StructuredBody.Section.Any())
+        {
+            var childSection = Model?.StructuredBody?.Sections.FirstOrDefault(s => s.SectionID == childHierarchy.ChildSectionID);
+            if (childSection != null)
+            {
+                <component>
+                    @{
+                        await IncludeAsync("_Section", childSection);
+                    }
+                </component>
+            }
+        }
+    }
 
     @foreach (var media in Model.ObservationMedia)
     {
         await IncludeAsync("_ObservationMedia", media);
-    } 
+    }
 </section>
