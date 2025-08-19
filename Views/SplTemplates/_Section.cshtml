@@ -3,55 +3,74 @@
 @inherits RazorLight.TemplatePage<MedRecPro.Models.SectionDto>
 @model SectionDto
 
-<section ID="@Model.SectionLinkGUID">
-    <id root="@Model.SectionGUID" />
-    <code code="@Model.SectionCode" codeSystem="@Model.SectionCodeSystem" Title="@Model.SectionDisplayName" />
-    <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
+@if (Model != null)
+{
+    <section ID="@Model.SectionLinkGUID">
+        <id root="@Model.SectionGUID" />
 
+        @if (Model.SectionCode != null
+            && Model.SectionCodeSystem != null
+            && Model.SectionDisplayName != null)
+        {
+            <code code="@Model.SectionCode" codeSystem="@Model.SectionCodeSystem" Title="@Model.SectionDisplayName" />
+        }
 
-    @*  @if (Model != null && Model.TextContents.Any())
+        @if (Model.Title != null)
+        {
+            <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
+        }
+
+        @*  @if (Model != null && Model.TextContents.Any())
     {
         await IncludeAsync("_TextContent", Model.TextContents);
     }
-
-    <effectiveTime value="@Model.EffectiveTime" />
-
-    @if (Model.Products.Any())
-    {
-        foreach (var product in Model.Products)
+*@
+        @if (Model.EffectiveTime != null)
         {
-            foreach (var packaging in product.PackagingLevels)
+            <effectiveTime value="@Model.EffectiveTime" />
+        }
+
+        @if (Model.Products != null && Model.Products.Any())
+        {
+            foreach (var product in Model.Products)
             {
                 <subject>
                     @{
-                        await IncludeAsync("_Product", packaging);
+                        await IncludeAsync("_Product", product);
                     }
                 </subject>
             }
         }
-    }*@
 
-    @foreach (var childHierarchy in Model.ChildSectionHierarchies.OrderBy(h => h.SequenceNumber))
-    {
-        if (childHierarchy != null
-        && Model.StructuredBody != null
-        && Model.StructuredBody.Sections != null
-        && Model.StructuredBody.Section.Any())
+        @if (Model.ChildSectionHierarchies != null && Model.ChildSectionHierarchies.Any())
         {
-            var childSection = Model?.StructuredBody?.Sections.FirstOrDefault(s => s.SectionID == childHierarchy.ChildSectionID);
-            if (childSection != null)
+            foreach (var childHierarchy in Model.ChildSectionHierarchies.OrderBy(h => h.SequenceNumber))
             {
-                <component>
-                    @{
-                        await IncludeAsync("_Section", childSection);
+                if (childHierarchy != null
+                && Model.StructuredBody != null
+                && Model.StructuredBody.Sections != null
+                && Model.StructuredBody.Sections.Any())
+                {
+                    var childSection = Model?.StructuredBody?.Sections
+                    ?.FirstOrDefault(s => s.SectionID == childHierarchy.ChildSectionID);
+                    if (childSection != null)
+                    {
+                        <component>
+                            @{
+                                await IncludeAsync("_Section", childSection);
+                            }
+                        </component>
                     }
-                </component>
+                }
             }
         }
-    }
 
-    @foreach (var media in Model.ObservationMedia)
-    {
-        await IncludeAsync("_ObservationMedia", media);
-    }
-</section>
+        @if (Model.ObservationMedia != null && Model.ObservationMedia.Any())
+        {
+            foreach (var media in Model.ObservationMedia)
+            {
+                await IncludeAsync("_ObservationMedia", media);
+            }
+        }
+    </section>
+}

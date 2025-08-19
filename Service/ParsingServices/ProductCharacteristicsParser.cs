@@ -194,6 +194,8 @@ namespace MedRecPro.Service.ParsingServices
 
                             case "ST":
                                 // Parse string value from element text content
+                                valueCV_Code = valueEl?.GetAttrVal(sc.A.CodeValue);
+                                valueCV_CodeSystem = valueEl?.GetAttrVal(sc.A.CodeSystem);
                                 valueST = valueEl?.Value;
                                 break;
 

@@ -190,11 +190,17 @@ namespace MedRecPro.Service.ParsingServices
                     var marketingParser = new ProductMarketingParser();
                     var marketingResult = await marketingParser.ParseAsync(mmEl, context, reportProgress);
                     result.MergeFrom(marketingResult);
-        
-                    // --- PARSE CHARACTERISTICS ---
-                    reportProgress?.Invoke($"Starting Product Characteristics XML Elements {context.FileNameInZip}");
+
+                    // --- PARSE CHARACTERISTICS FOR MANUFACUTRED PRODUCT (this may exist as component separate from medicine) ---
+                    reportProgress?.Invoke($"Starting Product Characteristics XML Product Elements {context.FileNameInZip}");
                     var characteristicsParser = new ProductCharacteristicsParser();
-                    var characteristicsResult = await characteristicsParser.ParseAsync(mmEl, context, reportProgress);
+                    var characteristicsResult = await characteristicsParser.ParseAsync(element, context, reportProgress);
+                    result.MergeFrom(characteristicsResult);
+
+                    // --- PARSE CHARACTERISTICS FOR MANUFACUTRED MEDICINE ---
+                    reportProgress?.Invoke($"Starting Product Characteristics XML Medicine Elements {context.FileNameInZip}");
+                    characteristicsParser = new ProductCharacteristicsParser();
+                    characteristicsResult = await characteristicsParser.ParseAsync(mmEl, context, reportProgress);
                     result.MergeFrom(characteristicsResult);
 
                     // --- PARSE BUSINESS OPERATION ---

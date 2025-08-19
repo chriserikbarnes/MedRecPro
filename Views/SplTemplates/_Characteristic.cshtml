@@ -7,35 +7,33 @@
 
 <subjectOf>
     <characteristic classCode="OBS">
-        <code @SplTemplateHelpers.SafeAttribute("code", Model.Characteristic, "characteristicCode") 
-        @SplTemplateHelpers.Attribute("codeSystem", "2.16.840.1.113883.1.11.19255") />
-        @if (Model.Characteristic["ValueType"]?.ToString() == "CE")
+        <code code="@Model.CharacteristicCode" codeSystem="@Model.CharacteristicCodeSystem" />
+        @if (Model.ValueType?.ToString() == "CE")
         {
-            <value @SplTemplateHelpers.SafeAttribute("code", Model.Characteristic, "valueCV_Code") 
-            @SplTemplateHelpers.SafeAttribute("codeSystem", Model.Characteristic, "valueCV_CodeSystem") 
-            @SplTemplateHelpers.SafeAttribute("displayName", Model.Characteristic, "valueCV_DisplayName") xsi:type="CE">
-                @if (Model.Characteristic["ValueST"] != null)
+            <value code="@Model.ValueCV_Code" codeSystem="@Model.ValueCV_CodeSystem" displayName="@Model.ValueCV_DisplayName" xsi:type="CE">
+                @if (Model.ValueCV_DisplayName != null)
                 {
-                    <originalText>@Model.Characteristic["ValueST"]</originalText>
+                    <originalText>@Model.ValueCV_DisplayName</originalText>
                 }
             </value>
         }
-        else if (Model.Characteristic["ValueType"]?.ToString() == "PQ")
+        else if (Model.ValueType?.ToString() == "PQ")
         {
-            <value @SplTemplateHelpers.SafeAttribute("unit", Model.Characteristic, "valuePQ_Unit") 
-            @SplTemplateHelpers.SafeAttribute("value", Model.Characteristic, "valuePQ_Value") xsi:type="PQ" />
+            <value unit="@Model.ValuePQ_Unit"
+                   value="@Model.ValuePQ_Value"
+                   xsi:type="PQ" />
         }
-        else if (Model.Characteristic["ValueType"]?.ToString() == "BL")
+        else if (Model.ValueType?.ToString() == "BL")
         {
-            <value @SplTemplateHelpers.SafeAttribute("value", Model.Characteristic, "valueBL")?.ToString()?.ToLower() xsi:type="BL" />
+            <value xsi:type="BL">@Model.ValueBL</value>
         }
-        else if (Model.Characteristic["ValueType"]?.ToString() == "INT")
+        else if (Model.ValueType?.ToString() == "INT")
         {
-            <value @SplTemplateHelpers.SafeAttribute("value", Model.Characteristic, "valueINT") xsi:type="INT" />
+            <value xsi:type="INT">@Model.ValueINT</value>
         }
-        else if (Model.Characteristic["ValueType"]?.ToString() == "ST")
+        else if (Model.ValueType?.ToString() == "ST")
         {
-            <value xsi:type="ST">@Model.Characteristic["valueST"]</value>
+            <value xsi:type="ST">@Model.ValueST</value>
         }
     </characteristic>
 </subjectOf>

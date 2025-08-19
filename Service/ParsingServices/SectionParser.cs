@@ -233,7 +233,7 @@ namespace MedRecPro.Service.ParsingServices
                     // 4. Parse the associated manufactured product, if it exists
                     // Process product information contained within the section
                     var productResult = await parseManufacturedProductAsync(xEl, context, reportProgress);
-                    result.MergeFrom(productResult);
+                    result.MergeFrom(productResult); 
 
                     // 5. Parse REMS protocols if applicable
                     // Check if this section contains REMS protocol elements
@@ -679,6 +679,7 @@ namespace MedRecPro.Service.ParsingServices
             if (productEl != null)
             {
                 var productParser = new ManufacturedProductParser();
+
                 return await productParser.ParseAsync(productEl, context, reportProgress);
             }
 

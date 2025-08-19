@@ -619,7 +619,8 @@ namespace MedRecPro.Models
     public class CharacteristicDto
     {
         public required Dictionary<string, object?> Characteristic { get; set; }
-        public List<Dictionary<string, object?>> PackagingLevels { get; set; } = new();
+        public List<PackageIdentifierDto?> PackagingIdentifiers { get; set; } = new();
+        public List<PackagingLevelDto?> PackagingLevels { get; set; } = new();
 
         /// <summary>
         /// Primary key for the Characteristic table.

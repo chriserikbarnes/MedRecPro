@@ -2257,12 +2257,15 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             var dtos = new List<CharacteristicDto>();
+            List<PackagingLevelDto?> pkgLevelDtos = new List<PackagingLevelDto?>();
 
             // Process each characteristic and build associated packaging levels
             foreach (var item in entities)
             {
                 // For each characteristic, build its PackagingLevel(s) as dictionaries
-                var packagingLevels = new List<Dictionary<string, object?>>();
+                var packageIdentifiers = new List<PackageIdentifierDto?>();
+                
+
                 if (item.PackagingLevelID != null)
                 {
                     // You might have one or many packaging levels per characteristic
@@ -2275,15 +2278,24 @@ namespace MedRecPro.DataAccess
 
                     if (pkgDto?.PackageIdentifier != null)
                     {
-                        packagingLevels.Add(pkgDto.PackageIdentifier);
+                        packageIdentifiers.Add(pkgDto);
                     }
+
+                    List<PackagingLevelDto>? itemPackagingLevels = (await buildPackagingLevelsAsync(db, productID, pkSecret, logger))
+                        ?.Where(pkl => pkl.PackagingLevelID == item.PackagingLevelID)
+                        ?.ToList();
+
+                    if (itemPackagingLevels != null && itemPackagingLevels.Any())
+                        pkgLevelDtos.AddRange(itemPackagingLevels);
+                        
                 }
 
                 // Create characteristic DTO with packaging levels
                 dtos.Add(new CharacteristicDto
                 {
                     Characteristic = item.ToEntityWithEncryptedId(pkSecret, logger),
-                    PackagingLevels = packagingLevels
+                    PackagingIdentifiers = packageIdentifiers,
+                    PackagingLevels = pkgLevelDtos
                 });
             }
 

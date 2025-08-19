@@ -6,19 +6,17 @@
 
 <asContent>
     <quantity>
-        <numerator @SplTemplateHelpers.SafeAttribute("value", Model.PackagingLevel,"quantityNumerator")>
-            @* Translations for quantity are complex and may need more logic based on data *@
+        <numerator value="@Model?.QuantityNumerator?.ToString("G29")">
+            <translation code="@Model.PackageCode" codeSystem="@Model.PackageCodeSystem" displayName="@Model.PackageFormDisplayName" value="@Model?.QuantityNumerator?.ToString("G29")" />
         </numerator>
-        <denominator @SplTemplateHelpers.SafeAttribute("value", Model.PackagingLevel,"quantityDenominator")>
-            @* Translations for quantity are complex and may need more logic based on data *@
+        <denominator value="@Model?.QuantityDenominator?.ToString("G29")">
+            <translation code="@Model.PackageCode" codeSystem="@Model.PackageCodeSystem" displayName="@Model.PackageFormDisplayName" value="@Model?.QuantityDenominator?.ToString("G29")" />
         </denominator>
     </quantity>
     <containerPackagedMedicine>
         @* This part needs to be built from PackageIdentifier table, not directly from PackagingLevel in the sample DTO *@
         @* <code code="0054-8221-25" codeSystem="2.16.840.1.113883.6.69" codeSystemName="NDC" /> *@
-        <formCode @SplTemplateHelpers.SafeAttribute("code", Model.PackagingLevel,"packageFormCode") 
-        @SplTemplateHelpers.SafeAttribute("codeSystem", Model.PackagingLevel,"packageFormCodeSystem") 
-        @SplTemplateHelpers.SafeAttribute("displayName", Model.PackagingLevel,"packageFormDisplayName") />
+        <formCode code="@Model.PackageFormCode" codeSystem="@Model.PackageCodeSystem" displayName="@Model.PackageFormDisplayName" />
 
         @* Recursive call for nested packaging *@
         @if (Model.PackagingHierarchy != null)
