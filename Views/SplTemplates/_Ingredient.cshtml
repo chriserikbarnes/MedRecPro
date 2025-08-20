@@ -1,42 +1,47 @@
-﻿@using MedRecPro.Models;
-@using RazorLight.Razor;
+﻿@using MedRecPro.Models
 @using MedRecPro.Helpers
 @inherits RazorLight.TemplatePage<MedRecPro.Models.IngredientDto>
 @model IngredientDto
+
 @if (Model != null)
 {
-    if (Model.OriginatingElement?.ToLower() == "activeingredient")
+    var is_active = Model.OriginatingElement?.ToLower() == "activeingredient";
+
+    if (is_active)
     {
         <activeIngredient>
             <quantity>
-                <numerator value="@Model.QuantityNumerator"
-                           unit="@Model.QuantityNumeratorUnit">
-                    @if (Model.NumeratorTranslationCode != null)
+                <numerator @SplTemplateHelpers.Attribute("value", Model.QuantityNumerator?.ToString("G29")) @SplTemplateHelpers.Attribute("unit", Model.QuantityNumeratorUnit)>
+                    @if (!string.IsNullOrEmpty(Model.NumeratorTranslationCode))
                     {
-                        <translation code="@Model.NumeratorTranslationCode"
-                                     codeSystem="@Model.NumeratorCodeSystem"
-                                     displayName="@Model.NumeratorDisplayName"
-                                     value="@Model.QuantityNumerator" />
+                        <translation @SplTemplateHelpers.Attribute("code", Model.NumeratorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", Model.NumeratorCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.NumeratorDisplayName) @SplTemplateHelpers.Attribute("value", Model.QuantityNumerator?.ToString("G29")) />
                     }
                 </numerator>
-                <denominator value="@Model.QuantityDenominator">
-                    @if (Model.DenominatorTranslationCode != null)
+                <denominator @SplTemplateHelpers.Attribute("value", Model.QuantityDenominator?.ToString("G29"))>
+                    @if (!string.IsNullOrEmpty(Model.DenominatorTranslationCode))
                     {
-                        <translation code="@Model.DenominatorTranslationCode"
-                                     codeSystem="@Model.DenominatorCodeSystem"
-                                     displayName="@Model.DenominatorDisplayName"
-                                     value="@Model.QuantityDenominator" />
+                        <translation @SplTemplateHelpers.Attribute("code", Model.DenominatorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", Model.DenominatorCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.DenominatorDisplayName) @SplTemplateHelpers.Attribute("value", Model.QuantityDenominator?.ToString("G29")) />
                     }
                 </denominator>
             </quantity>
             <activeIngredientSubstance>
-                @foreach (var spec in Model.SpecifiedSubstances)
+                @if (Model.SpecifiedSubstances != null)
                 {
-                    <code code="@spec.SubstanceCode"
-                          codeSystem="@spec.SubstanceCodeSystem"
-                          codeSystemName="@spec.SubstanceCodeSystemName" />
+                    foreach (var spec in Model.SpecifiedSubstances)
+                    {
+                        <code @SplTemplateHelpers.Attribute("code", spec.SubstanceCode) @SplTemplateHelpers.Attribute("codeSystem", spec.SubstanceCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", spec.SubstanceCodeSystemName) />
+                    }
                 }
                 <name>@Model.IngredientSubstance?.SubstanceName</name>
+                @if (Model.IngredientSubstance?.ActiveMoieties != null)
+                {
+                    foreach (var moiety in Model.IngredientSubstance.ActiveMoieties)
+                    {
+                        <activeMoiety>
+                            <name>@moiety.MoietyName</name>
+                        </activeMoiety>
+                    }
+                }
             </activeIngredientSubstance>
         </activeIngredient>
     }
@@ -44,11 +49,12 @@
     {
         <inactiveIngredient>
             <inactiveIngredientSubstance>
-                @foreach (var spec in Model.SpecifiedSubstances)
+                @if (Model.SpecifiedSubstances != null)
                 {
-                    <code code="@spec.SubstanceCode"
-                          codeSystem="@spec.SubstanceCodeSystem"
-                          codeSystemName="@spec.SubstanceCodeSystemName" />
+                    foreach (var spec in Model.SpecifiedSubstances)
+                    {
+                        <code @SplTemplateHelpers.Attribute("code", spec.SubstanceCode) @SplTemplateHelpers.Attribute("codeSystem", spec.SubstanceCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", spec.SubstanceCodeSystemName) />
+                    }
                 }
                 <name>@Model.IngredientSubstance?.SubstanceName</name>
             </inactiveIngredientSubstance>

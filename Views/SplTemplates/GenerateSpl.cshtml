@@ -1,37 +1,64 @@
 ﻿@using MedRecPro.Models
 @using MedRecPro.Helpers
-@using RazorLight.Razor
 @inherits RazorLight.TemplatePage<MedRecPro.Models.DocumentDto>
 @model DocumentDto
 
-@Raw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
-@Raw("<?xml-stylesheet href=\"http://www.fda.gov/oc/datacouncil/stylesheets/spl/spl.xsl\" type=\"text/xsl\"?>")
-@if (Model != null)
-{
-    <document xmlns="urn:hl7-org:v3"
-              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-              xsi:schemaLocation="urn:hl7-org:v3 http://www.fda.gov/oc/datacouncil/schemas/spl/spl.xsd">
-        <id root="@Model.DocumentGUID" />
-        <code code="@Model.DocumentCode" codeSystemName="@Model.DocumentCodeSystem" displayName="@Model.DocumentDisplayName" />
-        @if (Model.Title != null)
-        {
-            <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
-        }
-        <effectiveTime value="@Model.EffectiveTime" />
-        <setId root="@Model.SetGUID" />
-        <versionNumber value="@Model.VersionNumber" />
+@{
+    var idRoot = SplTemplateHelpers.GuidUp(Model?.DocumentGUID) ?? "";
+    var setIdRoot = SplTemplateHelpers.GuidUp(Model?.SetGUID) ?? "";
+    var effTime = SplTemplateHelpers.ToSplDate(Model?.EffectiveTime) ?? "";
 
-        @foreach (var author in Model.DocumentAuthors)
-        {
-            await IncludeAsync("_Author", author);
-        }
+    // Document type code (LOINC) fields
+    var docCode = Model?.DocumentCode ?? "";
+    var docCodeSystem = Model?.DocumentCodeSystem ?? "";      // typically "2.16.840.1.113883.6.1"
+    var docDisplayName = Model?.DocumentDisplayName ?? "";
 
-        <component>
-            @foreach (var body in Model.StructuredBodies)
-            {
-
-                await IncludeAsync("_StructuredBody", body);
-            }
-        </component>
-    </document>
+    // Author organization (first author with an organization name)
+    var authorOrgName = Model?.DocumentAuthors?
+        .FirstOrDefault(a => a?.Organization?.OrganizationName != null)?
+        .Organization?.OrganizationName ?? "";
 }
+
+<?xml version="1.0" encoding="utf-8" ?>
+<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" classCode="DOCCLIN" moodCode="EVN">
+    <id root="@idRoot" />
+    @* Header code *@
+    @if (!string.IsNullOrWhiteSpace(docCode) && !string.IsNullOrWhiteSpace(docCodeSystem))
+    {
+        <code code="@docCode" codeSystem="@docCodeSystem" displayName="@docDisplayName" />
+    }
+
+    @* Title: emit raw to preserve <br/> and inline links if present in downstream sections *@
+    @* If you have a top-level title string, output here; most SPL titles are inside sections *@
+
+    @* Effective Time *@
+    @if (!string.IsNullOrWhiteSpace(effTime))
+    {
+        <effectiveTime value="@effTime" />
+    }
+
+    <setId root="@setIdRoot" />
+    <versionNumber value="@(Model?.VersionNumber ?? 1)" />
+
+    @* Author *@
+    @if (!string.IsNullOrWhiteSpace(authorOrgName))
+    {
+        <author>
+            <time />
+            <assignedEntity>
+                <representedOrganization>
+                    <name>@authorOrgName</name>
+                </representedOrganization>
+            </assignedEntity>
+        </author>
+    }
+
+    @* Structured Body (one or more) *@
+    @if (Model?.StructuredBodies != null && Model.StructuredBodies.Any())
+    {
+        foreach (var sb in Model.StructuredBodies)
+        {
+            await IncludeAsync("_StructuredBody", sb);
+        }
+    }
+</document>

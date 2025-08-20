@@ -5,35 +5,34 @@
 @inherits RazorLight.TemplatePage<MedRecPro.Models.CharacteristicDto>;
 @model CharacteristicDto
 
-<subjectOf>
-    <characteristic classCode="OBS">
-        <code code="@Model.CharacteristicCode" codeSystem="@Model.CharacteristicCodeSystem" />
-        @if (Model.ValueType?.ToString() == "CE")
-        {
-            <value code="@Model.ValueCV_Code" codeSystem="@Model.ValueCV_CodeSystem" displayName="@Model.ValueCV_DisplayName" xsi:type="CE">
-                @if (Model.ValueCV_DisplayName != null)
-                {
-                    <originalText>@Model.ValueCV_DisplayName</originalText>
-                }
-            </value>
-        }
-        else if (Model.ValueType?.ToString() == "PQ")
-        {
-            <value unit="@Model.ValuePQ_Unit"
-                   value="@Model.ValuePQ_Value"
-                   xsi:type="PQ" />
-        }
-        else if (Model.ValueType?.ToString() == "BL")
-        {
-            <value xsi:type="BL">@Model.ValueBL</value>
-        }
-        else if (Model.ValueType?.ToString() == "INT")
-        {
-            <value xsi:type="INT">@Model.ValueINT</value>
-        }
-        else if (Model.ValueType?.ToString() == "ST")
-        {
-            <value xsi:type="ST">@Model.ValueST</value>
-        }
-    </characteristic>
-</subjectOf>
+
+<characteristic classCode="OBS">
+    <code code="@Model.CharacteristicCode" codeSystem="@Model.CharacteristicCodeSystem" />
+    @if (Model.ValueType?.ToString() == "CE")
+    {
+        <value code="@Model.ValueCV_Code" codeSystem="@Model.ValueCV_CodeSystem" displayName="@Model.ValueCV_DisplayName" xsi:type="CE">
+            @if (Model.ValueCV_DisplayName != null)
+            {
+                <originalText>@Model.ValueCV_DisplayName</originalText>
+            }
+        </value>
+    }
+    else if (Model.ValueType?.ToString() == "PQ")
+    {
+        <value unit="@Model.ValuePQ_Unit"
+               value="@Model.ValuePQ_Value?.ToString("G29")"
+               xsi:type="PQ" />
+    }
+    else if (Model.ValueType?.ToString() == "BL")
+    {
+        <value xsi:type="BL">@Model.ValueBL</value>
+    }
+    else if (Model.ValueType?.ToString() == "INT")
+    {
+        <value xsi:type="INT">@Model.ValueINT?.ToString("G29")</value>
+    }
+    else if (Model.ValueType?.ToString() == "ST")
+    {
+        <value xsi:type="ST">@Model.ValueST</value>
+    }
+</characteristic>

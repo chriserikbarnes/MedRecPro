@@ -16,12 +16,19 @@
     <containerPackagedMedicine>
         @* This part needs to be built from PackageIdentifier table, not directly from PackagingLevel in the sample DTO *@
         @* <code code="0054-8221-25" codeSystem="2.16.840.1.113883.6.69" codeSystemName="NDC" /> *@
+        @if (Model.PackageIdentifiers != null)
+        {
+            foreach (var ident in Model.PackageIdentifiers)
+            {
+                <code @SplTemplateHelpers.Attribute("code", ident.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", ident.IdentifierSystemOID)  @SplTemplateHelpers.Attribute("codeSystemName", "NDC") />
+            }
+        }
         <formCode code="@Model.PackageFormCode" codeSystem="@Model.PackageCodeSystem" displayName="@Model.PackageFormDisplayName" />
 
         @* Recursive call for nested packaging *@
         @if (Model.PackagingHierarchy != null)
         {
-            foreach (var hierarchy in Model.PackagingHierarchy)
+            foreach (var hierarchy in Model.PackagingHierarchy.OrderBy(p => p.SequenceNumber))
             {
                 // FIX: Use hierarchy.ChildPackagingLevel if available, otherwise request clarification for correct property
                 var innerPackage = hierarchy.ChildPackagingLevel;

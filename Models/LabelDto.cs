@@ -3238,6 +3238,7 @@ namespace MedRecPro.Models
         public List<PackagingHierarchyDto> PackagingHierarchy { get; set; } = new();
         public List<ProductEventDto> ProductEvents { get; set; } = new();
         public List<MarketingStatusDto> MarketingStatuses { get; set; } = new();
+        public List<PackageIdentifierDto> PackageIdentifiers { get; set; } = new();
 
         /// <summary>
         /// Primary key for the PackagingLevel table.

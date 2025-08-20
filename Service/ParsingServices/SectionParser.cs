@@ -232,7 +232,7 @@ namespace MedRecPro.Service.ParsingServices
 
                     // 4. Parse the associated manufactured product, if it exists
                     // Process product information contained within the section
-                    var productResult = await parseManufacturedProductAsync(xEl, context, reportProgress);
+                    var productResult = await parseManufacturedProductsAsync(xEl, context, reportProgress);
                     result.MergeFrom(productResult); 
 
                     // 5. Parse REMS protocols if applicable
@@ -668,23 +668,42 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="Label"/>
-        private async Task<SplParseResult> parseManufacturedProductAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
+        private async Task<SplParseResult> parseManufacturedProductsAsync(XElement sectionEl, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
-            // Navigate through the SPL hierarchy: section/subject/manufacturedProduct
-            // Follow standard SPL document structure to locate product elements
-            var productEl = sectionEl.SplElement(sc.E.Subject, sc.E.ManufacturedProduct);
+            // CHANGE HERE: Create a result object to aggregate results from all products found.
+            var combinedResult = new SplParseResult { Success = true };
 
-            // Delegate to specialized product parser if product element exists
-            if (productEl != null)
+            // Find ALL <subject> elements within the section.
+            var subjectElements = sectionEl.SplElements(sc.E.Subject);
+
+            // If there are no subjects, there's nothing to do.
+            if (subjectElements == null || !subjectElements.Any())
             {
-                var productParser = new ManufacturedProductParser();
-
-                return await productParser.ParseAsync(productEl, context, reportProgress);
+                return combinedResult; // Return the empty success result.
             }
 
-            // Return a default successful result if no product element is found
-            return new SplParseResult { Success = true };
+            // Create the parser once, outside the loop, for efficiency.
+            var productParser = new ManufacturedProductParser();
+
+            // CHANGE HERE: Loop through each <subject> element found.
+            foreach (var subjectEl in subjectElements)
+            {
+                // Find the <manufacturedProduct> within the current <subject>.
+                var productEl = subjectEl.SplElement(sc.E.ManufacturedProduct);
+
+                if (productEl != null)
+                {
+                    // Parse the single product.
+                    var singleProductResult = await productParser.ParseAsync(productEl, context, reportProgress);
+
+                    // Merge the results of this product into our combined result.
+                    combinedResult.MergeFrom(singleProductResult);
+                }
+            }
+
+            // Return the final result containing all parsed products.
+            return combinedResult;
             #endregion
         }
 

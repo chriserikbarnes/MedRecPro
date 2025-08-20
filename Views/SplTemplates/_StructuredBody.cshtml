@@ -4,14 +4,33 @@
 @inherits RazorLight.TemplatePage<MedRecPro.Models.StructuredBodyDto>;
 @model StructuredBodyDto
 
+@{
+    // Defensive: null-safe list
+    var all = (Model?.Sections ?? new List<SectionDto>())
+        .Where(s => s != null)
+        // De-dup to avoid repeated components (e.g., accidental joins)
+        .GroupBy(s => s.SectionGUID)
+        .Select(g => g.First())
+        .ToList();
+
+    // Render ONLY root sections (no parents) as top-level <component>.
+    // Child sections are rendered by _Section (recursively), preserving nesting.
+    var roots = all
+        .Where(s => s.ParentSectionHierarchies == null || s.ParentSectionHierarchies.Count == 0)
+        .ToList();
+
+    // Fallback: if we have no explicit roots (no hierarchy captured), render all uniques
+    var topLevel = roots.Any() ? roots : all;
+}
+
 @if (Model != null)
 {
     <structuredBody>
-        @foreach (var component in Model.Sections.GroupBy(s => s.SectionGUID).Select(g => g.First()))
+        @foreach (var section in topLevel)
         {
             <component>
                 @{
-                    await IncludeAsync("_Section", component);
+                    await IncludeAsync("_Section", section);
                 }
             </component>
         }

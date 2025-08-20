@@ -1,15 +1,13 @@
 ﻿@using MedRecPro.Models
 @using MedRecPro.Helpers
-@using RazorLight.Razor
+@inherits RazorLight.TemplatePage<MedRecPro.Models.ObservationMediaDto>
 @model ObservationMediaDto
 
 @if (Model != null)
 {
-    <component>
-        <observationMedia ID="@Model.MediaID">
-            <value mediaType="@Model.MediaType" xsi:type="@Model.XsiType">
-                <reference value="@Model.FileName" />
-            </value>
-        </observationMedia>
-    </component>
+    <observationMedia @SplTemplateHelpers.Attribute("ID", Model.MediaID)>
+        <value @SplTemplateHelpers.Attribute("mediaType", Model.MediaType) @SplTemplateHelpers.Attribute("xsi:type", Model.XsiType)>
+            <reference @SplTemplateHelpers.Attribute("value", Model.FileName) />
+        </value>
+    </observationMedia>
 }

@@ -2239,9 +2239,9 @@ namespace MedRecPro.DataAccess
         /// <remarks>
         /// Based on Section 3.1.9. Relates to the Characteristic table (ProductID and PackagingLevelID).
         /// </remarks>
-        private static async Task<List<CharacteristicDto>> buildCharacteristicsDtoAsync(ApplicationDbContext db, 
-            int? productID, 
-            string pkSecret, 
+        private static async Task<List<CharacteristicDto>> buildCharacteristicsDtoAsync(ApplicationDbContext db,
+            int? productID,
+            string pkSecret,
             ILogger logger,
             int? sectionId = null)
         {
@@ -2264,7 +2264,7 @@ namespace MedRecPro.DataAccess
             {
                 // For each characteristic, build its PackagingLevel(s) as dictionaries
                 var packageIdentifiers = new List<PackageIdentifierDto?>();
-                
+
 
                 if (item.PackagingLevelID != null)
                 {
@@ -2287,7 +2287,7 @@ namespace MedRecPro.DataAccess
 
                     if (itemPackagingLevels != null && itemPackagingLevels.Any())
                         pkgLevelDtos.AddRange(itemPackagingLevels);
-                        
+
                 }
 
                 // Create characteristic DTO with packaging levels
@@ -3138,7 +3138,7 @@ namespace MedRecPro.DataAccess
                     SubstanceSpecifications = specs,
                     ContributingFactors = contributingFactors,
                     PharmacologicClasses = pharmacologicClasses,
-                    Moiety = moieties 
+                    Moiety = moieties
                 });
             }
 
@@ -3332,7 +3332,7 @@ namespace MedRecPro.DataAccess
         /// <param name="pkSecret">The private key secret used for encrypting entity identifiers in the returned DTOs</param>
         /// <param name="logger">The logger instance for recording operations and potential errors during processing</param>
         /// <returns>A list of PharmacologicClassDto objects representing the pharmacologic classes with their associated data, or an empty list if none found</returns>
-        private static async Task<List<PharmacologicClassDto>> buildPharmacologicClassesAsync(ApplicationDbContext db, 
+        private static async Task<List<PharmacologicClassDto>> buildPharmacologicClassesAsync(ApplicationDbContext db,
             int? identifiedSubstanceID, string pkSecret, ILogger logger)
         {
             #region implementation
@@ -3897,6 +3897,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<PackagingLevelDto>();
 
             var dtos = new List<PackagingLevelDto>();
+            List<PackageIdentifierDto> packageIdentifierDtos = new List<PackageIdentifierDto>();
 
             // Query packaging levels for the specified packaging hierarchy
             var items = await db.Set<Label.PackagingLevel>()
@@ -3910,18 +3911,37 @@ namespace MedRecPro.DataAccess
             // Build packaging hierarchy data for each packaging level
             foreach (var item in items)
             {
+                var packageIdentifier = await db.Set<Label.PackageIdentifier>()
+                    .AsNoTracking()
+                    .Where(e => e.PackagingLevelID == item.PackagingLevelID)
+                    .ToListAsync();
+
+                packageIdentifierDtos = new List<PackageIdentifierDto>();
+
                 var pack = await buildPackagingHierarchyDtoAsync(db, item.PackagingLevelID, pkSecret, logger);
 
                 var events = await buildProductEventsAsync(db, item.PackagingLevelID, pkSecret, logger);
 
                 var marketingStatuses = await buildPackageMarketingStatusesAsync(db, item.PackagingLevelID, pkSecret, logger);
 
+                if (packageIdentifier != null && !packageIdentifier.Any())
+                    foreach (var pk in packageIdentifier)
+                    {
+                        var itemPk = await buildPackageIdentifierDtoAsync(db, pk.PackageIdentifierID, pkSecret, logger);
+
+                        if (itemPk == null)
+                            continue;
+
+                        packageIdentifierDtos.Add(itemPk);
+                    }
+
                 dtos.Add(new PackagingLevelDto
                 {
                     PackagingLevel = item.ToEntityWithEncryptedId(pkSecret, logger),
                     PackagingHierarchy = pack,
                     ProductEvents = events,
-                    MarketingStatuses = marketingStatuses
+                    MarketingStatuses = marketingStatuses,
+                    PackageIdentifiers = packageIdentifierDtos
                 });
             }
 
@@ -4127,9 +4147,9 @@ namespace MedRecPro.DataAccess
         /// <returns>A PackageIdentifierDto object with encrypted ID, or null if not found.</returns>
         /// <seealso cref="Label.PackageIdentifier"/>
         /// <seealso cref="PackageIdentifierDto"/>
-        private static async Task<PackageIdentifierDto?> buildPackageIdentifierDtoAsync(ApplicationDbContext db, 
-            int? packagingLevelID, 
-            string pkSecret, 
+        private static async Task<PackageIdentifierDto?> buildPackageIdentifierDtoAsync(ApplicationDbContext db,
+            int? packagingLevelID,
+            string pkSecret,
             ILogger logger,
             int? sectionId = null)
         {

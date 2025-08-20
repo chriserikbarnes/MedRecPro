@@ -7,26 +7,66 @@
 @if (Model != null)
 {
     <manufacturedProduct>
-        @if (Model.Ingredients != null
-            && Model.Ingredients.Any())
-        {
-            foreach (var ingredient in Model.Ingredients)
+        <manufacturedMedicine>
+            @if (Model.ProductIdentifiers != null && Model.ProductIdentifiers.Any(pi => pi.IdentifierType == "NDCProduct"))
             {
+                var ndc = Model.ProductIdentifiers.First(pi => pi.IdentifierType == "NDCProduct");
+                <code @SplTemplateHelpers.Attribute("code", ndc.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", ndc.IdentifierSystemOID) />
+            }
+            <name>@Model.ProductName</name>
+            <formCode @SplTemplateHelpers.Attribute("code", Model.FormCode) @SplTemplateHelpers.Attribute("codeSystem", Model.FormCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.FormDisplayName) />
+
+            @if (Model.GenericMedicines != null)
+            {
+                foreach (var generic in Model.GenericMedicines)
+                {
+                    <asEntityWithGeneric>
+                        <genericMedicine>
+                            <name>@generic.GenericName</name>
+                        </genericMedicine>
+                    </asEntityWithGeneric>
+                }
+            }
+
+            @if (Model.Ingredients != null)
+            {
+                foreach (var ingredient in Model.Ingredients.OrderBy(i => i.SequenceNumber))
                 {
                     await IncludeAsync("_Ingredient", ingredient);
                 }
             }
-        }
-        @if (Model.Characteristics != null
-            && Model.Characteristics.Any())
+
+            @if (Model.PackagingLevels != null)
+            {
+                foreach (var package in Model.PackagingLevels.Where(p => p.PackagingHierarchy == null || !p.PackagingHierarchy.Any()))
+                {
+                    await IncludeAsync("_Packaging", package);
+                }
+            }
+        </manufacturedMedicine>
+
+        @if (Model.Characteristics != null)
         {
             foreach (var characteristic in Model.Characteristics)
             {
-                {
-                    await IncludeAsync("_Characteristic", characteristic);
-                }
+                <subjectOf>
+                    @{await IncludeAsync("_Characteristic", characteristic);}
+                </subjectOf>
             }
+        }
 
+        @if (Model.Routes != null)
+        {
+            foreach (var route in Model.Routes)
+            {
+                <consumedIn>
+                    <substanceAdministration>
+                        <routeCode @SplTemplateHelpers.SafeAttribute("code", route.Route, "RouteCode")
+                                   @SplTemplateHelpers.SafeAttribute("codeSystem", route.Route, "RouteCodeSystem")
+                                   @SplTemplateHelpers.SafeAttribute("displayName", route.Route, "RouteDisplayName") />
+                    </substanceAdministration>
+                </consumedIn>
+            }
         }
     </manufacturedProduct>
 }

@@ -185,6 +185,43 @@ namespace MedRecPro.Helpers
 
             return string.Join(", ", dictionary.Keys.OrderBy(k => k));
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Formats DateTime? or string dates to SPL YYYYMMDD
+        /// </summary>
+        /// <param name="dt"></param>
+        /// <returns></returns>
+        public static string ToSplDate(object? dt)
+        {
+            if (dt == null) return "";
+            try
+            {
+                if (dt is DateTime d) return d.ToString("yyyyMMdd");
+                var s = dt.ToString();
+                if (DateTime.TryParse(s, out var parsed)) return parsed.ToString("yyyyMMdd");
+                // assume already in yyyymmdd or unknown
+                return s ?? "";
+            }
+            catch { return ""; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes GUIDs to uppercase to match SPL examples
+        /// </summary>
+        /// <param name="g"></param>
+        /// <returns></returns>
+        public static string GuidUp(Guid? g) => g.HasValue ? g.Value.ToString("D").ToUpperInvariant() : "";
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns attr
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        public static string AttrOrNull(string name, string? value) => value == null ? "" : $" {name}=\"{value}\"";
         #endregion
     }
 }

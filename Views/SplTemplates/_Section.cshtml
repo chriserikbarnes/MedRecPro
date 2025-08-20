@@ -27,7 +27,7 @@
 
         @if (Model.EffectiveTime != null)
         {
-            <effectiveTime value="@Model.EffectiveTime" />
+            <effectiveTime value="@SplTemplateHelpers.ToSplDate(Model.EffectiveTime)" />
         }
 
         @if (Model.Products != null && Model.Products.Any())
