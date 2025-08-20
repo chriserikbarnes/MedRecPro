@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json;
+using RazorLight;
 using System.Reflection;
 using System.Text.Json.Serialization;
 
@@ -202,28 +203,30 @@ builder.Services.Configure<JsonOptions>(options =>
 
 #endregion
 
+#region Newtonsoft Options
 builder.Services.AddControllers()
-    .AddNewtonsoftJson(options =>
-    {
-        // Ignore null values
-        options.SerializerSettings.NullValueHandling = NullValueHandling.Ignore;
+.AddNewtonsoftJson(options =>
+{
+    // Ignore null values
+    options.SerializerSettings.NullValueHandling = NullValueHandling.Ignore;
 
-        // Ignore default values (empty collections, default primitives)
-        options.SerializerSettings.DefaultValueHandling = DefaultValueHandling.Ignore;
+    // Ignore default values (empty collections, default primitives)
+    options.SerializerSettings.DefaultValueHandling = DefaultValueHandling.Ignore;
 
-        // Pretty print JSON
-        options.SerializerSettings.Formatting = Formatting.Indented;
+    // Pretty print JSON
+    options.SerializerSettings.Formatting = Formatting.Indented;
 
-        // Custom configuration - ignore empty collections and objects
-        if (ignoreEmptyCollections)
-            options.SerializerSettings.ContractResolver = new ConfigurableIgnoreEmptyContractHelper(
-                ignoreEmptyCollections: true,
-                ignoreEmptyObjects: true);
-        else
-            options.SerializerSettings.ContractResolver = new ConfigurableIgnoreEmptyContractHelper(
-                ignoreEmptyCollections: false,
-                ignoreEmptyObjects: false);
-    });
+    // Custom configuration - ignore empty collections and objects
+    if (ignoreEmptyCollections)
+        options.SerializerSettings.ContractResolver = new ConfigurableIgnoreEmptyContractHelper(
+            ignoreEmptyCollections: true,
+            ignoreEmptyObjects: true);
+    else
+        options.SerializerSettings.ContractResolver = new ConfigurableIgnoreEmptyContractHelper(
+            ignoreEmptyCollections: false,
+            ignoreEmptyObjects: false);
+});
+#endregion
 
 #region Swagger Documentation
 builder.Services.AddSwaggerGen(c =>
@@ -361,6 +364,29 @@ builder.Services.Configure<KestrelServerOptions>(options =>
     options.Limits.MaxRequestBodySize = int.MaxValue; // 2GB
 });
 
+#endregion
+
+#region View Configuration
+// Enable ASP.NET Core Razor Views
+builder.Services.AddControllersWithViews(); // This adds Razor view support
+
+// RazorLight for programmatic templates (after your existing custom services)
+builder.Services.AddSingleton<IRazorLightEngine>(serviceProvider =>
+{
+    var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();
+
+    return new RazorLightEngineBuilder()
+        .UseFileSystemProject(Path.Combine(environment.ContentRootPath, "Templates"))
+        .UseMemoryCachingProvider()
+        .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(Program).Assembly.Location))
+        .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(User).Assembly.Location))
+        .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(ApplicationDbContext).Assembly.Location))
+        .EnableDebugMode(environment.IsDevelopment())
+        .Build();
+});
+
+// View rendering service for ASP.NET Core views
+builder.Services.AddScoped<IViewRenderService, ViewRenderService>(); 
 #endregion
 
 var app = builder.Build();

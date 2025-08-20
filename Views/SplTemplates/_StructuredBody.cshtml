@@ -4,11 +4,16 @@
 @inherits RazorLight.TemplatePage<MedRecPro.Models.StructuredBodyDto>;
 @model StructuredBodyDto
 
-<structuredBody>
-    @foreach (var component in Model.Sections.GroupBy(s => s.SectionGUID).Select(g => g.First()))
-    {
-        <component>
-            @{await IncludeAsync("_Section", component);}
-        </component>
-    }
-</structuredBody>
+@if (Model != null)
+{
+    <structuredBody>
+        @foreach (var component in Model.Sections.GroupBy(s => s.SectionGUID).Select(g => g.First()))
+        {
+            <component>
+                @{
+                    await IncludeAsync("_Section", component);
+                }
+            </component>
+        }
+    </structuredBody>
+}

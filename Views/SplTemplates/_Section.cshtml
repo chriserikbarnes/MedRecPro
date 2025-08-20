@@ -15,16 +15,16 @@
             <code code="@Model.SectionCode" codeSystem="@Model.SectionCodeSystem" Title="@Model.SectionDisplayName" />
         }
 
-        @if (Model.Title != null)
+        @if (!string.IsNullOrWhiteSpace(Model.Title))
         {
             <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
         }
 
-        @*  @if (Model != null && Model.TextContents.Any())
-    {
-        await IncludeAsync("_TextContent", Model.TextContents);
-    }
-*@
+        @if (Model.TextContents != null && Model.TextContents.Any())
+        {
+            await IncludeAsync("_TextContent", Model.TextContents);
+        }
+
         @if (Model.EffectiveTime != null)
         {
             <effectiveTime value="@Model.EffectiveTime" />

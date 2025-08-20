@@ -4,29 +4,36 @@
 @model List<SectionTextContentDto>
 
 <text>
-    @foreach (var content in Model.OrderBy(c => c.SectionTextContent["SequenceNumber"]))
+    @if (Model != null)
     {
-        var contentType = content.SectionTextContent["ContentType"]?.ToString();
-        switch (contentType)
+        foreach (var content in Model.OrderBy(c => c.SequenceNumber))
         {
-            case "Paragraph":
-                <paragraph>@Raw(content.SectionTextContent["ContentText"]?.ToString() ?? "")</paragraph>
-                break;
-            case "RenderMultiMedia":
-                <renderMultiMedia>@Raw(content.SectionTextContent["ContentText"]?.ToString() ?? "")</renderMultiMedia>
-                break;
-            case "List":
-                foreach (var list in content.TextLists)
+            var contentType = content.ContentType;
+
+            if (!string.IsNullOrWhiteSpace(contentType))
+            {
+                switch (contentType)
                 {
-                    await IncludeAsync("_List", list);
+                    case "Paragraph":
+                        <paragraph>@Raw(content.ContentText?.ToString() ?? "")</paragraph>
+                        break;
+                    case "RenderMultiMedia":
+                        <renderMultiMedia>@Raw(content.ContentText?.ToString() ?? "")</renderMultiMedia>
+                        break;
+                         case "List":
+                        foreach (var list in content.TextLists)
+                        {
+                            await IncludeAsync("_List", list);
+                        }
+                        break;
+                    case "Table":
+                        foreach (var table in content.TextTables)
+                        {
+                            await IncludeAsync("_Table", table);
+                        }
+                        break;
                 }
-                break;
-            case "Table":
-                foreach (var table in content.TextTables)
-                {
-                    await IncludeAsync("_Table", table);
-                }
-                break;
+            }
         }
     }
 </text>

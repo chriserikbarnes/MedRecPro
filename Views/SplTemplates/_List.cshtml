@@ -3,17 +3,18 @@
 @using MedRecPro.Helpers
 @inherits RazorLight.TemplatePage<MedRecPro.Models.TextListDto>
 @model TextListDto
-
-<list @SplTemplateHelpers.SafeAttribute("listType", Model.TextList, "ListType") 
-    @SplTemplateHelpers.SafeAttribute("styleCode", Model.TextList, "StyleCode")>
-    @foreach (var item in Model.TextListItems.OrderBy(i => i.TextListItem["SequenceNumber"]))
-    {
-        <item>
-            @if (item.TextListItem["ItemCaption"] != null)
-            {
-                <caption>@Raw(item.TextListItem["ItemCaption"]?.ToString() ?? "")</caption>
-            }
-            @Raw(item.TextListItem["ItemText"]?.ToString() ?? "")
-        </item>
-    }
-</list>
+@if (Model != null)
+{
+    <list listType="@Model.ListType" styleCode="@Model.StyleCode">
+        @foreach (var item in Model.TextListItems.OrderBy(i => i.SequenceNumber))
+        {
+            <item>
+                @if (!string.IsNullOrWhiteSpace(item.ItemCaption))
+                {
+                    <caption>@Raw(item.ItemCaption ?? "")</caption>
+                }
+                @Raw(item.ItemText ?? "")
+            </item>
+        }
+    </list>
+}

@@ -3,10 +3,13 @@
 @using RazorLight.Razor
 @model ObservationMediaDto
 
-<component>
-    <observationMedia ID="@Model.MediaID">
-        <value mediaType="@Model.MediaType" xsi:type="@Model.XsiType">
-            <reference value="@Model.FileName" />
-        </value>
-    </observationMedia>
-</component>
+@if (Model != null)
+{
+    <component>
+        <observationMedia ID="@Model.MediaID">
+            <value mediaType="@Model.MediaType" xsi:type="@Model.XsiType">
+                <reference value="@Model.FileName" />
+            </value>
+        </observationMedia>
+    </component>
+}

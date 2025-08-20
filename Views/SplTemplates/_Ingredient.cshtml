@@ -3,53 +3,55 @@
 @using MedRecPro.Helpers
 @inherits RazorLight.TemplatePage<MedRecPro.Models.IngredientDto>
 @model IngredientDto
-
-@if (Model.Ingredient["OriginatingElement"]?.ToString()?.ToLower() == "activeingredient")
+@if (Model != null)
 {
-    <activeIngredient>
-        <quantity>
-            <numerator @SplTemplateHelpers.SafeAttribute("value", Model.Ingredient, "quantityNumerator") 
-            @SplTemplateHelpers.SafeAttribute("unit", Model.Ingredient, "quantityNumeratorUnit")>
-                @if (Model.Ingredient["NumeratorTranslationCode"] != null)
+    if (Model.OriginatingElement?.ToLower() == "activeingredient")
+    {
+        <activeIngredient>
+            <quantity>
+                <numerator value="@Model.QuantityNumerator"
+                           unit="@Model.QuantityNumeratorUnit">
+                    @if (Model.NumeratorTranslationCode != null)
+                    {
+                        <translation code="@Model.NumeratorTranslationCode"
+                                     codeSystem="@Model.NumeratorCodeSystem"
+                                     displayName="@Model.NumeratorDisplayName"
+                                     value="@Model.QuantityNumerator" />
+                    }
+                </numerator>
+                <denominator value="@Model.QuantityDenominator">
+                    @if (Model.DenominatorTranslationCode != null)
+                    {
+                        <translation code="@Model.DenominatorTranslationCode"
+                                     codeSystem="@Model.DenominatorCodeSystem"
+                                     displayName="@Model.DenominatorDisplayName"
+                                     value="@Model.QuantityDenominator" />
+                    }
+                </denominator>
+            </quantity>
+            <activeIngredientSubstance>
+                @foreach (var spec in Model.SpecifiedSubstances)
                 {
-                    <translation @SplTemplateHelpers.SafeAttribute("code", Model.Ingredient, "numeratorTranslationCode") 
-                    @SplTemplateHelpers.SafeAttribute("codeSystem", Model.Ingredient, "numeratorCodeSystem")
-                    @SplTemplateHelpers.SafeAttribute("displayName", Model.Ingredient, "numeratorDisplayName") 
-                    @SplTemplateHelpers.SafeAttribute("value", Model.Ingredient, "quantityNumerator") />
+                    <code code="@spec.SubstanceCode"
+                          codeSystem="@spec.SubstanceCodeSystem"
+                          codeSystemName="@spec.SubstanceCodeSystemName" />
                 }
-            </numerator>
-            <denominator @SplTemplateHelpers.SafeAttribute("value", Model.Ingredient, "quantityDenominator")>
-                @if (Model.Ingredient["DenominatorTranslationCode"] != null)
+                <name>@Model.IngredientSubstance?.SubstanceName</name>
+            </activeIngredientSubstance>
+        </activeIngredient>
+    }
+    else
+    {
+        <inactiveIngredient>
+            <inactiveIngredientSubstance>
+                @foreach (var spec in Model.SpecifiedSubstances)
                 {
-                    <translation @SplTemplateHelpers.SafeAttribute("code", Model.Ingredient, "denominatorTranslationCode") 
-                    @SplTemplateHelpers.SafeAttribute("codeSystem", Model.Ingredient, "denominatorCodeSystem") 
-                    @SplTemplateHelpers.SafeAttribute("displayName", Model.Ingredient, "denominatorDisplayName") 
-                    @SplTemplateHelpers.SafeAttribute("value", Model.Ingredient, "quantityDenominator") />
+                    <code code="@spec.SubstanceCode"
+                          codeSystem="@spec.SubstanceCodeSystem"
+                          codeSystemName="@spec.SubstanceCodeSystemName" />
                 }
-            </denominator>
-        </quantity>
-        <activeIngredientSubstance>
-            @foreach (var spec in Model.SpecifiedSubstances)
-            {
-                <code @SplTemplateHelpers.SafeAttribute("code", spec.SpecifiedSubstance, "substanceCode") 
-                @SplTemplateHelpers.SafeAttribute("codeSystem", spec.SpecifiedSubstance, "substanceCodeSystem") 
-                @SplTemplateHelpers.SafeAttribute("codeSystemName", spec.SpecifiedSubstance, "substanceCodeSystemName") />
-            }
-            <name>@Model?.IngredientSubstance?.IngredientSubstance, "substanceName"]</name>
-        </activeIngredientSubstance>
-    </activeIngredient>
-}
-else
-{
-    <inactiveIngredient>
-        <inactiveIngredientSubstance>
-            @foreach (var spec in Model.SpecifiedSubstances)
-            {
-                <code @SplTemplateHelpers.SafeAttribute("code", spec.SpecifiedSubstance, "substanceCode") 
-                @SplTemplateHelpers.SafeAttribute("codeSystem", spec.SpecifiedSubstance, "substanceCodeSystem") 
-                @SplTemplateHelpers.SafeAttribute("codeSystemName", spec.SpecifiedSubstance, "substanceCodeSystemName") />
-            }
-            <name>@Model?.IngredientSubstance?.IngredientSubstance, "substanceName"]</name>
-        </inactiveIngredientSubstance>
-    </inactiveIngredient>
+                <name>@Model.IngredientSubstance?.SubstanceName</name>
+            </inactiveIngredientSubstance>
+        </inactiveIngredient>
+    }
 }

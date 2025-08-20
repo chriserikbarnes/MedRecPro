@@ -6,29 +6,32 @@
 
 @Raw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
 @Raw("<?xml-stylesheet href=\"http://www.fda.gov/oc/datacouncil/stylesheets/spl/spl.xsl\" type=\"text/xsl\"?>")
-<document xmlns="urn:hl7-org:v3"
-          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xsi:schemaLocation="urn:hl7-org:v3 http://www.fda.gov/oc/datacouncil/schemas/spl/spl.xsd">
-    <id root="@Model.DocumentGUID" />
-    <code code="@Model.DocumentCode" codeSystemName="@Model.DocumentCodeSystem" displayName="@Model.DocumentDisplayName" />
-    @if (Model.Title != null)
-    {
-        <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
-    }
-    <effectiveTime value="@Model.EffectiveTime" />
-    <setId root="@Model.SetGUID" />
-    <versionNumber value="@Model.VersionNumber" />
-
-    @foreach (var author in Model.DocumentAuthors)
-    {
-        await IncludeAsync("_Author", author);
-    }
-
-    <component>
-        @foreach (var body in Model.StructuredBodies)
+@if (Model != null)
+{
+    <document xmlns="urn:hl7-org:v3"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="urn:hl7-org:v3 http://www.fda.gov/oc/datacouncil/schemas/spl/spl.xsd">
+        <id root="@Model.DocumentGUID" />
+        <code code="@Model.DocumentCode" codeSystemName="@Model.DocumentCodeSystem" displayName="@Model.DocumentDisplayName" />
+        @if (Model.Title != null)
         {
-
-            await IncludeAsync("_StructuredBody", body);
+            <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
         }
-    </component>
-</document>
+        <effectiveTime value="@Model.EffectiveTime" />
+        <setId root="@Model.SetGUID" />
+        <versionNumber value="@Model.VersionNumber" />
+
+        @foreach (var author in Model.DocumentAuthors)
+        {
+            await IncludeAsync("_Author", author);
+        }
+
+        <component>
+            @foreach (var body in Model.StructuredBodies)
+            {
+
+                await IncludeAsync("_StructuredBody", body);
+            }
+        </component>
+    </document>
+}

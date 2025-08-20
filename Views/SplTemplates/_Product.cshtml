@@ -4,9 +4,19 @@
 @inherits RazorLight.TemplatePage<MedRecPro.Models.ProductDto>
 @model ProductDto
 
-@if(Model != null)
+@if (Model != null)
 {
     <manufacturedProduct>
+        @if (Model.Ingredients != null
+            && Model.Ingredients.Any())
+        {
+            foreach (var ingredient in Model.Ingredients)
+            {
+                {
+                    await IncludeAsync("_Ingredient", ingredient);
+                }
+            }
+        }
         @if (Model.Characteristics != null
             && Model.Characteristics.Any())
         {
