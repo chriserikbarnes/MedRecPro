@@ -25,14 +25,16 @@
 
 @if (Model != null)
 {
-    <structuredBody>
-        @foreach (var section in topLevel)
-        {
-            <component>
-                @{
-                    await IncludeAsync("_Section", section);
-                }
-            </component>
-        }
-    </structuredBody>
+    <component>
+        <structuredBody>
+            @foreach (var section in topLevel)
+            {
+                <component>
+                    @{
+                        await IncludeAsync("_Section", section);
+                    }
+                </component>
+            }
+        </structuredBody>
+    </component>
 }

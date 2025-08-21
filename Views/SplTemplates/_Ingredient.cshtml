@@ -5,40 +5,83 @@
 
 @if (Model != null)
 {
-    var is_active = Model.OriginatingElement?.ToLower() == "activeingredient";
 
-    if (is_active)
+    var isActiveIngredient = Model.OriginatingElement?.Equals("activeIngredient", StringComparison.OrdinalIgnoreCase) == true;
+    var hasQuantity = Model.QuantityNumerator.HasValue || Model.QuantityDenominator.HasValue;
+    var hasSubstance = Model.IngredientSubstance != null;
+
+
+    @if (isActiveIngredient)
     {
         <activeIngredient>
-            <quantity>
-                <numerator @SplTemplateHelpers.Attribute("value", Model.QuantityNumerator?.ToString("G29")) @SplTemplateHelpers.Attribute("unit", Model.QuantityNumeratorUnit)>
-                    @if (!string.IsNullOrEmpty(Model.NumeratorTranslationCode))
-                    {
-                        <translation @SplTemplateHelpers.Attribute("code", Model.NumeratorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", Model.NumeratorCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.NumeratorDisplayName) @SplTemplateHelpers.Attribute("value", Model.QuantityNumerator?.ToString("G29")) />
-                    }
-                </numerator>
-                <denominator @SplTemplateHelpers.Attribute("value", Model.QuantityDenominator?.ToString("G29"))>
-                    @if (!string.IsNullOrEmpty(Model.DenominatorTranslationCode))
-                    {
-                        <translation @SplTemplateHelpers.Attribute("code", Model.DenominatorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", Model.DenominatorCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.DenominatorDisplayName) @SplTemplateHelpers.Attribute("value", Model.QuantityDenominator?.ToString("G29")) />
-                    }
-                </denominator>
-            </quantity>
+            @if (hasQuantity)
+            {
+                <quantity>
+                    <numerator @SplTemplateHelpers.Attribute("value", Model.QuantityNumerator?.ToString("G29")) @SplTemplateHelpers.Attribute("unit", Model.QuantityNumeratorUnit)>
+                        @{
+                            var hasNumeratorTranslation = !string.IsNullOrEmpty(Model.NumeratorTranslationCode);
+                        }
+                        @if (hasNumeratorTranslation)
+                        {
+                            <translation @SplTemplateHelpers.Attribute("code", Model.NumeratorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", Model.NumeratorCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.NumeratorDisplayName) @SplTemplateHelpers.Attribute("value", Model.QuantityNumerator?.ToString("G29")) />
+                        }
+                    </numerator>
+                    <denominator @SplTemplateHelpers.Attribute("value", Model.QuantityDenominator?.ToString("G29"))>
+                        @{
+                            var hasDenominatorTranslation = !string.IsNullOrEmpty(Model.DenominatorTranslationCode);
+                        }
+                        @if (hasDenominatorTranslation)
+                        {
+                            <translation @SplTemplateHelpers.Attribute("code", Model.DenominatorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", Model.DenominatorCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.DenominatorDisplayName) @SplTemplateHelpers.Attribute("value", Model.QuantityDenominator?.ToString("G29")) />
+                        }
+                    </denominator>
+                </quantity>
+            }
+
             <activeIngredientSubstance>
-                @if (Model.SpecifiedSubstances != null)
+                @{
+                    var hasSpecifiedSubstances = Model.SpecifiedSubstances?.Any() == true;
+                    var orderedSubstances = hasSpecifiedSubstances
+                    ? Model?.SpecifiedSubstances
+                    ?.OrderBy(s => s.SpecifiedSubstanceID ?? 0)
+                    : null;
+                }
+
+                @if (orderedSubstances != null)
                 {
-                    foreach (var spec in Model.SpecifiedSubstances)
+                    foreach (var substance in orderedSubstances)
                     {
-                        <code @SplTemplateHelpers.Attribute("code", spec.SubstanceCode) @SplTemplateHelpers.Attribute("codeSystem", spec.SubstanceCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", spec.SubstanceCodeSystemName) />
+                        <code @SplTemplateHelpers.Attribute("code", substance.SubstanceCode) @SplTemplateHelpers.Attribute("codeSystem", substance.SubstanceCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", substance.SubstanceCodeSystemName) />
                     }
                 }
-                <name>@Model.IngredientSubstance?.SubstanceName</name>
-                @if (Model.IngredientSubstance?.ActiveMoieties != null)
+                else if (hasSubstance
+                && Model != null
+                && Model.IngredientSubstance != null
+                && !string.IsNullOrEmpty(Model.IngredientSubstance.UNII))
                 {
-                    foreach (var moiety in Model.IngredientSubstance.ActiveMoieties)
+                    @* Fallback to UNII from ingredient substance if no specified substances *@
+                    <code @SplTemplateHelpers.Attribute("code", Model.IngredientSubstance.UNII) @SplTemplateHelpers.Attribute("codeSystem", "2.16.840.1.113883.4.9") @SplTemplateHelpers.Attribute("codeSystemName", "FDA SRS") />
+                }
+
+                <name>@(Model?.IngredientSubstance?.SubstanceName ?? "")</name>
+
+                @{
+                    var hasActiveMoieties = Model?.IngredientSubstance?.ActiveMoieties?.Any() == true;
+                    var orderedMoieties = hasActiveMoieties
+                    ? Model?.IngredientSubstance?.ActiveMoieties.OrderBy(m => m.IngredientSubstanceID ?? 0)
+                    : null;
+                }
+
+                @if (orderedMoieties != null)
+                {
+                    foreach (var moiety in orderedMoieties)
                     {
                         <activeMoiety>
-                            <name>@moiety.MoietyName</name>
+                            @if (!string.IsNullOrEmpty(moiety.MoietyUNII))
+                            {
+                                <code @SplTemplateHelpers.Attribute("code", moiety.MoietyUNII) />
+                            }
+                            <name>@(moiety.MoietyName ?? "")</name>
                         </activeMoiety>
                     }
                 }
@@ -47,16 +90,37 @@
     }
     else
     {
-        <inactiveIngredient>
+        var hasClassCode = !string.IsNullOrEmpty(Model.ClassCode);
+        var classCode = string.Empty;
+
+        if (hasClassCode)
+        {
+            classCode = @SplTemplateHelpers.Attribute("classCode", Model.ClassCode).ToString();
+        }
+
+        <inactiveIngredient @Raw(classCode)>
             <inactiveIngredientSubstance>
-                @if (Model.SpecifiedSubstances != null)
+                @{
+                    var hasSpecifiedSubstancesInactive = Model.SpecifiedSubstances?.Any() == true;
+                    var orderedSubstancesInactive = hasSpecifiedSubstancesInactive
+                    ? Model?.SpecifiedSubstances?.OrderBy(s => s.SpecifiedSubstanceID ?? 0)
+                    : null;
+                }
+
+                @if (orderedSubstancesInactive != null)
                 {
-                    foreach (var spec in Model.SpecifiedSubstances)
+                    foreach (var substance in orderedSubstancesInactive)
                     {
-                        <code @SplTemplateHelpers.Attribute("code", spec.SubstanceCode) @SplTemplateHelpers.Attribute("codeSystem", spec.SubstanceCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", spec.SubstanceCodeSystemName) />
+                        <code @SplTemplateHelpers.Attribute("code", substance.SubstanceCode) @SplTemplateHelpers.Attribute("codeSystem", substance.SubstanceCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", substance.SubstanceCodeSystemName) />
                     }
                 }
-                <name>@Model.IngredientSubstance?.SubstanceName</name>
+                else if (hasSubstance && !string.IsNullOrEmpty(Model?.IngredientSubstance?.UNII))
+                {
+                    @* Fallback to UNII from ingredient substance for inactive ingredients *@
+                    <code @SplTemplateHelpers.Attribute("code", Model.IngredientSubstance.UNII) @SplTemplateHelpers.Attribute("codeSystem", "2.16.840.1.113883.4.9") @SplTemplateHelpers.Attribute("codeSystemName", "FDA SRS") />
+                }
+
+                <name>@(Model?.IngredientSubstance?.SubstanceName?.Replace("amp;", string.Empty) ?? "")</name>
             </inactiveIngredientSubstance>
         </inactiveIngredient>
     }

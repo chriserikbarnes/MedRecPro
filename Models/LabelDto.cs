@@ -1300,6 +1300,15 @@ namespace MedRecPro.Models
                 : null;
 
         /// <summary>
+        ///code system for the document codeSystemName="LOINC"
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? DocumentCodeSystemName =>
+            Document.TryGetValue(nameof(DocumentCodeSystemName), out var value)
+                ? value as string
+                : null;
+
+        /// <summary>
         /// Display name matching the document type code ([code] displayName).
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]

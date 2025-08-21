@@ -7,42 +7,89 @@
     var idRoot = SplTemplateHelpers.GuidUp(Model?.DocumentGUID) ?? "";
     var setIdRoot = SplTemplateHelpers.GuidUp(Model?.SetGUID) ?? "";
     var effTime = SplTemplateHelpers.ToSplDate(Model?.EffectiveTime) ?? "";
-
+    
     // Document type code (LOINC) fields
-    var docCode = Model?.DocumentCode ?? "";
-    var docCodeSystem = Model?.DocumentCodeSystem ?? "";      // typically "2.16.840.1.113883.6.1"
+    var docCode = Model?.DocumentCode  ?? "LOINC";
+    var docCodeSystem = Model?.DocumentCodeSystem ?? "2.16.840.1.113883.6.1"; // Default to LOINC
+    var docCodeSystemName = Model?.DocumentCodeSystemName ?? "LOINC";
     var docDisplayName = Model?.DocumentDisplayName ?? "";
-
+    
+    // Document title handling with HTML preservation
+    var documentTitle = Model?.Title ?? "";
+    var hasDocumentTitle = !string.IsNullOrWhiteSpace(documentTitle);
+    
     // Author organization (first author with an organization name)
-    var authorOrgName = Model?.DocumentAuthors?
-        .FirstOrDefault(a => a?.Organization?.OrganizationName != null)?
-        .Organization?.OrganizationName ?? "";
+    var primaryAuthor = Model?.DocumentAuthors?
+        .FirstOrDefault(a => a?.Organization?.OrganizationName != null);
+    var authorOrgName = primaryAuthor?.Organization?.OrganizationName ?? "";
+    
+    // Version handling
+    var versionNumber = Model?.VersionNumber ?? 1;
+    
+    // Validate required elements
+    var hasValidDocument = !string.IsNullOrEmpty(idRoot) && !string.IsNullOrEmpty(setIdRoot) && Model != null;
 }
 
-<?xml version="1.0" encoding="utf-8" ?>
-<document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" classCode="DOCCLIN" moodCode="EVN">
-    <id root="@idRoot" />
-    @* Header code *@
+@if (hasValidDocument)
+{
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="http://www.fda.gov/oc/datacouncil/stylesheets/spl/spl.xsl" type="text/xsl"?>
+<document xmlns="urn:hl7-org:v3" 
+          xmlns:voc="http://www.hl7.org/v3/voc" 
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+          xsi:schemaLocation="urn:hl7-org:v3 http://www.fda.gov/oc/datacouncil/schemas/spl/spl.xsd">
+    
+    <id @SplTemplateHelpers.Attribute("root", idRoot) />
+    
     @if (!string.IsNullOrWhiteSpace(docCode) && !string.IsNullOrWhiteSpace(docCodeSystem))
     {
-        <code code="@docCode" codeSystem="@docCodeSystem" displayName="@docDisplayName" />
+        <code @SplTemplateHelpers.Attribute("code", docCode) @SplTemplateHelpers.Attribute("codeSystem", docCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", docCodeSystemName) @SplTemplateHelpers.Attribute("displayName", docDisplayName) />
     }
 
-    @* Title: emit raw to preserve <br/> and inline links if present in downstream sections *@
-    @* If you have a top-level title string, output here; most SPL titles are inside sections *@
+    @if (hasDocumentTitle)
+    {
+        <title mediaType="text/x-hl7-title+xml">@Raw(documentTitle)</title>
+    }
 
-    @* Effective Time *@
     @if (!string.IsNullOrWhiteSpace(effTime))
     {
-        <effectiveTime value="@effTime" />
+        <effectiveTime @SplTemplateHelpers.Attribute("value", effTime) />
     }
 
-    <setId root="@setIdRoot" />
-    <versionNumber value="@(Model?.VersionNumber ?? 1)" />
+    <setId @SplTemplateHelpers.Attribute("root", setIdRoot) />
+    <versionNumber @SplTemplateHelpers.Attribute("value", versionNumber.ToString()) />
 
-    @* Author *@
-    @if (!string.IsNullOrWhiteSpace(authorOrgName))
+    @{
+        var hasAuthors = Model?.DocumentAuthors?.Any() == true;
+        var orderedAuthors = hasAuthors 
+            ? Model?.DocumentAuthors
+                .Where(a => a?.Organization?.OrganizationName != null)
+                .OrderBy(a => a.DocumentAuthorID ?? 0)
+            : null;
+    }
+
+    @if (orderedAuthors != null)
     {
+        foreach (var author in orderedAuthors)
+        {
+            if(author != null
+            && author.Organization != null
+            && !string.IsNullOrWhiteSpace(author.Organization.OrganizationName))
+            {
+                <author>
+                    <time />
+                    <assignedEntity>
+                        <representedOrganization>
+                            <name>@author.Organization.OrganizationName</name>
+                        </representedOrganization>
+                    </assignedEntity>
+                </author>
+            }
+        }
+    }
+    else if (!string.IsNullOrWhiteSpace(authorOrgName))
+    {
+        @* Fallback for single author *@
         <author>
             <time />
             <assignedEntity>
@@ -53,12 +100,37 @@
         </author>
     }
 
-    @* Structured Body (one or more) *@
-    @if (Model?.StructuredBodies != null && Model.StructuredBodies.Any())
+    @{
+        var hasStructuredBodies = Model?.StructuredBodies?.Any() == true;
+        var orderedStructuredBodies = hasStructuredBodies 
+            ? Model.StructuredBodies.OrderBy(sb => sb.StructuredBodyID ?? 0)
+            : null;
+    }
+
+    @if (orderedStructuredBodies != null)
     {
-        foreach (var sb in Model.StructuredBodies)
+        foreach (var structuredBody in orderedStructuredBodies)
         {
-            await IncludeAsync("_StructuredBody", sb);
+            <component>
+                @{
+                    await IncludeAsync("_StructuredBody", structuredBody);
+                }
+            </component>
         }
     }
+    else
+    {
+        @* Provide error indication for missing structured bodies *@
+        <!-- WARNING: No structured bodies found in document -->
+    }
 </document>
+}
+else
+{
+        var missingElements = new List<string>();
+        if (string.IsNullOrEmpty(idRoot)) missingElements.Add("DocumentGUID");
+        if (string.IsNullOrEmpty(setIdRoot)) missingElements.Add("SetGUID");
+        var errorMessage = string.Join(", ", missingElements);
+    
+      <errorMessage><!-- ERROR: Cannot generate SPL document. Missing required elements: @errorMessage -->  </errorMessage>
+}

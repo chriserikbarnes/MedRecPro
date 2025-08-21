@@ -46,7 +46,7 @@ namespace MedRecPro.Models
     public class Label
     {
         private static List<string> preserveTags = new List<string>
-            { "paragraph", "list", "item", "caption", "linkHtml", "sup", "sub", "content" };
+            { "paragraph", "list", "item", "caption", "linkHtml", "sup", "sub", "content", "br", "p" };
 
         #region Properties
 
@@ -87,6 +87,16 @@ namespace MedRecPro.Models
                 set => _documentCodeSystem = value?.RemoveHtmlXss();
             }
 
+            private string? _documentCodeSystemName;
+            /// <summary>
+            /// Code system for the document codeSystemName="LOINC"
+            /// </summary>
+            public string? DocumentCodeSystemName
+            {
+                get => _documentCodeSystemName;
+                set => _documentCodeSystemName = value?.RemoveHtmlXss();
+            }
+
             private string? _documentDisplayName;
             /// <summary>
             /// Display name matching the document type code ([code] displayName).
@@ -104,7 +114,7 @@ namespace MedRecPro.Models
             public string? Title
             {
                 get => _title;
-                set => _title = value?.RemoveHtmlXss();
+                set => _title = value?.RemoveUnwantedTags(preserveTags: preserveTags);
             }
 
             /// <summary>
