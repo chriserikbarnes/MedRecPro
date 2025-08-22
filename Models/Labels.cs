@@ -628,6 +628,16 @@ namespace MedRecPro.Models
                 set => _sectionCodeSystem = value?.RemoveHtmlXss();
             }
 
+            private string? _sectionCodeSystemName;
+            /// <summary>
+            /// LOINC code name for the section type ([code] codeSystemName).
+            /// </summary>
+            public string? SectionCodeSystemName
+            {
+                get => _sectionCodeSystemName;
+                set => _sectionCodeSystemName = value?.RemoveHtmlXss();
+            }
+
             private string? _sectionDisplayName;
             /// <summary>
             /// Display name matching the section code ([code] displayName).

@@ -5,34 +5,57 @@
 @inherits RazorLight.TemplatePage<MedRecPro.Models.CharacteristicDto>;
 @model CharacteristicDto
 
+@if (Model != null)
+{
+    var valueType = Model.ValueType?.ToString()?.ToUpperInvariant();
+    var hasCodedValue = !string.IsNullOrEmpty(Model.ValueCV_Code);
+    var hasQuantityValue = Model.ValuePQ_Value.HasValue;
+    var hasBooleanValue = Model.ValueBL != null;
+    var hasIntegerValue = Model.ValueINT.HasValue;
+    var hasStringValue = !string.IsNullOrEmpty(Model.ValueST);
 
-<characteristic classCode="OBS">
-    <code code="@Model.CharacteristicCode" codeSystem="@Model.CharacteristicCodeSystem" />
-    @if (Model.ValueType?.ToString() == "CE")
-    {
-        <value code="@Model.ValueCV_Code" codeSystem="@Model.ValueCV_CodeSystem" displayName="@Model.ValueCV_DisplayName" xsi:type="CE">
-            @if (Model.ValueCV_DisplayName != null)
-            {
-                <originalText>@Model.ValueCV_DisplayName</originalText>
-            }
-        </value>
-    }
-    else if (Model.ValueType?.ToString() == "PQ")
-    {
-        <value unit="@Model.ValuePQ_Unit"
-               value="@Model.ValuePQ_Value?.ToString("G29")"
-               xsi:type="PQ" />
-    }
-    else if (Model.ValueType?.ToString() == "BL")
-    {
-        <value xsi:type="BL">@Model.ValueBL</value>
-    }
-    else if (Model.ValueType?.ToString() == "INT")
-    {
-        <value xsi:type="INT">@Model.ValueINT?.ToString("G29")</value>
-    }
-    else if (Model.ValueType?.ToString() == "ST")
-    {
-        <value xsi:type="ST">@Model.ValueST</value>
-    }
-</characteristic>
+    <characteristic classCode="OBS">
+        <code @SplTemplateHelpers.Attribute("code", Model.CharacteristicCode) @SplTemplateHelpers.Attribute("codeSystem", Model.CharacteristicCodeSystem) />
+
+        @if (valueType == "CE" || (hasCodedValue && string.IsNullOrEmpty(valueType)))
+        {
+            <value @SplTemplateHelpers.Attribute("code", Model.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", Model.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.ValueCV_DisplayName)
+                   xsi:type="CE">
+                @if (!string.IsNullOrEmpty(Model.ValueCV_DisplayName))
+                {
+                    <originalText>@Model.ValueCV_DisplayName</originalText>
+                }
+            </value>
+        }
+        else if (valueType == "PQ" || (hasQuantityValue && string.IsNullOrEmpty(valueType)))
+        {
+            <value @SplTemplateHelpers.Attribute("unit", Model.ValuePQ_Unit) @SplTemplateHelpers.Attribute("value", Model.ValuePQ_Value?.ToString("G29")) xsi:type="PQ" />
+        }
+        else if (valueType == "BL" || (hasBooleanValue && string.IsNullOrEmpty(valueType)))
+        {
+            var boolValue = Model.ValueBL == true ? "true" : "false";
+            <value @SplTemplateHelpers.Attribute("value", boolValue) xsi:type="BL" />
+        }
+        else if (valueType == "INT" || (hasIntegerValue && string.IsNullOrEmpty(valueType)))
+        {
+            <value @SplTemplateHelpers.Attribute("value", Model.ValueINT?.ToString("G29")) xsi:type="INT" />
+        }
+        else if (valueType == "ST" || (hasStringValue && string.IsNullOrEmpty(valueType)))
+        {
+            <value xsi:type="ST">@Model.ValueST</value>
+        }
+        else if (hasCodedValue)
+        {
+            <value @SplTemplateHelpers.Attribute("code", Model.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", Model.ValueCV_CodeSystem)@SplTemplateHelpers.Attribute("displayName", Model.ValueCV_DisplayName) xsi:type="CE">
+                @if (!string.IsNullOrEmpty(Model.ValueCV_DisplayName))
+                {
+                    <originalText>@Model.ValueCV_DisplayName</originalText>
+                }
+            </value>
+        }
+        else if (hasStringValue)
+        {
+            <value xsi:type="ST">@Model.ValueST</value>
+        }
+    </characteristic>
+}

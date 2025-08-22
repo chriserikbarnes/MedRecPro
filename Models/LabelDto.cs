@@ -1,6 +1,7 @@
 ﻿
-using Newtonsoft.Json;
 using MedRecPro.Helpers;
+using Newtonsoft.Json;
+using static MedRecPro.Models.Label;
 namespace MedRecPro.Models
 {
     /**************************************************************/
@@ -3200,6 +3201,60 @@ namespace MedRecPro.Models
         /// <seealso cref="Label.ProductRouteOfAdministration"/>
         public Dictionary<string, object?> Route { get; set; } = new();
 
+
+        /// <summary>
+        /// Primary key 
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ProductRouteOfAdministrationID =>
+            Route.TryGetValue(nameof(ProductRouteOfAdministrationID), out var value)
+                ? value as int?
+                : null;
+
+        /// <summary>
+        /// Foreign key 
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ProductID =>
+            Route.TryGetValue(nameof(ProductID), out var value)
+                ? value as int?
+                : null;
+
+        /// <summary>
+        /// Code identifying the route of administration.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? RouteCode =>
+            Route.TryGetValue(nameof(RouteCode), out var value)
+                ? value as string
+                : null;
+
+        /// <summary>
+        /// Code system for the route code (typically 2.16.840.1.113883.3.26.1.1).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? RouteCodeSystem =>
+            Route.TryGetValue(nameof(RouteCodeSystem), out var value)
+                ? value as string
+                : null;
+
+        /// <summary>
+        /// Display name matching the route code.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? RouteDisplayName =>
+            Route.TryGetValue(nameof(RouteDisplayName), out var value)
+                ? value as string
+                : null;
+
+        /// <summary>
+        /// Stores nullFlavor attribute value (e.g., NA) when route code is not applicable.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? RouteNullFlavor =>
+            Route.TryGetValue(nameof(RouteNullFlavor), out var value)
+                ? value as string
+                : null;
         #endregion
     }
 
@@ -4979,6 +5034,15 @@ namespace MedRecPro.Models
         [Newtonsoft.Json.JsonIgnore]
         public string? SectionCodeSystem =>
             Section.TryGetValue(nameof(SectionCodeSystem), out var value)
+                ? value as string
+                : null;
+
+        /// <summary>
+        /// Code system for the section code ([code] codeSystemName), typically LOINC
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SectionCodeSystemName =>
+            Section.TryGetValue(nameof(SectionCodeSystemName), out var value)
                 ? value as string
                 : null;
 

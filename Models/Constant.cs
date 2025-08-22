@@ -183,6 +183,7 @@
             public const string SubstanceSpecification = "substanceSpecification";
             public const string AsContent = "asContent";
             public const string ContainerPackagedProduct = "containerPackagedProduct";
+            public const string ContainerPackagedMedicine = "containerPackagedMedicine";
             public const string Approval = "approval";
             public const string MarketingAct = "marketingAct";
             public const string ManufacturedMedicine = "manufacturedMedicine";

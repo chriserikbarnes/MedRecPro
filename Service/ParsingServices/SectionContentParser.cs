@@ -1275,6 +1275,7 @@ namespace MedRecPro.Service.ParsingServices
             var sectionCode = sectionEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue);
             var sectionLinkGuid = sectionEl.GetAttrVal(sc.A.ID);
             var sectionCodeSystem = sectionEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem);
+            var sectionCodeSystemName = sectionEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystemName);
             var sectionDisplayName = sectionEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName) ?? string.Empty;
             var sectionTitle = sectionEl.GetSplElementVal(sc.E.Title)?.Trim();
 
@@ -1289,6 +1290,7 @@ namespace MedRecPro.Service.ParsingServices
                 SectionGUID = sectionGuid,
                 SectionCode = sectionCode,
                 SectionCodeSystem = sectionCodeSystem,
+                SectionCodeSystemName = sectionCodeSystemName,
                 SectionDisplayName = sectionDisplayName,
                 Title = sectionTitle,
                 EffectiveTime = sectionEffectiveTime

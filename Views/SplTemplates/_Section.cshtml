@@ -5,34 +5,62 @@
 
 @if (Model != null)
 {
-    <section ID="@Model.SectionLinkGUID">
-        <id root="@Model.SectionGUID" />
 
-        @if (Model.SectionCode != null
-            && Model.SectionCodeSystem != null
-            && Model.SectionDisplayName != null)
+    var sectionIdAttribute = !string.IsNullOrEmpty(Model.SectionLinkGUID)
+        ? Model.SectionLinkGUID
+        : $"section_{Model.SectionGUID?.ToString()?.Replace("-", "_")}";
+    var sectionRootGuid = SplTemplateHelpers.GuidUp(Model.SectionGUID);
+
+    var hasSectionCode = !string.IsNullOrEmpty(Model?.SectionCode) 
+        &&  !string.IsNullOrEmpty(Model.SectionCodeSystem);
+
+    var sectionCodeSystemName = Model?.SectionCodeSystemName ?? "LOINC";
+
+    var hasTextContent = Model?.TextContents?.Any() == true;
+
+    var orderedTextContent = hasTextContent
+        ? Model?.TextContents?.OrderBy(tc => tc.SequenceNumber ?? 0).ToList()
+        : null;
+
+    var hasProducts = Model?.Products?.Any() == true;
+
+    var orderedProducts = hasProducts
+        ? Model?.Products?.OrderBy(p => p.ProductID ?? 0)
+        : null;
+
+    var hasChildHierarchies = Model?.ChildSectionHierarchies?.Any() == true;
+
+    var orderedChildHierarchies = hasChildHierarchies
+        ? Model?.ChildSectionHierarchies?.OrderBy(h => h.SequenceNumber ?? 0)
+        : null;
+
+    var hasObservationMedia = Model?.ObservationMedia?.Any() == true;
+
+    var orderedMedia = hasObservationMedia
+        ? Model?.ObservationMedia?.OrderBy(m => m.ObservationMediaID ?? 0)
+        : null;
+
+    <section @SplTemplateHelpers.Attribute("ID", sectionIdAttribute)>
+        <id @SplTemplateHelpers.Attribute("root", sectionRootGuid) />
+        @if (hasSectionCode)
         {
-            <code code="@Model.SectionCode" codeSystem="@Model.SectionCodeSystem" Title="@Model.SectionDisplayName" />
+            <code @SplTemplateHelpers.Attribute("code", Model.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", Model.SectionCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", sectionCodeSystemName) @SplTemplateHelpers.Attribute("displayName", Model.SectionDisplayName) />
         }
-
         @if (!string.IsNullOrWhiteSpace(Model.Title))
         {
             <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
         }
-
-        @if (Model.TextContents != null && Model.TextContents.Any())
+        @if (orderedTextContent != null)
         {
-            await IncludeAsync("_TextContent", Model.TextContents);
+            await IncludeAsync("_TextContent", orderedTextContent);
         }
-
-        @if (Model.EffectiveTime != null)
+        @if (Model?.EffectiveTime != null)
         {
-            <effectiveTime value="@SplTemplateHelpers.ToSplDate(Model.EffectiveTime)" />
+            <effectiveTime @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(Model.EffectiveTime)) />
         }
-
-        @if (Model.Products != null && Model.Products.Any())
+        @if (orderedProducts != null)
         {
-            foreach (var product in Model.Products)
+            foreach (var product in orderedProducts)
             {
                 <subject>
                     @{
@@ -41,35 +69,36 @@
                 </subject>
             }
         }
-
-        @if (Model.ChildSectionHierarchies != null && Model.ChildSectionHierarchies.Any())
+        @if (orderedChildHierarchies != null)
         {
-            foreach (var childHierarchy in Model.ChildSectionHierarchies.OrderBy(h => h.SequenceNumber))
+            foreach (var childHierarchy in orderedChildHierarchies)
             {
-                if (childHierarchy != null
-                && Model.StructuredBody != null
-                && Model.StructuredBody.Sections != null
-                && Model.StructuredBody.Sections.Any())
+                SectionDto? childSection = null;
+
+                if (childHierarchy.ChildSectionID.HasValue &&
+                Model?.StructuredBody?.Sections?.Any() == true)
                 {
-                    var childSection = Model?.StructuredBody?.Sections
-                    ?.FirstOrDefault(s => s.SectionID == childHierarchy.ChildSectionID);
-                    if (childSection != null)
-                    {
-                        <component>
-                            @{
-                                await IncludeAsync("_Section", childSection);
-                            }
-                        </component>
-                    }
+                    childSection = Model.StructuredBody.Sections
+                    .FirstOrDefault(s => s.SectionID == childHierarchy.ChildSectionID.Value);
+                }
+
+                if (childSection != null)
+                {
+                    <component>
+                        @{
+                            await IncludeAsync("_Section", childSection);
+                        }
+                    </component>
                 }
             }
         }
-
-        @if (Model.ObservationMedia != null && Model.ObservationMedia.Any())
+        @if (orderedMedia != null)
         {
-            foreach (var media in Model.ObservationMedia)
+            foreach (var media in orderedMedia)
             {
-                await IncludeAsync("_ObservationMedia", media);
+                <component>
+                    await IncludeAsync("_ObservationMedia", media);
+                </component>
             }
         }
     </section>

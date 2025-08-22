@@ -75,6 +75,29 @@ BEGIN TRY
             @level0type = N'SCHEMA', @level0name = @SchemaName,
             @level1type = N'TABLE', @level1name = @TableName;
 
+    -- Add SectionCodeSystemName column
+PRINT ' -> Adding [SectionCodeSystemName] column if not exists.';
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns 
+    WHERE Name = N'SectionCodeSystemName' 
+      AND Object_ID = Object_ID(N'dbo.Section')
+)
+    ALTER TABLE [dbo].[Section] ADD [SectionCodeSystemName] NVARCHAR(255) NULL;
+
+    -- Column: SectionCodeSystemName
+    SET @ColumnName = N'SectionCodeSystemName';
+    SET @PropValue = N'LOINC code name for the section type ([code] codeSystemName).';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
+        EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
+            @level0type = N'SCHEMA', @level0name = @SchemaName,
+            @level1type = N'TABLE', @level1name = @TableName,
+            @level2type = N'COLUMN', @level2name = @ColumnName;
+    ELSE
+        EXEC sp_addextendedproperty @name = N'MS_Description', @value = @PropValue,
+            @level0type = N'SCHEMA', @level0name = @SchemaName,
+            @level1type = N'TABLE', @level1name = @TableName,
+            @level2type = N'COLUMN', @level2name = @ColumnName;
+
     -- Column: SectionLinkGUID
     SET @ColumnName = N'SectionLinkGUID';
     SET @PropValue = N'Attribute identifying the section link ([section][ID]), used for cross-references within the document e.g. [section ID="ID_1dc7080f-1d52-4bf7-b353-3c13ec291810"].';

@@ -584,6 +584,7 @@ namespace MedRecPro.Service.ParsingServices
                     SectionGUID = Util.ParseNullableGuid(xEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root) ?? string.Empty) ?? Guid.Empty,
                     SectionCode = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
                     SectionCodeSystem = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem),
+                    SectionCodeSystemName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystemName),
                     SectionDisplayName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName) ?? string.Empty,
                     Title = xEl.GetSplElementVal(sc.E.Title)?.Trim()
                 };

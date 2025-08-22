@@ -4,37 +4,43 @@
 @inherits RazorLight.TemplatePage<MedRecPro.Models.PackagingLevelDto>;
 @model PackagingLevelDto
 
+@{
+    var packageIdentifiers = Model?.PackageIdentifiers?
+        .Where(pi => !string.IsNullOrEmpty(pi.IdentifierValue))
+        .OrderBy(pi => pi.PackageIdentifierID);
+
+    var childPackaging = Model?.PackagingHierarchy?
+        .Where(h => h.ChildPackagingLevel != null)
+        .OrderBy(h => h.SequenceNumber);
+}
 <asContent>
     <quantity>
-        <numerator value="@Model?.QuantityNumerator?.ToString("G29")">
-            <translation code="@Model.PackageCode" codeSystem="@Model.PackageCodeSystem" displayName="@Model.PackageFormDisplayName" value="@Model?.QuantityNumerator?.ToString("G29")" />
+        <numerator @SplTemplateHelpers.Attribute("value", Model?.QuantityNumerator?.ToString("G29"))>
+            @if (!string.IsNullOrEmpty(Model?.PackageCode))
+            {
+                <translation @SplTemplateHelpers.Attribute("code", Model.PackageCode) @SplTemplateHelpers.Attribute("codeSystem", Model.PackageCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.PackageFormDisplayName)  @SplTemplateHelpers.Attribute("value", Model?.QuantityNumerator?.ToString("G29")) />
+            }
         </numerator>
-        <denominator value="@Model?.QuantityDenominator?.ToString("G29")">
-            <translation code="@Model.PackageCode" codeSystem="@Model.PackageCodeSystem" displayName="@Model.PackageFormDisplayName" value="@Model?.QuantityDenominator?.ToString("G29")" />
+        <denominator @SplTemplateHelpers.Attribute("value", Model?.QuantityDenominator?.ToString("G29"))>
+            <translation @SplTemplateHelpers.Attribute("value", Model?.QuantityDenominator?.ToString("G29")) />
         </denominator>
     </quantity>
     <containerPackagedMedicine>
-        @* This part needs to be built from PackageIdentifier table, not directly from PackagingLevel in the sample DTO *@
-        @* <code code="0054-8221-25" codeSystem="2.16.840.1.113883.6.69" codeSystemName="NDC" /> *@
-        @if (Model.PackageIdentifiers != null)
+        @if (packageIdentifiers != null)
         {
-            foreach (var ident in Model.PackageIdentifiers)
+            foreach (var identifier in packageIdentifiers)
             {
-                <code @SplTemplateHelpers.Attribute("code", ident.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", ident.IdentifierSystemOID)  @SplTemplateHelpers.Attribute("codeSystemName", "NDC") />
+                <code @SplTemplateHelpers.Attribute("code", identifier.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", identifier.IdentifierSystemOID) @SplTemplateHelpers.Attribute("codeSystemName", identifier.IdentifierType ?? "NDC") />
             }
         }
-        <formCode code="@Model.PackageFormCode" codeSystem="@Model.PackageCodeSystem" displayName="@Model.PackageFormDisplayName" />
-
-        @* Recursive call for nested packaging *@
-        @if (Model.PackagingHierarchy != null)
+        <formCode @SplTemplateHelpers.Attribute("code", Model?.PackageFormCode) @SplTemplateHelpers.Attribute("codeSystem", Model?.PackageCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model?.PackageFormDisplayName) />
+        @if (childPackaging != null)
         {
-            foreach (var hierarchy in Model.PackagingHierarchy.OrderBy(p => p.SequenceNumber))
+            foreach (var hierarchy in childPackaging)
             {
-                // FIX: Use hierarchy.ChildPackagingLevel if available, otherwise request clarification for correct property
-                var innerPackage = hierarchy.ChildPackagingLevel;
-                if (innerPackage != null)
+                if (hierarchy.ChildPackagingLevel != null)
                 {
-                    await IncludeAsync("_Packaging", innerPackage);
+                    await IncludeAsync("_Packaging", hierarchy.ChildPackagingLevel);
                 }
             }
         }

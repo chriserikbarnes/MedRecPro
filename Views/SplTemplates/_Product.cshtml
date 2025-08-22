@@ -6,15 +6,51 @@
 
 @if (Model != null)
 {
+
+
+    var activeIngredients = Model.Ingredients?
+    .Where(i => i.OriginatingElement?.Equals("activeIngredient", StringComparison.OrdinalIgnoreCase) == true)
+    .OrderBy(i => i.SequenceNumber);
+
+    var inactiveIngredients = Model.Ingredients?
+    .Where(i => i.OriginatingElement?.Equals("inactiveIngredient", StringComparison.OrdinalIgnoreCase) == true)
+    .OrderBy(i => i.SequenceNumber);
+
+
+    var orderedCharacteristics = Model.Characteristics?
+    .OrderBy(c => c.CharacteristicID);
+
+    var topLevelPackaging = Model.PackagingLevels?
+    .Where(p => p.PackagingHierarchy == null || !p.PackagingHierarchy.Any())
+    .OrderBy(p => p.PackagingLevelID);
+
+    var orderedRoutes = Model.Routes?
+        .OrderBy(r => r.ProductRouteOfAdministrationID);
+
     <manufacturedProduct>
         <manufacturedMedicine>
-            @if (Model.ProductIdentifiers != null && Model.ProductIdentifiers.Any(pi => pi.IdentifierType == "NDCProduct"))
-            {
-                var ndc = Model.ProductIdentifiers.First(pi => pi.IdentifierType == "NDCProduct");
-                <code @SplTemplateHelpers.Attribute("code", ndc.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", ndc.IdentifierSystemOID) />
+            @{
+                var ndcProduct = Model.ProductIdentifiers?
+                .FirstOrDefault(pi => pi.IdentifierType?.Equals("NDC", StringComparison.OrdinalIgnoreCase) == true
+                || pi.IdentifierType?.Equals("NDCProduct", StringComparison.OrdinalIgnoreCase) == true);
+
             }
+
+            @if (ndcProduct != null)
+            {
+                <code @SplTemplateHelpers.Attribute("code", ndcProduct.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", ndcProduct.IdentifierSystemOID) />
+            }
+
             <name>@Model.ProductName</name>
             <formCode @SplTemplateHelpers.Attribute("code", Model.FormCode) @SplTemplateHelpers.Attribute("codeSystem", Model.FormCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.FormDisplayName) />
+
+            @if (activeIngredients != null)
+            {
+                foreach (var ingredient in activeIngredients)
+                {
+                    await IncludeAsync("_Ingredient", ingredient);
+                }
+            }
 
             @if (Model.GenericMedicines != null)
             {
@@ -28,42 +64,42 @@
                 }
             }
 
-            @if (Model.Ingredients != null)
+            @if (inactiveIngredients != null)
             {
-                foreach (var ingredient in Model.Ingredients.OrderBy(i => i.SequenceNumber))
+                foreach (var ingredient in inactiveIngredients)
                 {
                     await IncludeAsync("_Ingredient", ingredient);
                 }
             }
 
-            @if (Model.PackagingLevels != null)
+            @if (topLevelPackaging != null)
             {
-                foreach (var package in Model.PackagingLevels.Where(p => p.PackagingHierarchy == null || !p.PackagingHierarchy.Any()))
+                foreach (var package in topLevelPackaging)
                 {
                     await IncludeAsync("_Packaging", package);
                 }
             }
         </manufacturedMedicine>
 
-        @if (Model.Characteristics != null)
+        @if (orderedCharacteristics != null)
         {
-            foreach (var characteristic in Model.Characteristics)
+            foreach (var characteristic in orderedCharacteristics)
             {
                 <subjectOf>
-                    @{await IncludeAsync("_Characteristic", characteristic);}
+                    @{
+                        await IncludeAsync("_Characteristic", characteristic);
+                    }
                 </subjectOf>
             }
         }
 
-        @if (Model.Routes != null)
+        @if (orderedRoutes != null)
         {
-            foreach (var route in Model.Routes)
+            foreach (var route in orderedRoutes)
             {
                 <consumedIn>
                     <substanceAdministration>
-                        <routeCode @SplTemplateHelpers.SafeAttribute("code", route.Route, "RouteCode")
-                                   @SplTemplateHelpers.SafeAttribute("codeSystem", route.Route, "RouteCodeSystem")
-                                   @SplTemplateHelpers.SafeAttribute("displayName", route.Route, "RouteDisplayName") />
+                        <routeCode @SplTemplateHelpers.Attribute("code", route?.RouteCode) @SplTemplateHelpers.Attribute("codeSystem", route?.RouteCodeSystem)  @SplTemplateHelpers.Attribute("displayName", route?.RouteDisplayName) />
                     </substanceAdministration>
                 </consumedIn>
             }

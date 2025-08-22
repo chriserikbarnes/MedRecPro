@@ -162,8 +162,10 @@ namespace MedRecPro.Service.ParsingServices
                 }
             }
 
-            // 2. Extract information from the <containerPackagedProduct> element.
-            var cppEl = asContentEl.SplElement(sc.E.ContainerPackagedProduct);
+            // 2. Extract information from the <containerPackagedProduct>
+            // OR <containerPackagedMedicine> element.
+            var cppEl = asContentEl.SplElement(sc.E.ContainerPackagedProduct)
+                ?? asContentEl.SplElement(sc.E.ContainerPackagedMedicine);
             string? packageFormCode = null, packageFormCodeSystem = null, packageFormDisplayName = null;
 
             if (cppEl != null)

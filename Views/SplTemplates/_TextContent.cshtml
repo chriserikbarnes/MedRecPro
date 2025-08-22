@@ -6,32 +6,147 @@
 <text>
     @if (Model != null)
     {
-        foreach (var content in Model.OrderBy(c => c.SequenceNumber))
+        var orderedContent = Model.OrderBy(c => c.SequenceNumber ?? 0);
+
+        foreach (var content in orderedContent)
         {
-            var contentType = content.ContentType;
+            var contentType = content.ContentType?.Trim();
+            var hasContentText = !string.IsNullOrWhiteSpace(content.ContentText?.ToString());
+            var hasLists = content.TextLists?.Any() == true;
+            var hasTables = content.TextTables?.Any() == true;
+            var contentText = content.ContentText?.ToString();
+            var hasReferencedObject = contentText?.Contains("referencedObject") == true;
 
             if (!string.IsNullOrWhiteSpace(contentType))
             {
                 switch (contentType)
                 {
                     case "Paragraph":
-                        <paragraph>@Raw(content.ContentText?.ToString() ?? "")</paragraph>
+                        @if (hasContentText)
+                        {
+                            <paragraph>@Raw(content.ContentText?.ToString() ?? "")</paragraph>
+                        }
                         break;
+
                     case "RenderMultiMedia":
-                        <renderMultiMedia>@Raw(content.ContentText?.ToString() ?? "")</renderMultiMedia>
+                        if (hasContentText)
+                        {
+                            if (hasReferencedObject)
+                            {
+                                @Raw(contentText)
+                            }
+                            else
+                            {
+                                <renderMultiMedia>@Raw(contentText)</renderMultiMedia>
+                            }
+                        }
                         break;
-                         case "List":
+
+                    case "List":
+                        if (hasLists 
+                            && content != null
+                            && content.TextLists != null
+                            && content.TextLists.Any())
+                        {
+                            foreach (var list in content.TextLists)
+                            {
+                                await IncludeAsync("_List", list);
+                            }
+                        }
+                        break;
+
+                    case "Table":
+                        if (hasTables
+                        && content != null
+                        && content.TextTables != null
+                        && content.TextTables.Any())
+                        {
+                            foreach (var table in content.TextTables)
+                            {
+                                await IncludeAsync("_Table", table);
+                            }
+                        }
+                        break;
+
+                    case "Caption":
+                        if (hasContentText)
+                        {
+                            <caption>@Raw(content.ContentText?.ToString() ?? "")</caption>
+                        }
+                        break;
+
+                    case "Footnote":
+                        if (hasContentText)
+                        {
+                            <footnote>@Raw(content.ContentText?.ToString() ?? "")</footnote>
+                        }
+                        break;
+
+                    case "Content":
+                    case "Text":
+                    default:
+                        var hasStructuredContent = hasLists || hasTables;
+                        if (hasStructuredContent)
+                        {
+                            if (hasLists
+                            && content != null
+                            && content.TextLists != null
+                            && content.TextLists.Any())
+                            {
+                                foreach (var list in content.TextLists)
+                                {
+                                    await IncludeAsync("_List", list);
+                                }
+                            }
+                            if (hasTables
+                            && content != null
+                            && content.TextTables != null
+                            && content.TextTables.Any())
+                            {
+                                foreach (var table in content.TextTables)
+                                {
+                                    await IncludeAsync("_Table", table);
+                                }
+                            }
+                        }
+                        else if (hasContentText)
+                        {
+                            <paragraph>@Raw(content.ContentText?.ToString() ?? "")</paragraph>
+                        }
+                        break;
+                }
+            }
+            else
+            {
+
+                var hasAnyStructuredContent = hasLists || hasTables;
+
+                if (hasAnyStructuredContent)
+                {
+                    if (hasLists
+                        && content != null
+                        && content.TextLists != null
+                        && content.TextLists.Any())
+                    {
                         foreach (var list in content.TextLists)
                         {
                             await IncludeAsync("_List", list);
                         }
-                        break;
-                    case "Table":
+                    }
+                    if (hasTables
+                        && content != null
+                        && content.TextTables != null
+                        && content.TextTables.Any())
+                    {
                         foreach (var table in content.TextTables)
                         {
                             await IncludeAsync("_Table", table);
                         }
-                        break;
+                    }
+                }
+                else if (hasContentText)
+                {
+                    <paragraph>@Raw(content.ContentText?.ToString() ?? "")</paragraph>
                 }
             }
         }
