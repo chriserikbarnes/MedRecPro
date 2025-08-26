@@ -5099,7 +5099,6 @@ namespace MedRecPro.Models
             // Default constructor initializes with no encryption secret
             _pkSecret = string.Empty;
         }
-
         public SectionDto(string pkSecret)
         {
             // Initialize with the provided encryption secret for SectionHierarchyID decryption
@@ -5168,6 +5167,7 @@ namespace MedRecPro.Models
         /// <summary>
         /// Foreign key to Section (The parent section).
         /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
         public int? ParentSectionID =>
             SectionHierarchy.TryGetValue("EncryptedParentSectionID", out var value)
                 ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
@@ -5435,6 +5435,8 @@ namespace MedRecPro.Models
         public DocumentDto? Document { get; set; }
         public List<SectionDto> Sections { get; set; } = new();
 
+        public List<SectionHierarchyDto> SectionHierarchies = new();
+
         /// <summary>
         /// Primary key for the StructuredBody table.
         /// </summary>
@@ -5452,6 +5454,108 @@ namespace MedRecPro.Models
             StructuredBody.TryGetValue("EncryptedDocumentID", out var value)
                 ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
                 : null;
+
+        #region Helper Classes
+        /**************************************************************/
+        /// <summary>
+        /// Result structure containing organized sections for rendering.
+        /// </summary>
+        /// <seealso cref="SectionDto"/>
+        public class OrganizedSectionStructure
+        {
+            /// <summary>
+            /// Sections that exist independently without hierarchical relationships.
+            /// </summary>
+            /// <seealso cref="SectionDto"/>
+            public List<SectionDto> StandaloneSections { get; set; } = new();
+
+            /// <summary>
+            /// Root sections that have children in hierarchical relationships.
+            /// </summary>
+            /// <seealso cref="SectionDto"/>
+            public List<SectionDto> RootSections { get; set; } = new();
+        }
+
+        #endregion
+
+        #region Helper Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets all valid sections from the structured body for lookup purposes.
+        /// </summary>
+        /// <returns>List of valid sections</returns>
+        /// <seealso cref="Sections"/>
+        public List<SectionDto> GetAllValidSections()
+        {
+            return Sections?
+                .Where(s => s?.SectionID.HasValue == true)
+                .ToList() ?? new List<SectionDto>();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates section lookup dictionary for efficient access during hierarchy building.
+        /// </summary>
+        /// <param name="sections">Valid sections to create lookup for</param>
+        /// <returns>Dictionary mapping section ID to section</returns>
+        /// <seealso cref="SectionDto.SectionID"/>
+        public Dictionary<int, SectionDto> CreateSectionLookup(List<SectionDto> sections)
+        {
+            return sections
+                .Where(s => s.SectionID.HasValue)
+                .ToDictionary(s => s.SectionID!.Value, s => s);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates section lookup dictionary using all valid sections from this structured body.
+        /// </summary>
+        /// <returns>Dictionary mapping section ID to section</returns>
+        /// <seealso cref="GetAllValidSections"/>
+        /// <seealso cref="CreateSectionLookup(List{MedRecPro.Models.SectionDto})"/>
+        public Dictionary<int, SectionDto> CreateSectionLookup()
+        {
+            var validSections = GetAllValidSections();
+            return CreateSectionLookup(validSections);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if this structured body has any standalone sections.
+        /// </summary>
+        /// <param name="organizedSections">Organized section structure</param>
+        /// <returns>True if standalone sections exist</returns>
+        /// <seealso cref="OrganizedSectionStructure.StandaloneSections"/>
+        public bool HasStandaloneSections(OrganizedSectionStructure organizedSections)
+        {
+            return organizedSections.StandaloneSections?.Any() == true;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if this structured body has any hierarchical sections.
+        /// </summary>
+        /// <param name="organizedSections">Organized section structure</param>
+        /// <returns>True if hierarchical sections exist</returns>
+        /// <seealso cref="OrganizedSectionStructure.RootSections"/>
+        public bool HasHierarchicalSections(OrganizedSectionStructure organizedSections)
+        {
+            return organizedSections.RootSections?.Any() == true;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets safe section hierarchies list, never null.
+        /// </summary>
+        /// <returns>Section hierarchies or empty list if null</returns>
+        /// <seealso cref="SectionHierarchies"/>
+        public List<SectionHierarchyDto> GetSectionHierarchies()
+        {
+            return SectionHierarchies ?? new List<SectionHierarchyDto>();
+        }
+
+        #endregion
 
         public StructuredBodyDto()
         {

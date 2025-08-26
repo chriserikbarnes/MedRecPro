@@ -1,40 +1,66 @@
-﻿@using MedRecPro.Models;
-@using RazorLight.Razor;
-@using MedRecPro.Helpers;
-@inherits RazorLight.TemplatePage<MedRecPro.Models.StructuredBodyDto>;
+﻿@using MedRecPro.Models
+@using MedRecPro.Services
+@using RazorLight.Razor
+@using MedRecPro.Helpers
+@inherits RazorLight.TemplatePage<MedRecPro.Models.StructuredBodyDto>
 @model StructuredBodyDto
-
 @{
-    // Defensive: null-safe list
-    var all = (Model?.Sections ?? new List<SectionDto>())
-        .Where(s => s != null)
-        // De-dup to avoid repeated components (e.g., accidental joins)
-        .GroupBy(s => s.SectionGUID)
-        .Select(g => g.First())
-        .ToList();
+    if (Model == null)
+    {
+        return;
+    }
 
-    // Render ONLY root sections (no parents) as top-level <component>.
-    // Child sections are rendered by _Section (recursively), preserving nesting.
-    var roots = all
-        .Where(s => s.ParentSectionHierarchies == null || s.ParentSectionHierarchies.Count == 0)
-        .ToList();
+    var hierarchyService = new SectionHierarchyService();
+    var organizedSections = hierarchyService.OrganizeSections(Model);
 
-    // Fallback: if we have no explicit roots (no hierarchy captured), render all uniques
-    var topLevel = roots.Any() ? roots : all;
+    var hasStandaloneSections = Model.HasStandaloneSections(organizedSections);
+    var hasHierarchicalSections = Model.HasHierarchicalSections(organizedSections);
+
+    var allSections = Model.GetAllValidSections();
+    var sectionLookup = Model.CreateSectionLookup(allSections);
 }
-
-@if (Model != null)
-{
-    <component>
-        <structuredBody>
-            @foreach (var section in topLevel)
+<structuredBody>
+    @if (hasStandaloneSections)
+    {
+        foreach (var standaloneSection in organizedSections.StandaloneSections)
+        {
+            var standaloneContext = new SectionRenderingContext
             {
-                <component>
-                    @{
-                        await IncludeAsync("_Section", section);
-                    }
-                </component>
-            }
-        </structuredBody>
-    </component>
-}
+                Section = standaloneSection,
+                Children = new List<SectionDto>(),
+                IsStandalone = true
+            };
+
+            <component>
+                @{
+                    await IncludeAsync("_Section", standaloneContext);
+                }
+            </component>
+        }
+    }
+
+    @if (hasHierarchicalSections)
+    {
+        foreach (var rootSection in organizedSections.RootSections)
+        {
+            var children = hierarchyService.BuildChildSections(
+                rootSection.SectionID!.Value,
+                Model.GetSectionHierarchies(),
+                sectionLookup
+            );
+
+            var hierarchicalContext = new SectionRenderingContext
+            {
+                Section = rootSection,
+                Children = children,
+                IsStandalone = false
+            };
+
+            <component>
+                @{
+                    await IncludeAsync("_Section", hierarchicalContext);
+                }
+            </component>
+        }
+    }
+</structuredBody>

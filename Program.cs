@@ -5,6 +5,7 @@ using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
 using MedRecPro.Models; // Namespace for User model
 using MedRecPro.Security;
 using MedRecPro.Service;
+using MedRecPro.Services;
 using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -42,6 +43,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
      .LogTo(Console.WriteLine, LogLevel.Error));
 
 builder.Services.Configure<ClaudeApiSettings>(builder.Configuration.GetSection("ClaudeApiSettings"));
+
 builder.Services.Configure<MedRecPro.Models.ComparisonSettings>(builder.Configuration.GetSection("ComparisonSettings"));
 
 googleClientId = builder.Configuration["Authentication:Google:ClientId"];
@@ -56,6 +58,8 @@ builder.Services.AddHttpContextAccessor();
 
 // --- Custom Services ---
 builder.Services.AddScoped<UserDataAccess>();
+
+
 
 builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>();
 
@@ -82,6 +86,8 @@ builder.Services.AddSingleton<IBackgroundTaskQueueService, BackgroundTaskQueueSe
 builder.Services.AddSingleton<IOperationStatusStore, InMemoryOperationStatusStore>();
 
 builder.Services.AddHostedService<ZipImportWorkerService>();
+
+builder.Services.AddSingleton<SectionHierarchyService>();
 
 builder.Services.AddEndpointsApiExplorer();
 

@@ -1,64 +1,53 @@
 ﻿@using MedRecPro.Models
 @using MedRecPro.Helpers
-@inherits RazorLight.TemplatePage<MedRecPro.Models.SectionDto>
-@model SectionDto
+@inherits RazorLight.TemplatePage<MedRecPro.Models.SectionRenderingContext>
+@model SectionRenderingContext
 
 @if (Model != null)
 {
+    var sectionModel = Model.Section;
+    var sectionIdAttribute = getSectionIdAttribute(sectionModel);
+    var sectionRootGuid = SplTemplateHelpers.GuidUp(sectionModel.SectionGUID);
 
-    var sectionIdAttribute = !string.IsNullOrEmpty(Model.SectionLinkGUID)
-        ? Model.SectionLinkGUID
-        : $"section_{Model.SectionGUID?.ToString()?.Replace("-", "_")}";
-    var sectionRootGuid = SplTemplateHelpers.GuidUp(Model.SectionGUID);
+    var hasSectionCode = hasSectionCodeData(sectionModel);
+    var sectionCodeSystemName = sectionModel.SectionCodeSystemName ?? "LOINC";
 
-    var hasSectionCode = !string.IsNullOrEmpty(Model?.SectionCode) 
-        &&  !string.IsNullOrEmpty(Model.SectionCodeSystem);
+    var orderedTextContent = getOrderedTextContent(sectionModel);
+    var orderedProducts = getOrderedProducts(sectionModel);
+    var orderedMedia = getOrderedMedia(sectionModel);
+    var orderedChildren = Model.GetOrderedChildren();
 
-    var sectionCodeSystemName = Model?.SectionCodeSystemName ?? "LOINC";
-
-    var hasTextContent = Model?.TextContents?.Any() == true;
-
-    var orderedTextContent = hasTextContent
-        ? Model?.TextContents?.OrderBy(tc => tc.SequenceNumber ?? 0).ToList()
-        : null;
-
-    var hasProducts = Model?.Products?.Any() == true;
-
-    var orderedProducts = hasProducts
-        ? Model?.Products?.OrderBy(p => p.ProductID ?? 0)
-        : null;
-
-    var hasChildHierarchies = Model?.ChildSectionHierarchies?.Any() == true;
-
-    var orderedChildHierarchies = hasChildHierarchies
-        ? Model?.ChildSectionHierarchies?.OrderBy(h => h.SequenceNumber ?? 0)
-        : null;
-
-    var hasObservationMedia = Model?.ObservationMedia?.Any() == true;
-
-    var orderedMedia = hasObservationMedia
-        ? Model?.ObservationMedia?.OrderBy(m => m.ObservationMediaID ?? 0)
-        : null;
+    var hasTextContent = orderedTextContent?.Any() == true;
+    var hasProducts = orderedProducts?.Any() == true;
+    var hasMedia = orderedMedia?.Any() == true;
+    var hasChildren = orderedChildren?.Any() == true;
 
     <section @SplTemplateHelpers.Attribute("ID", sectionIdAttribute)>
-        <id @SplTemplateHelpers.Attribute("root", sectionRootGuid) />
-        @if (hasSectionCode)
+        <id @SplTemplateHelpers.Attribute("root", sectionRootGuid) /> 
+
+      @if (hasSectionCode)
         {
-            <code @SplTemplateHelpers.Attribute("code", Model.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", Model.SectionCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", sectionCodeSystemName) @SplTemplateHelpers.Attribute("displayName", Model.SectionDisplayName) />
+            <code @SplTemplateHelpers.Attribute("code", sectionModel.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", sectionModel.SectionCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", sectionCodeSystemName) @SplTemplateHelpers.Attribute("displayName", sectionModel.SectionDisplayName) />
         }
-        @if (!string.IsNullOrWhiteSpace(Model.Title))
+
+        @if (!string.IsNullOrWhiteSpace(sectionModel.Title))
         {
-            <title mediaType="text/x-hl7-title+xml">@Model.Title</title>
+            <title mediaType="text/x-hl7-title+xml">@sectionModel.Title</title>
         }
-        @if (orderedTextContent != null)
+
+        @if (Model?.Section?.EffectiveTime != null)
+        {
+            <effectiveTime @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(Model.Section.EffectiveTime)) />
+        }
+
+        @* Render text content if available *@
+        @if (hasTextContent)
         {
             await IncludeAsync("_TextContent", orderedTextContent);
-        }
-        @if (Model?.EffectiveTime != null)
-        {
-            <effectiveTime @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(Model.EffectiveTime)) />
-        }
-        @if (orderedProducts != null)
+        } 
+
+        @* Render products if available *@
+        @if (hasProducts)
         {
             foreach (var product in orderedProducts)
             {
@@ -69,37 +58,69 @@
                 </subject>
             }
         }
-        @if (orderedChildHierarchies != null)
-        {
-            foreach (var childHierarchy in orderedChildHierarchies)
-            {
-                SectionDto? childSection = null;
 
-                if (childHierarchy.ChildSectionID.HasValue &&
-                Model?.StructuredBody?.Sections?.Any() == true)
-                {
-                    childSection = Model.StructuredBody.Sections
-                    .FirstOrDefault(s => s.SectionID == childHierarchy.ChildSectionID.Value);
-                }
-
-                if (childSection != null)
-                {
-                    <component>
-                        @{
-                            await IncludeAsync("_Section", childSection);
-                        }
-                    </component>
-                }
-            }
-        }
-        @if (orderedMedia != null)
+        @* Render observation media if available *@
+        @if (hasMedia)
         {
             foreach (var media in orderedMedia)
             {
+                await IncludeAsync("_ObservationMedia", media);
+            }
+        } 
+
+        @* Render hierarchical child sections *@
+        @if (hasChildren)
+        {
+            foreach (var childSection in orderedChildren)
+            {
+                var childContext = new SectionRenderingContext
+                {
+                    Section = childSection,
+                    Children = new List<SectionDto>(),
+                    IsStandalone = false
+                };
                 <component>
-                    await IncludeAsync("_ObservationMedia", media);
+                    @{
+                        await IncludeAsync("_Section", childContext);
+                    }
                 </component>
             }
         }
     </section>
+}
+
+@functions {
+
+    private string getSectionIdAttribute(SectionDto section)
+    {
+        return !string.IsNullOrEmpty(section.SectionLinkGUID)
+            ? section.SectionLinkGUID
+            : section.SectionGUID?.ToString()?.Replace("-", "_");
+    }
+
+    private bool hasSectionCodeData(SectionDto section)
+    {
+        return !string.IsNullOrEmpty(section.SectionCode) && !string.IsNullOrEmpty(section.SectionCodeSystem);
+    }
+
+    private List<SectionTextContentDto>? getOrderedTextContent(SectionDto section)
+    {
+        return section.TextContents?.Any() == true
+            ? section.TextContents.OrderBy(tc => tc.SequenceNumber ?? 0).ToList()
+            : null;
+    }
+
+    private IEnumerable<ProductDto>? getOrderedProducts(SectionDto section)
+    {
+        return section.Products?.Any() == true
+            ? section.Products.OrderBy(p => p.ProductID ?? 0)
+            : null;
+    }
+
+    private IEnumerable<ObservationMediaDto>? getOrderedMedia(SectionDto section)
+    {
+        return section.ObservationMedia?.Any() == true
+            ? section.ObservationMedia.OrderBy(m => m.ObservationMediaID ?? 0)
+            : null;
+    }
 }

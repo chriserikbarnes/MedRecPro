@@ -1,10 +1,11 @@
 ﻿
-using Microsoft.EntityFrameworkCore;
-using System.Diagnostics;
-using static MedRecPro.Models.Label;
 using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Collections.Generic;
+using System.Diagnostics;
+using static MedRecPro.Models.Label;
 
 namespace MedRecPro.DataAccess
 {
@@ -385,6 +386,8 @@ namespace MedRecPro.DataAccess
                 .Where(sb => sb.DocumentID == documentId)
                 .ToListAsync();
 
+            List<int?> parentIds = new List<int?>();
+
             var sbDtos = new List<StructuredBodyDto>();
 
             // For each structured body, build its sections
@@ -392,12 +395,31 @@ namespace MedRecPro.DataAccess
             {
                 var sectionDtos = await buildSectionsAsync(db, sb.StructuredBodyID, pkSecret, logger);
 
+                parentIds.AddRange(sectionDtos
+                    ?.Where(x => x != null && x.SectionID != null && x.SectionID > 0)
+                    ?.Select(x => x.SectionID).ToList() ?? new List<int?>());
+
+                var uniqueParentIds = parentIds.Distinct().ToList();
+
+                var hierarchies = await db.Set<Label.SectionHierarchy>()
+                    .AsNoTracking()
+                    .Where(sh => sh != null
+                        && sh.ParentSectionID != null
+                        && sh.ParentSectionID > 0
+                        && uniqueParentIds.Contains((int)sh.ParentSectionID))
+                    .ToListAsync();
+
                 sbDtos.Add(new StructuredBodyDto(pkSecret)
                 {
                     StructuredBody = sb.ToEntityWithEncryptedId(pkSecret, logger),
-                    Sections = sectionDtos
+                    Sections = sectionDtos ?? new List<SectionDto>(),
+                    SectionHierarchies = hierarchies
+                        ?.Select(h => new SectionHierarchyDto(pkSecret) { SectionHierarchy = h.ToEntityWithEncryptedId(pkSecret, logger) })
+                        ?.ToList() ?? new List<SectionHierarchyDto>()
                 });
             }
+
+
             return sbDtos;
             #endregion
         }
