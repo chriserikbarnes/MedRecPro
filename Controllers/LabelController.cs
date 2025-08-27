@@ -69,6 +69,8 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         private readonly SplImportService _splImportService;
 
+        private readonly ISplExportService _splExportService;
+
         private readonly IBackgroundTaskQueueService _queue;
 
         private readonly IOperationStatusStore _statusStore;
@@ -103,7 +105,8 @@ namespace MedRecPro.Api.Controllers
             IBackgroundTaskQueueService queue,
             IOperationStatusStore statusStore,
             IServiceScopeFactory scopeFactory,
-            ApplicationDbContext applicationDbContext)
+            ApplicationDbContext applicationDbContext,
+            ISplExportService splExportService)
         {
             #region Implementation
 
@@ -121,6 +124,8 @@ namespace MedRecPro.Api.Controllers
             // Retrieve and validate the primary key encryption secret from configuration
             _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
+
+            _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService)); ;
 
             #endregion
         }
@@ -1755,8 +1760,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Generating XML document for GUID: {DocumentGuid}", documentGuid);
 
                 var startTime = DateTime.UtcNow;
-                var splService = new SplExportService(_dbContext, _pkEncryptionSecret, _logger);
-                var xmlContent = await splService.ExportDocumentToSplAsync(documentGuid);
+                var xmlContent = await _splExportService.ExportDocumentToSplAsync(documentGuid);
                 var processingTime = DateTime.UtcNow - startTime;
 
                 _logger.LogInformation("Successfully generated XML document for GUID: {DocumentGuid} in {ProcessingTime}ms",

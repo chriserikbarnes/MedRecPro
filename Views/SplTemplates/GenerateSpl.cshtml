@@ -103,7 +103,7 @@
     @{
         var hasStructuredBodies = Model?.StructuredBodies?.Any() == true;
         var orderedStructuredBodies = hasStructuredBodies 
-            ? Model.StructuredBodies.OrderBy(sb => sb.StructuredBodyID ?? 0)
+            ? Model?.StructuredBodies.OrderBy(sb => sb.StructuredBodyID ?? 0)
             : null;
     }
 

@@ -5,7 +5,7 @@ using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
 using MedRecPro.Models; // Namespace for User model
 using MedRecPro.Security;
 using MedRecPro.Service;
-using MedRecPro.Services;
+using MedRecPro.Service.Common;
 using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -59,8 +59,6 @@ builder.Services.AddHttpContextAccessor();
 // --- Custom Services ---
 builder.Services.AddScoped<UserDataAccess>();
 
-
-
 builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>();
 
 builder.Services.AddScoped<IComparisonService, ComparisonService>();
@@ -87,7 +85,21 @@ builder.Services.AddSingleton<IOperationStatusStore, InMemoryOperationStatusStor
 
 builder.Services.AddHostedService<ZipImportWorkerService>();
 
-builder.Services.AddSingleton<SectionHierarchyService>();
+builder.Services.AddScoped<ISectionHierarchyService, SectionHierarchyService>();
+
+builder.Services.AddScoped<IStructuredBodyService, StructuredBodyService>();
+
+builder.Services.AddScoped<IStructuredBodyViewModelFactory, StructuredBodyViewModelFactory>();
+
+builder.Services.AddScoped<IDocumentDataService, DocumentDataService>();
+
+builder.Services.AddScoped<ITemplateRenderingService, TemplateRenderingService>();
+
+builder.Services.AddScoped<ISplExportService, SplExportService>();
+
+builder.Services.AddSingleton<IEncryptionService, EncryptionService>();
+
+builder.Services.AddSingleton<IDictionaryUtilityService, DictionaryUtilityService>();
 
 builder.Services.AddEndpointsApiExplorer();
 

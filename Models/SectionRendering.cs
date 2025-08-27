@@ -8,7 +8,7 @@ namespace MedRecPro.Models
     /// Provides section data along with its children for proper template rendering.
     /// </summary>
     /// <seealso cref="SectionDto"/>
-    public class SectionRenderingContext
+    public class SectionRendering
     {
         /// <summary>
         /// The section to be rendered.

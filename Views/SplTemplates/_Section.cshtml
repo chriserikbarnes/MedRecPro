@@ -1,6 +1,6 @@
 ﻿@using MedRecPro.Models
 @using MedRecPro.Helpers
-@inherits RazorLight.TemplatePage<MedRecPro.Models.SectionRenderingContext>
+@inherits RazorLight.TemplatePage<MedRecPro.Models.SectionRendering>
 @model SectionRenderingContext
 
 @if (Model != null)
@@ -73,7 +73,7 @@
         {
             foreach (var childSection in orderedChildren)
             {
-                var childContext = new SectionRenderingContext
+                var childContext = new SectionRendering
                 {
                     Section = childSection,
                     Children = new List<SectionDto>(),

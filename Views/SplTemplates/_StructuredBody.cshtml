@@ -1,64 +1,34 @@
 ﻿@using MedRecPro.Models
-@using MedRecPro.Services
 @using RazorLight.Razor
-@using MedRecPro.Helpers
 @inherits RazorLight.TemplatePage<MedRecPro.Models.StructuredBodyDto>
 @model StructuredBodyDto
 @{
-    if (Model == null)
+    if (Model?.StructuredBodyView == null)
     {
         return;
     }
 
-    var hierarchyService = new SectionHierarchyService();
-    var organizedSections = hierarchyService.OrganizeSections(Model);
-
-    var hasStandaloneSections = Model.HasStandaloneSections(organizedSections);
-    var hasHierarchicalSections = Model.HasHierarchicalSections(organizedSections);
-
-    var allSections = Model.GetAllValidSections();
-    var sectionLookup = Model.CreateSectionLookup(allSections);
+    var viewModel = Model.StructuredBodyView;
 }
 <structuredBody>
-    @if (hasStandaloneSections)
+    @if (viewModel.HasStandaloneSections)
     {
-        foreach (var standaloneSection in organizedSections.StandaloneSections)
+        foreach (var context in viewModel.StandaloneSectionContexts)
         {
-            var standaloneContext = new SectionRenderingContext
-            {
-                Section = standaloneSection,
-                Children = new List<SectionDto>(),
-                IsStandalone = true
-            };
-
             <component>
                 @{
-                    await IncludeAsync("_Section", standaloneContext);
+                    await IncludeAsync("_Section", context);
                 }
             </component>
         }
     }
-
-    @if (hasHierarchicalSections)
+    @if (viewModel.HasHierarchicalSections)
     {
-        foreach (var rootSection in organizedSections.RootSections)
+        foreach (var context in viewModel.HierarchicalSectionContexts)
         {
-            var children = hierarchyService.BuildChildSections(
-                rootSection.SectionID!.Value,
-                Model.GetSectionHierarchies(),
-                sectionLookup
-            );
-
-            var hierarchicalContext = new SectionRenderingContext
-            {
-                Section = rootSection,
-                Children = children,
-                IsStandalone = false
-            };
-
             <component>
                 @{
-                    await IncludeAsync("_Section", hierarchicalContext);
+                    await IncludeAsync("_Section", context);
                 }
             </component>
         }

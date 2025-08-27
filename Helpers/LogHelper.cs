@@ -217,11 +217,23 @@ namespace MedRecPro.Helpers
         {
             #region Implementation
             services.AddSingleton<UserLoggerProvider>();
+
             services.AddLogging(builder =>
             {
                 builder.Services.AddSingleton<ILoggerProvider>(
                     sp => sp.GetRequiredService<UserLoggerProvider>());
             });
+
+            // Register raw ILogger
+            services.AddTransient<ILogger>(serviceProvider =>
+            {
+                var loggerProvider = serviceProvider.GetRequiredService<UserLoggerProvider>();
+                return loggerProvider.CreateLogger("Application");
+            });
+
+            // Register generic ILogger<T>
+            services.AddTransient(typeof(ILogger<>), typeof(Logger<>));
+
             return services;
             #endregion
         }
