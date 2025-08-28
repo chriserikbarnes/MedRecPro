@@ -97,7 +97,7 @@ namespace MedRecPro.Service
         /// Maximum allowed depth for section hierarchies to prevent infinite recursion.
         /// </summary>
         /// <seealso cref="BuildChildSections"/>
-        private const int MAX_HIERARCHY_DEPTH = 3;
+        private const int MAX_HIERARCHY_DEPTH = 5;
 
         #endregion
 
@@ -297,7 +297,8 @@ namespace MedRecPro.Service
             #region implementation
 
             return sections
-                .Where(s => s.SectionID.HasValue) // Only include sections with valid IDs
+                .Where(s => s != null && s.SectionID != null && s.SectionID.HasValue) // Only include sections with valid IDs
+                .OrderBy(s => s.SectionID) // Optional: order by ID for consistency
                 .ToDictionary(s => s.SectionID!.Value, s => s); // Create ID -> Section mapping
 
             #endregion

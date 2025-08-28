@@ -34,31 +34,22 @@
 {
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet href="http://www.fda.gov/oc/datacouncil/stylesheets/spl/spl.xsl" type="text/xsl"?>
-<document xmlns="urn:hl7-org:v3" 
-          xmlns:voc="http://www.hl7.org/v3/voc" 
-          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-          xsi:schemaLocation="urn:hl7-org:v3 http://www.fda.gov/oc/datacouncil/schemas/spl/spl.xsd">
-    
+<document xmlns="urn:hl7-org:v3"  xmlns:voc="http://www.hl7.org/v3/voc" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 http://www.fda.gov/oc/datacouncil/schemas/spl/spl.xsd">    
     <id @SplTemplateHelpers.Attribute("root", idRoot) />
-    
     @if (!string.IsNullOrWhiteSpace(docCode) && !string.IsNullOrWhiteSpace(docCodeSystem))
     {
         <code @SplTemplateHelpers.Attribute("code", docCode) @SplTemplateHelpers.Attribute("codeSystem", docCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", docCodeSystemName) @SplTemplateHelpers.Attribute("displayName", docDisplayName) />
     }
-
     @if (hasDocumentTitle)
     {
         <title mediaType="text/x-hl7-title+xml">@Raw(documentTitle)</title>
     }
-
     @if (!string.IsNullOrWhiteSpace(effTime))
     {
         <effectiveTime @SplTemplateHelpers.Attribute("value", effTime) />
     }
-
     <setId @SplTemplateHelpers.Attribute("root", setIdRoot) />
     <versionNumber @SplTemplateHelpers.Attribute("value", versionNumber.ToString()) />
-
     @{
         var hasAuthors = Model?.DocumentAuthors?.Any() == true;
         var orderedAuthors = hasAuthors 
@@ -67,7 +58,6 @@
                 .OrderBy(a => a.DocumentAuthorID ?? 0)
             : null;
     }
-
     @if (orderedAuthors != null)
     {
         foreach (var author in orderedAuthors)
@@ -106,7 +96,6 @@
             ? Model?.StructuredBodies.OrderBy(sb => sb.StructuredBodyID ?? 0)
             : null;
     }
-
     @if (orderedStructuredBodies != null)
     {
         foreach (var structuredBody in orderedStructuredBodies)

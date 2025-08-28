@@ -120,7 +120,7 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Asynchronously creates a complete structured body view model from a DTO.
+        /// Synchronously creates a complete structured body view model from a DTO.
         /// Orchestrates section organization, context creation, and state computation
         /// to produce a view model optimized for efficient rendering operations.
         /// </summary>
@@ -132,6 +132,7 @@ namespace MedRecPro.Service
         /// <seealso cref="ISectionHierarchyService.OrganizeSections"/>
         /// <seealso cref="IStructuredBodyService.HasStandaloneSections"/>
         /// <seealso cref="IStructuredBodyService.HasHierarchicalSections"/>
+        /// <seealso cref="Label.StructuredBody"/>
         /// <example>
         /// <code>
         /// var factory = serviceProvider.GetService&lt;IStructuredBodyViewModelFactory&gt;();
@@ -141,6 +142,7 @@ namespace MedRecPro.Service
         /// // View model is ready for immediate rendering
         /// Console.WriteLine($"Standalone sections: {viewModel.StandaloneSectionContexts.Count}");
         /// Console.WriteLine($"Hierarchical sections: {viewModel.HierarchicalSectionContexts.Count}");
+        /// Console.WriteLine($"All sections in order: {viewModel.AllSectionContexts.Count}");
         /// 
         /// return View(viewModel);
         /// </code>
@@ -149,7 +151,8 @@ namespace MedRecPro.Service
         /// This method performs all necessary preprocessing to create a complete view model.
         /// It coordinates multiple services to organize sections, create rendering contexts,
         /// and compute organizational flags, eliminating the need for real-time processing
-        /// during UI rendering operations.
+        /// during UI rendering operations. The unified AllSectionContexts collection preserves
+        /// the original document order while maintaining separate collections for backward compatibility.
         /// </remarks>
         public StructuredBodyViewModel Create(StructuredBodyDto structuredBodyDto)
         {
@@ -176,6 +179,10 @@ namespace MedRecPro.Service
             viewModel.HierarchicalSectionContexts = createHierarchicalSectionContexts(
                 organizedSections, structuredBodyDto, sectionLookup);
 
+            // Create unified section context list preserving original document order
+            viewModel.AllSectionContexts = createAllSectionContexts(
+                structuredBodyDto, organizedSections, sectionLookup);
+
             return viewModel;
 
             #endregion
@@ -184,6 +191,176 @@ namespace MedRecPro.Service
         #endregion
 
         #region private methods
+   
+        /**************************************************************/
+        /// <summary>
+        /// Creates a unified collection of section rendering contexts with complete N-level hierarchy.
+        /// Builds complete SectionRendering objects that contain the full nested structure 
+        /// rather than relying on separate Children collections.
+        /// </summary>
+        /// <param name="structuredBodyDto">The original structured body DTO containing section order information</param>
+        /// <param name="organizedSections">The organized section structure with standalone and root classifications</param>
+        /// <param name="sectionLookup">Dictionary for efficient section lookup during hierarchy building</param>
+        /// <returns>Unified list of complete SectionRendering contexts with N-level nesting</returns>
+        /// <seealso cref="SectionRendering"/>
+        /// <seealso cref="StructuredBodyDto"/>
+        /// <seealso cref="Label.Section"/>
+        /// <seealso cref="Label.SectionHierarchy"/>
+        /// <remarks>
+        /// This method creates SectionRendering objects that contain the complete hierarchy
+        /// structure. Each SectionRendering includes not just direct children, but the
+        /// complete N-level nested structure required for proper document rendering.
+        /// The recursive approach ensures all descendant levels are properly built.
+        /// </remarks>
+        private List<SectionRendering> createAllSectionContexts(
+            StructuredBodyDto structuredBodyDto,
+            OrganizedSectionStructure organizedSections,
+            Dictionary<int, SectionDto> sectionLookup)
+        {
+            #region implementation
+
+            var allContexts = new List<SectionRendering>();
+
+            // Get hierarchy relationships needed for building child structures
+            var hierarchies = _structuredBodyService.GetSectionHierarchies(structuredBodyDto);
+
+            // Create lookup sets for quick section classification during iteration
+            var standaloneSet = new HashSet<int>(
+                organizedSections.StandaloneSections.Select(s => s.SectionID!.Value));
+
+            var rootSet = new HashSet<int>(
+                organizedSections.RootSections.Select(s => s.SectionID!.Value));
+
+            // Identify child sections that should not be processed as top-level
+            var childSectionIds = new HashSet<int>(hierarchies
+                .Where(h => h != null
+                    && h.ChildSectionID != null
+                    && h.ChildSectionID.HasValue)
+                .Select(h => h.ChildSectionID!.Value));
+
+            // Create parent-to-children lookup for efficient hierarchy building
+            var parentToChildrenLookup = hierarchies
+                .Where(h => h != null && h.ParentSectionID.HasValue && h.ChildSectionID.HasValue)
+                .GroupBy(h => h.ParentSectionID!.Value)
+                .ToDictionary(g => g.Key, g => g.Select(h => h.ChildSectionID!.Value).ToList());
+
+            // Process only top-level sections in their original order
+            foreach (var section in structuredBodyDto.Sections
+                .Where(s => s != null
+                    && s.SectionID != null
+                    && s.SectionID.HasValue
+                    && !childSectionIds.Contains(s.SectionID.Value)))
+            {
+                var sectionId = section.SectionID!.Value;
+
+                if (standaloneSet.Contains(sectionId))
+                {
+                    // Create standalone context - no children by definition
+                    allContexts.Add(new SectionRendering
+                    {
+                        Section = section,
+                        Children = new List<SectionDto>(), // Standalone sections have no children
+                        HierarchicalChildren = new List<SectionRendering>(), // No hierarchical children either
+                        IsStandalone = true
+                    });
+                }
+                else if (rootSet.Contains(sectionId))
+                {
+                    // Create hierarchical context with complete N-level child structure
+                    var hierarchicalChildren = buildHierarchicalChildrenRecursively(sectionId, parentToChildrenLookup, sectionLookup, hierarchies);
+                    var flatChildren = flattenHierarchicalChildren(hierarchicalChildren);
+
+                    allContexts.Add(new SectionRendering
+                    {
+                        Section = section,
+                        Children = flatChildren, // Flat list for backward compatibility
+                        HierarchicalChildren = hierarchicalChildren, // Complete N-level hierarchy
+                        IsStandalone = false
+                    });
+                }
+            }
+
+            return allContexts;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recursively builds the complete N-level child section hierarchy as SectionRendering objects.
+        /// </summary>
+        /// <param name="parentSectionId">The ID of the parent section to build children for</param>
+        /// <param name="parentToChildrenLookup">Dictionary mapping parent section IDs to their child section IDs</param>
+        /// <param name="sectionLookup">Dictionary for efficient section lookup by ID</param>
+        /// <param name="hierarchies">All hierarchy relationships for sorting</param>
+        /// <returns>List of SectionRendering objects with their complete nested hierarchies</returns>
+        private List<SectionRendering> buildHierarchicalChildrenRecursively(
+            int parentSectionId,
+            Dictionary<int, List<int>> parentToChildrenLookup,
+            Dictionary<int, SectionDto> sectionLookup,
+            List<SectionHierarchyDto> hierarchies)
+        {
+            var children = new List<SectionRendering>();
+
+            // Check if this parent has any children
+            if (!parentToChildrenLookup.TryGetValue(parentSectionId, out var childIds))
+            {
+                return children; // No children found
+            }
+
+            // Get display order information from hierarchies for sorting
+            var childOrderLookup = hierarchies
+                .Where(h => h.ParentSectionID == parentSectionId && h.ChildSectionID.HasValue)
+                .ToDictionary(h => h.ChildSectionID!.Value, h => h.SequenceNumber ?? int.MaxValue);
+
+            foreach (var childId in childIds)
+            {
+                // Get the child section from lookup
+                if (!sectionLookup.TryGetValue(childId, out var childSection))
+                {
+                    continue; // Skip if child section not found
+                }
+
+                // Recursively build children for this child section
+                var grandchildren = buildHierarchicalChildrenRecursively(childId, parentToChildrenLookup, sectionLookup, hierarchies);
+
+                // Create SectionRendering for this child with its complete hierarchy
+                var childRendering = new SectionRendering
+                {
+                    Section = childSection,
+                    HierarchicalChildren = grandchildren,
+                    Children = flattenHierarchicalChildren(grandchildren), // Flat list of all descendants
+                    IsStandalone = false
+                };
+
+                children.Add(childRendering);
+            }
+
+            // Sort children by display order from hierarchy information
+            return children.OrderBy(c => childOrderLookup.TryGetValue(c.Section.SectionID ?? 0, out var order) ? order : int.MaxValue).ToList();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flattens hierarchical children into a flat list for backward compatibility
+        /// </summary>
+        /// <param name="hierarchicalChildren">The hierarchical structure to flatten</param>
+        /// <returns>Flat list of all SectionDto objects in the hierarchy</returns>
+        private List<SectionDto> flattenHierarchicalChildren(List<SectionRendering> hierarchicalChildren)
+        {
+            var flatList = new List<SectionDto>();
+
+            foreach (var child in hierarchicalChildren)
+            {
+                flatList.Add(child.Section);
+                if (child.HierarchicalChildren.Any())
+                {
+                    flatList.AddRange(flattenHierarchicalChildren(child.HierarchicalChildren));
+                }
+            }
+
+            return flatList;
+        }
 
         /**************************************************************/
         /// <summary>

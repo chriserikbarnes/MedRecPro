@@ -228,6 +228,36 @@ namespace MedRecPro.Models
         /// </remarks>
         public List<SectionRendering> HierarchicalSectionContexts { get; set; } = new();
 
+
+        /**************************************************************/
+        /// <summary>
+        /// Unified collection of all section rendering contexts preserving original document order.
+        /// Contains both standalone and hierarchical sections in their original sequence,
+        /// eliminating the need to iterate separate collections while maintaining rendering context.
+        /// </summary>
+        /// <seealso cref="Label.Section"/>
+        /// <seealso cref="SectionRendering"/>
+        /// <seealso cref="StandaloneSectionContexts"/>
+        /// <seealso cref="HierarchicalSectionContexts"/>
+        /// <remarks>
+        /// This property addresses the ordering issue where iterating standalone and hierarchical
+        /// sections separately breaks the original document structure. Each section maintains
+        /// its IsStandalone flag and Children collection for proper rendering.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Render all sections in original order
+        /// foreach(var context in viewModel.AllSectionContexts)
+        /// {
+        ///     if(context.IsStandalone)
+        ///         RenderStandaloneSection(context.Section);
+        ///     else
+        ///         RenderHierarchicalSection(context.Section, context.Children);
+        /// }
+        /// </code>
+        /// </example>
+        public List<SectionRendering> AllSectionContexts { get; set; } = new();
+
         #endregion
 
         #region organizational state properties

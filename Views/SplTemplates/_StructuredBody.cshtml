@@ -11,26 +11,12 @@
     var viewModel = Model.StructuredBodyView;
 }
 <structuredBody>
-    @if (viewModel.HasStandaloneSections)
+    @foreach (var context in viewModel.AllSectionContexts)
     {
-        foreach (var context in viewModel.StandaloneSectionContexts)
-        {
-            <component>
-                @{
-                    await IncludeAsync("_Section", context);
-                }
-            </component>
-        }
-    }
-    @if (viewModel.HasHierarchicalSections)
-    {
-        foreach (var context in viewModel.HierarchicalSectionContexts)
-        {
-            <component>
-                @{
-                    await IncludeAsync("_Section", context);
-                }
-            </component>
-        }
+        <component>
+            @{
+                await IncludeAsync("_Section", context);
+            }
+        </component>
     }
 </structuredBody>

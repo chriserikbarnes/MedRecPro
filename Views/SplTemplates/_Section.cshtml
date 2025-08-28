@@ -1,7 +1,7 @@
 ﻿@using MedRecPro.Models
 @using MedRecPro.Helpers
 @inherits RazorLight.TemplatePage<MedRecPro.Models.SectionRendering>
-@model SectionRenderingContext
+@model SectionRendering
 
 @if (Model != null)
 {
@@ -23,9 +23,9 @@
     var hasChildren = orderedChildren?.Any() == true;
 
     <section @SplTemplateHelpers.Attribute("ID", sectionIdAttribute)>
-        <id @SplTemplateHelpers.Attribute("root", sectionRootGuid) /> 
+        <id @SplTemplateHelpers.Attribute("root", sectionRootGuid) />
 
-      @if (hasSectionCode)
+        @if (hasSectionCode)
         {
             <code @SplTemplateHelpers.Attribute("code", sectionModel.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", sectionModel.SectionCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", sectionCodeSystemName) @SplTemplateHelpers.Attribute("displayName", sectionModel.SectionDisplayName) />
         }
@@ -44,7 +44,7 @@
         @if (hasTextContent)
         {
             await IncludeAsync("_TextContent", orderedTextContent);
-        } 
+        }
 
         @* Render products if available *@
         @if (hasProducts)
@@ -59,17 +59,8 @@
             }
         }
 
-        @* Render observation media if available *@
-        @if (hasMedia)
-        {
-            foreach (var media in orderedMedia)
-            {
-                await IncludeAsync("_ObservationMedia", media);
-            }
-        } 
-
         @* Render hierarchical child sections *@
-        @if (hasChildren)
+        @*         @if (hasChildren)
         {
             foreach (var childSection in orderedChildren)
             {
@@ -82,6 +73,33 @@
                 <component>
                     @{
                         await IncludeAsync("_Section", childContext);
+                    }
+                </component>
+            }
+        } *@
+
+
+        @* Render hierarchical child sections *@
+        @if (Model?.HierarchicalChildren?.Any() == true)
+        {
+            foreach (var childNode in Model.HierarchicalChildren)
+            {
+                <component>
+                    @{
+                        await IncludeAsync("_Section", childNode);
+                    }
+                </component>
+            }
+        }
+
+        @* Render observation media if available *@
+        @if (hasMedia)
+        {
+            foreach (var media in orderedMedia)
+            {
+                <component>
+                    @{
+                        await IncludeAsync("_ObservationMedia", media);
                     }
                 </component>
             }
