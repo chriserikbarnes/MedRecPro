@@ -4,6 +4,7 @@ using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using RazorLight;
 using System.Dynamic;
+using static MedRecPro.Models.Label;
 
 namespace MedRecPro.Service
 {
@@ -496,6 +497,22 @@ namespace MedRecPro.Service
         /// models. It is typically used to generate view models dynamically based on specific requirements.</remarks>
         private readonly IStructuredBodyViewModelFactory _viewModelFactory;
 
+        /**************************************************************/
+        /// <summary>
+        /// Service for preparing sections with pre-computed rendering properties.
+        /// Handles all section-level formatting, ordering, and attribute generation.
+        /// </summary>
+        private readonly ISectionRenderingService _sectionRenderingService;
+
+        /**************************************************************/
+        /// <summary>
+        /// Service for preparing document data for optimized rendering.
+        /// Handles all document-level formatting, validation, and pre-computation.
+        /// </summary>
+        /// <seealso cref="IDocumentRenderingService"/>
+        /// <seealso cref="DocumentRendering"/>
+        private readonly IDocumentRenderingService _documentRenderingService;
+
         #endregion
 
         #region constructor
@@ -507,8 +524,10 @@ namespace MedRecPro.Service
         /// and logging for comprehensive SPL export functionality.
         /// </summary>
         /// <param name="documentDataService">Service for retrieving document data from the database</param>
+        /// <param name="documentRenderingService">Service for rendering top level spl xml view</param>
         /// <param name="templateRenderingService">Service for rendering Razor templates with data models</param>
         /// <param name="structuredBodyViewModelFactory">Service for generating views</param>
+        /// <param name="sectionRenderingService">Service for section rendering preparation</param>
         /// <param name="logger">Logger instance for operation tracking and diagnostics</param>
         /// <seealso cref="IDocumentDataService"/>
         /// <seealso cref="ITemplateRenderingService"/>
@@ -529,15 +548,19 @@ namespace MedRecPro.Service
         /// </remarks>
         public SplExportService(
             IDocumentDataService documentDataService,
+            IDocumentRenderingService documentRenderingService,
             ITemplateRenderingService templateRenderingService,
             IStructuredBodyViewModelFactory structuredBodyViewModelFactory,
+            ISectionRenderingService sectionRenderingService,
             ILogger logger)
         {
             #region implementation
 
             _documentDataService = documentDataService ?? throw new ArgumentNullException(nameof(documentDataService));
+            _documentRenderingService = documentRenderingService ?? throw new ArgumentNullException(nameof(documentRenderingService));
             _templateRenderingService = templateRenderingService ?? throw new ArgumentNullException(nameof(templateRenderingService));
             _viewModelFactory = structuredBodyViewModelFactory ?? throw new ArgumentNullException(nameof(structuredBodyViewModelFactory));
+            _sectionRenderingService = sectionRenderingService ?? throw new ArgumentNullException(nameof(sectionRenderingService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             #endregion
@@ -610,19 +633,23 @@ namespace MedRecPro.Service
                     throw new InvalidOperationException($"Document with GUID {documentGuid} not found");
                 }
 
-                // Step 2: Populate StructuredBodyView property if structured body exists
-                if (documentDto.StructuredBodies != null
-                    && documentDto.StructuredBodies.Any())
+                // Step 2: Prepare document for optimized rendering with pre-computed properties
+                _logger.LogDebug("Preparing document rendering context for {DocumentGuid}", documentGuid);
+                var documentRendering = _documentRenderingService.PrepareForRendering(documentDto);
+
+                // Step 3: Process structured bodies for rendering (if they exist)
+                if (documentDto.StructuredBodies != null && documentDto.StructuredBodies.Any())
                 {
                     foreach (var body in documentDto.StructuredBodies)
                     {
-                        _logger.LogDebug("Creating structured body view model for document {DocumentGuid}", documentGuid);
-                        body.StructuredBodyView = _viewModelFactory.Create(body);
+                        _logger.LogDebug("Processing structured body for document {DocumentGuid}", documentGuid);
+                        await processStructuredBodyForRenderingAsync(body, documentGuid);
                     }
                 }
 
-                // Step 3: Render the SPL template with the enhanced document data
-                var xmlContent = await _templateRenderingService.RenderAsync("GenerateSpl", documentDto);
+                // Step 4: Render the SPL template with the enhanced document rendering context
+                var xmlContent = await _templateRenderingService.RenderAsync("GenerateSpl", documentRendering);
+
 
                 // Log successful completion with basic metrics
                 _logger.LogInformation("Successfully exported document {DocumentGuid} to SPL XML", documentGuid);
@@ -635,6 +662,188 @@ namespace MedRecPro.Service
                 _logger.LogError(ex, "Error exporting document {DocumentGuid} to SPL", documentGuid);
                 throw;
             }
+
+            #endregion
+        }
+
+        #endregion
+
+        #region private methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes a structured body for optimized rendering with pre-computed section properties.
+        /// Creates view models and prepares all section contexts with rendering-ready data.
+        /// </summary>
+        /// <param name="structuredBody">The structured body to process</param>
+        /// <param name="documentGuid">Document GUID for logging context</param>
+        /// <returns>Task representing the processing operation</returns>
+        /// <seealso cref="IStructuredBodyViewModelFactory.Create"/>
+        /// <seealso cref="ISectionRenderingService.PrepareSectionForRendering"/>
+        /// <seealso cref="StructuredBodyViewModel"/>
+        /// <seealso cref="SectionRendering"/>
+        private async Task processStructuredBodyForRenderingAsync(StructuredBodyDto structuredBody, Guid documentGuid)
+        {
+            #region implementation
+
+            _logger.LogDebug("Creating structured body view model for document {DocumentGuid}", documentGuid);
+
+            // Create the base view model using the factory (this handles section organization)
+            var viewModel = _viewModelFactory.Create(structuredBody);
+
+            // Step 2a: Enhance standalone section contexts with pre-computed properties
+            if (viewModel.HasStandaloneSections && viewModel.StandaloneSectionContexts?.Any() == true)
+            {
+                _logger.LogDebug("Enhancing {Count} standalone sections for document {DocumentGuid}", 
+                    viewModel.StandaloneSectionContexts.Count, documentGuid);
+
+                var enhancedStandalone = enhanceSectionContexts(viewModel.StandaloneSectionContexts, true);
+                viewModel.StandaloneSectionContexts = enhancedStandalone;
+            }
+
+            // Step 2b: Enhance hierarchical section contexts with pre-computed properties
+            if (viewModel.HasHierarchicalSections && viewModel.HierarchicalSectionContexts?.Any() == true)
+            {
+                _logger.LogDebug("Enhancing {Count} hierarchical sections for document {DocumentGuid}", 
+                    viewModel.HierarchicalSectionContexts.Count, documentGuid);
+
+                var enhancedHierarchical = await enhanceHierarchicalSectionContextsAsync(viewModel.HierarchicalSectionContexts);
+                viewModel.HierarchicalSectionContexts = enhancedHierarchical;
+            }
+
+            // Step 2c: Enhance the unified AllSectionContexts collection
+            if (viewModel.AllSectionContexts?.Any() == true)
+            {
+                _logger.LogDebug("Enhancing unified collection of {Count} sections for document {DocumentGuid}", 
+                    viewModel.AllSectionContexts.Count, documentGuid);
+
+                var enhancedAll = await enhanceAllSectionContextsAsync(viewModel.AllSectionContexts);
+                viewModel.AllSectionContexts = enhancedAll;
+            }
+
+            // Assign the enhanced view model back to the structured body
+            structuredBody.StructuredBodyView = viewModel;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Enhances section contexts with pre-computed rendering properties.
+        /// Applies the section rendering service to prepare all display-ready data.
+        /// </summary>
+        /// <param name="sectionContexts">Original section contexts to enhance</param>
+        /// <param name="isStandalone">Whether these are standalone sections</param>
+        /// <returns>Enhanced section contexts with pre-computed properties</returns>
+        /// <seealso cref="ISectionRenderingService.PrepareSectionForRendering"/>
+        private List<SectionRendering> enhanceSectionContexts(
+            List<SectionRendering> sectionContexts, 
+            bool isStandalone)
+        {
+            #region implementation
+
+            var enhancedContexts = new List<SectionRendering>();
+
+            foreach (var context in sectionContexts)
+            {
+                // Use the rendering service to create a fully prepared section context
+                var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
+                    section: context.Section,
+                    children: context.Children,
+                    hierarchicalChildren: context.HierarchicalChildren,
+                    isStandalone: isStandalone
+                );
+
+                enhancedContexts.Add(enhancedContext);
+            }
+
+            return enhancedContexts;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Enhances hierarchical section contexts recursively with pre-computed properties.
+        /// Processes the complete hierarchy tree to prepare all levels for rendering.
+        /// </summary>
+        /// <param name="hierarchicalContexts">Hierarchical contexts to enhance</param>
+        /// <returns>Enhanced hierarchical contexts with complete nested preparation</returns>
+        private async Task<List<SectionRendering>> enhanceHierarchicalSectionContextsAsync(
+            List<SectionRendering> hierarchicalContexts)
+        {
+            #region implementation
+
+            var enhancedContexts = new List<SectionRendering>();
+
+            foreach (var context in hierarchicalContexts)
+            {
+                // Recursively enhance child contexts first
+                var enhancedChildContexts = context.HierarchicalChildren?.Any() == true
+                    ? await enhanceHierarchicalSectionContextsAsync(context.HierarchicalChildren)
+                    : new List<SectionRendering>();
+
+                // Create enhanced parent context with prepared children
+                var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
+                    section: context.Section,
+                    children: context.Children,
+                    hierarchicalChildren: enhancedChildContexts,
+                    isStandalone: false
+                );
+
+                enhancedContexts.Add(enhancedContext);
+            }
+
+            return enhancedContexts;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Enhances the unified AllSectionContexts collection recursively.
+        /// Processes both standalone and hierarchical sections in document order.
+        /// </summary>
+        /// <param name="allSectionContexts">All section contexts to enhance</param>
+        /// <returns>Enhanced unified section contexts</returns>
+        private async Task<List<SectionRendering>> enhanceAllSectionContextsAsync(
+            List<SectionRendering> allSectionContexts)
+        {
+            #region implementation
+
+            var enhancedContexts = new List<SectionRendering>();
+
+            foreach (var context in allSectionContexts)
+            {
+                if (context.IsStandalone)
+                {
+                    // Handle standalone section
+                    var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
+                        section: context.Section,
+                        children: context.Children,
+                        hierarchicalChildren: context.HierarchicalChildren,
+                        isStandalone: true
+                    );
+                    enhancedContexts.Add(enhancedContext);
+                }
+                else
+                {
+                    // Handle hierarchical section with recursive enhancement
+                    var enhancedChildContexts = context.HierarchicalChildren?.Any() == true
+                        ? await enhanceHierarchicalSectionContextsAsync(context.HierarchicalChildren)
+                        : new List<SectionRendering>();
+
+                    var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
+                        section: context.Section,
+                        children: context.Children,
+                        hierarchicalChildren: enhancedChildContexts,
+                        isStandalone: false
+                    );
+                    enhancedContexts.Add(enhancedContext);
+                }
+            }
+
+            return enhancedContexts;
 
             #endregion
         }

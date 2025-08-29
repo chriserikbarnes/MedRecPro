@@ -1,4 +1,5 @@
 
+using MedRecPro.Configuration;
 using MedRecPro.Data; // Namespace for ApplicationDbContext
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
@@ -85,23 +86,18 @@ builder.Services.AddSingleton<IOperationStatusStore, InMemoryOperationStatusStor
 
 builder.Services.AddHostedService<ZipImportWorkerService>();
 
-builder.Services.AddScoped<ISectionHierarchyService, SectionHierarchyService>();
-
-builder.Services.AddScoped<IStructuredBodyService, StructuredBodyService>();
-
-builder.Services.AddScoped<IStructuredBodyViewModelFactory, StructuredBodyViewModelFactory>();
-
-builder.Services.AddScoped<IDocumentDataService, DocumentDataService>();
-
-builder.Services.AddScoped<ITemplateRenderingService, TemplateRenderingService>();
-
-builder.Services.AddScoped<ISplExportService, SplExportService>();
-
 builder.Services.AddSingleton<IEncryptionService, EncryptionService>();
 
 builder.Services.AddSingleton<IDictionaryUtilityService, DictionaryUtilityService>();
 
 builder.Services.AddEndpointsApiExplorer();
+
+builder.Services.AddDocumentRenderingServices(options =>
+{
+    options.EnablePerformanceLogging = true;
+    options.CacheTemplates = true;
+    options.MaxConcurrentOperations = Environment.ProcessorCount;
+});
 
 #region User and Authentication
 // --- ASP.NET Core Identity ---

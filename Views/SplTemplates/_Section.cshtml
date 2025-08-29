@@ -6,28 +6,14 @@
 @if (Model != null)
 {
     var sectionModel = Model.Section;
-    var sectionIdAttribute = getSectionIdAttribute(sectionModel);
     var sectionRootGuid = SplTemplateHelpers.GuidUp(sectionModel.SectionGUID);
 
-    var hasSectionCode = hasSectionCodeData(sectionModel);
-    var sectionCodeSystemName = sectionModel.SectionCodeSystemName ?? "LOINC";
-
-    var orderedTextContent = getOrderedTextContent(sectionModel);
-    var orderedProducts = getOrderedProducts(sectionModel);
-    var orderedMedia = getOrderedMedia(sectionModel);
-    var orderedChildren = Model.GetOrderedChildren();
-
-    var hasTextContent = orderedTextContent?.Any() == true;
-    var hasProducts = orderedProducts?.Any() == true;
-    var hasMedia = orderedMedia?.Any() == true;
-    var hasChildren = orderedChildren?.Any() == true;
-
-    <section @SplTemplateHelpers.Attribute("ID", sectionIdAttribute)>
+    <section @SplTemplateHelpers.Attribute("ID", Model.SectionIdAttribute)>
         <id @SplTemplateHelpers.Attribute("root", sectionRootGuid) />
 
-        @if (hasSectionCode)
+        @if (Model.HasSectionCode)
         {
-            <code @SplTemplateHelpers.Attribute("code", sectionModel.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", sectionModel.SectionCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", sectionCodeSystemName) @SplTemplateHelpers.Attribute("displayName", sectionModel.SectionDisplayName) />
+            <code @SplTemplateHelpers.Attribute("code", sectionModel.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", sectionModel.SectionCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", Model.SectionCodeSystemName) @SplTemplateHelpers.Attribute("displayName", sectionModel.SectionDisplayName) />
         }
 
         @if (!string.IsNullOrWhiteSpace(sectionModel.Title))
@@ -41,15 +27,15 @@
         }
 
         @* Render text content if available *@
-        @if (hasTextContent)
+        @if (Model.HasTextContent && Model.OrderedTextContent != null)
         {
-            await IncludeAsync("_TextContent", orderedTextContent);
+            await IncludeAsync("_TextContent", Model.OrderedTextContent);
         }
 
         @* Render products if available *@
-        @if (hasProducts)
+        @if (Model.HasProducts && Model.OrderedProducts != null)
         {
-            foreach (var product in orderedProducts)
+            foreach (var product in Model.OrderedProducts)
             {
                 <subject>
                     @{
@@ -60,27 +46,7 @@
         }
 
         @* Render hierarchical child sections *@
-        @*         @if (hasChildren)
-        {
-            foreach (var childSection in orderedChildren)
-            {
-                var childContext = new SectionRendering
-                {
-                    Section = childSection,
-                    Children = new List<SectionDto>(),
-                    IsStandalone = false
-                };
-                <component>
-                    @{
-                        await IncludeAsync("_Section", childContext);
-                    }
-                </component>
-            }
-        } *@
-
-
-        @* Render hierarchical child sections *@
-        @if (Model?.HierarchicalChildren?.Any() == true)
+        @if (Model.HasHierarchicalChildren)
         {
             foreach (var childNode in Model.HierarchicalChildren)
             {
@@ -93,9 +59,9 @@
         }
 
         @* Render observation media if available *@
-        @if (hasMedia)
+        @if (Model.HasMedia && Model.OrderedMedia != null)
         {
-            foreach (var media in orderedMedia)
+            foreach (var media in Model.OrderedMedia)
             {
                 <component>
                     @{
@@ -105,40 +71,4 @@
             }
         }
     </section>
-}
-
-@functions {
-
-    private string getSectionIdAttribute(SectionDto section)
-    {
-        return !string.IsNullOrEmpty(section.SectionLinkGUID)
-            ? section.SectionLinkGUID
-            : section.SectionGUID?.ToString()?.Replace("-", "_");
-    }
-
-    private bool hasSectionCodeData(SectionDto section)
-    {
-        return !string.IsNullOrEmpty(section.SectionCode) && !string.IsNullOrEmpty(section.SectionCodeSystem);
-    }
-
-    private List<SectionTextContentDto>? getOrderedTextContent(SectionDto section)
-    {
-        return section.TextContents?.Any() == true
-            ? section.TextContents.OrderBy(tc => tc.SequenceNumber ?? 0).ToList()
-            : null;
-    }
-
-    private IEnumerable<ProductDto>? getOrderedProducts(SectionDto section)
-    {
-        return section.Products?.Any() == true
-            ? section.Products.OrderBy(p => p.ProductID ?? 0)
-            : null;
-    }
-
-    private IEnumerable<ObservationMediaDto>? getOrderedMedia(SectionDto section)
-    {
-        return section.ObservationMedia?.Any() == true
-            ? section.ObservationMedia.OrderBy(m => m.ObservationMediaID ?? 0)
-            : null;
-    }
 }

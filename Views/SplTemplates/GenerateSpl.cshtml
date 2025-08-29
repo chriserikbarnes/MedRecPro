@@ -1,66 +1,42 @@
 ﻿@using MedRecPro.Models
 @using MedRecPro.Helpers
-@inherits RazorLight.TemplatePage<MedRecPro.Models.DocumentDto>
-@model DocumentDto
+@inherits RazorLight.TemplatePage<MedRecPro.Models.DocumentRendering>
+@model DocumentRendering
 
-@{
-    var idRoot = SplTemplateHelpers.GuidUp(Model?.DocumentGUID) ?? "";
-    var setIdRoot = SplTemplateHelpers.GuidUp(Model?.SetGUID) ?? "";
-    var effTime = SplTemplateHelpers.ToSplDate(Model?.EffectiveTime) ?? "";
-    
-    // Document type code (LOINC) fields
-    var docCode = Model?.DocumentCode  ?? "LOINC";
-    var docCodeSystem = Model?.DocumentCodeSystem ?? "2.16.840.1.113883.6.1"; // Default to LOINC
-    var docCodeSystemName = Model?.DocumentCodeSystemName ?? "LOINC";
-    var docDisplayName = Model?.DocumentDisplayName ?? "";
-    
-    // Document title handling with HTML preservation
-    var documentTitle = Model?.Title ?? "";
-    var hasDocumentTitle = !string.IsNullOrWhiteSpace(documentTitle);
-    
-    // Author organization (first author with an organization name)
-    var primaryAuthor = Model?.DocumentAuthors?
-        .FirstOrDefault(a => a?.Organization?.OrganizationName != null);
-    var authorOrgName = primaryAuthor?.Organization?.OrganizationName ?? "";
-    
-    // Version handling
-    var versionNumber = Model?.VersionNumber ?? 1;
-    
-    // Validate required elements
-    var hasValidDocument = !string.IsNullOrEmpty(idRoot) && !string.IsNullOrEmpty(setIdRoot) && Model != null;
-}
-
-@if (hasValidDocument)
+@* Clean template with no business logic *@
+@if (Model != null)
 {
+    var documentModel = Model.DocumentDto;
+    
+    @if (Model.HasValidDocument)
+    {
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet href="http://www.fda.gov/oc/datacouncil/stylesheets/spl/spl.xsl" type="text/xsl"?>
 <document xmlns="urn:hl7-org:v3"  xmlns:voc="http://www.hl7.org/v3/voc" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 http://www.fda.gov/oc/datacouncil/schemas/spl/spl.xsd">    
-    <id @SplTemplateHelpers.Attribute("root", idRoot) />
-    @if (!string.IsNullOrWhiteSpace(docCode) && !string.IsNullOrWhiteSpace(docCodeSystem))
+    <id @SplTemplateHelpers.Attribute("root", Model.IdRoot) />
+    
+    @if (Model.HasDocumentCode)
     {
-        <code @SplTemplateHelpers.Attribute("code", docCode) @SplTemplateHelpers.Attribute("codeSystem", docCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", docCodeSystemName) @SplTemplateHelpers.Attribute("displayName", docDisplayName) />
+        <code @SplTemplateHelpers.Attribute("code", Model.DocumentCode) @SplTemplateHelpers.Attribute("codeSystem", Model.DocumentCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", Model.DocumentCodeSystemName) @SplTemplateHelpers.Attribute("displayName", Model.DocumentDisplayName) />
     }
-    @if (hasDocumentTitle)
+    
+    @if (Model.HasDocumentTitle)
     {
-        <title mediaType="text/x-hl7-title+xml">@Raw(documentTitle)</title>
+        <title mediaType="text/x-hl7-title+xml">@Raw(Model.DocumentTitle)</title>
     }
-    @if (!string.IsNullOrWhiteSpace(effTime))
+    
+    @if (Model.HasEffectiveTime)
     {
-        <effectiveTime @SplTemplateHelpers.Attribute("value", effTime) />
+        <effectiveTime @SplTemplateHelpers.Attribute("value", Model.EffectiveTimeFormatted) />
     }
-    <setId @SplTemplateHelpers.Attribute("root", setIdRoot) />
-    <versionNumber @SplTemplateHelpers.Attribute("value", versionNumber.ToString()) />
-    @{
-        var hasAuthors = Model?.DocumentAuthors?.Any() == true;
-        var orderedAuthors = hasAuthors 
-            ? Model?.DocumentAuthors
-                .Where(a => a?.Organization?.OrganizationName != null)
-                .OrderBy(a => a.DocumentAuthorID ?? 0)
-            : null;
-    }
-    @if (orderedAuthors != null)
+    
+    <setId @SplTemplateHelpers.Attribute("root", Model.SetIdRoot) />
+    <versionNumber @SplTemplateHelpers.Attribute("value", Model.VersionNumber.ToString()) />
+    
+    @* Render authors if available *@
+    @if (Model.OrderedAuthors != null)
     {
-        foreach (var author in orderedAuthors)
+        foreach (var author in Model.OrderedAuthors)
         {
             if(author != null
             && author.Organization != null
@@ -77,28 +53,23 @@
             }
         }
     }
-    else if (!string.IsNullOrWhiteSpace(authorOrgName))
+    else if (Model.HasPrimaryAuthorOrg)
     {
         @* Fallback for single author *@
         <author>
             <time />
             <assignedEntity>
                 <representedOrganization>
-                    <name>@authorOrgName</name>
+                    <name>@Model.PrimaryAuthorOrgName</name>
                 </representedOrganization>
             </assignedEntity>
         </author>
     }
 
-    @{
-        var hasStructuredBodies = Model?.StructuredBodies?.Any() == true;
-        var orderedStructuredBodies = hasStructuredBodies 
-            ? Model?.StructuredBodies.OrderBy(sb => sb.StructuredBodyID ?? 0)
-            : null;
-    }
-    @if (orderedStructuredBodies != null)
+    @* Render structured bodies if available *@
+    @if (Model.OrderedStructuredBodies != null)
     {
-        foreach (var structuredBody in orderedStructuredBodies)
+        foreach (var structuredBody in Model.OrderedStructuredBodies)
         {
             <component>
                 @{
@@ -113,13 +84,13 @@
         <!-- WARNING: No structured bodies found in document -->
     }
 </document>
+    }
+    else
+    {
+        <errorMessage><!-- ERROR: Cannot generate SPL document. Missing required elements: @Model.ValidationErrorMessage -->  </errorMessage>
+    }
 }
 else
 {
-        var missingElements = new List<string>();
-        if (string.IsNullOrEmpty(idRoot)) missingElements.Add("DocumentGUID");
-        if (string.IsNullOrEmpty(setIdRoot)) missingElements.Add("SetGUID");
-        var errorMessage = string.Join(", ", missingElements);
-    
-      <errorMessage><!-- ERROR: Cannot generate SPL document. Missing required elements: @errorMessage -->  </errorMessage>
+    <errorMessage><!-- ERROR: No document data provided for SPL generation -->  </errorMessage>
 }
