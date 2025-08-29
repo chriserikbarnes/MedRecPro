@@ -65,6 +65,28 @@ namespace MedRecPro.Models
         /// </summary>
         public IEnumerable<ProductDto>? OrderedProducts { get; set; }
 
+        #region enhanced product rendering properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and enhanced product rendering contexts for efficient template rendering.
+        /// Contains ProductRendering objects with all pre-computed properties instead of raw ProductDto objects.
+        /// This collection corresponds to the OrderedProducts but with enhanced rendering data.
+        /// Null if no products exist.
+        /// </summary>
+        /// <seealso cref="ProductRendering"/>
+        /// <seealso cref="OrderedProducts"/>
+        public List<ProductRendering>? RenderedProducts { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this section has enhanced products to render.
+        /// </summary>
+        /// <seealso cref="RenderedProducts"/>
+        public bool HasRenderedProducts { get; set; }
+
+        #endregion
+
         /// <summary>
         /// Pre-computed and ordered observation media for efficient rendering.
         /// Null if no media exists.

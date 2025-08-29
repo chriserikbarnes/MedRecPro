@@ -1,57 +1,42 @@
 ﻿@using RazorLight.Razor
 @using MedRecPro.Models
 @using MedRecPro.Helpers
-@inherits RazorLight.TemplatePage<MedRecPro.Models.ProductDto>
-@model ProductDto
+@inherits RazorLight.TemplatePage<MedRecPro.Models.ProductRendering>
+@model ProductRendering
 
+@* Clean template with no business logic - all data pre-computed by ProductRenderingService *@
 @if (Model != null)
 {
-    var activeIngredients = Model.Ingredients?
-    .Where(i => i.OriginatingElement?.Equals("activeIngredient", StringComparison.OrdinalIgnoreCase) == true)
-    .OrderBy(i => i.SequenceNumber);
-
-    var inactiveIngredients = Model.Ingredients?
-    .Where(i => i.OriginatingElement?.Equals("inactiveIngredient", StringComparison.OrdinalIgnoreCase) == true)
-    .OrderBy(i => i.SequenceNumber);
-
-    var orderedCharacteristics = Model.Characteristics?
-    .OrderBy(c => c.CharacteristicID);
-
-    var topLevelPackaging = Model.PackagingLevels?
-    .Where(p => p.PackagingHierarchy == null || !p.PackagingHierarchy.Any())
-    .OrderBy(p => p.PackagingLevelID);
-
-    var orderedRoutes = Model.Routes?
-        .OrderBy(r => r.ProductRouteOfAdministrationID);
+    var productModel = Model.ProductDto;
 
     <manufacturedProduct>
         <manufacturedMedicine>
-            @{
-                // Main product NDC code
-                var ndcProduct = Model.ProductIdentifiers?
-                .FirstOrDefault(pi => pi.IdentifierType?.Equals("NDC", StringComparison.OrdinalIgnoreCase) == true
-                || pi.IdentifierType?.Equals("NDCProduct", StringComparison.OrdinalIgnoreCase) == true);
+
+            @* Render NDC identifier if available *@
+            @if (Model.HasNdcIdentifier && Model.NdcProductIdentifier != null)
+            {
+                <code @SplTemplateHelpers.Attribute("code", Model.NdcProductIdentifier.IdentifierValue)
+                      @SplTemplateHelpers.Attribute("codeSystem", Model.NdcProductIdentifier.IdentifierSystemOID) />
             }
 
-            @if (ndcProduct != null)
-            {
-                <code @SplTemplateHelpers.Attribute("code", ndcProduct.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", ndcProduct.IdentifierSystemOID) />
-            }
+            <name>@productModel.ProductName</name>
+            <formCode @SplTemplateHelpers.Attribute("code", productModel.FormCode)
+                      @SplTemplateHelpers.Attribute("codeSystem", productModel.FormCodeSystem)
+                      @SplTemplateHelpers.Attribute("displayName", productModel.FormDisplayName) />
 
-            <name>@Model.ProductName</name>
-            <formCode @SplTemplateHelpers.Attribute("code", Model.FormCode) @SplTemplateHelpers.Attribute("codeSystem", Model.FormCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.FormDisplayName) />
-
-            @if (activeIngredients != null)
+            @* Render active ingredients if available *@
+            @if (Model.HasActiveIngredients && Model.OrderedActiveIngredients != null)
             {
-                foreach (var ingredient in activeIngredients)
+                foreach (var ingredient in Model.OrderedActiveIngredients)
                 {
                     await IncludeAsync("_Ingredient", ingredient);
                 }
             }
 
-            @if (Model.GenericMedicines != null)
+            @* Render generic medicines if available *@
+            @if (Model.HasGenericMedicines && productModel.GenericMedicines != null)
             {
-                foreach (var generic in Model.GenericMedicines)
+                foreach (var generic in productModel.GenericMedicines)
                 {
                     <asEntityWithGeneric>
                         <genericMedicine>
@@ -61,26 +46,29 @@
                 }
             }
 
-            @if (inactiveIngredients != null)
+            @* Render inactive ingredients if available *@
+            @if (Model.HasInactiveIngredients && Model.OrderedInactiveIngredients != null)
             {
-                foreach (var ingredient in inactiveIngredients)
+                foreach (var ingredient in Model.OrderedInactiveIngredients)
                 {
                     await IncludeAsync("_Ingredient", ingredient);
                 }
             }
 
-            @if (topLevelPackaging != null)
+            @* Render top-level packaging if available *@
+            @if (Model.HasTopLevelPackaging && Model.OrderedTopLevelPackaging != null)
             {
-                foreach (var package in topLevelPackaging)
+                foreach (var package in Model.OrderedTopLevelPackaging)
                 {
                     await IncludeAsync("_Packaging", package);
                 }
             }
         </manufacturedMedicine>
 
-        @if (orderedCharacteristics != null)
+        @* Render characteristics if available *@
+        @if (Model.HasCharacteristics && Model.OrderedCharacteristics != null)
         {
-            foreach (var characteristic in orderedCharacteristics)
+            foreach (var characteristic in Model.OrderedCharacteristics)
             {
                 <subjectOf>
                     @{
@@ -90,13 +78,16 @@
             }
         }
 
-        @if (orderedRoutes != null)
+        @* Render routes if available *@
+        @if (Model.HasRoutes && Model.OrderedRoutes != null)
         {
-            foreach (var route in orderedRoutes)
+            foreach (var route in Model.OrderedRoutes)
             {
                 <consumedIn>
                     <substanceAdministration>
-                        <routeCode @SplTemplateHelpers.Attribute("code", route?.RouteCode) @SplTemplateHelpers.Attribute("codeSystem", route?.RouteCodeSystem) @SplTemplateHelpers.Attribute("displayName", route?.RouteDisplayName) />
+                        <routeCode @SplTemplateHelpers.Attribute("code", route?.RouteCode)
+                                   @SplTemplateHelpers.Attribute("codeSystem", route?.RouteCodeSystem)
+                                   @SplTemplateHelpers.Attribute("displayName", route?.RouteDisplayName) />
                     </substanceAdministration>
                 </consumedIn>
             }

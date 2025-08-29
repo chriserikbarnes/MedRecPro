@@ -8,6 +8,7 @@ namespace MedRecPro.Models
     /// for efficient template rendering.
     /// </summary>
     /// <seealso cref="ProductDto"/>
+
     public class ProductRendering
     {
         #region core properties
@@ -15,7 +16,8 @@ namespace MedRecPro.Models
         /**************************************************************/
         /// <summary>
         /// The product to be rendered.
-        /// </summary>       
+        /// </summary>
+        /// <seealso cref="ProductDto"/>
         /// <seealso cref="ProductDto"/>
         public required ProductDto ProductDto { get; set; }
 
@@ -35,7 +37,7 @@ namespace MedRecPro.Models
         /// <summary>
         /// Pre-computed flag indicating whether this product has valid data.
         /// </summary>
-       
+        /// <seealso cref="ProductDto"/>
         public bool HasValidData { get; set; }
 
         /**************************************************************/

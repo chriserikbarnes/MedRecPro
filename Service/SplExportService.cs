@@ -445,73 +445,97 @@ namespace MedRecPro.Service
 
     /**************************************************************/
     /// <summary>
-    /// Main SPL export service implementation with separated concerns and comprehensive coordination.
-    /// Orchestrates the complete SPL (Structured Product Labeling) export process by combining
-    /// document data retrieval and template rendering services to generate compliant XML output.
+    /// Enhanced SPL export service implementation with comprehensive product rendering integration.
+    /// Provides complete document-to-SPL XML conversion with structured body processing,
+    /// section rendering optimization, and product rendering preparation using enhanced product collections.
     /// </summary>
+    /// <seealso cref="IProductRenderingService"/>
     /// <seealso cref="ISplExportService"/>
-    /// <seealso cref="IDocumentDataService"/>
-    /// <seealso cref="ITemplateRenderingService"/>
     /// <seealso cref="DocumentDto"/>
+    /// <seealso cref="StructuredBodyDto"/>
+    /// <seealso cref="SectionDto"/>
+    /// <seealso cref="ProductDto"/>
+    /// <seealso cref="IDocumentDataService"/>
+    /// <seealso cref="IDocumentRenderingService"/>
+    /// <seealso cref="ITemplateRenderingService"/>
+    /// <seealso cref="IStructuredBodyViewModelFactory"/>
+    /// <seealso cref="ISectionRenderingService"/>
+    /// <seealso cref="SectionRendering"/>
+    /// <seealso cref="ProductRendering"/>
     /// <remarks>
-    /// This service follows the separation of concerns principle by delegating specific
-    /// responsibilities to specialized services while coordinating the overall export workflow.
-    /// Comprehensive error handling and logging ensure reliable operation and diagnostics.
+    /// This service orchestrates the complete SPL export pipeline, including:
+    /// - Document data retrieval and validation
+    /// - Structured body processing and view model creation
+    /// - Section context enhancement with pre-computed properties
+    /// - Product rendering preparation using enhanced product collections
+    /// - Final SPL XML template rendering with optimized performance
+    /// 
+    /// The service now uses enhanced product collections (EnhancedProducts) within section rendering
+    /// contexts to provide optimal template processing performance.
     /// </remarks>
+    /// <example>
+    /// <code>
+    /// // Inject the service through dependency injection
+    /// var splService = serviceProvider.GetRequiredService&lt;ISplExportService&gt;();
+    /// 
+    /// // Export document to SPL XML
+    /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
+    /// var splXml = await splService.ExportDocumentToSplAsync(documentGuid);
+    /// </code>
+    /// </example>
     public class SplExportService : ISplExportService
     {
         #region private fields
 
-        /**************************************************************/
         /// <summary>
-        /// Service for retrieving document data from the database for export processing.
-        /// Handles secure data access with encryption and provides document DTOs for template rendering.
+        /// Service for retrieving document data from the database with validation and security checks.
         /// </summary>
         /// <seealso cref="IDocumentDataService"/>
         /// <seealso cref="DocumentDto"/>
         private readonly IDocumentDataService _documentDataService;
 
-        /**************************************************************/
         /// <summary>
-        /// Service for rendering Razor templates with document data models.
-        /// Transforms document data into structured XML format using configured template files.
+        /// Service for rendering top-level SPL XML view with document context preparation.
+        /// </summary>
+        /// <seealso cref="IDocumentRenderingService"/>
+        /// <seealso cref="DocumentDto"/>
+        private readonly IDocumentRenderingService _documentRenderingService;
+
+        /// <summary>
+        /// Service for rendering Razor templates with prepared data models and context.
         /// </summary>
         /// <seealso cref="ITemplateRenderingService"/>
-        /// <seealso cref="DocumentDto"/>
         private readonly ITemplateRenderingService _templateRenderingService;
 
-        /**************************************************************/
         /// <summary>
-        /// Logger instance for recording export operations, workflow steps, and error information.
-        /// Used to track the complete export process and provide diagnostic information.
+        /// Factory service for generating structured body view models with section organization.
+        /// </summary>
+        /// <seealso cref="IStructuredBodyViewModelFactory"/>
+        /// <seealso cref="StructuredBodyDto"/>
+        /// <seealso cref="StructuredBodyViewModel"/>
+        private readonly IStructuredBodyViewModelFactory _viewModelFactory;
+
+        /// <summary>
+        /// Service for section rendering preparation with pre-computed properties and context enhancement.
+        /// </summary>
+        /// <seealso cref="ISectionRenderingService"/>
+        /// <seealso cref="SectionDto"/>
+        /// <seealso cref="SectionRendering"/>
+        private readonly ISectionRenderingService _sectionRenderingService;
+
+        /// <summary>
+        /// Service for product rendering preparation with optimization and enhanced product collection creation.
+        /// </summary>
+        /// <seealso cref="IProductRenderingService"/>
+        /// <seealso cref="ProductDto"/>
+        /// <seealso cref="ProductRendering"/>
+        private readonly IProductRenderingService _productRenderingService;
+
+        /// <summary>
+        /// Logger instance for operation tracking, performance monitoring, and diagnostic information.
         /// </summary>
         /// <seealso cref="ILogger"/>
         private readonly ILogger _logger;
-
-        /**************************************************************/
-        /// <summary>
-        /// Represents a factory used to create instances of structured body view models.
-        /// </summary>
-        /// <remarks>This field is intended to store a reference to an implementation of the <see
-        /// cref="IStructuredBodyViewModelFactory"/> interface, which provides methods for creating structured body view
-        /// models. It is typically used to generate view models dynamically based on specific requirements.</remarks>
-        private readonly IStructuredBodyViewModelFactory _viewModelFactory;
-
-        /**************************************************************/
-        /// <summary>
-        /// Service for preparing sections with pre-computed rendering properties.
-        /// Handles all section-level formatting, ordering, and attribute generation.
-        /// </summary>
-        private readonly ISectionRenderingService _sectionRenderingService;
-
-        /**************************************************************/
-        /// <summary>
-        /// Service for preparing document data for optimized rendering.
-        /// Handles all document-level formatting, validation, and pre-computation.
-        /// </summary>
-        /// <seealso cref="IDocumentRenderingService"/>
-        /// <seealso cref="DocumentRendering"/>
-        private readonly IDocumentRenderingService _documentRenderingService;
 
         #endregion
 
@@ -521,30 +545,27 @@ namespace MedRecPro.Service
         /// <summary>
         /// Initializes a new instance of the SplExportService with required service dependencies.
         /// Sets up the export service with document data access, template rendering capabilities,
-        /// and logging for comprehensive SPL export functionality.
+        /// product rendering services, and logging for comprehensive SPL export functionality.
         /// </summary>
         /// <param name="documentDataService">Service for retrieving document data from the database</param>
         /// <param name="documentRenderingService">Service for rendering top level spl xml view</param>
         /// <param name="templateRenderingService">Service for rendering Razor templates with data models</param>
         /// <param name="structuredBodyViewModelFactory">Service for generating views</param>
         /// <param name="sectionRenderingService">Service for section rendering preparation</param>
+        /// <param name="productRenderingService">Service for product rendering preparation</param>
         /// <param name="logger">Logger instance for operation tracking and diagnostics</param>
+        /// <exception cref="ArgumentNullException">Thrown when any required service dependency is null</exception>
         /// <seealso cref="IDocumentDataService"/>
+        /// <seealso cref="IDocumentRenderingService"/>
         /// <seealso cref="ITemplateRenderingService"/>
+        /// <seealso cref="IStructuredBodyViewModelFactory"/>
+        /// <seealso cref="ISectionRenderingService"/>
+        /// <seealso cref="IProductRenderingService"/>
         /// <seealso cref="ILogger"/>
-        /// <exception cref="ArgumentNullException">Thrown when any parameter is null</exception>
-        /// <example>
-        /// <code>
-        /// // Dependency injection registration
-        /// services.AddScoped&lt;ISplExportService, SplExportService&gt;();
-        /// 
-        /// // Manual instantiation (not recommended)
-        /// var exportService = new SplExportService(documentService, templateService, structuredBodyViewModelFactory, logger);
-        /// </code>
-        /// </example>
         /// <remarks>
-        /// All dependencies are required and validated for null values to ensure reliable service operation.
-        /// This constructor supports dependency injection patterns for clean service composition.
+        /// All service dependencies are validated for null values during construction.
+        /// The constructor follows the dependency injection pattern for service resolution.
+        /// The product rendering service is now passed to section rendering preparation for enhanced integration.
         /// </remarks>
         public SplExportService(
             IDocumentDataService documentDataService,
@@ -552,15 +573,30 @@ namespace MedRecPro.Service
             ITemplateRenderingService templateRenderingService,
             IStructuredBodyViewModelFactory structuredBodyViewModelFactory,
             ISectionRenderingService sectionRenderingService,
+            IProductRenderingService productRenderingService,
             ILogger logger)
         {
             #region implementation
 
+            // Validate and assign document data service with null check for data retrieval
             _documentDataService = documentDataService ?? throw new ArgumentNullException(nameof(documentDataService));
+
+            // Validate and assign document rendering service with null check for SPL context preparation
             _documentRenderingService = documentRenderingService ?? throw new ArgumentNullException(nameof(documentRenderingService));
+
+            // Validate and assign template rendering service with null check for Razor template processing
             _templateRenderingService = templateRenderingService ?? throw new ArgumentNullException(nameof(templateRenderingService));
+
+            // Validate and assign structured body view model factory with null check for view model creation
             _viewModelFactory = structuredBodyViewModelFactory ?? throw new ArgumentNullException(nameof(structuredBodyViewModelFactory));
+
+            // Validate and assign section rendering service with null check for section context enhancement
             _sectionRenderingService = sectionRenderingService ?? throw new ArgumentNullException(nameof(sectionRenderingService));
+
+            // Validate and assign product rendering service with null check for product optimization
+            _productRenderingService = productRenderingService ?? throw new ArgumentNullException(nameof(productRenderingService));
+
+            // Validate and assign logger service with null check for diagnostic tracking
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             #endregion
@@ -572,49 +608,37 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Asynchronously exports a document to SPL (Structured Product Labeling) XML format.
-        /// Coordinates the complete export workflow including secure data retrieval and template rendering
-        /// to generate compliant SPL XML output with comprehensive error handling and logging.
+        /// Enhanced ExportDocumentToSplAsync method with comprehensive product rendering preparation.
+        /// Orchestrates the complete document export pipeline from data retrieval through SPL XML generation,
+        /// including structured body processing, section enhancement, and optimized product rendering collections.
         /// </summary>
-        /// <param name="documentGuid">The unique identifier of the document to export to SPL format</param>
-        /// <returns>The complete SPL XML content as a formatted string ready for use or transmission</returns>
-        /// <seealso cref="IDocumentDataService.GetDocumentAsync"/>
-        /// <seealso cref="ITemplateRenderingService.RenderAsync"/>
+        /// <param name="documentGuid">Unique identifier for the document to export to SPL format</param>
+        /// <returns>Complete SPL XML content as a string ready for output or further processing</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the document is not found or inaccessible</exception>
+        /// <exception cref="ArgumentException">Thrown when documentGuid is empty or invalid</exception>
         /// <seealso cref="DocumentDto"/>
-        /// <exception cref="InvalidOperationException">Thrown when the document is not found in the database</exception>
-        /// <exception cref="Exception">Thrown when template rendering or data access fails</exception>
+        /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
+        /// <seealso cref="IDocumentDataService.GetDocumentAsync"/>
+        /// <seealso cref="IDocumentRenderingService.PrepareForRendering"/>
+        /// <seealso cref="ITemplateRenderingService.RenderAsync"/>
+        /// <seealso cref="processStructuredBodyForRenderingAsync"/>
+        /// <remarks>
+        /// The export process follows these key steps:
+        /// 1. Document data retrieval with validation
+        /// 2. Document rendering context preparation
+        /// 3. Structured body processing with enhanced product collections
+        /// 4. SPL template rendering with optimized context
+        /// 
+        /// All operations are logged for audit trails and performance monitoring.
+        /// Enhanced product collections provide improved template processing performance.
+        /// </remarks>
         /// <example>
         /// <code>
-        /// var exportService = serviceProvider.GetService&lt;ISplExportService&gt;();
-        /// 
-        /// try
-        /// {
-        ///     var xmlContent = await exportService.ExportDocumentToSplAsync(documentGuid);
-        ///     
-        ///     // Save the SPL XML to file
-        ///     await File.WriteAllTextAsync($"spl-{documentGuid}.xml", xmlContent);
-        ///     
-        ///     // Or send to regulatory system
-        ///     await SendToRegulatorySystem(xmlContent);
-        ///     
-        ///     Console.WriteLine($"Export completed: {xmlContent.Length} characters");
-        /// }
-        /// catch (InvalidOperationException ex)
-        /// {
-        ///     Console.WriteLine($"Document not found: {ex.Message}");
-        /// }
-        /// catch (Exception ex)
-        /// {
-        ///     Console.WriteLine($"Export failed: {ex.Message}");
-        /// }
+        /// var documentId = Guid.Parse("550e8400-e29b-41d4-a716-446655440000");
+        /// var splXml = await exportService.ExportDocumentToSplAsync(documentId);
+        /// Console.WriteLine($"Generated SPL XML: {splXml.Length} characters");
         /// </code>
         /// </example>
-        /// <remarks>
-        /// This method implements a two-step process: first retrieving the document data securely,
-        /// then rendering it through the SPL template. All steps are logged for audit and diagnostic
-        /// purposes. The method provides comprehensive error handling for both data access and
-        /// template rendering failures.
-        /// </remarks>
         public async Task<string> ExportDocumentToSplAsync(Guid documentGuid)
         {
             #region implementation
@@ -624,36 +648,39 @@ namespace MedRecPro.Service
 
             try
             {
-                // Step 1: Retrieve document data securely from the database
+                // Step 1: Retrieve document data securely from the database with comprehensive validation
                 var documentDto = await _documentDataService.GetDocumentAsync(documentGuid);
 
-                // Validate that the document was found and is accessible
+                // Validate that the document was found and is accessible to prevent downstream errors
                 if (documentDto == null)
                 {
                     throw new InvalidOperationException($"Document with GUID {documentGuid} not found");
                 }
 
-                // Step 2: Prepare document for optimized rendering with pre-computed properties
+                // Step 2: Prepare document for optimized rendering with pre-computed properties and context
                 _logger.LogDebug("Preparing document rendering context for {DocumentGuid}", documentGuid);
                 var documentRendering = _documentRenderingService.PrepareForRendering(documentDto);
 
-                // Step 3: Process structured bodies for rendering (if they exist)
+                // Step 3: Process structured bodies for rendering optimization with enhanced product collections
                 if (documentDto.StructuredBodies != null && documentDto.StructuredBodies.Any())
                 {
+                    // Iterate through each structured body to prepare comprehensive rendering context
                     foreach (var body in documentDto.StructuredBodies)
                     {
                         _logger.LogDebug("Processing structured body for document {DocumentGuid}", documentGuid);
+                        // Process each body with section and enhanced product preparation
                         await processStructuredBodyForRenderingAsync(body, documentGuid);
                     }
                 }
 
                 // Step 4: Render the SPL template with the enhanced document rendering context
+                // The "GenerateSpl" template uses the fully prepared document rendering context with enhanced products
                 var xmlContent = await _templateRenderingService.RenderAsync("GenerateSpl", documentRendering);
 
-
-                // Log successful completion with basic metrics
+                // Log successful completion with basic metrics for performance monitoring
                 _logger.LogInformation("Successfully exported document {DocumentGuid} to SPL XML", documentGuid);
 
+                // Return the complete SPL XML content
                 return xmlContent;
             }
             catch (Exception ex)
@@ -672,56 +699,74 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Processes a structured body for optimized rendering with pre-computed section properties.
-        /// Creates view models and prepares all section contexts with rendering-ready data.
+        /// Processes a structured body for optimized rendering with pre-computed section and product properties.
+        /// Creates view models and prepares all section contexts with rendering-ready data and enhanced product collections.
+        /// Handles both standalone and hierarchical section organization patterns with comprehensive optimization.
         /// </summary>
-        /// <param name="structuredBody">The structured body to process</param>
-        /// <param name="documentGuid">Document GUID for logging context</param>
-        /// <returns>Task representing the processing operation</returns>
+        /// <param name="structuredBody">The structured body to process with sections and products</param>
+        /// <param name="documentGuid">Document GUID for logging context and traceability</param>
+        /// <returns>Task representing the asynchronous processing operation</returns>
         /// <seealso cref="IStructuredBodyViewModelFactory.Create"/>
         /// <seealso cref="ISectionRenderingService.PrepareSectionForRendering"/>
+        /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
         /// <seealso cref="StructuredBodyViewModel"/>
         /// <seealso cref="SectionRendering"/>
+        /// <seealso cref="ProductRendering"/>
+        /// <seealso cref="StructuredBodyDto"/>
+        /// <seealso cref="enhanceSectionContextsAsync"/>
+        /// <seealso cref="enhanceHierarchicalSectionContextsAsync"/>
+        /// <seealso cref="enhanceAllSectionContextsAsync"/>
+        /// <remarks>
+        /// The processing workflow includes:
+        /// - Base view model creation with section organization
+        /// - Standalone section context enhancement with enhanced products
+        /// - Hierarchical section context enhancement with recursive processing
+        /// - Unified section collection processing with comprehensive optimization
+        /// - Enhanced product collections for improved template performance
+        /// </remarks>
         private async Task processStructuredBodyForRenderingAsync(StructuredBodyDto structuredBody, Guid documentGuid)
         {
             #region implementation
 
             _logger.LogDebug("Creating structured body view model for document {DocumentGuid}", documentGuid);
 
-            // Create the base view model using the factory (this handles section organization)
+            // Create the base view model using the factory (this handles section organization and relationships)
             var viewModel = _viewModelFactory.Create(structuredBody);
 
-            // Step 2a: Enhance standalone section contexts with pre-computed properties
+            // Step 2a: Enhance standalone section contexts with pre-computed properties and enhanced products
             if (viewModel.HasStandaloneSections && viewModel.StandaloneSectionContexts?.Any() == true)
             {
-                _logger.LogDebug("Enhancing {Count} standalone sections for document {DocumentGuid}", 
+                _logger.LogDebug("Enhancing {Count} standalone sections for document {DocumentGuid}",
                     viewModel.StandaloneSectionContexts.Count, documentGuid);
 
-                var enhancedStandalone = enhanceSectionContexts(viewModel.StandaloneSectionContexts, true);
+                // Process standalone sections with optimized rendering preparation and enhanced product collections
+                var enhancedStandalone = await enhanceSectionContextsAsync(viewModel.StandaloneSectionContexts, true, documentGuid);
                 viewModel.StandaloneSectionContexts = enhancedStandalone;
             }
 
-            // Step 2b: Enhance hierarchical section contexts with pre-computed properties
+            // Step 2b: Enhance hierarchical section contexts with pre-computed properties and recursive processing
             if (viewModel.HasHierarchicalSections && viewModel.HierarchicalSectionContexts?.Any() == true)
             {
-                _logger.LogDebug("Enhancing {Count} hierarchical sections for document {DocumentGuid}", 
+                _logger.LogDebug("Enhancing {Count} hierarchical sections for document {DocumentGuid}",
                     viewModel.HierarchicalSectionContexts.Count, documentGuid);
 
-                var enhancedHierarchical = await enhanceHierarchicalSectionContextsAsync(viewModel.HierarchicalSectionContexts);
+                // Process hierarchical sections with recursive enhancement for nested structures and enhanced products
+                var enhancedHierarchical = await enhanceHierarchicalSectionContextsAsync(viewModel.HierarchicalSectionContexts, documentGuid);
                 viewModel.HierarchicalSectionContexts = enhancedHierarchical;
             }
 
-            // Step 2c: Enhance the unified AllSectionContexts collection
+            // Step 2c: Enhance the unified AllSectionContexts collection for comprehensive processing
             if (viewModel.AllSectionContexts?.Any() == true)
             {
-                _logger.LogDebug("Enhancing unified collection of {Count} sections for document {DocumentGuid}", 
+                _logger.LogDebug("Enhancing unified collection of {Count} sections for document {DocumentGuid}",
                     viewModel.AllSectionContexts.Count, documentGuid);
 
-                var enhancedAll = await enhanceAllSectionContextsAsync(viewModel.AllSectionContexts);
+                // Process the complete unified collection maintaining document order with enhanced products
+                var enhancedAll = await enhanceAllSectionContextsAsync(viewModel.AllSectionContexts, documentGuid);
                 viewModel.AllSectionContexts = enhancedAll;
             }
 
-            // Assign the enhanced view model back to the structured body
+            // Assign the enhanced view model back to the structured body for template access
             structuredBody.StructuredBodyView = viewModel;
 
             #endregion
@@ -729,31 +774,52 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Enhances section contexts with pre-computed rendering properties.
-        /// Applies the section rendering service to prepare all display-ready data.
+        /// Enhances section contexts with pre-computed rendering properties and processes products using enhanced collections.
+        /// Applies both section and product rendering services to prepare all display-ready data for optimal template performance.
+        /// Handles both standalone and hierarchical section types with appropriate processing logic and enhanced product integration.
         /// </summary>
-        /// <param name="sectionContexts">Original section contexts to enhance</param>
-        /// <param name="isStandalone">Whether these are standalone sections</param>
-        /// <returns>Enhanced section contexts with pre-computed properties</returns>
+        /// <param name="sectionContexts">Original section contexts to enhance with rendering properties</param>
+        /// <param name="isStandalone">Whether these are standalone sections (affects processing logic)</param>
+        /// <param name="documentGuid">Document GUID for logging context and traceability</param>
+        /// <returns>Enhanced section contexts with pre-computed properties and enhanced product collections</returns>
         /// <seealso cref="ISectionRenderingService.PrepareSectionForRendering"/>
-        private List<SectionRendering> enhanceSectionContexts(
-            List<SectionRendering> sectionContexts, 
-            bool isStandalone)
+        /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
+        /// <seealso cref="SectionRendering"/>
+        /// <seealso cref="SectionDto"/>
+        /// <seealso cref="processProductsInSection"/>
+        /// <remarks>
+        /// Enhancement process includes:
+        /// - Section rendering context preparation with product rendering service integration
+        /// - Child and hierarchical relationship processing
+        /// - Enhanced product collection creation within each section
+        /// - Performance-optimized property computation
+        /// - Integration of product rendering service for comprehensive optimization
+        /// </remarks>
+        private async Task<List<SectionRendering>> enhanceSectionContextsAsync(
+            List<SectionRendering> sectionContexts,
+            bool isStandalone,
+            Guid documentGuid)
         {
             #region implementation
 
             var enhancedContexts = new List<SectionRendering>();
 
+            // Process each section context individually for maximum rendering optimization
             foreach (var context in sectionContexts)
             {
-                // Use the rendering service to create a fully prepared section context
+                // Use the rendering service to create a fully prepared section context with integrated product rendering
                 var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
                     section: context.Section,
                     children: context.Children,
                     hierarchicalChildren: context.HierarchicalChildren,
-                    isStandalone: isStandalone
+                    isStandalone: isStandalone,
+                    productRenderingService: _productRenderingService
                 );
 
+                // Process products within this section for enhanced collections and optimized rendering
+                processProductsInSection(enhancedContext, documentGuid);
+
+                // Add the fully enhanced context with enhanced products to the collection
                 enhancedContexts.Add(enhancedContext);
             }
 
@@ -764,33 +830,54 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Enhances hierarchical section contexts recursively with pre-computed properties.
-        /// Processes the complete hierarchy tree to prepare all levels for rendering.
+        /// Enhances hierarchical section contexts recursively with pre-computed properties and processes products using enhanced collections.
+        /// Processes the complete hierarchy tree to prepare all levels for rendering with optimized performance and enhanced product integration.
+        /// Maintains parent-child relationships while ensuring comprehensive product processing at all levels using enhanced collections.
         /// </summary>
-        /// <param name="hierarchicalContexts">Hierarchical contexts to enhance</param>
-        /// <returns>Enhanced hierarchical contexts with complete nested preparation</returns>
+        /// <param name="hierarchicalContexts">Hierarchical contexts to enhance with nested processing</param>
+        /// <param name="documentGuid">Document GUID for logging context and traceability</param>
+        /// <returns>Enhanced hierarchical contexts with complete nested preparation and enhanced product collections</returns>
+        /// <seealso cref="ISectionRenderingService.PrepareSectionForRendering"/>
+        /// <seealso cref="SectionRendering"/>
+        /// <seealso cref="SectionDto"/>
+        /// <seealso cref="processProductsInSection"/>
+        /// <remarks>
+        /// Recursive processing workflow:
+        /// - Child contexts are processed first (depth-first approach)
+        /// - Parent contexts are enhanced with prepared children and product rendering service integration
+        /// - Enhanced product collection processing occurs at each level
+        /// - Hierarchical relationships are preserved throughout
+        /// - Product rendering service integration provides comprehensive optimization
+        /// </remarks>
         private async Task<List<SectionRendering>> enhanceHierarchicalSectionContextsAsync(
-            List<SectionRendering> hierarchicalContexts)
+            List<SectionRendering> hierarchicalContexts,
+            Guid documentGuid)
         {
             #region implementation
 
             var enhancedContexts = new List<SectionRendering>();
 
+            // Process each hierarchical context with recursive child enhancement and enhanced product integration
             foreach (var context in hierarchicalContexts)
             {
-                // Recursively enhance child contexts first
+                // Recursively enhance child contexts first (depth-first processing for optimal hierarchy handling)
                 var enhancedChildContexts = context.HierarchicalChildren?.Any() == true
-                    ? await enhanceHierarchicalSectionContextsAsync(context.HierarchicalChildren)
+                    ? await enhanceHierarchicalSectionContextsAsync(context.HierarchicalChildren, documentGuid)
                     : new List<SectionRendering>();
 
-                // Create enhanced parent context with prepared children
+                // Create enhanced parent context with prepared children and integrated product rendering service
                 var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
                     section: context.Section,
                     children: context.Children,
                     hierarchicalChildren: enhancedChildContexts,
-                    isStandalone: false
+                    isStandalone: false,
+                    productRenderingService: _productRenderingService
                 );
 
+                // Process products within this section for enhanced collections at the current level
+                processProductsInSection(enhancedContext, documentGuid);
+
+                // Add the fully enhanced hierarchical context with enhanced products to the collection
                 enhancedContexts.Add(enhancedContext);
             }
 
@@ -801,49 +888,147 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Enhances the unified AllSectionContexts collection recursively.
-        /// Processes both standalone and hierarchical sections in document order.
+        /// Enhances the unified AllSectionContexts collection recursively and processes products using enhanced collections.
+        /// Processes both standalone and hierarchical sections in document order while maintaining
+        /// section type distinctions and applying appropriate processing logic for each type with enhanced product integration.
         /// </summary>
-        /// <param name="allSectionContexts">All section contexts to enhance</param>
-        /// <returns>Enhanced unified section contexts</returns>
+        /// <param name="allSectionContexts">All section contexts to enhance in unified processing</param>
+        /// <param name="documentGuid">Document GUID for logging context and traceability</param>
+        /// <returns>Enhanced unified section contexts with comprehensive processing and enhanced product collections</returns>
+        /// <seealso cref="ISectionRenderingService.PrepareSectionForRendering"/>
+        /// <seealso cref="SectionRendering"/>
+        /// <seealso cref="SectionDto"/>
+        /// <seealso cref="processProductsInSection"/>
+        /// <seealso cref="enhanceHierarchicalSectionContextsAsync"/>
+        /// <remarks>
+        /// Unified processing handles:
+        /// - Standalone sections with direct enhancement and enhanced product collections
+        /// - Hierarchical sections with recursive child processing and enhanced products
+        /// - Document order preservation
+        /// - Enhanced product collection processing at all levels
+        /// - Section type-appropriate rendering logic with product rendering service integration
+        /// </remarks>
         private async Task<List<SectionRendering>> enhanceAllSectionContextsAsync(
-            List<SectionRendering> allSectionContexts)
+            List<SectionRendering> allSectionContexts,
+            Guid documentGuid)
         {
             #region implementation
 
             var enhancedContexts = new List<SectionRendering>();
 
+            // Process each section context with type-appropriate enhancement logic and enhanced product integration
             foreach (var context in allSectionContexts)
             {
                 if (context.IsStandalone)
                 {
-                    // Handle standalone section
+                    // Handle standalone section with direct processing and integrated product rendering service
                     var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
                         section: context.Section,
                         children: context.Children,
                         hierarchicalChildren: context.HierarchicalChildren,
-                        isStandalone: true
+                        isStandalone: true,
+                        productRenderingService: _productRenderingService
                     );
+
+                    // Process products within this standalone section using enhanced collections
+                    processProductsInSection(enhancedContext, documentGuid);
+
                     enhancedContexts.Add(enhancedContext);
                 }
                 else
                 {
-                    // Handle hierarchical section with recursive enhancement
+                    // Handle hierarchical section with recursive enhancement for nested structures and enhanced products
                     var enhancedChildContexts = context.HierarchicalChildren?.Any() == true
-                        ? await enhanceHierarchicalSectionContextsAsync(context.HierarchicalChildren)
+                        ? await enhanceHierarchicalSectionContextsAsync(context.HierarchicalChildren, documentGuid)
                         : new List<SectionRendering>();
 
+                    // Create enhanced hierarchical context with prepared children and integrated product rendering
                     var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
                         section: context.Section,
                         children: context.Children,
                         hierarchicalChildren: enhancedChildContexts,
-                        isStandalone: false
+                        isStandalone: false,
+                        productRenderingService: _productRenderingService
                     );
+
+                    // Process products within this hierarchical section using enhanced collections
+                    processProductsInSection(enhancedContext, documentGuid);
+
                     enhancedContexts.Add(enhancedContext);
                 }
             }
 
             return enhancedContexts;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes products within a section rendering context for optimized rendering with pre-computed properties.
+        /// Creates enhanced ProductRendering objects from OrderedProducts and stores them in the section's EnhancedProducts collection
+        /// for optimal template processing performance and comprehensive property computation.
+        /// </summary>
+        /// <param name="sectionRendering">The section rendering context containing products to process</param>
+        /// <param name="documentGuid">Document GUID for logging context and additional processing parameters</param>
+        /// <returns>Task representing the asynchronous processing operation</returns>
+        /// <seealso cref="SectionRendering.OrderedProducts"/>
+        /// <seealso cref="SectionRendering.RenderedProducts"/>
+        /// <seealso cref="SectionRendering.HasProducts"/>
+        /// <seealso cref="SectionRendering.HasRenderedProducts"/>
+        /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
+        /// <seealso cref="ProductRendering"/>
+        /// <seealso cref="ProductDto"/>
+        /// <remarks>
+        /// Product processing workflow:
+        /// - Validation of existing products in OrderedProducts collection
+        /// - Enhanced ProductRendering creation for each product
+        /// - Additional parameters inclusion (DocumentGuid) for context
+        /// - Enhanced product collection population in section rendering context
+        /// - Performance tracking and logging for monitoring
+        /// 
+        /// The enhanced products provide optimized template processing with pre-computed properties.
+        /// If no products exist, the enhanced product collections are properly initialized as empty.
+        /// </remarks>
+        private void processProductsInSection(SectionRendering sectionRendering, Guid documentGuid)
+        {
+            #region implementation
+
+            // Process products if they exist within this section's OrderedProducts collection
+            if (sectionRendering.HasProducts && sectionRendering.OrderedProducts?.Any() == true)
+            {
+                _logger.LogDebug("Processing {Count} products in section for document {DocumentGuid}",
+                    sectionRendering.OrderedProducts.Count(), documentGuid);
+
+                // Initialize enhanced products collection for optimized template processing
+                var enhancedProducts = new List<ProductRendering>();
+
+                // Process each product in the ordered collection for enhanced rendering preparation
+                foreach (var product in sectionRendering.OrderedProducts)
+                {
+                    // Create enhanced ProductRendering using the service with comprehensive property computation
+                    var enhancedProductRendering = _productRenderingService.PrepareForRendering(
+                        product: product,
+                        additionalParams: new { DocumentGuid = documentGuid }
+                    );
+
+                    // Add the enhanced product rendering to the collection
+                    enhancedProducts.Add(enhancedProductRendering);
+                }
+
+                // Store the enhanced products in the section rendering context for template access
+                sectionRendering.RenderedProducts = enhancedProducts;
+                sectionRendering.HasRenderedProducts = enhancedProducts.Any();
+
+                _logger.LogDebug("Successfully enhanced {Count} products for section in document {DocumentGuid}",
+                    enhancedProducts.Count, documentGuid);
+            }
+            else
+            {
+                // No products to process - initialize enhanced product collections as empty
+                sectionRendering.RenderedProducts = null;
+                sectionRendering.HasRenderedProducts = false;
+            }
 
             #endregion
         }

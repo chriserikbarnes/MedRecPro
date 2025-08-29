@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using MedRecPro.Models;
 using MedRecPro.Service;
 
 namespace MedRecPro.Configuration
@@ -38,6 +38,7 @@ namespace MedRecPro.Configuration
             services.AddScoped<IDocumentRenderingService, DocumentRenderingService>();
             services.AddScoped<ITemplateRenderingService, TemplateRenderingService>();
             services.AddScoped<ISectionHierarchyService, SectionHierarchyService>();
+            services.AddScoped<IProductRenderingService, ProductRenderingService>();
 
             // Register structured body and section services (if they exist)
             services.AddScoped<IStructuredBodyViewModelFactory, StructuredBodyViewModelFactory>();

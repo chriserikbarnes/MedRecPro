@@ -19,6 +19,7 @@ namespace MedRecPro.Service
         /// <param name="section">The section to prepare for rendering</param>
         /// <param name="children">Optional child sections</param>
         /// <param name="hierarchicalChildren">Optional hierarchical children</param>
+        /// <param name="productRenderingService">Service for processing products within the section</param>
         /// <param name="isStandalone">Whether this section is standalone</param>
         /// <returns>A fully prepared SectionRendering object</returns>
         /// <seealso cref="SectionRendering"/>
@@ -26,6 +27,7 @@ namespace MedRecPro.Service
             SectionDto section,
             List<SectionDto>? children = null,
             List<SectionRendering>? hierarchicalChildren = null,
+            IProductRenderingService? productRenderingService = null,
             bool isStandalone = false);
 
         /**************************************************************/
@@ -115,6 +117,7 @@ namespace MedRecPro.Service
         /// <param name="section">The section to prepare for rendering</param>
         /// <param name="children">Optional child sections</param>
         /// <param name="hierarchicalChildren">Optional hierarchical children</param>
+        /// <param name="productRenderingService">Service for processing products within the section</param>
         /// <param name="isStandalone">Whether this section is standalone</param>
         /// <returns>A fully prepared SectionRendering object with computed properties</returns>
         /// <seealso cref="SectionRendering"/>
@@ -132,6 +135,7 @@ namespace MedRecPro.Service
             SectionDto section,
             List<SectionDto>? children = null,
             List<SectionRendering>? hierarchicalChildren = null,
+            IProductRenderingService? productRenderingService = null,
             bool isStandalone = false)
         {
             #region implementation

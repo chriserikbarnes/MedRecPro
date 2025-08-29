@@ -32,16 +32,13 @@
             await IncludeAsync("_TextContent", Model.OrderedTextContent);
         }
 
-        @* Render products if available *@
-        @if (Model.HasProducts && Model.OrderedProducts != null)
+        @* Render enhanced products if available using the corrected approach *@
+        @if (Model.HasRenderedProducts && Model.RenderedProducts != null)
         {
-            foreach (var product in Model.OrderedProducts)
+            foreach (var productRendering in Model.RenderedProducts)
             {
-                <subject>
-                    @{
-                        await IncludeAsync("_Product", product);
-                    }
-                </subject>
+                @* Use the enhanced ProductRendering object instead of raw ProductDto *@
+                await IncludeAsync("_Product", productRendering);
             }
         }
 
