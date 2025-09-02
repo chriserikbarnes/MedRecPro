@@ -1852,7 +1852,8 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Represents a level of packaging ([asContent]/[containerPackagedProduct]). Links to ProductID/PartProductID for definitions OR ProductInstanceID for lot distribution container data (3.15 packaging, 16.2.8).
+        /// Represents a level of packaging ([asContent]/[containerPackagedProduct]). Links to ProductID/PartProductID for 
+        /// definitions OR ProductInstanceID for lot distribution container data (3.1.5 packaging, 16.2.8).
         /// </summary>
         public class PackagingLevel
         {

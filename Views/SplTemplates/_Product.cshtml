@@ -25,9 +25,9 @@
                       @SplTemplateHelpers.Attribute("displayName", productModel.FormDisplayName) />
 
             @* Render active ingredients if available *@
-            @if (Model.HasActiveIngredients && Model.OrderedActiveIngredients != null)
+            @if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
             {
-                foreach (var ingredient in Model.OrderedActiveIngredients)
+                foreach (var ingredient in Model.ActiveIngredients)
                 {
                     await IncludeAsync("_Ingredient", ingredient);
                 }
@@ -47,9 +47,9 @@
             }
 
             @* Render inactive ingredients if available *@
-            @if (Model.HasInactiveIngredients && Model.OrderedInactiveIngredients != null)
+            @if (Model.HasInactiveIngredients && Model.InactiveIngredients != null)
             {
-                foreach (var ingredient in Model.OrderedInactiveIngredients)
+                foreach (var ingredient in Model.InactiveIngredients)
                 {
                     await IncludeAsync("_Ingredient", ingredient);
                 }

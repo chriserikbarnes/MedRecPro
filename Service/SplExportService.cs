@@ -532,6 +532,11 @@ namespace MedRecPro.Service
         private readonly IProductRenderingService _productRenderingService;
 
         /// <summary>
+        /// Service for ingredient rendering preparation
+        /// </summary>
+        private readonly IIngredientRenderingService _ingredientRenderingService;
+
+        /// <summary>
         /// Logger instance for operation tracking, performance monitoring, and diagnostic information.
         /// </summary>
         /// <seealso cref="ILogger"/>
@@ -553,6 +558,7 @@ namespace MedRecPro.Service
         /// <param name="structuredBodyViewModelFactory">Service for generating views</param>
         /// <param name="sectionRenderingService">Service for section rendering preparation</param>
         /// <param name="productRenderingService">Service for product rendering preparation</param>
+        /// <param name="ingredientRenderingService">Service for ingredient rendering preparation</param>
         /// <param name="logger">Logger instance for operation tracking and diagnostics</param>
         /// <exception cref="ArgumentNullException">Thrown when any required service dependency is null</exception>
         /// <seealso cref="IDocumentDataService"/>
@@ -568,35 +574,24 @@ namespace MedRecPro.Service
         /// The product rendering service is now passed to section rendering preparation for enhanced integration.
         /// </remarks>
         public SplExportService(
-            IDocumentDataService documentDataService,
-            IDocumentRenderingService documentRenderingService,
-            ITemplateRenderingService templateRenderingService,
-            IStructuredBodyViewModelFactory structuredBodyViewModelFactory,
-            ISectionRenderingService sectionRenderingService,
-            IProductRenderingService productRenderingService,
-            ILogger logger)
+        IDocumentDataService documentDataService,
+        IDocumentRenderingService documentRenderingService,
+        ITemplateRenderingService templateRenderingService,
+        IStructuredBodyViewModelFactory structuredBodyViewModelFactory,
+        ISectionRenderingService sectionRenderingService,
+        IProductRenderingService productRenderingService,
+        IIngredientRenderingService ingredientRenderingService, 
+        ILogger logger)
         {
             #region implementation
 
-            // Validate and assign document data service with null check for data retrieval
             _documentDataService = documentDataService ?? throw new ArgumentNullException(nameof(documentDataService));
-
-            // Validate and assign document rendering service with null check for SPL context preparation
             _documentRenderingService = documentRenderingService ?? throw new ArgumentNullException(nameof(documentRenderingService));
-
-            // Validate and assign template rendering service with null check for Razor template processing
             _templateRenderingService = templateRenderingService ?? throw new ArgumentNullException(nameof(templateRenderingService));
-
-            // Validate and assign structured body view model factory with null check for view model creation
             _viewModelFactory = structuredBodyViewModelFactory ?? throw new ArgumentNullException(nameof(structuredBodyViewModelFactory));
-
-            // Validate and assign section rendering service with null check for section context enhancement
             _sectionRenderingService = sectionRenderingService ?? throw new ArgumentNullException(nameof(sectionRenderingService));
-
-            // Validate and assign product rendering service with null check for product optimization
             _productRenderingService = productRenderingService ?? throw new ArgumentNullException(nameof(productRenderingService));
-
-            // Validate and assign logger service with null check for diagnostic tracking
+            _ingredientRenderingService = ingredientRenderingService ?? throw new ArgumentNullException(nameof(ingredientRenderingService)); // NEW
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             #endregion
@@ -713,7 +708,7 @@ namespace MedRecPro.Service
         /// <seealso cref="SectionRendering"/>
         /// <seealso cref="ProductRendering"/>
         /// <seealso cref="StructuredBodyDto"/>
-        /// <seealso cref="enhanceSectionContextsAsync"/>
+        /// <seealso cref="enhanceSectionContexts"/>
         /// <seealso cref="enhanceHierarchicalSectionContextsAsync"/>
         /// <seealso cref="enhanceAllSectionContextsAsync"/>
         /// <remarks>
@@ -740,7 +735,7 @@ namespace MedRecPro.Service
                     viewModel.StandaloneSectionContexts.Count, documentGuid);
 
                 // Process standalone sections with optimized rendering preparation and enhanced product collections
-                var enhancedStandalone = await enhanceSectionContextsAsync(viewModel.StandaloneSectionContexts, true, documentGuid);
+                var enhancedStandalone = enhanceSectionContexts(viewModel.StandaloneSectionContexts, true, documentGuid);
                 viewModel.StandaloneSectionContexts = enhancedStandalone;
             }
 
@@ -795,7 +790,7 @@ namespace MedRecPro.Service
         /// - Performance-optimized property computation
         /// - Integration of product rendering service for comprehensive optimization
         /// </remarks>
-        private async Task<List<SectionRendering>> enhanceSectionContextsAsync(
+        private List<SectionRendering> enhanceSectionContexts(
             List<SectionRendering> sectionContexts,
             bool isStandalone,
             Guid documentGuid)
@@ -1009,7 +1004,8 @@ namespace MedRecPro.Service
                     // Create enhanced ProductRendering using the service with comprehensive property computation
                     var enhancedProductRendering = _productRenderingService.PrepareForRendering(
                         product: product,
-                        additionalParams: new { DocumentGuid = documentGuid }
+                        additionalParams: new { DocumentGuid = documentGuid },
+                        ingredientRenderingService: _ingredientRenderingService
                     );
 
                     // Add the enhanced product rendering to the collection

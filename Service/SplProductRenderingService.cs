@@ -15,15 +15,17 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Prepares a complete ProductRendering object with all computed properties
-        /// for efficient template rendering.
+        /// Enhanced PrepareForRendering method with ingredient rendering integration.
         /// </summary>
         /// <param name="product">The product to prepare for rendering</param>
         /// <param name="additionalParams">Additional context parameters as needed</param>
-        /// <returns>A fully prepared ProductRendering object</returns>
+        /// <param name="ingredientRenderingService">Optional ingredient rendering service for enhanced processing</param>
+        /// <returns>A fully prepared ProductRendering object with enhanced ingredients</returns>
         /// <seealso cref="ProductRendering"/>
-        /// <seealso cref="ProductDto"/>
-        ProductRendering PrepareForRendering(ProductDto product, object? additionalParams = null);
+        /// <seealso cref="IIngredientRenderingService"/>
+        ProductRendering PrepareForRendering(ProductDto product, 
+            object? additionalParams = null, 
+            IIngredientRenderingService? ingredientRenderingService = null);
 
         /**************************************************************/
         /// <summary>
@@ -129,36 +131,42 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Prepares a complete ProductRendering object with all computed properties
-        /// for efficient template rendering. Pre-computes all filtering and ordering
-        /// operations to minimize processing in the view layer.
+        /// Enhanced PrepareForRendering method with comprehensive ingredient rendering preparation.
+        /// Creates ProductRendering object with all computed properties including enhanced ingredients
+        /// for optimal template rendering performance.
         /// </summary>
         /// <param name="product">The product to prepare for rendering</param>
         /// <param name="additionalParams">Additional context parameters as needed</param>
-        /// <returns>A fully prepared ProductRendering object with computed properties</returns>
+        /// <param name="ingredientRenderingService">Optional ingredient rendering service for enhanced processing</param>
+        /// <returns>A fully prepared ProductRendering object with enhanced ingredients</returns>
         /// <seealso cref="ProductRendering"/>
-        /// <seealso cref="ProductDto"/>
+        /// <seealso cref="IIngredientRenderingService"/>
+        /// <seealso cref="processIngredients"/>
         /// <example>
         /// <code>
         /// var preparedProduct = service.PrepareForRendering(
         ///     product: productDto,
-        ///     additionalParams: contextData
+        ///     additionalParams: contextData,
+        ///     ingredientRenderingService: ingredientService
         /// );
-        /// // preparedProduct now has all computed properties ready for rendering
+        /// // preparedProduct now has all computed properties and enhanced ingredients ready for rendering
         /// </code>
         /// </example>
-        public ProductRendering PrepareForRendering(ProductDto product, object? additionalParams = null)
+        public ProductRendering PrepareForRendering(ProductDto product, 
+            object? additionalParams = null, 
+            IIngredientRenderingService? ingredientRenderingService = null)
         {
             #region implementation
 
             if (product == null)
                 throw new ArgumentNullException(nameof(product));
 
-            return new ProductRendering
+            // Create base product rendering with existing logic
+            var productRendering = new ProductRendering
             {
                 ProductDto = product,
 
-                // Pre-compute all rendering properties
+                // Pre-compute existing rendering properties
                 NdcProductIdentifier = GetNdcProductIdentifier(product),
                 HasValidData = HasValidData(product),
                 OrderedActiveIngredients = GetOrderedActiveIngredients(product),
@@ -176,6 +184,14 @@ namespace MedRecPro.Service
                 HasRoutes = GetOrderedRoutes(product)?.Any() == true,
                 HasGenericMedicines = product.GenericMedicines?.Any() == true
             };
+
+            // Process enhanced ingredients if service is provided
+            if (ingredientRenderingService != null)
+            {
+                processIngredients(productRendering, ingredientRenderingService, additionalParams);
+            }
+
+            return productRendering;
 
             #endregion
         }
@@ -353,5 +369,91 @@ namespace MedRecPro.Service
         }
 
         #endregion
+
+        #region private methods
+
+        /**************************************************************/
+        /// <summary>
+        /// NEW METHOD: Processes ingredients within a product for enhanced rendering contexts.
+        /// Creates enhanced IngredientRendering objects and populates both unified and filtered collections
+        /// for optimal template processing performance.
+        /// </summary>
+        /// <param name="productRendering">The product rendering context to enhance with ingredient data</param>
+        /// <param name="ingredientRenderingService">Service for creating enhanced ingredient rendering contexts</param>
+        /// <param name="additionalParams">Additional context parameters for ingredient processing</param>
+        /// <seealso cref="ProductRendering.Ingredients"/>
+        /// <seealso cref="ProductRendering.ActiveIngredients"/>
+        /// <seealso cref="ProductRendering.InactiveIngredients"/>
+        /// <seealso cref="IIngredientRenderingService.PrepareForRendering"/>
+        /// <remarks>
+        /// Enhanced ingredient processing workflow:
+        /// - Process all ingredients with enhanced rendering service
+        /// - Create unified EnhancedIngredients collection
+        /// - Filter into separate active and inactive collections
+        /// - Set appropriate availability flags for template optimization
+        /// 
+        /// The enhanced collections provide pre-computed properties and eliminate
+        /// the need for complex logic in templates.
+        /// </remarks>
+        private static void processIngredients(
+            ProductRendering productRendering,
+            IIngredientRenderingService ingredientRenderingService,
+            object? additionalParams)
+        {
+            #region implementation
+
+            var product = productRendering.ProductDto;
+
+            // Process ingredients if they exist
+            if (product?.Ingredients?.Any() == true)
+            {
+                var ingredients = new List<IngredientRendering>();
+                var activeIngredients = new List<IngredientRendering>();
+                var inactiveIngredients = new List<IngredientRendering>();
+
+                // Process each ingredient with enhanced service
+                foreach (var ingredient in product.Ingredients)
+                {
+                    // Create enhanced ingredient rendering context
+                    var enhancedIngredient = ingredientRenderingService.PrepareForRendering(
+                        ingredient: ingredient,
+                        additionalParams: additionalParams
+                    );
+
+                    // Add to unified collection
+                    ingredients.Add(enhancedIngredient);
+
+                    // Filter into appropriate type-specific collections
+                    if (enhancedIngredient.IsActiveIngredient)
+                    {
+                        activeIngredients.Add(enhancedIngredient);
+                    }
+                    else
+                    {
+                        inactiveIngredients.Add(enhancedIngredient);
+                    }
+                }
+
+                // Populate ingredient collections
+                productRendering.Ingredients = ingredients;
+                productRendering.ActiveIngredients = activeIngredients.Any() ? activeIngredients : null;
+                productRendering.InactiveIngredients = inactiveIngredients.Any() ? inactiveIngredients : null;
+
+                // Set ingredient availability flags  
+                // Note: Use existing HasActiveIngredients and HasInactiveIngredients flags
+                // which are already computed above in the main product preparation
+            }
+            else
+            {
+                // No ingredients - initialize ingredient collections as null
+                productRendering.Ingredients = null;
+                productRendering.ActiveIngredients = null;
+                productRendering.InactiveIngredients = null;
+            }
+
+            #endregion
+        }
+
+        #endregion private methods
     }
 }

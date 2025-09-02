@@ -1,5 +1,4 @@
-﻿
-namespace MedRecPro.Models
+﻿namespace MedRecPro.Models
 {
     /**************************************************************/
     /// <summary>
@@ -128,6 +127,60 @@ namespace MedRecPro.Models
         /// </summary>
         /// <seealso cref="GenericMedicineDto"/>
         public bool HasGenericMedicines { get; set; }
+
+        #endregion
+
+        #region ingredient rendering properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed ingredient rendering contexts for efficient template rendering.
+        /// Contains IngredientRendering objects with all pre-computed properties instead of raw IngredientDto objects.
+        /// This collection provides optimized ingredient data for template processing with pre-computed business logic.
+        /// Null if no ingredients exist.
+        /// </summary>
+        /// <seealso cref="IngredientRendering"/>
+        /// <seealso cref="OrderedActiveIngredients"/>
+        /// <seealso cref="OrderedInactiveIngredients"/>
+        /// <remarks>
+        /// This collection combines both active and inactive ingredients with pre-computed properties.
+        /// Use this collection in preference to the raw OrderedActiveIngredients and OrderedInactiveIngredients 
+        /// for optimal template performance. Each IngredientRendering object contains pre-computed flags,
+        /// formatted values, and ordered collections to eliminate template processing overhead.
+        /// </remarks>
+        public List<IngredientRendering>? Ingredients { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed active ingredient rendering contexts for efficient template rendering.
+        /// Contains only active IngredientRendering objects filtered and prepared for optimal processing.
+        /// Null if no active ingredients exist.
+        /// </summary>
+        /// <seealso cref="IngredientRendering"/>
+        /// <seealso cref="Ingredients"/>
+        /// <seealso cref="OrderedActiveIngredients"/>
+        /// <remarks>
+        /// This filtered collection contains only active ingredients with optimized properties.
+        /// Provides direct access to active ingredients without requiring filtering in templates.
+        /// Each object has pre-computed IsActiveIngredient=true and associated active ingredient properties.
+        /// </remarks>
+        public List<IngredientRendering>? ActiveIngredients { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed inactive ingredient rendering contexts for efficient template rendering.
+        /// Contains only inactive IngredientRendering objects filtered and prepared for optimal processing.
+        /// Null if no inactive ingredients exist.
+        /// </summary>
+        /// <seealso cref="IngredientRendering"/>
+        /// <seealso cref="Ingredients"/>
+        /// <seealso cref="OrderedInactiveIngredients"/>
+        /// <remarks>
+        /// This filtered collection contains only inactive ingredients with optimized properties.
+        /// Provides direct access to inactive ingredients without requiring filtering in templates.
+        /// Each object has pre-computed IsActiveIngredient=false and associated inactive ingredient properties.
+        /// </remarks>
+        public List<IngredientRendering>? InactiveIngredients { get; set; }
 
         #endregion
 
