@@ -27,7 +27,7 @@ namespace MedRecPro.Service
         /// <returns>A fully prepared PackageRendering object</returns>
         /// <seealso cref="PackageRendering"/>
         /// <seealso cref="PackagingLevelDto"/>
-        PackageRendering PrepareForRendering(PackagingLevelDto packagingLevel, object additionalParams = null);
+        PackageRendering PrepareForRendering(PackagingLevelDto packagingLevel, object? additionalParams = null);
 
         /**************************************************************/
         /// <summary>

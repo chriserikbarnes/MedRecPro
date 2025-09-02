@@ -24,8 +24,8 @@ namespace MedRecPro.Service
         /// <returns>A fully prepared ProductRendering object with enhanced ingredients</returns>
         /// <seealso cref="ProductRendering"/>
         /// <seealso cref="IIngredientRenderingService"/>
-        ProductRendering PrepareForRendering(ProductDto product, 
-            object? additionalParams = null, 
+        ProductRendering PrepareForRendering(ProductDto product,
+            object? additionalParams = null,
             IIngredientRenderingService? ingredientRenderingService = null,
             IPackageRenderingService? packageRenderingService = null);
 
@@ -503,6 +503,12 @@ namespace MedRecPro.Service
         {
             #region implementation
 
+            if (productRendering == null)
+                throw new ArgumentNullException(nameof(productRendering));
+
+            if (_packageRenderingService == null)
+                return;
+
             // Process packaging if it exists within this product's OrderedTopLevelPackaging collection
             if (productRendering.HasTopLevelPackaging && productRendering.OrderedTopLevelPackaging?.Any() == true)
             {
@@ -558,9 +564,12 @@ namespace MedRecPro.Service
         /// - Complete pre-computation at all levels
         /// - Optimal template performance for complex packaging structures
         /// </remarks>
-        private void processChildPackagingRecursively(PackageRendering packageRendering, object additionalParams)
+        private void processChildPackagingRecursively(PackageRendering packageRendering, object? additionalParams)
         {
             #region implementation
+
+            if (packageRendering == null || _packageRenderingService == null)
+                return;
 
             // Process child packaging if it exists
             if (packageRendering.HasChildPackaging && packageRendering.OrderedChildPackaging?.Any() == true)
