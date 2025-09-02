@@ -1,4 +1,6 @@
-﻿namespace MedRecPro.Models
+﻿using static MedRecPro.Models.Label;
+
+namespace MedRecPro.Models
 {
     /**************************************************************/
     /// <summary>
@@ -7,7 +9,6 @@
     /// for efficient template rendering.
     /// </summary>
     /// <seealso cref="ProductDto"/>
-
     public class ProductRendering
     {
         #region core properties
@@ -16,7 +17,6 @@
         /// <summary>
         /// The product to be rendered.
         /// </summary>
-        /// <seealso cref="ProductDto"/>
         /// <seealso cref="ProductDto"/>
         public required ProductDto ProductDto { get; set; }
 
@@ -181,6 +181,34 @@
         /// Each object has pre-computed IsActiveIngredient=false and associated inactive ingredient properties.
         /// </remarks>
         public List<IngredientRendering>? InactiveIngredients { get; set; }
+
+        #endregion
+
+        #region packaging rendering properties (NEW)
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed packaging rendering contexts for efficient template rendering.
+        /// Contains PackageRendering objects with all pre-computed properties instead of raw PackagingLevelDto objects.
+        /// This collection provides optimized packaging data for template processing with pre-computed business logic.
+        /// Null if no packaging exists.
+        /// </summary>
+        /// <seealso cref="PackageRendering"/>
+        /// <seealso cref="OrderedTopLevelPackaging"/>
+        /// <remarks>
+        /// This collection contains top-level packaging with pre-computed properties for optimal performance.
+        /// Use this collection in preference to the raw OrderedTopLevelPackaging for optimal template performance.
+        /// Each PackageRendering object contains pre-computed flags, formatted values, and ordered collections 
+        /// to eliminate template processing overhead including nested packaging hierarchy processing.
+        /// </remarks>
+        public List<PackageRendering>? PackageRendering { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this product has package rendering contexts.
+        /// </summary>
+        /// <seealso cref="PackageRendering"/>
+        public bool HasPackageRendering { get; set; }
 
         #endregion
 

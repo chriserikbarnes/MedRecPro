@@ -537,6 +537,11 @@ namespace MedRecPro.Service
         private readonly IIngredientRenderingService _ingredientRenderingService;
 
         /// <summary>
+        /// Service for packaging spl products
+        /// </summary>
+        private readonly IPackageRenderingService _packageRenderingService;
+
+        /// <summary>
         /// Logger instance for operation tracking, performance monitoring, and diagnostic information.
         /// </summary>
         /// <seealso cref="ILogger"/>
@@ -559,6 +564,7 @@ namespace MedRecPro.Service
         /// <param name="sectionRenderingService">Service for section rendering preparation</param>
         /// <param name="productRenderingService">Service for product rendering preparation</param>
         /// <param name="ingredientRenderingService">Service for ingredient rendering preparation</param>
+        /// <param name="packageRenderingService">Service for packaging</param>
         /// <param name="logger">Logger instance for operation tracking and diagnostics</param>
         /// <exception cref="ArgumentNullException">Thrown when any required service dependency is null</exception>
         /// <seealso cref="IDocumentDataService"/>
@@ -580,8 +586,10 @@ namespace MedRecPro.Service
         IStructuredBodyViewModelFactory structuredBodyViewModelFactory,
         ISectionRenderingService sectionRenderingService,
         IProductRenderingService productRenderingService,
-        IIngredientRenderingService ingredientRenderingService, 
-        ILogger logger)
+        IIngredientRenderingService ingredientRenderingService,  
+        IPackageRenderingService packageRenderingService,
+        ILogger logger
+       )
         {
             #region implementation
 
@@ -591,9 +599,9 @@ namespace MedRecPro.Service
             _viewModelFactory = structuredBodyViewModelFactory ?? throw new ArgumentNullException(nameof(structuredBodyViewModelFactory));
             _sectionRenderingService = sectionRenderingService ?? throw new ArgumentNullException(nameof(sectionRenderingService));
             _productRenderingService = productRenderingService ?? throw new ArgumentNullException(nameof(productRenderingService));
-            _ingredientRenderingService = ingredientRenderingService ?? throw new ArgumentNullException(nameof(ingredientRenderingService)); // NEW
+            _ingredientRenderingService = ingredientRenderingService ?? throw new ArgumentNullException(nameof(ingredientRenderingService));
+            _packageRenderingService = packageRenderingService ?? throw new ArgumentNullException(nameof(packageRenderingService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
             #endregion
         }
 
@@ -1005,7 +1013,8 @@ namespace MedRecPro.Service
                     var enhancedProductRendering = _productRenderingService.PrepareForRendering(
                         product: product,
                         additionalParams: new { DocumentGuid = documentGuid },
-                        ingredientRenderingService: _ingredientRenderingService
+                        ingredientRenderingService: _ingredientRenderingService,
+                        packageRenderingService: _packageRenderingService
                     );
 
                     // Add the enhanced product rendering to the collection

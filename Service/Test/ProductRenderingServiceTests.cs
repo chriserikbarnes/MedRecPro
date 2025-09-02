@@ -162,9 +162,10 @@ namespace MedRecPro.Service.Test
             // Arrange - Create test product with dictionary-based properties
             var testProductDto = createTestProductDto();
             var service = new ProductRenderingService();
+            var packageService = new PackageRenderingService();
 
             // Act - Process the product through rendering service
-            var result = service.PrepareForRendering(product: testProductDto);
+            var result = service.PrepareForRendering(product: testProductDto, packageService);
 
             // Assert - Verify the service created a valid result with proper context
             Assert.IsNotNull(result);

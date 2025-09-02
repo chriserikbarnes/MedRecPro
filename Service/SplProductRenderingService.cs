@@ -20,12 +20,14 @@ namespace MedRecPro.Service
         /// <param name="product">The product to prepare for rendering</param>
         /// <param name="additionalParams">Additional context parameters as needed</param>
         /// <param name="ingredientRenderingService">Optional ingredient rendering service for enhanced processing</param>
+        /// <param name="packageRenderingService">Optional package rendering service</param>
         /// <returns>A fully prepared ProductRendering object with enhanced ingredients</returns>
         /// <seealso cref="ProductRendering"/>
         /// <seealso cref="IIngredientRenderingService"/>
         ProductRendering PrepareForRendering(ProductDto product, 
             object? additionalParams = null, 
-            IIngredientRenderingService? ingredientRenderingService = null);
+            IIngredientRenderingService? ingredientRenderingService = null,
+            IPackageRenderingService? packageRenderingService = null);
 
         /**************************************************************/
         /// <summary>
@@ -125,41 +127,57 @@ namespace MedRecPro.Service
         private const string NDC_IDENTIFIER_TYPE = "NDC";
         private const string NDC_PRODUCT_IDENTIFIER_TYPE = "NDCProduct";
 
+        private IPackageRenderingService? _packageRenderingService;
+
         #endregion
 
         #region public methods
 
         /**************************************************************/
         /// <summary>
-        /// Enhanced PrepareForRendering method with comprehensive ingredient rendering preparation.
-        /// Creates ProductRendering object with all computed properties including enhanced ingredients
-        /// for optimal template rendering performance.
+        /// Enhanced PrepareForRendering method with comprehensive packaging and ingredient rendering integration.
+        /// Prepares a complete ProductRendering object with all computed properties including optimized packaging collections
+        /// for efficient template rendering following the established ingredient pattern for backward compatibility.
         /// </summary>
         /// <param name="product">The product to prepare for rendering</param>
         /// <param name="additionalParams">Additional context parameters as needed</param>
         /// <param name="ingredientRenderingService">Optional ingredient rendering service for enhanced processing</param>
-        /// <returns>A fully prepared ProductRendering object with enhanced ingredients</returns>
+        /// <param name="packageRenderingService">Optional package rendering service for enhanced processing</param>
+        /// <returns>A fully prepared ProductRendering object with enhanced ingredients and packaging</returns>
         /// <seealso cref="ProductRendering"/>
+        /// <seealso cref="ProductDto"/>
         /// <seealso cref="IIngredientRenderingService"/>
-        /// <seealso cref="processIngredients"/>
+        /// <seealso cref="IPackageRenderingService"/>
         /// <example>
         /// <code>
         /// var preparedProduct = service.PrepareForRendering(
         ///     product: productDto,
-        ///     additionalParams: contextData,
-        ///     ingredientRenderingService: ingredientService
+        ///     additionalParams: new { DocumentGuid = documentGuid },
+        ///     ingredientRenderingService: ingredientService,
+        ///     packageRenderingService: packageService
         /// );
-        /// // preparedProduct now has all computed properties and enhanced ingredients ready for rendering
+        /// // preparedProduct now has all computed properties with enhanced ingredients and packaging ready for rendering
         /// </code>
         /// </example>
-        public ProductRendering PrepareForRendering(ProductDto product, 
-            object? additionalParams = null, 
-            IIngredientRenderingService? ingredientRenderingService = null)
+        /// <remarks>
+        /// The enhanced preparation process follows the ingredient pattern:
+        /// - All existing product property computation
+        /// - Optional ingredient enhancement via ingredientRenderingService
+        /// - Optional packaging enhancement via packageRenderingService
+        /// - Maintains backward compatibility through optional parameters
+        /// </remarks>
+        public ProductRendering PrepareForRendering(ProductDto product,
+            object? additionalParams = null,
+            IIngredientRenderingService? ingredientRenderingService = null,
+            IPackageRenderingService? packageRenderingService = null)
         {
             #region implementation
 
             if (product == null)
                 throw new ArgumentNullException(nameof(product));
+
+            // Use provided package rendering service or default to internal instance
+            _packageRenderingService = packageRenderingService ?? new PackageRenderingService();
 
             // Create base product rendering with existing logic
             var productRendering = new ProductRendering
@@ -190,6 +208,9 @@ namespace MedRecPro.Service
             {
                 processIngredients(productRendering, ingredientRenderingService, additionalParams);
             }
+
+
+            processPackagingForRendering(productRendering, additionalParams);
 
             return productRendering;
 
@@ -449,6 +470,129 @@ namespace MedRecPro.Service
                 productRendering.Ingredients = null;
                 productRendering.ActiveIngredients = null;
                 productRendering.InactiveIngredients = null;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes packaging within a product for enhanced rendering with comprehensive PackageRendering integration.
+        /// Creates enhanced PackageRendering objects from OrderedTopLevelPackaging and stores them in the product's PackageRendering collection
+        /// for optimal template processing performance with recursive packaging hierarchy processing.
+        /// </summary>
+        /// <param name="productRendering">The product rendering context containing packaging to process</param>
+        /// <param name="additionalParams">Additional context parameters for packaging processing</param>
+        /// <seealso cref="ProductRendering.OrderedTopLevelPackaging"/>
+        /// <seealso cref="ProductRendering.PackageRendering"/>
+        /// <seealso cref="IPackageRenderingService.PrepareForRendering"/>
+        /// <seealso cref="PackageRendering"/>
+        /// <remarks>
+        /// Packaging processing workflow:
+        /// - Validation of existing packaging in OrderedTopLevelPackaging collection
+        /// - Enhanced PackageRendering creation for each packaging level
+        /// - Recursive processing of child packaging hierarchies
+        /// - Additional parameters inclusion for context
+        /// - Enhanced packaging collection population in product rendering context
+        /// - Performance tracking and logging for monitoring
+        /// 
+        /// The enhanced packaging provides optimized template processing with pre-computed properties.
+        /// If no packaging exists, the enhanced packaging collections are properly initialized as empty.
+        /// </remarks>
+        private void processPackagingForRendering(ProductRendering productRendering, object? additionalParams)
+        {
+            #region implementation
+
+            // Process packaging if it exists within this product's OrderedTopLevelPackaging collection
+            if (productRendering.HasTopLevelPackaging && productRendering.OrderedTopLevelPackaging?.Any() == true)
+            {
+
+                // Initialize enhanced packaging collection for optimized template processing
+                var enhancedPackaging = new List<PackageRendering>();
+
+                // Process each packaging level in the ordered collection for enhanced rendering preparation
+                foreach (var packagingLevel in productRendering.OrderedTopLevelPackaging)
+                {
+                    // Create enhanced PackageRendering using the service with comprehensive property computation
+                    var enhancedPackageRendering = _packageRenderingService.PrepareForRendering(
+                        packagingLevel: packagingLevel,
+                        additionalParams: additionalParams
+                    );
+
+                    // Process child packaging recursively if it exists
+                    processChildPackagingRecursively(enhancedPackageRendering, additionalParams);
+
+                    // Add the enhanced packaging rendering to the collection
+                    enhancedPackaging.Add(enhancedPackageRendering);
+                }
+
+                // Store the enhanced packaging in the product rendering context for template access
+                productRendering.PackageRendering = enhancedPackaging;
+                productRendering.HasPackageRendering = enhancedPackaging.Any();
+            }
+            else
+            {
+                // No packaging to process - initialize enhanced packaging collections as empty
+                productRendering.PackageRendering = null;
+                productRendering.HasPackageRendering = false;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes child packaging recursively for comprehensive hierarchy rendering.
+        /// Creates enhanced PackageRendering objects for all levels of the packaging hierarchy
+        /// to provide complete nested packaging optimization for template processing.
+        /// </summary>
+        /// <param name="packageRendering">The parent package rendering context to process children for</param>
+        /// <param name="additionalParams">Additional context parameters for child processing</param>
+        /// <seealso cref="PackageRendering.OrderedChildPackaging"/>
+        /// <seealso cref="PackageRendering.ChildPackageRendering"/>
+        /// <seealso cref="IPackageRenderingService.PrepareForRendering"/>
+        /// <remarks>
+        /// Recursive processing ensures that all levels of packaging hierarchy are optimized:
+        /// - Child packaging level creation through PackageRenderingService
+        /// - Recursive descent through packaging hierarchy
+        /// - Complete pre-computation at all levels
+        /// - Optimal template performance for complex packaging structures
+        /// </remarks>
+        private void processChildPackagingRecursively(PackageRendering packageRendering, object additionalParams)
+        {
+            #region implementation
+
+            // Process child packaging if it exists
+            if (packageRendering.HasChildPackaging && packageRendering.OrderedChildPackaging?.Any() == true)
+            {
+                var enhancedChildPackaging = new List<PackageRendering>();
+
+                // Process each child packaging hierarchy
+                foreach (var childHierarchy in packageRendering.OrderedChildPackaging)
+                {
+                    if (childHierarchy.ChildPackagingLevel != null)
+                    {
+                        // Create enhanced PackageRendering for the child level
+                        var childPackageRendering = _packageRenderingService.PrepareForRendering(
+                            packagingLevel: childHierarchy.ChildPackagingLevel,
+                            additionalParams: additionalParams
+                        );
+
+                        // Recursively process children of this child
+                        processChildPackagingRecursively(childPackageRendering, additionalParams);
+
+                        enhancedChildPackaging.Add(childPackageRendering);
+                    }
+                }
+
+                // Store enhanced child packaging
+                packageRendering.ChildPackageRendering = enhancedChildPackaging.Any() ? enhancedChildPackaging : null;
+                packageRendering.HasChildPackageRendering = enhancedChildPackaging.Any();
+            }
+            else
+            {
+                packageRendering.ChildPackageRendering = null;
+                packageRendering.HasChildPackageRendering = false;
             }
 
             #endregion

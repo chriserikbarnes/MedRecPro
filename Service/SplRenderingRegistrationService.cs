@@ -45,7 +45,8 @@ namespace MedRecPro.Configuration
             services.AddScoped<ISectionHierarchyService, SectionHierarchyService>();
             services.AddScoped<ISectionRenderingService, SectionRenderingService>();
             services.AddScoped<IProductRenderingService, ProductRenderingService>();
-            services.AddScoped<IIngredientRenderingService, IngredientRenderingService>(); // NEW
+            services.AddScoped<IIngredientRenderingService, IngredientRenderingService>();
+            services.AddScoped<IPackageRenderingService, PackageRenderingService>();
 
             // Register structured body and section services
             services.AddScoped<IStructuredBodyViewModelFactory, StructuredBodyViewModelFactory>();
@@ -74,7 +75,7 @@ namespace MedRecPro.Configuration
         /// {
         ///     options.EnablePerformanceLogging = true;
         ///     options.CacheTemplates = true;
-        ///     options.EnableIngredientOptimization = true; // NEW
+        ///     options.EnableIngredientOptimization = true;
         /// });
         /// </code>
         /// </example>
@@ -140,5 +141,26 @@ namespace MedRecPro.Configuration
         /// Default: 1000 ingredients per product.
         /// </summary>
         public int MaxIngredientsPerProduct { get; set; } = 1000;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether to enable caching of rendered packaging objects.
+        /// Default is true for improved performance.
+        /// </summary>
+        public bool EnablePackageRenderingCache { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the maximum depth for recursive packaging processing.
+        /// Default is 10 levels to prevent infinite recursion.
+        /// </summary>
+        public int MaxPackagingDepth { get; set; } = 10;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether to validate packaging data before rendering.
+        /// Default is true for data integrity.
+        /// </summary>
+        public bool ValidatePackagingData { get; set; } = true;
     }
 }
