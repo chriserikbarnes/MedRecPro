@@ -23,11 +23,12 @@ namespace MedRecPro.Service
         /// for efficient template rendering.
         /// </summary>
         /// <param name="packagingLevel">The packaging level to prepare for rendering</param>
+        /// <param name="parentProduct">Required ProductDto for identifier correlation</param>
         /// <param name="additionalParams">Additional context parameters as needed</param>
         /// <returns>A fully prepared PackageRendering object</returns>
         /// <seealso cref="PackageRendering"/>
         /// <seealso cref="PackagingLevelDto"/>
-        PackageRendering PrepareForRendering(PackagingLevelDto packagingLevel, object? additionalParams = null);
+        PackageRendering PrepareForRendering(PackagingLevelDto packagingLevel, ProductDto parentProduct, object? additionalParams = null);
 
         /**************************************************************/
         /// <summary>
@@ -113,6 +114,7 @@ namespace MedRecPro.Service
         /// operations to minimize processing in the view layer.
         /// </summary>
         /// <param name="packagingLevel">The packaging level to prepare for rendering</param>
+        /// <param name="parentProduct">Required ProductDto for identifier correlation</param>
         /// <param name="additionalParams">Additional context parameters as needed</param>
         /// <returns>A fully prepared PackageRendering object with computed properties</returns>
         /// <seealso cref="PackageRendering"/>
@@ -126,18 +128,20 @@ namespace MedRecPro.Service
         /// // preparedPackage now has all computed properties ready for rendering
         /// </code>
         /// </example>
-        public PackageRendering PrepareForRendering(PackagingLevelDto packagingLevel, object additionalParams = null)
+        public PackageRendering PrepareForRendering(PackagingLevelDto packagingLevel, ProductDto parentProduct, object? additionalParams = null)
         {
             #region implementation
-
             if (packagingLevel == null)
                 throw new ArgumentNullException(nameof(packagingLevel));
 
-            return new PackageRendering
+            if (parentProduct == null)
+                throw new ArgumentNullException(nameof(parentProduct));
+
+            var packageRendering = new PackageRendering
             {
                 PackagingLevelDto = packagingLevel,
 
-                // Pre-compute all rendering properties
+                // Pre-compute all existing rendering properties
                 DisplayAttributes = GenerateDisplayAttributes(packagingLevel),
                 HasValidData = HasValidData(packagingLevel),
                 OrderedPackageIdentifiers = GetOrderedPackageIdentifiers(packagingLevel),
@@ -147,21 +151,39 @@ namespace MedRecPro.Service
                 HasPackageIdentifiers = GetOrderedPackageIdentifiers(packagingLevel)?.Any() == true,
                 HasChildPackaging = GetOrderedChildPackaging(packagingLevel)?.Any() == true,
 
-                // Pre-compute formatted values
+                // Pre-compute formatted values with translation support
                 FormattedQuantityNumerator = FormatQuantity(packagingLevel.QuantityNumerator),
                 FormattedQuantityDenominator = FormatQuantity(packagingLevel.QuantityDenominator),
 
-                // Pre-compute unit code information
+                // Enhanced unit code information with translation codes from parent product
                 UnitCode = packagingLevel.PackageCode,
-                UnitCodeSystem = packagingLevel.PackageCodeSystem, // UCUM
+                UnitCodeSystem = packagingLevel.PackageCodeSystem ?? "2.16.840.1.113883.6.8", // UCUM
                 UnitDisplayName = packagingLevel.QuantityNumeratorUnit,
 
-                // Pre-compute package form information
+                // Enhanced package form information with parent product context
                 PackageFormCode = packagingLevel.PackageFormCode,
-                PackageFormCodeSystem = packagingLevel.PackageFormCodeSystem ?? "2.16.840.1.113883.3.26.1.1",
+                PackageFormCodeSystem = packagingLevel.PackageFormCodeSystem ?? parentProduct.FormCodeSystem ?? "2.16.840.1.113883.3.26.1.1",
                 PackageFormDisplayName = packagingLevel.PackageFormDisplayName,
+
+                // Set translation codes directly from packaging level data
+                // Numerator translation should use package form, not ingredient data
+                NumeratorTranslationCode = packagingLevel.PackageFormCode,
+                NumeratorCodeSystem = packagingLevel.PackageFormCodeSystem ?? parentProduct.FormCodeSystem ?? "2.16.840.1.113883.3.26.1.1",
+                NumeratorDisplayName = packagingLevel.PackageFormDisplayName,
+
+                // Explicitly set denominator properties to null to prevent unwanted XML attributes
+                DenominatorTranslationCode = null,
+                DenominatorCodeSystem = null,
+                DenominatorDisplayName = null
             };
 
+            // Correlate ProductDto.PackageIdentifiers with packaging levels
+            correlatePackageIdentifiers(packageRendering, parentProduct);
+
+            // Build recursive ChildPackageRendering structure
+            buildRecursiveChildPackaging(packageRendering, parentProduct, additionalParams);
+
+            return packageRendering;
             #endregion
         }
 
@@ -287,6 +309,117 @@ namespace MedRecPro.Service
 
         #region private methods
 
+        /**************************************************************/
+        /// <summary>
+        /// Builds recursive ChildPackageRendering structure instead of flat packaging.
+        /// Processes PackagingHierarchy to create proper nested packaging structure.
+        /// </summary>
+        /// <param name="packageRendering">The parent package rendering context</param>
+        /// <param name="parentProduct">Parent product for context</param>
+        /// <param name="additionalParams">Additional parameters</param>
+        private void buildRecursiveChildPackaging(PackageRendering packageRendering, ProductDto parentProduct, object? additionalParams)
+        {
+            #region implementation
+
+            if (!packageRendering.HasChildPackaging || packageRendering.OrderedChildPackaging == null)
+            {
+                packageRendering.ChildPackageRendering = null;
+                packageRendering.HasChildPackageRendering = false;
+                return;
+            }
+
+            var childRenderings = new List<PackageRendering>();
+
+            foreach (var childHierarchy in packageRendering.OrderedChildPackaging)
+            {
+                if (childHierarchy.ChildPackagingLevel != null)
+                {
+                    // Recursively prepare child packaging with product context
+                    var childPackageRendering = PrepareForRendering(
+                        packagingLevel: childHierarchy.ChildPackagingLevel,
+                        parentProduct: parentProduct, // Pass product context for correlation
+                        additionalParams: additionalParams
+                    );
+
+                    childRenderings.Add(childPackageRendering);
+                }
+            }
+
+            packageRendering.ChildPackageRendering = childRenderings.Any() ? childRenderings : null;
+            packageRendering.HasChildPackageRendering = childRenderings.Any();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Correlates ProductDto.PackageIdentifiers with packaging levels by business rules.
+        /// Extracts NDC codes and populates them in the appropriate packaging levels.
+        /// </summary>
+        /// <param name="packageRendering">The package rendering context to enhance</param>
+        /// <param name="parentProduct">Parent product containing package identifiers</param>
+        private static void correlatePackageIdentifiers(PackageRendering packageRendering, ProductDto parentProduct)
+        {
+            #region implementation
+
+            if (parentProduct.PackageIdentifiers == null || !parentProduct.PackageIdentifiers.Any())
+                return;
+
+            // Create enhanced package identifier list with NDC correlation
+            var enhancedIdentifiers = new List<PackageIdentifierDto>();
+
+            // Business rule: Match package identifiers to packaging levels
+            // This could be based on sequence, quantity, or other business logic
+            var packagingLevel = packageRendering.PackagingLevelDto;
+
+            // Find matching NDC identifiers for this packaging level
+            var matchingIdentifiers = parentProduct.PackageIdentifiers
+                .Where(pi => pi.PackagingLevelID == packagingLevel.PackagingLevelID 
+                    && !string.IsNullOrEmpty(pi.IdentifierValue))
+                .ToList();
+
+            if (matchingIdentifiers.Any())
+            {              
+                foreach (var primaryIdentifier in matchingIdentifiers)
+                {
+
+                    if (primaryIdentifier != null)
+                    {
+                        var newIdentifier = new PackageIdentifierDto
+                        {
+                            PackageIdentifier = new Dictionary<string, object?>
+                            {
+                                [nameof(PackageIdentifierDto.PackageIdentifierID)] = primaryIdentifier.PackageIdentifierID,
+                                [nameof(PackageIdentifierDto.PackagingLevelID)] = packagingLevel.PackagingLevelID,
+                                [nameof(PackageIdentifierDto.IdentifierValue)] = primaryIdentifier.IdentifierValue,
+                                [nameof(PackageIdentifierDto.IdentifierSystemOID)] = primaryIdentifier.IdentifierSystemOID ?? "2.16.840.1.113883.6.69",
+                                [nameof(PackageIdentifierDto.IdentifierType)] = primaryIdentifier.IdentifierType ?? DEFAULT_IDENTIFIER_TYPE
+                            }
+                        };
+
+                        enhancedIdentifiers.Add(newIdentifier);
+                    }
+                }
+
+                if (enhancedIdentifiers != null && enhancedIdentifiers.Any())
+                {
+                    packageRendering.OrderedPackageIdentifiers = enhancedIdentifiers.OrderBy(x => x.PackagingLevelID).ToList();
+                    packageRendering.HasPackageIdentifiers = true;
+                }
+            }
+            else
+            {
+                // No matching NDC for this specific packaging level - render empty code
+                packageRendering.OrderedPackageIdentifiers = null;
+                packageRendering.HasPackageIdentifiers = false;
+            }
+
+
+
+
+            #endregion
+        }
+        
         /**************************************************************/
         /// <summary>
         /// Formats package code according to domain-specific rules.

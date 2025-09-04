@@ -1,9 +1,6 @@
 ﻿
 using MedRecPro.Helpers;
-using MedRecPro.Service;
-using Microsoft.Extensions.DependencyInjection;
-using Newtonsoft.Json;
-using static MedRecPro.Models.Label;
+
 namespace MedRecPro.Models
 {
     /**************************************************************/
@@ -17,8 +14,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? AdditionalIdentifierID =>
-            AdditionalIdentifier.TryGetValue(nameof(AdditionalIdentifierID), out var value)
-                ? value as int?
+            AdditionalIdentifier.TryGetValue("EncryptedAdditionalIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -26,8 +23,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            AdditionalIdentifier.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            AdditionalIdentifier.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -87,8 +84,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ActiveMoietyID =>
-            ActiveMoiety.TryGetValue(nameof(ActiveMoietyID), out var value)
-                ? value as int?
+            ActiveMoiety.TryGetValue("EncryptedActiveMoietyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -96,8 +93,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IngredientSubstanceID =>
-            ActiveMoiety.TryGetValue(nameof(IngredientSubstanceID), out var value)
-                ? value as int?
+            ActiveMoiety.TryGetValue("EncryptedIngredientSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -131,8 +128,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? AddressID =>
-            Address.TryGetValue(nameof(AddressID), out var value)
-                ? value as int?
+            Address.TryGetValue("EncryptedAddressID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -210,8 +207,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? AnalyteID =>
-            Analyte.TryGetValue(nameof(AnalyteID), out var value)
-                ? value as int?
+            Analyte.TryGetValue("EncryptedAnalyteID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -219,8 +216,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SubstanceSpecificationID =>
-            Analyte.TryGetValue(nameof(SubstanceSpecificationID), out var value)
-                ? value as int?
+            Analyte.TryGetValue("EncryptedSubstanceSpecificationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -228,8 +225,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? AnalyteSubstanceID =>
-            Analyte.TryGetValue(nameof(AnalyteSubstanceID), out var value)
-                ? value as int?
+            Analyte.TryGetValue("EncryptedAnalyteSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -244,8 +241,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ApplicationTypeID =>
-            ApplicationType.TryGetValue(nameof(ApplicationTypeID), out var value)
-                ? value as int?
+            ApplicationType.TryGetValue("EncryptedApplicationTypeID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -287,8 +284,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? AttachedDocumentID =>
-            AttachedDocument.TryGetValue(nameof(AttachedDocumentID), out var value)
-                ? value as int?
+            AttachedDocument.TryGetValue("EncryptedAttachedDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -296,8 +293,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            AttachedDocument.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            AttachedDocument.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -305,8 +302,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ComplianceActionID =>
-            AttachedDocument.TryGetValue(nameof(ComplianceActionID), out var value)
-                ? value as int?
+            AttachedDocument.TryGetValue("EncryptedComplianceActionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -314,8 +311,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            AttachedDocument.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            AttachedDocument.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -332,8 +329,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ParentEntityID =>
-            AttachedDocument.TryGetValue(nameof(ParentEntityID), out var value)
-                ? value as int?
+            AttachedDocument.TryGetValue("EncryptedParentEntityID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -393,8 +390,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? BillingUnitIndexID =>
-            BillingUnitIndex.TryGetValue(nameof(BillingUnitIndexID), out var value)
-                ? value as int?
+            BillingUnitIndex.TryGetValue("EncryptedBillingUnitIndexID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -402,8 +399,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            BillingUnitIndex.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            BillingUnitIndex.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -456,8 +453,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? BusinessOperationID =>
-            BusinessOperation.TryGetValue(nameof(BusinessOperationID), out var value)
-                ? value as int?
+            BusinessOperation.TryGetValue("EncryptedBusinessOperationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -465,8 +462,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentRelationshipID =>
-            BusinessOperation.TryGetValue(nameof(DocumentRelationshipID), out var value)
-                ? value as int?
+            BusinessOperation.TryGetValue("EncryptedDocumentRelationshipID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -508,8 +505,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? BusinessOperationProductLinkID =>
-            BusinessOperationProductLink.TryGetValue(nameof(BusinessOperationProductLinkID), out var value)
-                ? value as int?
+            BusinessOperationProductLink.TryGetValue("EncryptedBusinessOperationProductLinkID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -517,8 +514,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? BusinessOperationID =>
-            BusinessOperationProductLink.TryGetValue(nameof(BusinessOperationID), out var value)
-                ? value as int?
+            BusinessOperationProductLink.TryGetValue("EncryptedBusinessOperationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -526,8 +523,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            BusinessOperationProductLink.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            BusinessOperationProductLink.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -542,8 +539,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? BusinessOperationQualifierID =>
-            BusinessOperationQualifier.TryGetValue(nameof(BusinessOperationQualifierID), out var value)
-                ? value as int?
+            BusinessOperationQualifier.TryGetValue("EncryptedBusinessOperationQualifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -551,8 +548,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? BusinessOperationID =>
-            BusinessOperationQualifier.TryGetValue(nameof(BusinessOperationID), out var value)
-                ? value as int?
+            BusinessOperationQualifier.TryGetValue("EncryptedBusinessOperationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -594,8 +591,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? CertificationProductLinkID =>
-            CertificationProductLink.TryGetValue(nameof(CertificationProductLinkID), out var value)
-                ? value as int?
+            CertificationProductLink.TryGetValue("EncryptedCertificationProductLinkID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -603,8 +600,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentRelationshipID =>
-            CertificationProductLink.TryGetValue(nameof(DocumentRelationshipID), out var value)
-                ? value as int?
+            CertificationProductLink.TryGetValue("EncryptedDocumentRelationshipID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -612,8 +609,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductIdentifierID =>
-            CertificationProductLink.TryGetValue(nameof(ProductIdentifierID), out var value)
-                ? value as int?
+            CertificationProductLink.TryGetValue("EncryptedProductIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -630,8 +627,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? CharacteristicID =>
-            Characteristic.TryGetValue(nameof(CharacteristicID), out var value)
-                ? value as int?
+            Characteristic.TryGetValue("EncryptedCharacteristicID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -640,8 +637,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            Characteristic.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            Characteristic.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -650,8 +647,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PackagingLevelID =>
-            Characteristic.TryGetValue(nameof(PackagingLevelID), out var value)
-                ? value as int?
+            Characteristic.TryGetValue("EncryptedPackagingLevelID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -661,8 +658,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? MoietyID =>
-            Characteristic.TryGetValue(nameof(MoietyID), out var value)
-                ? value as int?
+            Characteristic.TryGetValue("EncryptedMoietyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -862,8 +859,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? CommodityID =>
-            Commodity.TryGetValue(nameof(CommodityID), out var value)
-                ? value as int?
+            Commodity.TryGetValue("EncryptedCommodityID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -915,8 +912,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ContributingFactorID =>
-            ContributingFactor.TryGetValue(nameof(ContributingFactorID), out var value)
-                ? value as int?
+            ContributingFactor.TryGetValue("EncryptedContributingFactorID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -924,8 +921,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? InteractionIssueID =>
-            ContributingFactor.TryGetValue(nameof(InteractionIssueID), out var value)
-                ? value as int?
+            ContributingFactor.TryGetValue("EncryptedInteractionIssueID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -933,8 +930,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? FactorSubstanceID =>
-            ContributingFactor.TryGetValue(nameof(FactorSubstanceID), out var value)
-                ? value as int?
+            ContributingFactor.TryGetValue("EncryptedFactorSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -949,8 +946,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ComplianceActionID =>
-            ComplianceAction.TryGetValue(nameof(ComplianceActionID), out var value)
-                ? value as int?
+            ComplianceAction.TryGetValue("EncryptedComplianceActionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -958,8 +955,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            ComplianceAction.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            ComplianceAction.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -967,8 +964,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PackageIdentifierID =>
-            ComplianceAction.TryGetValue(nameof(PackageIdentifierID), out var value)
-                ? value as int?
+            ComplianceAction.TryGetValue("EncryptedPackageIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -976,8 +973,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentRelationshipID =>
-            ComplianceAction.TryGetValue(nameof(DocumentRelationshipID), out var value)
-                ? value as int?
+            ComplianceAction.TryGetValue("EncryptedDocumentRelationshipID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1041,8 +1038,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ContactPartyID =>
-            ContactParty.TryGetValue(nameof(ContactPartyID), out var value)
-                ? value as int?
+            ContactParty.TryGetValue("EncryptedContactPartyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1050,8 +1047,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? OrganizationID =>
-            ContactParty.TryGetValue(nameof(OrganizationID), out var value)
-                ? value as int?
+            ContactParty.TryGetValue("EncryptedOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1059,8 +1056,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? AddressID =>
-            ContactParty.TryGetValue(nameof(AddressID), out var value)
-                ? value as int?
+            ContactParty.TryGetValue("EncryptedAddressID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1068,8 +1065,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ContactPersonID =>
-            ContactParty.TryGetValue(nameof(ContactPersonID), out var value)
-                ? value as int?
+            ContactParty.TryGetValue("EncryptedContactPersonID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -1086,8 +1083,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ContactPartyTelecomID =>
-            ContactPartyTelecom.TryGetValue(nameof(ContactPartyTelecomID), out var value)
-                ? value as int?
+            ContactPartyTelecom.TryGetValue("EncryptedContactPartyTelecomID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1095,8 +1092,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ContactPartyID =>
-            ContactPartyTelecom.TryGetValue(nameof(ContactPartyID), out var value)
-                ? value as int?
+            ContactPartyTelecom.TryGetValue("EncryptedContactPartyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1104,8 +1101,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TelecomID =>
-            ContactPartyTelecom.TryGetValue(nameof(TelecomID), out var value)
-                ? value as int?
+            ContactPartyTelecom.TryGetValue("EncryptedTelecomID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -1121,8 +1118,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ContactPersonID =>
-            ContactPerson.TryGetValue(nameof(ContactPersonID), out var value)
-                ? value as int?
+            ContactPerson.TryGetValue("EncryptedContactPersonID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1146,8 +1143,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DisciplinaryActionID =>
-            DisciplinaryAction.TryGetValue(nameof(DisciplinaryActionID), out var value)
-                ? value as int?
+            DisciplinaryAction.TryGetValue("EncryptedDisciplinaryActionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1155,8 +1152,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? LicenseID =>
-            DisciplinaryAction.TryGetValue(nameof(LicenseID), out var value)
-                ? value as int?
+            DisciplinaryAction.TryGetValue("EncryptedLicenseID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1218,8 +1215,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentAuthorID =>
-            DocumentAuthor.TryGetValue(nameof(DocumentAuthorID), out var value)
-                ? value as int?
+            DocumentAuthor.TryGetValue("EncryptedDocumentAuthorID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1227,8 +1224,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentID =>
-            DocumentAuthor.TryGetValue(nameof(DocumentID), out var value)
-                ? value as int?
+            DocumentAuthor.TryGetValue("EncryptedDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1236,8 +1233,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? OrganizationID =>
-            DocumentAuthor.TryGetValue(nameof(OrganizationID), out var value)
-                ? value as int?
+            DocumentAuthor.TryGetValue("EncryptedOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1271,8 +1268,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentID =>
-            Document.TryGetValue(nameof(DocumentID), out var value)
-                ? value as int?
+            Document.TryGetValue("EncryptedDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1384,8 +1381,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentRelationshipID =>
-            DocumentRelationship.TryGetValue(nameof(DocumentRelationshipID), out var value)
-                ? value as int?
+            DocumentRelationship.TryGetValue("EncryptedDocumentRelationshipID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1393,8 +1390,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentID =>
-            DocumentRelationship.TryGetValue(nameof(DocumentID), out var value)
-                ? value as int?
+            DocumentRelationship.TryGetValue("EncryptedDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1402,8 +1399,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ParentOrganizationID =>
-            DocumentRelationship.TryGetValue(nameof(ParentOrganizationID), out var value)
-                ? value as int?
+            DocumentRelationship.TryGetValue("EncryptedParentOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1411,8 +1408,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ChildOrganizationID =>
-            DocumentRelationship.TryGetValue(nameof(ChildOrganizationID), out var value)
-                ? value as int?
+            DocumentRelationship.TryGetValue("EncryptedChildOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1445,8 +1442,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DosingSpecificationID =>
-            DosingSpecification.TryGetValue(nameof(DosingSpecificationID), out var value)
-                ? value as int?
+            DosingSpecification.TryGetValue("EncryptedDosingSpecificationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1455,8 +1452,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            DosingSpecification.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            DosingSpecification.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1531,8 +1528,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? EquivalentEntityID =>
-            EquivalentEntity.TryGetValue(nameof(EquivalentEntityID), out var value)
-                ? value as int?
+            EquivalentEntity.TryGetValue("EncryptedEquivalentEntityID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1540,8 +1537,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            EquivalentEntity.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            EquivalentEntity.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1592,8 +1589,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? FacilityProductLinkID =>
-            FacilityProductLink.TryGetValue(nameof(FacilityProductLinkID), out var value)
-                ? value as int?
+            FacilityProductLink.TryGetValue("EncryptedFacilityProductLinkID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1601,8 +1598,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentRelationshipID =>
-            FacilityProductLink.TryGetValue(nameof(DocumentRelationshipID), out var value)
-                ? value as int?
+            FacilityProductLink.TryGetValue("EncryptedDocumentRelationshipID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1610,8 +1607,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            FacilityProductLink.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            FacilityProductLink.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1619,8 +1616,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductIdentifierID =>
-            FacilityProductLink.TryGetValue(nameof(ProductIdentifierID), out var value)
-                ? value as int?
+            FacilityProductLink.TryGetValue("EncryptedProductIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1644,8 +1641,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? GenericMedicineID =>
-            GenericMedicine.TryGetValue(nameof(GenericMedicineID), out var value)
-                ? value as int?
+            GenericMedicine.TryGetValue("EncryptedGenericMedicineID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1653,8 +1650,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            GenericMedicine.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            GenericMedicine.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1687,8 +1684,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? HolderID =>
-            Holder.TryGetValue(nameof(HolderID), out var value)
-                ? value as int?
+            Holder.TryGetValue("EncryptedHolderID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1696,8 +1693,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? MarketingCategoryID =>
-            Holder.TryGetValue(nameof(MarketingCategoryID), out var value)
-                ? value as int?
+            Holder.TryGetValue("EncryptedMarketingCategoryID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1705,8 +1702,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? HolderOrganizationID =>
-            Holder.TryGetValue(nameof(HolderOrganizationID), out var value)
-                ? value as int?
+            Holder.TryGetValue("EncryptedHolderOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -1722,8 +1719,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? MoietyID =>
-            Moiety.TryGetValue(nameof(MoietyID), out var value)
-                ? value as int?
+            Moiety.TryGetValue("EncryptedMoietyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1732,8 +1729,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IdentifiedSubstanceID =>
-            Moiety.TryGetValue(nameof(IdentifiedSubstanceID), out var value)
-                ? value as int?
+            Moiety.TryGetValue("EncryptedIdentifiedSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1839,8 +1836,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IdentifiedSubstanceID =>
-            IdentifiedSubstance.TryGetValue(nameof(IdentifiedSubstanceID), out var value)
-                ? value as int?
+            IdentifiedSubstance.TryGetValue("EncryptedIdentifiedSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1849,8 +1846,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            IdentifiedSubstance.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            IdentifiedSubstance.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1914,8 +1911,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IngredientID =>
-            Ingredient.TryGetValue(nameof(IngredientID), out var value)
-                ? value as int?
+            Ingredient.TryGetValue("EncryptedIngredientID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1923,8 +1920,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            Ingredient.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            Ingredient.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1932,8 +1929,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IngredientSubstanceID =>
-            Ingredient.TryGetValue(nameof(IngredientSubstanceID), out var value)
-                ? value as int?
+            Ingredient.TryGetValue("EncryptedIngredientSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1941,8 +1938,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SpecifiedSubstanceID =>
-            Ingredient.TryGetValue(nameof(SpecifiedSubstanceID), out var value)
-                ? value as int?
+            Ingredient.TryGetValue("EncryptedSpecifiedSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1950,8 +1947,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ReferenceSubstanceID =>
-            Ingredient.TryGetValue(nameof(ReferenceSubstanceID), out var value)
-                ? value as int?
+            Ingredient.TryGetValue("EncryptedReferenceSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -1959,8 +1956,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductConceptID =>
-            Ingredient.TryGetValue(nameof(ProductConceptID), out var value)
-                ? value as int?
+            Ingredient.TryGetValue("EncryptedProductConceptID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2131,8 +2128,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IngredientInstanceID =>
-            IngredientInstance.TryGetValue(nameof(IngredientInstanceID), out var value)
-                ? value as int?
+            IngredientInstance.TryGetValue("EncryptedIngredientInstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2140,8 +2137,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? FillLotInstanceID =>
-            IngredientInstance.TryGetValue(nameof(FillLotInstanceID), out var value)
-                ? value as int?
+            IngredientInstance.TryGetValue("EncryptedFillLotInstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2149,8 +2146,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IngredientSubstanceID =>
-            IngredientInstance.TryGetValue(nameof(IngredientSubstanceID), out var value)
-                ? value as int?
+            IngredientInstance.TryGetValue("EncryptedIngredientSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2158,8 +2155,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? LotIdentifierID =>
-            IngredientInstance.TryGetValue(nameof(LotIdentifierID), out var value)
-                ? value as int?
+            IngredientInstance.TryGetValue("EncryptedLotIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2167,8 +2164,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ManufacturerOrganizationID =>
-            IngredientInstance.TryGetValue(nameof(ManufacturerOrganizationID), out var value)
-                ? value as int?
+            IngredientInstance.TryGetValue("EncryptedManufacturerOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -2183,8 +2180,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IngredientSourceProductID =>
-            IngredientSourceProduct.TryGetValue(nameof(IngredientSourceProductID), out var value)
-                ? value as int?
+            IngredientSourceProduct.TryGetValue("EncryptedIngredientSourceProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2192,8 +2189,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IngredientID =>
-            IngredientSourceProduct.TryGetValue(nameof(IngredientID), out var value)
-                ? value as int?
+            IngredientSourceProduct.TryGetValue("EncryptedIngredientID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2228,8 +2225,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IngredientSubstanceID =>
-            IngredientSubstance.TryGetValue(nameof(IngredientSubstanceID), out var value)
-                ? value as int?
+            IngredientSubstance.TryGetValue("EncryptedIngredientSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2271,8 +2268,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? InteractionConsequenceID =>
-            InteractionConsequence.TryGetValue(nameof(InteractionConsequenceID), out var value)
-                ? value as int?
+            InteractionConsequence.TryGetValue("EncryptedInteractionConsequenceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2280,8 +2277,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? InteractionIssueID =>
-            InteractionConsequence.TryGetValue(nameof(InteractionIssueID), out var value)
-                ? value as int?
+            InteractionConsequence.TryGetValue("EncryptedInteractionIssueID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2351,8 +2348,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? InteractionIssueID =>
-            InteractionIssue.TryGetValue(nameof(InteractionIssueID), out var value)
-                ? value as int?
+            InteractionIssue.TryGetValue("EncryptedInteractionIssueID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2360,8 +2357,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            InteractionIssue.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            InteractionIssue.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2405,8 +2402,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? LegalAuthenticatorID =>
-            LegalAuthenticator.TryGetValue(nameof(LegalAuthenticatorID), out var value)
-                ? value as int?
+            LegalAuthenticator.TryGetValue("EncryptedLegalAuthenticatorID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2414,8 +2411,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentID =>
-            LegalAuthenticator.TryGetValue(nameof(DocumentID), out var value)
-                ? value as int?
+            LegalAuthenticator.TryGetValue("EncryptedDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2459,8 +2456,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SignerOrganizationID =>
-            LegalAuthenticator.TryGetValue(nameof(SignerOrganizationID), out var value)
-                ? value as int?
+            LegalAuthenticator.TryGetValue("EncryptedSignerOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -2478,8 +2475,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? LicenseID =>
-            License.TryGetValue(nameof(LicenseID), out var value)
-                ? value as int?
+            License.TryGetValue("EncryptedLicenseID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2487,8 +2484,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? BusinessOperationID =>
-            License.TryGetValue(nameof(BusinessOperationID), out var value)
-                ? value as int?
+            License.TryGetValue("EncryptedBusinessOperationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2559,8 +2556,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TerritorialAuthorityID =>
-            License.TryGetValue(nameof(TerritorialAuthorityID), out var value)
-                ? value as int?
+            License.TryGetValue("EncryptedTerritorialAuthorityID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -2577,8 +2574,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? LotHierarchyID =>
-            LotHierarchy.TryGetValue(nameof(LotHierarchyID), out var value)
-                ? value as int?
+            LotHierarchy.TryGetValue("EncryptedLotHierarchyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2586,8 +2583,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ParentInstanceID =>
-            LotHierarchy.TryGetValue(nameof(ParentInstanceID), out var value)
-                ? value as int?
+            LotHierarchy.TryGetValue("EncryptedParentInstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2595,8 +2592,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ChildInstanceID =>
-            LotHierarchy.TryGetValue(nameof(ChildInstanceID), out var value)
-                ? value as int?
+            LotHierarchy.TryGetValue("EncryptedChildInstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -2611,8 +2608,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? LotIdentifierID =>
-            LotIdentifier.TryGetValue(nameof(LotIdentifierID), out var value)
-                ? value as int?
+            LotIdentifier.TryGetValue("EncryptedLotIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2645,8 +2642,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? MarketingCategoryID =>
-            MarketingCategory.TryGetValue(nameof(MarketingCategoryID), out var value)
-                ? value as int?
+            MarketingCategory.TryGetValue("EncryptedMarketingCategoryID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2654,8 +2651,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            MarketingCategory.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            MarketingCategory.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2726,8 +2723,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductConceptID =>
-            MarketingCategory.TryGetValue(nameof(ProductConceptID), out var value)
-                ? value as int?
+            MarketingCategory.TryGetValue("EncryptedProductConceptID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -2742,8 +2739,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? MarketingStatusID =>
-            MarketingStatus.TryGetValue(nameof(MarketingStatusID), out var value)
-                ? value as int?
+            MarketingStatus.TryGetValue("EncryptedMarketingStatusID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2751,8 +2748,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            MarketingStatus.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            MarketingStatus.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2760,8 +2757,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PackagingLevelID =>
-            MarketingStatus.TryGetValue(nameof(PackagingLevelID), out var value)
-                ? value as int?
+            MarketingStatus.TryGetValue("EncryptedPackagingLevelID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2821,8 +2818,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? NamedEntityID =>
-            NamedEntity.TryGetValue(nameof(NamedEntityID), out var value)
-                ? value as int?
+            NamedEntity.TryGetValue("EncryptedNamedEntityID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2830,8 +2827,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? OrganizationID =>
-            NamedEntity.TryGetValue(nameof(OrganizationID), out var value)
-                ? value as int?
+            NamedEntity.TryGetValue("EncryptedOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2891,8 +2888,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? NCTLinkID =>
-            NCTLink.TryGetValue(nameof(NCTLinkID), out var value)
-                ? value as int?
+            NCTLink.TryGetValue("EncryptedNCTLinkID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2900,8 +2897,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            NCTLink.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            NCTLink.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2936,8 +2933,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ObservationCriterionID =>
-            ObservationCriterion.TryGetValue(nameof(ObservationCriterionID), out var value)
-                ? value as int?
+            ObservationCriterion.TryGetValue("EncryptedObservationCriterionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2945,8 +2942,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SubstanceSpecificationID =>
-            ObservationCriterion.TryGetValue(nameof(SubstanceSpecificationID), out var value)
-                ? value as int?
+            ObservationCriterion.TryGetValue("EncryptedSubstanceSpecificationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2972,8 +2969,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? CommodityID =>
-            ObservationCriterion.TryGetValue(nameof(CommodityID), out var value)
-                ? value as int?
+            ObservationCriterion.TryGetValue("EncryptedCommodityID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -2981,8 +2978,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ApplicationTypeID =>
-            ObservationCriterion.TryGetValue(nameof(ApplicationTypeID), out var value)
-                ? value as int?
+            ObservationCriterion.TryGetValue("EncryptedApplicationTypeID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3016,8 +3013,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ObservationMediaID =>
-            ObservationMedia.TryGetValue(nameof(ObservationMediaID), out var value)
-                ? value as int?
+            ObservationMedia.TryGetValue("EncryptedObservationMediaID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3025,8 +3022,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            ObservationMedia.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            ObservationMedia.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3097,8 +3094,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? OrganizationID =>
-            Organization.TryGetValue(nameof(OrganizationID), out var value)
-                ? value as int?
+            Organization.TryGetValue("EncryptedOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3131,8 +3128,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? OrganizationIdentifierID =>
-            OrganizationIdentifier.TryGetValue(nameof(OrganizationIdentifierID), out var value)
-                ? value as int?
+            OrganizationIdentifier.TryGetValue("EncryptedOrganizationIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3140,8 +3137,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? OrganizationID =>
-            OrganizationIdentifier.TryGetValue(nameof(OrganizationID), out var value)
-                ? value as int?
+            OrganizationIdentifier.TryGetValue("EncryptedOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3209,8 +3206,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductRouteOfAdministrationID =>
-            Route.TryGetValue(nameof(ProductRouteOfAdministrationID), out var value)
-                ? value as int?
+            Route.TryGetValue("EncryptedProductRouteOfAdministrationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3218,8 +3215,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            Route.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            Route.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3273,8 +3270,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? OrganizationTelecomID =>
-            OrganizationTelecom.TryGetValue(nameof(OrganizationTelecomID), out var value)
-                ? value as int?
+            OrganizationTelecom.TryGetValue("EncryptedOrganizationTelecomID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3282,8 +3279,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? OrganizationID =>
-            OrganizationTelecom.TryGetValue(nameof(OrganizationID), out var value)
-                ? value as int?
+            OrganizationTelecom.TryGetValue("EncryptedOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3291,8 +3288,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TelecomID =>
-            OrganizationTelecom.TryGetValue(nameof(TelecomID), out var value)
-                ? value as int?
+            OrganizationTelecom.TryGetValue("EncryptedTelecomID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -3311,8 +3308,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PackagingLevelID =>
-            PackagingLevel.TryGetValue(nameof(PackagingLevelID), out var value)
-                ? value as int?
+            PackagingLevel.TryGetValue("EncryptedPackagingLevelID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3320,8 +3317,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            PackagingLevel.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            PackagingLevel.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3329,8 +3326,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PartProductID =>
-            PackagingLevel.TryGetValue(nameof(PartProductID), out var value)
-                ? value as int?
+            PackagingLevel.TryGetValue("EncryptedPartProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3410,8 +3407,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductInstanceID =>
-            PackagingLevel.TryGetValue(nameof(ProductInstanceID), out var value)
-                ? value as int?
+            PackagingLevel.TryGetValue("EncryptedProductInstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -3427,8 +3424,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PackageIdentifierID =>
-            PackageIdentifier.TryGetValue(nameof(PackageIdentifierID), out var value)
-                ? value as int?
+            PackageIdentifier.TryGetValue("EncryptedPackageIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3436,8 +3433,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PackagingLevelID =>
-            PackageIdentifier.TryGetValue(nameof(PackagingLevelID), out var value)
-                ? value as int?
+            PackageIdentifier.TryGetValue("EncryptedPackagingLevelID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3483,8 +3480,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PackagingHierarchyID =>
-            PackagingHierarchy.TryGetValue(nameof(PackagingHierarchyID), out var value)
-                ? value as int?
+            PackagingHierarchy.TryGetValue("EncryptedPackagingHierarchyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3492,8 +3489,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? OuterPackagingLevelID =>
-            PackagingHierarchy.TryGetValue(nameof(OuterPackagingLevelID), out var value)
-                ? value as int?
+            PackagingHierarchy.TryGetValue("EncryptedOuterPackagingLevelID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3501,8 +3498,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? InnerPackagingLevelID =>
-            PackagingHierarchy.TryGetValue(nameof(InnerPackagingLevelID), out var value)
-                ? value as int?
+            PackagingHierarchy.TryGetValue("EncryptedInnerPackagingLevelID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3526,8 +3523,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PartOfAssemblyID =>
-            PartOfAssembly.TryGetValue(nameof(PartOfAssemblyID), out var value)
-                ? value as int?
+            PartOfAssembly.TryGetValue("EncryptedPartOfAssemblyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3535,8 +3532,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PrimaryProductID =>
-            PartOfAssembly.TryGetValue(nameof(PrimaryProductID), out var value)
-                ? value as int?
+            PartOfAssembly.TryGetValue("EncryptedPrimaryProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3544,8 +3541,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? AccessoryProductID =>
-            PartOfAssembly.TryGetValue(nameof(AccessoryProductID), out var value)
-                ? value as int?
+            PartOfAssembly.TryGetValue("EncryptedAccessoryProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -3563,8 +3560,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PharmacologicClassID =>
-            PharmacologicClass.TryGetValue(nameof(PharmacologicClassID), out var value)
-                ? value as int?
+            PharmacologicClass.TryGetValue("EncryptedPharmacologicClassID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3572,8 +3569,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IdentifiedSubstanceID =>
-            PharmacologicClass.TryGetValue(nameof(IdentifiedSubstanceID), out var value)
-                ? value as int?
+            PharmacologicClass.TryGetValue("EncryptedIdentifiedSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3615,8 +3612,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PharmacologicClassNameID =>
-            PharmacologicClassName.TryGetValue(nameof(PharmacologicClassNameID), out var value)
-                ? value as int?
+            PharmacologicClassName.TryGetValue("EncryptedPharmacologicClassNameID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3624,8 +3621,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PharmacologicClassID =>
-            PharmacologicClassName.TryGetValue(nameof(PharmacologicClassID), out var value)
-                ? value as int?
+            PharmacologicClassName.TryGetValue("EncryptedPharmacologicClassID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3658,8 +3655,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PharmacologicClassLinkID =>
-            PharmacologicClassLink.TryGetValue(nameof(PharmacologicClassLinkID), out var value)
-                ? value as int?
+            PharmacologicClassLink.TryGetValue("EncryptedPharmacologicClassLinkID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3667,8 +3664,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ActiveMoietySubstanceID =>
-            PharmacologicClassLink.TryGetValue(nameof(ActiveMoietySubstanceID), out var value)
-                ? value as int?
+            PharmacologicClassLink.TryGetValue("EncryptedActiveMoietySubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3676,8 +3673,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PharmacologicClassID =>
-            PharmacologicClassLink.TryGetValue(nameof(PharmacologicClassID), out var value)
-                ? value as int?
+            PharmacologicClassLink.TryGetValue("EncryptedPharmacologicClassID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -3692,8 +3689,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PharmacologicClassHierarchyID =>
-            PharmacologicClassHierarchy.TryGetValue(nameof(PharmacologicClassHierarchyID), out var value)
-                ? value as int?
+            PharmacologicClassHierarchy.TryGetValue("EncryptedPharmacologicClassHierarchyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3701,8 +3698,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ChildPharmacologicClassID =>
-            PharmacologicClassHierarchy.TryGetValue(nameof(ChildPharmacologicClassID), out var value)
-                ? value as int?
+            PharmacologicClassHierarchy.TryGetValue("EncryptedChildPharmacologicClassID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3710,8 +3707,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ParentPharmacologicClassID =>
-            PharmacologicClassHierarchy.TryGetValue(nameof(ParentPharmacologicClassID), out var value)
-                ? value as int?
+            PharmacologicClassHierarchy.TryGetValue("EncryptedParentPharmacologicClassID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -3726,8 +3723,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PolicyID =>
-            Policy.TryGetValue(nameof(PolicyID), out var value)
-                ? value as int?
+            Policy.TryGetValue("EncryptedPolicyID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3735,8 +3732,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            Policy.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            Policy.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3788,8 +3785,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductConceptID =>
-            ProductConcept.TryGetValue(nameof(ProductConceptID), out var value)
-                ? value as int?
+            ProductConcept.TryGetValue("EncryptedProductConceptID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3797,8 +3794,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            ProductConcept.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            ProductConcept.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3867,8 +3864,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductConceptEquivalenceID =>
-            ProductConcept.TryGetValue(nameof(ProductConceptEquivalenceID), out var value)
-                ? value as int?
+            ProductConcept.TryGetValue("EncryptedProductConceptEquivalenceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3876,8 +3873,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ApplicationProductConceptID =>
-            ProductConcept.TryGetValue(nameof(ApplicationProductConceptID), out var value)
-                ? value as int?
+            ProductConcept.TryGetValue("EncryptedApplicationProductConceptID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3885,8 +3882,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? AbstractProductConceptID =>
-            ProductConcept.TryGetValue(nameof(AbstractProductConceptID), out var value)
-                ? value as int?
+            ProductConcept.TryGetValue("EncryptedAbstractProductConceptID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3952,8 +3949,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            Product.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            Product.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -3961,8 +3958,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            Product.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            Product.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4031,8 +4028,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductEventID =>
-            ProductEvent.TryGetValue(nameof(ProductEventID), out var value)
-                ? value as int?
+            ProductEvent.TryGetValue("EncryptedProductEventID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4040,8 +4037,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PackagingLevelID =>
-            ProductEvent.TryGetValue(nameof(PackagingLevelID), out var value)
-                ? value as int?
+            ProductEvent.TryGetValue("EncryptedPackagingLevelID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4110,8 +4107,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductIdentifierID =>
-            ProductIdentifier.TryGetValue(nameof(ProductIdentifierID), out var value)
-                ? value as int?
+            ProductIdentifier.TryGetValue("EncryptedProductIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4119,8 +4116,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            ProductIdentifier.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            ProductIdentifier.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4166,8 +4163,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductInstanceID =>
-            ProductInstance.TryGetValue(nameof(ProductInstanceID), out var value)
-                ? value as int?
+            ProductInstance.TryGetValue("EncryptedProductInstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4175,8 +4172,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            ProductInstance.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            ProductInstance.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4193,8 +4190,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? LotIdentifierID =>
-            ProductInstance.TryGetValue(nameof(LotIdentifierID), out var value)
-                ? value as int?
+            ProductInstance.TryGetValue("EncryptedLotIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4219,8 +4216,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductPartID =>
-            ProductPart.TryGetValue(nameof(ProductPartID), out var value)
-                ? value as int?
+            ProductPart.TryGetValue("EncryptedProductPartID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4228,8 +4225,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? KitProductID =>
-            ProductPart.TryGetValue(nameof(KitProductID), out var value)
-                ? value as int?
+            ProductPart.TryGetValue("EncryptedKitProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4237,8 +4234,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? PartProductID =>
-            ProductPart.TryGetValue(nameof(PartProductID), out var value)
-                ? value as int?
+            ProductPart.TryGetValue("EncryptedPartProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4271,8 +4268,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductRouteOfAdministrationID =>
-            ProductRouteOfAdministration.TryGetValue(nameof(ProductRouteOfAdministrationID), out var value)
-                ? value as int?
+            ProductRouteOfAdministration.TryGetValue("EncryptedProductRouteOfAdministrationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4280,8 +4277,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            ProductRouteOfAdministration.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            ProductRouteOfAdministration.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4332,8 +4329,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductWebLinkID =>
-            ProductWebLink.TryGetValue(nameof(ProductWebLinkID), out var value)
-                ? value as int?
+            ProductWebLink.TryGetValue("EncryptedProductWebLinkID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4341,8 +4338,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            ProductWebLink.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            ProductWebLink.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4368,8 +4365,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProtocolID =>
-            Protocol.TryGetValue(nameof(ProtocolID), out var value)
-                ? value as int?
+            Protocol.TryGetValue("EncryptedProtocolID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4377,8 +4374,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            Protocol.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            Protocol.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4424,8 +4421,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ReferenceSubstanceID =>
-            ReferenceSubstance.TryGetValue(nameof(ReferenceSubstanceID), out var value)
-                ? value as int?
+            ReferenceSubstance.TryGetValue("EncryptedReferenceSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4433,8 +4430,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IngredientSubstanceID =>
-            ReferenceSubstance.TryGetValue(nameof(IngredientSubstanceID), out var value)
-                ? value as int?
+            ReferenceSubstance.TryGetValue("EncryptedIngredientSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4468,8 +4465,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? RelatedDocumentID =>
-            RelatedDocument.TryGetValue(nameof(RelatedDocumentID), out var value)
-                ? value as int?
+            RelatedDocument.TryGetValue("EncryptedRelatedDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4477,8 +4474,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SourceDocumentID =>
-            RelatedDocument.TryGetValue(nameof(SourceDocumentID), out var value)
-                ? value as int?
+            RelatedDocument.TryGetValue("EncryptedSourceDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4556,8 +4553,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? REMSApprovalID =>
-            REMSApproval.TryGetValue(nameof(REMSApprovalID), out var value)
-                ? value as int?
+            REMSApproval.TryGetValue("EncryptedREMSApprovalID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4565,8 +4562,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProtocolID =>
-            REMSApproval.TryGetValue(nameof(ProtocolID), out var value)
-                ? value as int?
+            REMSApproval.TryGetValue("EncryptedProtocolID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4626,8 +4623,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? REMSElectronicResourceID =>
-            REMSElectronicResource.TryGetValue(nameof(REMSElectronicResourceID), out var value)
-                ? value as int?
+            REMSElectronicResource.TryGetValue("EncryptedREMSElectronicResourceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4635,8 +4632,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            REMSElectronicResource.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            REMSElectronicResource.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4688,8 +4685,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? REMSMaterialID =>
-            REMSMaterial.TryGetValue(nameof(REMSMaterialID), out var value)
-                ? value as int?
+            REMSMaterial.TryGetValue("EncryptedREMSMaterialID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4697,8 +4694,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            REMSMaterial.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            REMSMaterial.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4733,8 +4730,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? AttachedDocumentID =>
-            REMSMaterial.TryGetValue(nameof(AttachedDocumentID), out var value)
-                ? value as int?
+            REMSMaterial.TryGetValue("EncryptedAttachedDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -4749,8 +4746,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? RenderedMediaID =>
-            RenderedMedia.TryGetValue(nameof(RenderedMediaID), out var value)
-                ? value as int?
+            RenderedMedia.TryGetValue("EncryptedRenderedMediaID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4758,8 +4755,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionTextContentID =>
-            RenderedMedia.TryGetValue(nameof(SectionTextContentID), out var value)
-                ? value as int?
+            RenderedMedia.TryGetValue("EncryptedSectionTextContentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4767,8 +4764,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ObservationMediaID =>
-            RenderedMedia.TryGetValue(nameof(ObservationMediaID), out var value)
-                ? value as int?
+            RenderedMedia.TryGetValue("EncryptedObservationMediaID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4802,8 +4799,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? RequirementID =>
-            Requirement.TryGetValue(nameof(RequirementID), out var value)
-                ? value as int?
+            Requirement.TryGetValue("EncryptedRequirementID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4811,8 +4808,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProtocolID =>
-            Requirement.TryGetValue(nameof(ProtocolID), out var value)
-                ? value as int?
+            Requirement.TryGetValue("EncryptedProtocolID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4910,8 +4907,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? StakeholderID =>
-            Requirement.TryGetValue(nameof(StakeholderID), out var value)
-                ? value as int?
+            Requirement.TryGetValue("EncryptedStakeholderID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4919,8 +4916,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? REMSMaterialID =>
-            Requirement.TryGetValue(nameof(REMSMaterialID), out var value)
-                ? value as int?
+            Requirement.TryGetValue("EncryptedREMSMaterialID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -4935,8 +4932,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ResponsiblePersonLinkID =>
-            ResponsiblePersonLink.TryGetValue(nameof(ResponsiblePersonLinkID), out var value)
-                ? value as int?
+            ResponsiblePersonLink.TryGetValue("EncryptedResponsiblePersonLinkID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4944,8 +4941,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            ResponsiblePersonLink.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            ResponsiblePersonLink.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4953,8 +4950,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ResponsiblePersonOrgID =>
-            ResponsiblePersonLink.TryGetValue(nameof(ResponsiblePersonOrgID), out var value)
-                ? value as int?
+            ResponsiblePersonLink.TryGetValue("EncryptedResponsiblePersonOrgID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
     }
 
@@ -4990,7 +4987,7 @@ namespace MedRecPro.Models
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
             Section.TryGetValue("EncryptedSectionID", out var value)
-                 ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -4999,7 +4996,7 @@ namespace MedRecPro.Models
         [Newtonsoft.Json.JsonIgnore]
         public int? StructuredBodyID =>
             Section.TryGetValue("EncryptedStructuredBodyID", out var value)
-                 ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5095,7 +5092,6 @@ namespace MedRecPro.Models
                 ? value as DateTime?
                 : null;
 
-
         public SectionDto()
         {
             // Default constructor initializes with no encryption secret
@@ -5111,7 +5107,7 @@ namespace MedRecPro.Models
             // Initialize with the encryption secret for SectionHierarchyID decryption
             _pkSecret = configuration?.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("PK encryption secret not configured");
-           
+
         }
     }
 
@@ -5127,8 +5123,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionExcerptHighlightID =>
-            SectionExcerptHighlight.TryGetValue(nameof(SectionExcerptHighlightID), out var value)
-                ? value as int?
+            SectionExcerptHighlight.TryGetValue("EncryptedSectionExcerptHighlightID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5136,8 +5132,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            SectionExcerptHighlight.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            SectionExcerptHighlight.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5163,7 +5159,7 @@ namespace MedRecPro.Models
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionHierarchyID =>
             SectionHierarchy.TryGetValue("EncryptedSectionID", out var value)
-                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5172,7 +5168,7 @@ namespace MedRecPro.Models
         [Newtonsoft.Json.JsonIgnore]
         public int? ParentSectionID =>
             SectionHierarchy.TryGetValue("EncryptedParentSectionID", out var value)
-                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5181,7 +5177,7 @@ namespace MedRecPro.Models
         [Newtonsoft.Json.JsonIgnore]
         public int? ChildSectionID =>
             SectionHierarchy.TryGetValue("EncryptedChildSectionID", out var value)
-                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5194,7 +5190,8 @@ namespace MedRecPro.Models
                 : null;
 
 
-        public SectionHierarchyDto() { 
+        public SectionHierarchyDto()
+        {
             // Default constructor initializes with no encryption secret
             _pkSecret = string.Empty;
         }
@@ -5226,8 +5223,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionTextContentID =>
-            SectionTextContent.TryGetValue(nameof(SectionTextContentID), out var value)
-                ? value as int?
+            SectionTextContent.TryGetValue("EncryptedSectionTextContentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5235,8 +5232,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            SectionTextContent.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            SectionTextContent.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5244,8 +5241,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ParentSectionTextContentID =>
-            SectionTextContent.TryGetValue(nameof(ParentSectionTextContentID), out var value)
-                ? value as int?
+            SectionTextContent.TryGetValue("EncryptedParentSectionTextContentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5298,8 +5295,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SpecializedKindID =>
-            SpecializedKind.TryGetValue(nameof(SpecializedKindID), out var value)
-                ? value as int?
+            SpecializedKind.TryGetValue("EncryptedSpecializedKindID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5307,8 +5304,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? ProductID =>
-            SpecializedKind.TryGetValue(nameof(ProductID), out var value)
-                ? value as int?
+            SpecializedKind.TryGetValue("EncryptedProductID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5350,8 +5347,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SpecifiedSubstanceID =>
-            SpecifiedSubstance.TryGetValue(nameof(SpecifiedSubstanceID), out var value)
-                ? value as int?
+            SpecifiedSubstance.TryGetValue("EncryptedSpecifiedSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5393,8 +5390,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? StakeholderID =>
-            Stakeholder.TryGetValue(nameof(StakeholderID), out var value)
-                ? value as int?
+            Stakeholder.TryGetValue("EncryptedStakeholderID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5451,7 +5448,7 @@ namespace MedRecPro.Models
         [Newtonsoft.Json.JsonIgnore]
         public int? StructuredBodyID =>
             StructuredBody.TryGetValue("EncryptedStructuredBodyID", out var value)
-                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
 
@@ -5461,7 +5458,7 @@ namespace MedRecPro.Models
         [Newtonsoft.Json.JsonIgnore]
         public int? DocumentID =>
             StructuredBody.TryGetValue("EncryptedDocumentID", out var value)
-                ? (Int32.TryParse(TextUtil.Decrypt(value?.ToString() ?? string.Empty, _pkSecret), out int number) ? number as int? : null)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         public StructuredBodyDto()
@@ -5471,8 +5468,8 @@ namespace MedRecPro.Models
         }
 
         public StructuredBodyDto(string pkSecret)
-        { 
-            _pkSecret = pkSecret; 
+        {
+            _pkSecret = pkSecret;
         }
 
         public StructuredBodyDto(IConfiguration? configuration)
@@ -5495,8 +5492,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SubstanceSpecificationID =>
-            SubstanceSpecification.TryGetValue(nameof(SubstanceSpecificationID), out var value)
-                ? value as int?
+            SubstanceSpecification.TryGetValue("EncryptedSubstanceSpecificationID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5504,8 +5501,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? IdentifiedSubstanceID =>
-            SubstanceSpecification.TryGetValue(nameof(IdentifiedSubstanceID), out var value)
-                ? value as int?
+            SubstanceSpecification.TryGetValue("EncryptedIdentifiedSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5566,8 +5563,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TelecomID =>
-            Telecom.TryGetValue(nameof(TelecomID), out var value)
-                ? value as int?
+            Telecom.TryGetValue("EncryptedTelecomID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5600,8 +5597,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TerritorialAuthorityID =>
-            TerritorialAuthority.TryGetValue(nameof(TerritorialAuthorityID), out var value)
-                ? value as int?
+            TerritorialAuthority.TryGetValue("EncryptedTerritorialAuthorityID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5667,8 +5664,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TextListID =>
-            TextList.TryGetValue(nameof(TextListID), out var value)
-                ? value as int?
+            TextList.TryGetValue("EncryptedTextListID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5676,8 +5673,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionTextContentID =>
-            TextList.TryGetValue(nameof(SectionTextContentID), out var value)
-                ? value as int?
+            TextList.TryGetValue("EncryptedSectionTextContentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5710,8 +5707,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TextListItemID =>
-            TextListItem.TryGetValue(nameof(TextListItemID), out var value)
-                ? value as int?
+            TextListItem.TryGetValue("EncryptedTextListItemID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5719,8 +5716,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TextListID =>
-            TextListItem.TryGetValue(nameof(TextListID), out var value)
-                ? value as int?
+            TextListItem.TryGetValue("EncryptedTextListID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5763,8 +5760,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TextTableID =>
-            TextTable.TryGetValue(nameof(TextTableID), out var value)
-                ? value as int?
+            TextTable.TryGetValue("EncryptedTextTableID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5772,8 +5769,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionTextContentID =>
-            TextTable.TryGetValue(nameof(SectionTextContentID), out var value)
-                ? value as int?
+            TextTable.TryGetValue("EncryptedSectionTextContentID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5816,8 +5813,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TextTableRowID =>
-            TextTableRow.TryGetValue(nameof(TextTableRowID), out var value)
-                ? value as int?
+            TextTableRow.TryGetValue("EncryptedTextTableRowID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5825,8 +5822,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TextTableID =>
-            TextTableRow.TryGetValue(nameof(TextTableID), out var value)
-                ? value as int?
+            TextTableRow.TryGetValue("EncryptedTextTableID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5868,8 +5865,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TextTableCellID =>
-            TextTableCell.TryGetValue(nameof(TextTableCellID), out var value)
-                ? value as int?
+            TextTableCell.TryGetValue("EncryptedTextTableCellID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5877,8 +5874,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? TextTableRowID =>
-            TextTableCell.TryGetValue(nameof(TextTableRowID), out var value)
-                ? value as int?
+            TextTableCell.TryGetValue("EncryptedTextTableRowID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5965,8 +5962,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? WarningLetterDateID =>
-            WarningLetterDate.TryGetValue(nameof(WarningLetterDateID), out var value)
-                ? value as int?
+            WarningLetterDate.TryGetValue("EncryptedWarningLetterDateID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -5974,8 +5971,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            WarningLetterDate.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            WarningLetterDate.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -6008,8 +6005,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? WarningLetterProductInfoID =>
-            WarningLetterProductInfo.TryGetValue(nameof(WarningLetterProductInfoID), out var value)
-                ? value as int?
+            WarningLetterProductInfo.TryGetValue("EncryptedWarningLetterProductInfoID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>
@@ -6017,8 +6014,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionID =>
-            WarningLetterProductInfo.TryGetValue(nameof(SectionID), out var value)
-                ? value as int?
+            WarningLetterProductInfo.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
                 : null;
 
         /// <summary>

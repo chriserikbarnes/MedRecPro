@@ -169,22 +169,11 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Generates the appropriate ID attribute for a section based on
-        /// LinkGUID or SectionGUID. Prioritizes LinkGUID over SectionGUID.
+        /// FIXED: Generates the appropriate ID attribute for a section with conditional logic.
+        /// Now conditionally omits ID for specific section types based on business rules.
         /// </summary>
         /// <param name="section">The section to generate ID for</param>
-        /// <returns>Formatted section ID attribute with underscores replacing hyphens</returns>
-        /// <seealso cref="SectionDto"/>
-        /// <example>
-        /// <code>
-        /// var sectionId = service.GenerateSectionIdAttribute(section);
-        /// // Returns: "section_12345_abcd_ef" or similar formatted ID
-        /// </code>
-        /// </example>
-        /// <remarks>
-        /// The method prioritizes SectionLinkGUID over SectionGUID and formats
-        /// the result by replacing hyphens with underscores for HTML compatibility.
-        /// </remarks>
+        /// <returns>Formatted section ID attribute or empty string if should be omitted</returns>
         public string GenerateSectionIdAttribute(SectionDto section)
         {
             #region implementation
@@ -192,9 +181,37 @@ namespace MedRecPro.Service
             if (section == null)
                 return string.Empty;
 
+            // FIX: Conditionally omit ID for specific section types
+            if (ShouldOmitSectionId(section))
+                return string.Empty;
+
+            // Existing logic for generating ID when appropriate
             return !string.IsNullOrEmpty(section.SectionLinkGUID)
                 ? section.SectionLinkGUID
                 : section.SectionGUID?.ToString()?.Replace("-", "_") ?? string.Empty;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// NEW: Determines if section ID should be omitted based on business rules.
+        /// Implements conditional logic for section ID generation.
+        /// </summary>
+        /// <param name="section">The section to check</param>
+        /// <returns>True if section ID should be omitted</returns>
+        private static bool ShouldOmitSectionId(SectionDto section)
+        {
+            #region implementation
+
+            if (section == null)
+                return true;
+
+            // Omit if LinkGUID is missing/empty
+            if (string.IsNullOrEmpty(section.SectionLinkGUID))
+                return true;
+
+            return false;
 
             #endregion
         }

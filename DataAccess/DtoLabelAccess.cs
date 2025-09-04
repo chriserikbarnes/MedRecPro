@@ -4095,10 +4095,10 @@ namespace MedRecPro.DataAccess
                     PackagingHierarchy = hierarchy.ToEntityWithEncryptedId(pkSecret, logger)
                 };
 
-                // Build the child packaging level if InnerPackagingLevelID exists
+                // Build the child packaging level if InnerPackagingLevelID exists       
                 if (hierarchy.InnerPackagingLevelID != null)
                 {
-                    var innerPackagingLevels = await buildPackagingLevelsDtoAsync(db, hierarchy.InnerPackagingLevelID, pkSecret, logger);
+                    var innerPackagingLevels = await buildInnerPackagingLevelsDtoAsync(db, hierarchy.InnerPackagingLevelID, pkSecret, logger);
                     dto.ChildPackagingLevel = innerPackagingLevels?.FirstOrDefault();
                 }
 
@@ -4106,6 +4106,43 @@ namespace MedRecPro.DataAccess
             }
 
             return dtos;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of packaging level DTOs for a specified packaging level id.
+        /// Helper method for retrieving packaging levels associated with package hierarchy.
+        /// </summary>
+        /// <param name="db">The database context for querying packaging level entities.</param>
+        /// <param name="packingLevelId">The packing hierarchy identifier to filter packaging levels.</param>
+        /// <param name="pkSecret">The secret key used for encrypting entity IDs.</param>
+        /// <param name="logger">The logger instance for tracking operations.</param>
+        /// <returns>A list of PackagingLevelDto objects, or null if no product instance ID provided or no entities found.</returns>
+        /// <seealso cref="Label.PackagingLevel"/>
+        /// <seealso cref="PackagingLevelDto"/>
+        private static async Task<List<PackagingLevelDto>> buildInnerPackagingLevelsDtoAsync(ApplicationDbContext db, int? packingLevelId, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Return null if no product instance ID is provided
+            if (packingLevelId == null)
+                return new List<PackagingLevelDto>();
+
+            // Query packaging levels for the specified product instance
+            var entity = await db.Set<Label.PackagingLevel>()
+                .AsNoTracking()
+                .Where(e => e.PackagingLevelID == packingLevelId)
+                .ToListAsync();
+
+            // Return null if no entities found
+            if (entity == null || !entity.Any())
+                return new List<PackagingLevelDto>();
+
+            // Transform entities to DTOs with encrypted IDs
+            return entity.Select(entity => new PackagingLevelDto
+            {
+                PackagingLevel = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList() ?? new List<PackagingLevelDto>();
             #endregion
         }
 

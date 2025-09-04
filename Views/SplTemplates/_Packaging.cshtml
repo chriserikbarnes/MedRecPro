@@ -1,48 +1,70 @@
 ﻿@using MedRecPro.Models;
-@using RazorLight.Razor;
 @using MedRecPro.Helpers;
-@inherits RazorLight.TemplatePage<MedRecPro.Models.PackagingLevelDto>;
-@model PackagingLevelDto
+@inherits RazorLight.TemplatePage<MedRecPro.Models.PackageRendering>;
+@model PackageRendering;
 
-@{
-    var packageIdentifiers = Model?.PackageIdentifiers?
-        .Where(pi => !string.IsNullOrEmpty(pi.IdentifierValue))
-        .OrderBy(pi => pi.PackageIdentifierID);
+@* CORRECTED: Template using only existing DTO properties *@
+@if (Model != null && Model.HasValidData)
+{
+    var packagingModel = Model.PackagingLevelDto;
 
-    var childPackaging = Model?.PackagingHierarchy?
-        .Where(h => h.ChildPackagingLevel != null)
-        .OrderBy(h => h.SequenceNumber);
-}
-<asContent>
-    <quantity>
-        <numerator @SplTemplateHelpers.Attribute("value", Model?.QuantityNumerator?.ToString("G29"))>
-            @if (!string.IsNullOrEmpty(Model?.PackageCode))
-            {
-                <translation @SplTemplateHelpers.Attribute("code", Model.PackageCode) @SplTemplateHelpers.Attribute("codeSystem", Model.PackageCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.PackageFormDisplayName)  @SplTemplateHelpers.Attribute("value", Model?.QuantityNumerator?.ToString("G29")) />
-            }
-        </numerator>
-        <denominator @SplTemplateHelpers.Attribute("value", Model?.QuantityDenominator?.ToString("G29"))>
-            <translation @SplTemplateHelpers.Attribute("value", Model?.QuantityDenominator?.ToString("G29")) />
-        </denominator>
-    </quantity>
-    <containerPackagedMedicine>
-        @if (packageIdentifiers != null)
+    <asContent>
+        @* Render quantity section with proper numerator translations *@
+        @if (Model.HasQuantity)
         {
-            foreach (var identifier in packageIdentifiers)
-            {
-                <code @SplTemplateHelpers.Attribute("code", identifier.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", identifier.IdentifierSystemOID) @SplTemplateHelpers.Attribute("codeSystemName", identifier.IdentifierType ?? "NDC") />
-            }
+            <quantity>
+                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator)>
+                    @* FIXED: Use existing NumeratorTranslation properties from IngredientDto *@
+                    @if (Model.HasNumeratorTranslation)
+                    {
+                        <translation @SplTemplateHelpers.Attribute("code", Model.NumeratorTranslationCode)
+                                     @SplTemplateHelpers.Attribute("codeSystem", Model.NumeratorCodeSystem)
+                                     @SplTemplateHelpers.Attribute("displayName", Model.NumeratorDisplayName)
+                                     @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator) />
+                    }
+                </numerator>
+                <denominator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator)>
+                    <translation @SplTemplateHelpers.Attribute("code", Model.DenominatorTranslationCode)
+                                 @SplTemplateHelpers.Attribute("codeSystem", Model.DenominatorCodeSystem)
+                                 @SplTemplateHelpers.Attribute("displayName", Model.DenominatorDisplayName)
+                                 @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator) />
+                </denominator>
+            </quantity>
         }
-        <formCode @SplTemplateHelpers.Attribute("code", Model?.PackageFormCode) @SplTemplateHelpers.Attribute("codeSystem", Model?.PackageCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model?.PackageFormDisplayName) />
-        @if (childPackaging != null)
-        {
-            foreach (var hierarchy in childPackaging)
+
+        <containerPackagedMedicine>
+            @* Render only NDCs that match this packaging level's PackagingLevelID *@
+            @if (Model.HasPackageIdentifiers && Model.OrderedPackageIdentifiers != null)
             {
-                if (hierarchy.ChildPackagingLevel != null)
+                foreach (var identifier in Model.OrderedPackageIdentifiers)
                 {
-                    await IncludeAsync("_Packaging", hierarchy.ChildPackagingLevel);
+                    <code @SplTemplateHelpers.Attribute("code", identifier.IdentifierValue)
+                          @SplTemplateHelpers.Attribute("codeSystem", identifier.IdentifierSystemOID)
+                          @SplTemplateHelpers.Attribute("codeSystemName", identifier.IdentifierType ?? "NDC") />
                 }
             }
-        }
-    </containerPackagedMedicine>
-</asContent>
+            else
+            {
+                <code />
+            }
+
+            @* Render form code using existing DTO properties *@
+            @if (Model.HasFormCode)
+            {
+                <formCode @SplTemplateHelpers.Attribute("code", Model.PackageFormCode)
+                          @SplTemplateHelpers.Attribute("codeSystem", Model.PackageFormCodeSystem)
+                          @SplTemplateHelpers.Attribute("displayName", Model.PackageFormDisplayName) />
+            }
+
+            @* FIXED: Render nested child packaging using existing ChildPackagingLevel *@
+            @if (Model.HasChildPackageRendering && Model.ChildPackageRendering != null)
+            {
+                foreach (var childPackage in Model.ChildPackageRendering)
+                {
+                    @* Recursive inclusion creates proper nested <asContent> structure *@
+                    await IncludeAsync("_Packaging", childPackage);
+                }
+            }
+        </containerPackagedMedicine>
+    </asContent>
+}

@@ -390,7 +390,8 @@ builder.Services.AddSingleton<IRazorLightEngine>(serviceProvider =>
     var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();
 
     return new RazorLightEngineBuilder()
-        .UseFileSystemProject(Path.Combine(environment.ContentRootPath, "Templates"))
+        .UseFileSystemProject(Path.Combine(environment.ContentRootPath, "Views"))
+        .UseEmbeddedResourcesProject(typeof(Program))
         .UseMemoryCachingProvider()
         .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(Program).Assembly.Location))
         .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(User).Assembly.Location))
@@ -433,6 +434,7 @@ app.UseAuthorization();  // Enables authorization capabilities
 
 app.MapControllers();
 
-Util.Initialize(httpContextAccessor: app.Services.GetRequiredService<IHttpContextAccessor>());
+Util.Initialize(httpContextAccessor: app.Services.GetRequiredService<IHttpContextAccessor>(), 
+    encryptionService: app.Services.GetRequiredService<IEncryptionService>());
 
 app.Run();

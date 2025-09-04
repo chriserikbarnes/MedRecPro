@@ -1,96 +1,97 @@
-﻿@using RazorLight.Razor
-@using MedRecPro.Models
-@using MedRecPro.Helpers
-@inherits RazorLight.TemplatePage<MedRecPro.Models.ProductRendering>
-@model ProductRendering
+﻿@using RazorLight.Razor;
+@using MedRecPro.Models;
+@using MedRecPro.Helpers;
+@inherits RazorLight.TemplatePage<MedRecPro.Models.ProductRendering>;
+@model ProductRendering;
 
 @* Clean template with no business logic - all data pre-computed by ProductRenderingService *@
 @if (Model != null)
 {
     var productModel = Model.ProductDto;
+    <subject>
+        <manufacturedProduct>
+            <manufacturedMedicine>
 
-    <manufacturedProduct>
-        <manufacturedMedicine>
-
-            @* Render NDC identifier if available *@
-            @if (Model.HasNdcIdentifier && Model.NdcProductIdentifier != null)
-            {
-                <code @SplTemplateHelpers.Attribute("code", Model.NdcProductIdentifier.IdentifierValue)
-                      @SplTemplateHelpers.Attribute("codeSystem", Model.NdcProductIdentifier.IdentifierSystemOID) />
-            }
-
-            <name>@productModel.ProductName</name>
-            <formCode @SplTemplateHelpers.Attribute("code", productModel.FormCode)
-                      @SplTemplateHelpers.Attribute("codeSystem", productModel.FormCodeSystem)
-                      @SplTemplateHelpers.Attribute("displayName", productModel.FormDisplayName) />
-
-            @* Render active ingredients if available *@
-            @if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
-            {
-                foreach (var ingredient in Model.ActiveIngredients)
+                @* Render NDC identifier if available *@
+                @if (Model.HasNdcIdentifier && Model.NdcProductIdentifier != null)
                 {
-                    await IncludeAsync("_Ingredient", ingredient);
+                    <code @SplTemplateHelpers.Attribute("code", Model.NdcProductIdentifier.IdentifierValue)
+                          @SplTemplateHelpers.Attribute("codeSystem", Model.NdcProductIdentifier.IdentifierSystemOID) />
                 }
-            }
 
-            @* Render generic medicines if available *@
-            @if (Model.HasGenericMedicines && productModel.GenericMedicines != null)
-            {
-                foreach (var generic in productModel.GenericMedicines)
+                <name>@productModel.ProductName</name>
+                <formCode @SplTemplateHelpers.Attribute("code", productModel.FormCode)
+                          @SplTemplateHelpers.Attribute("codeSystem", productModel.FormCodeSystem)
+                          @SplTemplateHelpers.Attribute("displayName", productModel.FormDisplayName) />
+
+                @* Render active ingredients if available *@
+                @if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
                 {
-                    <asEntityWithGeneric>
-                        <genericMedicine>
-                            <name>@generic.GenericName</name>
-                        </genericMedicine>
-                    </asEntityWithGeneric>
-                }
-            }
-
-            @* Render inactive ingredients if available *@
-            @if (Model.HasInactiveIngredients && Model.InactiveIngredients != null)
-            {
-                foreach (var ingredient in Model.InactiveIngredients)
-                {
-                    await IncludeAsync("_Ingredient", ingredient);
-                }
-            }
-
-            @* Render top-level packaging if available *@
-            @if (Model.HasTopLevelPackaging && Model.OrderedTopLevelPackaging != null)
-            {
-                foreach (var package in Model.OrderedTopLevelPackaging)
-                {
-                    await IncludeAsync("_Packaging", package);
-                }
-            }
-        </manufacturedMedicine>
-
-        @* Render characteristics if available *@
-        @if (Model.HasCharacteristics && Model.OrderedCharacteristics != null)
-        {
-            foreach (var characteristic in Model.OrderedCharacteristics)
-            {
-                <subjectOf>
-                    @{
-                        await IncludeAsync("_Characteristic", characteristic);
+                    foreach (var ingredient in Model.ActiveIngredients)
+                    {
+                        await IncludeAsync("_Ingredient", ingredient);
                     }
-                </subjectOf>
-            }
-        }
+                }
 
-        @* Render routes if available *@
-        @if (Model.HasRoutes && Model.OrderedRoutes != null)
-        {
-            foreach (var route in Model.OrderedRoutes)
+                @* Render generic medicines if available *@
+                @if (Model.HasGenericMedicines && productModel.GenericMedicines != null)
+                {
+                    foreach (var generic in productModel.GenericMedicines)
+                    {
+                        <asEntityWithGeneric>
+                            <genericMedicine>
+                                <name>@generic.GenericName</name>
+                            </genericMedicine>
+                        </asEntityWithGeneric>
+                    }
+                }
+
+                @* Render inactive ingredients if available *@
+                @if (Model.HasInactiveIngredients && Model.InactiveIngredients != null)
+                {
+                    foreach (var ingredient in Model.InactiveIngredients)
+                    {
+                        await IncludeAsync("_Ingredient", ingredient);
+                    }
+                }
+
+                @* Render top-level packaging if available *@
+                @if (Model.HasPackageRendering && Model.PackageRendering != null)
+                {
+                    foreach (var packageRendering in Model.PackageRendering)
+                    {
+                        await IncludeAsync("_Packaging", packageRendering);
+                    }
+                }
+            </manufacturedMedicine>
+
+            @* Render characteristics if available *@
+            @if (Model.HasCharacteristics && Model.OrderedCharacteristics != null)
             {
-                <consumedIn>
-                    <substanceAdministration>
-                        <routeCode @SplTemplateHelpers.Attribute("code", route?.RouteCode)
-                                   @SplTemplateHelpers.Attribute("codeSystem", route?.RouteCodeSystem)
-                                   @SplTemplateHelpers.Attribute("displayName", route?.RouteDisplayName) />
-                    </substanceAdministration>
-                </consumedIn>
+                foreach (var characteristic in Model.OrderedCharacteristics)
+                {
+                    <subjectOf>
+                        @{
+                            await IncludeAsync("_Characteristic", characteristic);
+                        }
+                    </subjectOf>
+                }
             }
-        }
-    </manufacturedProduct>
+
+            @* Render routes if available *@
+            @if (Model.HasRoutes && Model.OrderedRoutes != null)
+            {
+                foreach (var route in Model.OrderedRoutes)
+                {
+                    <consumedIn>
+                        <substanceAdministration>
+                            <routeCode @SplTemplateHelpers.Attribute("code", route?.RouteCode)
+                                       @SplTemplateHelpers.Attribute("codeSystem", route?.RouteCodeSystem)
+                                       @SplTemplateHelpers.Attribute("displayName", route?.RouteDisplayName) />
+                        </substanceAdministration>
+                    </consumedIn>
+                }
+            }
+        </manufacturedProduct>
+    </subject>
 }

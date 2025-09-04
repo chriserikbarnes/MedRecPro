@@ -46,21 +46,18 @@
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
 		<PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
 		<PackageReference Include="System.Runtime.Caching" Version="9.0.4" />
-		<Compile Remove="Views\SplTemplates\Partials\**" />
 
-		<!-- This tells the build system to NOT treat these .cshtml files as Razor views to be compiled -->
-		<Content Remove="Views\SplTemplates\**\*.cshtml" />
-		<Content Remove="Views\SplTemplates\Partials\**" />
+		<!-- Include for IntelliSense in design-time, exclude during build -->
+		<!-- This blocks build errors when compiling with RazorLight views -->
+		<!-- and allows IntelliSense to work as expected when editing -->
+		<Compile Include="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' == 'true'" />
+		<Compile Remove="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' != 'true'" />
 
-		<!-- This tells the build system to treat them as plain files and copy them to the output directory -->
+		<!-- Always include as embedded resources for RazorLight -->
+		<EmbeddedResource Include="Views\SplTemplates\**\*.cshtml" />
+
 		<None Include="Views\SplTemplates\**\*.cshtml">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 	</ItemGroup>
-
-	<ItemGroup>
-	  <EmbeddedResource Remove="Views\SplTemplates\Partials\**" />
-	  <None Remove="Views\SplTemplates\Partials\**" />
-	</ItemGroup>
-
 </Project>

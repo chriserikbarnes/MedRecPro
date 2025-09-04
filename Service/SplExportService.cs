@@ -2,6 +2,7 @@
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using Newtonsoft.Json;
 using RazorLight;
 using System.Dynamic;
 using static MedRecPro.Models.Label;
@@ -1024,6 +1025,8 @@ namespace MedRecPro.Service
                 // Store the enhanced products in the section rendering context for template access
                 sectionRendering.RenderedProducts = enhancedProducts;
                 sectionRendering.HasRenderedProducts = enhancedProducts.Any();
+
+                var json = JsonConvert.SerializeObject(sectionRendering.RenderedProducts);
 
                 _logger.LogDebug("Successfully enhanced {Count} products for section in document {DocumentGuid}",
                     enhancedProducts.Count, documentGuid);

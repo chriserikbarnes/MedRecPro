@@ -71,6 +71,60 @@ namespace MedRecPro.Models
         /// <seealso cref="OrderedChildPackaging"/>
         public bool HasChildPackaging { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed translation code for the quantity denominator.
+        /// Used to provide proper code system references in quantity translation elements.
+        /// </summary>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="IngredientDto.DenominatorTranslationCode"/>
+        public string? DenominatorTranslationCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed code system for the quantity denominator translation.
+        /// Typically references the FDA code system for pharmaceutical units.
+        /// </summary>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="IngredientDto.DenominatorCodeSystem"/>
+        public string? DenominatorCodeSystem { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed display name for the quantity denominator translation.
+        /// Provides human-readable unit description for pharmaceutical forms.
+        /// </summary>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="IngredientDto.DenominatorDisplayName"/>
+        public string? DenominatorDisplayName { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed translation code for the quantity numerator.
+        /// Used to provide proper code system references in numerator translation elements.
+        /// </summary>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="IngredientDto.DenominatorTranslationCode"/>
+        public string? NumeratorTranslationCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed code system for the quantity numerator translation.
+        /// Typically references the FDA code system for pharmaceutical units.
+        /// </summary>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="IngredientDto.DenominatorCodeSystem"/>
+        public string? NumeratorCodeSystem { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed display name for the quantity numerator translation.
+        /// Provides human-readable unit description for pharmaceutical forms.
+        /// </summary>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="IngredientDto.DenominatorDisplayName"/>
+        public string? NumeratorDisplayName { get; set; }
+
         #endregion
 
         #region formatted quantity properties
@@ -137,6 +191,41 @@ namespace MedRecPro.Models
 
         #endregion
 
+
+
+        #region convenience properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets whether this packaging has quantity information to render.
+        /// </summary>
+        /// <returns>True if quantity numerator or denominator exist</returns>
+        public bool HasQuantity => PackagingLevelDto?.QuantityNumerator.HasValue == true ||
+                                  PackagingLevelDto?.QuantityDenominator.HasValue == true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets whether this packaging has form code information to render.
+        /// </summary>
+        /// <returns>True if package form code exists</returns>
+        public bool HasFormCode => !string.IsNullOrEmpty(PackageFormCode);
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets whether this packaging has unit code information for translation elements.
+        /// </summary>
+        /// <returns>True if unit code exists</returns>
+        public bool HasUnitCode => !string.IsNullOrEmpty(UnitCode);
+
+        /**************************************************************/
+        /// <summary>
+        /// FIXED: Gets whether this packaging has numerator translation information to render.
+        /// </summary>
+        /// <returns>True if numerator translation code exists</returns>
+        public bool HasNumeratorTranslation => !string.IsNullOrEmpty(NumeratorTranslationCode);
+
+        #endregion
+
         #region nested packaging rendering properties
 
         /**************************************************************/
@@ -193,30 +282,6 @@ namespace MedRecPro.Models
 
         #endregion
 
-        #region convenience properties
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets whether this packaging has quantity information to render.
-        /// </summary>
-        /// <returns>True if quantity numerator or denominator exist</returns>
-        public bool HasQuantity => PackagingLevelDto?.QuantityNumerator.HasValue == true ||
-                                  PackagingLevelDto?.QuantityDenominator.HasValue == true;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets whether this packaging has form code information to render.
-        /// </summary>
-        /// <returns>True if package form code exists</returns>
-        public bool HasFormCode => !string.IsNullOrEmpty(PackageFormCode);
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets whether this packaging has unit code information for translation elements.
-        /// </summary>
-        /// <returns>True if unit code exists</returns>
-        public bool HasUnitCode => !string.IsNullOrEmpty(UnitCode);
-
-        #endregion
+       
     }
 }

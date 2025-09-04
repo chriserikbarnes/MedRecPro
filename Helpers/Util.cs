@@ -14,6 +14,7 @@ using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Principal;
 using Newtonsoft.Json;
+using MedRecPro.Service.Common;
 
 
 namespace MedRecPro.Helpers
@@ -34,11 +35,27 @@ namespace MedRecPro.Helpers
 
         public static HttpContext? HttpContext => _httpContextAccessor?.HttpContext;
 
+        public static IEncryptionService? _encryptionService;
+
         // Initialize this once in your application startup:
-        // Util.Initialize(httpContextAccessor);
-        public static void Initialize(IHttpContextAccessor httpContextAccessor)
+        // Util.Initialize(httpContextAccessor, encryptionService);
+        public static void Initialize(IHttpContextAccessor httpContextAccessor, IEncryptionService encryptionService)
         {
             _httpContextAccessor = httpContextAccessor;
+            _encryptionService = encryptionService;
+
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Decrypts the specified value using the provided secret and attempts to parse the result as an integer.
+        /// This is used to internally convert encrypted ids to the original integer form
+        /// </summary>
+        /// <param name="value">The object to decrypt. The object's string representation will be used for decryption.</param>
+        /// <returns>The parsed integer if the decrypted value is a valid integer; otherwise, <see langword="null"/>.</returns>
+        public static int? DecryptAndParseInt(object? value)
+        {
+            return _encryptionService?.DecryptToInt(value?.ToString() ?? string.Empty) ?? null;
         }
 
         /**************************************************************/

@@ -203,14 +203,15 @@ namespace MedRecPro.Service
                 HasGenericMedicines = product.GenericMedicines?.Any() == true
             };
 
+            additionalParams ??= new { product };
+
             // Process enhanced ingredients if service is provided
             if (ingredientRenderingService != null)
             {
                 processIngredients(productRendering, ingredientRenderingService, additionalParams);
             }
 
-
-            processPackagingForRendering(productRendering, additionalParams);
+            processPackagingForRendering(product, productRendering, additionalParams);
 
             return productRendering;
 
@@ -344,7 +345,9 @@ namespace MedRecPro.Service
         /**************************************************************/
         /// <summary>
         /// Gets top-level packaging levels ordered by business rules.
-        /// Filters for packaging that has no hierarchy (top-level only).
+        /// Filters for packaging that has no hierarchy parent (top-level only).
+        /// A packaging level is considered top-level if its ID is not found as an InnerPackagingLevelID
+        /// in any PackagingHierarchy entry across all packaging levels.
         /// </summary>
         /// <param name="product">The product containing packaging levels</param>
         /// <returns>Ordered list of top-level packaging or null if none exists</returns>
@@ -352,17 +355,35 @@ namespace MedRecPro.Service
         public List<PackagingLevelDto>? GetOrderedTopLevelPackaging(ProductDto product)
         {
             #region implementation
-
             if (product?.PackagingLevels == null)
                 return null;
 
+            // Collect all PackagingHierarchy entries from all packaging levels in the product
+            var allHierarchyEntries = product.PackagingLevels
+                .Where(p => p.PackagingHierarchy != null)
+                .SelectMany(p => p.PackagingHierarchy)
+                .ToList();
+
+            // Get all InnerPackagingLevelIDs - these represent packaging levels that are children
+            // in some hierarchy relationship (i.e., they are contained within other packages)
+            var childPackagingLevelIds = allHierarchyEntries
+                .Where(h => h != null 
+                    && h.InnerPackagingLevelID != null 
+                    && h.InnerPackagingLevelID.HasValue)
+                .Select(h => h!.InnerPackagingLevelID!.Value)
+                .ToHashSet();
+
+            // Select packaging levels that are top-level, which includes:
+            // 1. Packaging levels that are parents in hierarchy but never children (traditional tops)
+            // 2. Packaging levels that don't appear in any hierarchy at all (standalone items)
+            // Both cases are covered by: PackagingLevelID NOT in childPackagingLevelIds
             var topLevelPackaging = product.PackagingLevels
-                .Where(p => p.PackagingHierarchy == null || !p.PackagingHierarchy.Any())
+                .Where(p => p.PackagingLevelID.HasValue &&
+                           !childPackagingLevelIds.Contains(p.PackagingLevelID.Value))
                 .OrderBy(p => p.PackagingLevelID)
                 .ToList();
 
             return topLevelPackaging.Any() ? topLevelPackaging : null;
-
             #endregion
         }
 
@@ -377,14 +398,23 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            if (product?.Routes == null)
+            if (product?.ProductRouteOfAdministrations == null || !product.ProductRouteOfAdministrations.Any())
                 return null;
 
-            var orderedRoutes = product.Routes
-                .OrderBy(r => r.ProductRouteOfAdministrationID)
+            return product.ProductRouteOfAdministrations
+                .Select(pra => new RouteDto
+                {
+                    Route = new Dictionary<string, object?>
+                    {
+                        [nameof(RouteDto.RouteCode)] = pra.RouteCode,
+                        [nameof(RouteDto.RouteCodeSystem)] = pra.RouteCodeSystem ?? product.FormCodeSystem,
+                        [nameof(RouteDto.RouteDisplayName)] = pra.RouteDisplayName,
+                        [nameof(RouteDto.ProductRouteOfAdministrationID)] = pra.ProductRouteOfAdministrationID,
+                        [nameof(RouteDto.ProductID)] = product.ProductID
+                    }
+                })
+                .OrderBy(r => r.ProductRouteOfAdministrationID ?? 0)
                 .ToList();
-
-            return orderedRoutes.Any() ? orderedRoutes : null;
 
             #endregion
         }
@@ -481,6 +511,7 @@ namespace MedRecPro.Service
         /// Creates enhanced PackageRendering objects from OrderedTopLevelPackaging and stores them in the product's PackageRendering collection
         /// for optimal template processing performance with recursive packaging hierarchy processing.
         /// </summary>
+        /// <param name="productDto">Required ProductDto for identifier correlation</param>
         /// <param name="productRendering">The product rendering context containing packaging to process</param>
         /// <param name="additionalParams">Additional context parameters for packaging processing</param>
         /// <seealso cref="ProductRendering.OrderedTopLevelPackaging"/>
@@ -499,7 +530,7 @@ namespace MedRecPro.Service
         /// The enhanced packaging provides optimized template processing with pre-computed properties.
         /// If no packaging exists, the enhanced packaging collections are properly initialized as empty.
         /// </remarks>
-        private void processPackagingForRendering(ProductRendering productRendering, object? additionalParams)
+        private void processPackagingForRendering(ProductDto productDto, ProductRendering productRendering, object? additionalParams)
         {
             #region implementation
 
@@ -522,11 +553,12 @@ namespace MedRecPro.Service
                     // Create enhanced PackageRendering using the service with comprehensive property computation
                     var enhancedPackageRendering = _packageRenderingService.PrepareForRendering(
                         packagingLevel: packagingLevel,
+                        parentProduct: productDto,
                         additionalParams: additionalParams
                     );
 
                     // Process child packaging recursively if it exists
-                    processChildPackagingRecursively(enhancedPackageRendering, additionalParams);
+                    processChildPackagingRecursively(productDto, enhancedPackageRendering, additionalParams);
 
                     // Add the enhanced packaging rendering to the collection
                     enhancedPackaging.Add(enhancedPackageRendering);
@@ -552,6 +584,7 @@ namespace MedRecPro.Service
         /// Creates enhanced PackageRendering objects for all levels of the packaging hierarchy
         /// to provide complete nested packaging optimization for template processing.
         /// </summary>
+        /// <param name="productDto">Required ProductDto for identifier correlation</param>
         /// <param name="packageRendering">The parent package rendering context to process children for</param>
         /// <param name="additionalParams">Additional context parameters for child processing</param>
         /// <seealso cref="PackageRendering.OrderedChildPackaging"/>
@@ -564,7 +597,7 @@ namespace MedRecPro.Service
         /// - Complete pre-computation at all levels
         /// - Optimal template performance for complex packaging structures
         /// </remarks>
-        private void processChildPackagingRecursively(PackageRendering packageRendering, object? additionalParams)
+        private void processChildPackagingRecursively(ProductDto productDto, PackageRendering packageRendering, object? additionalParams)
         {
             #region implementation
 
@@ -584,11 +617,12 @@ namespace MedRecPro.Service
                         // Create enhanced PackageRendering for the child level
                         var childPackageRendering = _packageRenderingService.PrepareForRendering(
                             packagingLevel: childHierarchy.ChildPackagingLevel,
+                            parentProduct: productDto,
                             additionalParams: additionalParams
                         );
 
                         // Recursively process children of this child
-                        processChildPackagingRecursively(childPackageRendering, additionalParams);
+                        processChildPackagingRecursively(productDto, childPackageRendering, additionalParams);
 
                         enhancedChildPackaging.Add(childPackageRendering);
                     }
