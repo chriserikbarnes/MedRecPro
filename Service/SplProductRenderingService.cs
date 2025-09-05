@@ -1,4 +1,7 @@
-﻿using MedRecPro.Models;
+﻿using MedRecPro.Helpers;
+using MedRecPro.Models;
+using MedRecPro.Service.Common;
+using Newtonsoft.Json;
 
 namespace MedRecPro.Service
 {
@@ -128,6 +131,17 @@ namespace MedRecPro.Service
         private const string NDC_PRODUCT_IDENTIFIER_TYPE = "NDCProduct";
 
         private IPackageRenderingService? _packageRenderingService;
+
+        private IDictionaryUtilityService? _dictionaryUtilityService;
+
+        #endregion
+
+        #region initialization
+        //public ProductRenderingService(IPackageRenderingService packageRenderingService, IDictionaryUtilityService dictionaryUtilityService)
+        //{
+        //    _packageRenderingService = packageRenderingService ?? new PackageRenderingService();
+        //    _dictionaryUtilityService = dictionaryUtilityService ?? new DictionaryUtilityService();
+        //}
 
         #endregion
 
@@ -346,44 +360,163 @@ namespace MedRecPro.Service
         /// <summary>
         /// Gets top-level packaging levels ordered by business rules.
         /// Filters for packaging that has no hierarchy parent (top-level only).
-        /// A packaging level is considered top-level if its ID is not found as an InnerPackagingLevelID
-        /// in any PackagingHierarchy entry across all packaging levels.
+        /// Also removes business duplicates where a top-level package has identical 
+        /// characteristics to a child package in any hierarchy.
         /// </summary>
         /// <param name="product">The product containing packaging levels</param>
         /// <returns>Ordered list of top-level packaging or null if none exists</returns>
         /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="ProductDto"/>
+        /// <seealso cref="PackagingHierarchyDto"/>
+        /// <seealso cref="Label"/>
+        /// <example>
+        /// <code>
+        /// var topLevelPackaging = GetOrderedTopLevelPackaging(product);
+        /// if (topLevelPackaging != null)
+        /// {
+        ///     foreach (var packaging in topLevelPackaging)
+        ///     {
+        ///         // Process top-level packaging
+        ///     }
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method performs two-stage filtering:
+        /// 1. Hierarchy filtering: Removes packaging levels that appear as children in any hierarchy
+        /// 2. Business duplicate filtering: Removes packaging levels that are functional duplicates of child packages
+        /// </remarks>
         public List<PackagingLevelDto>? GetOrderedTopLevelPackaging(ProductDto product)
         {
             #region implementation
             if (product?.PackagingLevels == null)
                 return null;
 
-            // Collect all PackagingHierarchy entries from all packaging levels in the product
-            var allHierarchyEntries = product.PackagingLevels
-                .Where(p => p.PackagingHierarchy != null)
-                .SelectMany(p => p.PackagingHierarchy)
-                .ToList();
+            // Collect all child packaging level IDs from hierarchies for traditional hierarchy filtering
+            var childPackageLevelIds = new HashSet<int>();
 
-            // Get all InnerPackagingLevelIDs - these represent packaging levels that are children
-            // in some hierarchy relationship (i.e., they are contained within other packages)
-            var childPackagingLevelIds = allHierarchyEntries
-                .Where(h => h != null 
-                    && h.InnerPackagingLevelID != null 
-                    && h.InnerPackagingLevelID.HasValue)
-                .Select(h => h!.InnerPackagingLevelID!.Value)
-                .ToHashSet();
+            // Collect all child packaging levels for business duplicate comparison
+            var allChildPackagingLevels = new List<PackagingLevelDto>();
 
-            // Select packaging levels that are top-level, which includes:
-            // 1. Packaging levels that are parents in hierarchy but never children (traditional tops)
-            // 2. Packaging levels that don't appear in any hierarchy at all (standalone items)
-            // Both cases are covered by: PackagingLevelID NOT in childPackagingLevelIds
+            // Helper method to recursively collect child information from packaging hierarchies
+            void CollectChildInfo(IEnumerable<PackagingHierarchyDto> hierarchies)
+            {
+                if (hierarchies == null) return;
+
+                foreach (var hierarchy in hierarchies)
+                {
+                    if (hierarchy?.ChildPackagingLevel != null)
+                    {
+                        // Collect ID for hierarchy-based filtering logic
+                        if (hierarchy.ChildPackagingLevel.PackagingLevelID.HasValue)
+                        {
+                            childPackageLevelIds.Add(hierarchy.ChildPackagingLevel.PackagingLevelID.Value);
+                        }
+
+                        // Collect full child object for business attribute duplicate comparison
+                        allChildPackagingLevels.Add(hierarchy.ChildPackagingLevel);
+
+                        // Recursively process nested hierarchies to handle multi-level packaging structures
+                        if (hierarchy.ChildPackagingLevel.PackagingHierarchy != null &&
+                            hierarchy.ChildPackagingLevel.PackagingHierarchy.Any())
+                        {
+                            CollectChildInfo(hierarchy.ChildPackagingLevel.PackagingHierarchy);
+                        }
+                    }
+                }
+            }
+
+            // Traverse all packaging levels to collect child information from their hierarchies
+            foreach (var packagingLevel in product.PackagingLevels)
+            {
+                if (packagingLevel.PackagingHierarchy != null)
+                {
+                    CollectChildInfo(packagingLevel.PackagingHierarchy);
+                }
+            }
+
+            // Apply two-stage filtering: hierarchy exclusion and business duplicate detection
             var topLevelPackaging = product.PackagingLevels
-                .Where(p => p.PackagingLevelID.HasValue &&
-                           !childPackagingLevelIds.Contains(p.PackagingLevelID.Value))
-                .OrderBy(p => p.PackagingLevelID)
+                .Where(p =>
+                {
+                    // Must have a valid PackagingLevelID for processing
+                    if (!p.PackagingLevelID.HasValue) return false;
+
+                    // Stage 1: Exclude if this packaging level appears as a child in any hierarchy
+                    if (childPackageLevelIds.Contains(p.PackagingLevelID.Value)) return false;
+
+                    // Stage 2: Exclude if this is a business duplicate of any child packaging level
+                    if (isBusinessDuplicateOfChild(p, allChildPackagingLevels)) return false;
+
+                    return true;
+                })
+                .OrderBy(p => p.PackagingLevelID) // Order by ID for consistent results
                 .ToList();
+
+            // Debug logging to troubleshoot filtering logic and verify results
+            var allPackagingIds = string.Join(", ", product.PackagingLevels.Select(p => p.PackagingLevelID));
+            var childIds = string.Join(", ", childPackageLevelIds);
+            var businessDuplicateIds = string.Join(", ", product.PackagingLevels
+                .Where(p => p.PackagingLevelID.HasValue &&
+                           !childPackageLevelIds.Contains(p.PackagingLevelID.Value) &&
+                           isBusinessDuplicateOfChild(p, allChildPackagingLevels))
+                .Select(p => p.PackagingLevelID));
+            var topLevelIds = string.Join(", ", topLevelPackaging.Select(p => p.PackagingLevelID));
+
+            System.Diagnostics.Debug.WriteLine($"All Packaging IDs in product: [{allPackagingIds}]");
+            System.Diagnostics.Debug.WriteLine($"Child IDs (hierarchy filtered): [{childIds}]");
+            System.Diagnostics.Debug.WriteLine($"Business duplicate IDs (filtered): [{businessDuplicateIds}]");
+            System.Diagnostics.Debug.WriteLine($"Final top-level IDs: [{topLevelIds}]");
 
             return topLevelPackaging.Any() ? topLevelPackaging : null;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if a packaging level is a business duplicate of any child packaging level.
+        /// Compares all relevant business attributes to identify functional duplicates that
+        /// would result in redundant XML rendering.
+        /// </summary>
+        /// <param name="candidatePackaging">The packaging level to check for duplication</param>
+        /// <param name="childPackagingLevels">List of all child packaging levels from hierarchies</param>
+        /// <returns>True if the candidate is a business duplicate of any child</returns>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="Label"/>
+        /// <example>
+        /// <code>
+        /// var isDuplicate = isBusinessDuplicateOfChild(packaging, childPackagingLevels);
+        /// if (!isDuplicate)
+        /// {
+        ///     // Include in top-level packaging
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method compares key business attributes that determine functional equivalence:
+        /// PackageFormCode, PackageFormCodeSystem, PackageFormDisplayName, QuantityNumerator, and QuantityDenominator.
+        /// Additional attributes can be added to the comparison logic as needed.
+        /// </remarks>
+        private bool isBusinessDuplicateOfChild(PackagingLevelDto candidatePackaging, List<PackagingLevelDto> childPackagingLevels)
+        {
+            #region implementation
+            if (candidatePackaging?.PackagingLevel == null)
+                return false;
+
+            // Compare candidate against all child packaging levels for business attribute matches
+            return childPackagingLevels.Any(child =>
+            {
+                if (child?.PackagingLevel == null) return false;
+
+                // Compare all relevant business attributes that define functional equivalence
+                return candidatePackaging.PackageFormCode == child.PackageFormCode
+                && candidatePackaging.PackageFormCodeSystem == child.PackageFormCodeSystem
+                       && candidatePackaging.PackageFormDisplayName == child.PackageFormDisplayName
+                       && candidatePackaging.QuantityNumerator == child.QuantityNumerator
+                       && candidatePackaging.QuantityDenominator == child.QuantityDenominator
+                       && candidatePackaging.PackageCode == child.PackageCode
+                       && candidatePackaging.PackageCodeSystem == child.PackageCodeSystem;
+            });
             #endregion
         }
 

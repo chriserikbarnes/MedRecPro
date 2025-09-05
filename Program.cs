@@ -435,6 +435,7 @@ app.UseAuthorization();  // Enables authorization capabilities
 app.MapControllers();
 
 Util.Initialize(httpContextAccessor: app.Services.GetRequiredService<IHttpContextAccessor>(), 
-    encryptionService: app.Services.GetRequiredService<IEncryptionService>());
+    encryptionService: app.Services.GetRequiredService<IEncryptionService>(),
+    dictionaryUtilityService: app.Services.GetRequiredService<IDictionaryUtilityService>());
 
 app.Run();

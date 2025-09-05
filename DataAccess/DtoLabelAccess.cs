@@ -120,6 +120,25 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Builds a package identifier DTO for a specified packaging level ID.
+        /// </summary>
+        /// <param name="db">The database context for querying package identifier entities.</param>
+        /// <param name="packagingLevelID">The packaging level identifier to retrieve package identifier for.</param>
+        /// <param name="pkSecret">The secret key used for encrypting entity IDs.</param>
+        /// <param name="logger">The logger instance for tracking operations.</param>
+        /// <returns>A PackageIdentifierDto object with encrypted ID, or null if not found.</returns>
+        /// <seealso cref="Label.PackageIdentifier"/>
+        /// <seealso cref="PackageIdentifierDto"/>
+        public static async Task<PackageIdentifierDto?> GetPackageIdentifierAsync(ApplicationDbContext db,
+            int? packagingLevelID,
+            string pkSecret,
+            ILogger logger)
+        {
+            return await buildPackageIdentifierDtoAsync(db, packagingLevelID, pkSecret, logger, null);
+        }
+
         #endregion
 
         #region Private Implementation Methods

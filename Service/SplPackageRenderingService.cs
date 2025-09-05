@@ -1,4 +1,7 @@
-﻿using MedRecPro.Models;
+﻿using MedRecPro.Data;
+using MedRecPro.DataAccess;
+using MedRecPro.Models;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static MedRecPro.Models.Label;
 
 namespace MedRecPro.Service
@@ -177,11 +180,11 @@ namespace MedRecPro.Service
                 DenominatorDisplayName = null
             };
 
-            // Correlate ProductDto.PackageIdentifiers with packaging levels
-            correlatePackageIdentifiers(packageRendering, parentProduct);
-
             // Build recursive ChildPackageRendering structure
             buildRecursiveChildPackaging(packageRendering, parentProduct, additionalParams);
+
+            // Correlate ProductDto.PackageIdentifiers with packaging levels
+            correlatePackageIdentifiers(packageRendering, parentProduct);
 
             return packageRendering;
             #endregion

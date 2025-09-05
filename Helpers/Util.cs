@@ -35,15 +35,31 @@ namespace MedRecPro.Helpers
 
         public static HttpContext? HttpContext => _httpContextAccessor?.HttpContext;
 
-        public static IEncryptionService? _encryptionService;
+        private static IEncryptionService? _encryptionService;
+
+        private static IDictionaryUtilityService? _dictionaryUtilityService;
 
         // Initialize this once in your application startup:
         // Util.Initialize(httpContextAccessor, encryptionService);
-        public static void Initialize(IHttpContextAccessor httpContextAccessor, IEncryptionService encryptionService)
+        public static void Initialize(IHttpContextAccessor httpContextAccessor,
+            IEncryptionService encryptionService,
+            IDictionaryUtilityService dictionaryUtilityService)
         {
             _httpContextAccessor = httpContextAccessor;
             _encryptionService = encryptionService;
+            _dictionaryUtilityService = dictionaryUtilityService;
+        }
 
+        /**************************************************************/
+        /// <summary>
+        /// Safely retrieves a value from a dictionary by key.
+        /// </summary>
+        /// <param name="dictionary"></param>
+        /// <param name="key"></param>
+        /// <returns></returns>
+        public static object? SafeGet(IDictionary<string, object?> dictionary, string key)
+        {
+            return _dictionaryUtilityService?.SafeGet(dictionary, key);
         }
 
         /**************************************************************/

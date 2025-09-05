@@ -1026,8 +1026,6 @@ namespace MedRecPro.Service
                 sectionRendering.RenderedProducts = enhancedProducts;
                 sectionRendering.HasRenderedProducts = enhancedProducts.Any();
 
-                var json = JsonConvert.SerializeObject(sectionRendering.RenderedProducts);
-
                 _logger.LogDebug("Successfully enhanced {Count} products for section in document {DocumentGuid}",
                     enhancedProducts.Count, documentGuid);
             }
