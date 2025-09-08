@@ -219,7 +219,7 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
-        /// FIXED: Gets whether this packaging has numerator translation information to render.
+        /// Gets whether this packaging has numerator translation information to render.
         /// </summary>
         /// <returns>True if numerator translation code exists</returns>
         public bool HasNumeratorTranslation => !string.IsNullOrEmpty(NumeratorTranslationCode);

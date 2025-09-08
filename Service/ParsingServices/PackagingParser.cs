@@ -98,6 +98,9 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
+
+       
+
         /**************************************************************/
         /// <summary>
         /// Parses and saves all PackagingLevel entities under a given 'asContent'
@@ -131,18 +134,56 @@ namespace MedRecPro.Service.ParsingServices
             int? parentProductInstanceId = null)
         {
             #region implementation
-            int count = 0;
-
             if (context?.ServiceProvider == null || context.Logger == null)
             {
-                return count; // Exit early if context is not properly initialized
+                return 0; // Exit early if context is not properly initialized
             }
 
-            var repo = context.GetRepository<PackagingLevel>();
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            // Extract quantity and package form information from XML
+            var quantityInfo = extractQuantityInformation(asContentEl);
+            var packageFormInfo = extractPackageFormInformation(asContentEl);
 
-            // 1. Extract quantity information from the <asContent> element.
+            // Create and save the main packaging level entity
+            var packagingLevel = await createPackagingLevelEntityAsync(
+                product, parentProductInstanceId, quantityInfo, packageFormInfo, context);
+
+            int count = 1;
+            context.Logger.LogInformation($"PackagingLevel created: ID={packagingLevel.PackagingLevelID}, ProductID={packagingLevel.ProductID}, FormCode={packageFormInfo.FormCode}");
+
+            // Process package identifiers and events for this level
+            count += await processPackageIdentifiersAndEventsAsync(asContentEl, packagingLevel, context);
+
+            // Create hierarchy link if this is a nested package
+            await createPackagingHierarchyLinkAsync(parentPackagingLevelId, packagingLevel, sequenceNumber, context);
+
+            // Recursively process nested packaging levels
+            count += await processNestedPackagingLevelsAsync(asContentEl, product, packagingLevel, parentProductInstanceId, context);
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts quantity information from the asContent XML element.
+        /// </summary>
+        /// <param name="asContentEl">The asContent XElement to parse.</param>
+        /// <returns>A tuple containing quantity value, unit, denominator, and translation information.</returns>
+        /// <remarks>
+        /// Parses numerator and denominator values along with translation codes
+        /// that provide additional context about the packaging quantities.
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        private (decimal? Value, string? Unit, decimal? Denominator, string? TranslationCode,
+                 string? TranslationCodeSystem, string? TranslationDisplayName) extractQuantityInformation(XElement asContentEl)
+        {
+            #region implementation
             var quantityEl = asContentEl.SplElement(sc.E.Quantity);
+            if (quantityEl == null)
+            {
+                return (null, null, null, null, null, null);
+            }
+
             decimal? quantityValue = null;
             decimal? quantityDenominator = null;
             string? quantityUnit = null;
@@ -150,138 +191,300 @@ namespace MedRecPro.Service.ParsingServices
             string? numTranslationCodeSystem = null;
             string? numTranslationDisplayName = null;
 
-            if (quantityEl != null)
+            // Extract numerator information and translation
+            var numeratorEl = quantityEl.SplElement(sc.E.Numerator);
+            if (numeratorEl != null)
             {
-                var numeratorEl = quantityEl.SplElement(sc.E.Numerator);
-                if (numeratorEl != null)
+                quantityValue = numeratorEl.GetAttrDecimal(sc.A.Value);
+                quantityUnit = numeratorEl.GetAttrVal(sc.A.Unit);
+
+                // Extract translation element from numerator
+                // These are numerator values related to the package that reside outside the containerPackagedProduct element
+                /* Example:
+
+                 <asContent>
+                    <quantity>
+                        <numerator value="100">
+                            <translation code="C48542" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="TABLET" value="100" />
+                        </numerator>
+                        <denominator value="1">
+                            <translation value="1" />
+                        </denominator>
+                    </quantity>
+                    <containerPackagedMedicine>
+                        <code code="0054-4221-25" codeSystem="2.16.840.1.113883.6.69" codeSystemName="NDC" />
+                        <formCode code="C43173" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="BOTTLE, PLASTIC" />
+                    </containerPackagedMedicine>
+                </asContent>
+
+                 */
+                var translationEl = numeratorEl.SplElement(sc.E.Translation);
+                if (translationEl != null)
                 {
-                    quantityValue = numeratorEl.GetAttrDecimal(sc.A.Value);
-                    quantityUnit = numeratorEl.GetAttrVal(sc.A.Unit);
-
-                    // Extract the translation element from the numerator
-                    // These are numerator values related to the package how ever
-                    // there reside outside the containerPackagedProduct element.
-                    /* Example:
-
-                     <asContent>
-						<quantity>
-							<numerator value="100">
-								<translation code="C48542" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="TABLET" value="100" />
-							</numerator>
-							<denominator value="1">
-								<translation value="1" />
-							</denominator>
-						</quantity>
-						<containerPackagedMedicine>
-							<code code="0054-4221-25" codeSystem="2.16.840.1.113883.6.69" codeSystemName="NDC" />
-							<formCode code="C43173" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="BOTTLE, PLASTIC" />
-						</containerPackagedMedicine>
-					</asContent>
-
-                     */
-                    var translationEl = numeratorEl.SplElement(sc.E.Translation);
-                    if (translationEl != null)
-                    {
-                        numTranslationCode = translationEl.GetAttrVal(sc.A.CodeValue);
-                        numTranslationCodeSystem = translationEl.GetAttrVal(sc.A.CodeSystem);
-                        numTranslationDisplayName = translationEl.GetAttrVal(sc.A.DisplayName);
-                    }
-                }
-                var denominatorEl = quantityEl.SplElement(sc.E.Denominator);
-                if (denominatorEl != null)
-                {
-                    quantityDenominator = denominatorEl.GetAttrDecimal(sc.A.Value);
+                    numTranslationCode = translationEl.GetAttrVal(sc.A.CodeValue);
+                    numTranslationCodeSystem = translationEl.GetAttrVal(sc.A.CodeSystem);
+                    numTranslationDisplayName = translationEl.GetAttrVal(sc.A.DisplayName);
                 }
             }
 
-            // 2. Extract information from the <containerPackagedProduct>
-            // OR <containerPackagedMedicine> element.
+            // Extract denominator value
+            var denominatorEl = quantityEl.SplElement(sc.E.Denominator);
+            if (denominatorEl != null)
+            {
+                quantityDenominator = denominatorEl.GetAttrDecimal(sc.A.Value);
+            }
+
+            return (quantityValue, quantityUnit, quantityDenominator, numTranslationCode,
+                    numTranslationCodeSystem, numTranslationDisplayName);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts package form information from containerPackagedProduct or containerPackagedMedicine elements.
+        /// </summary>
+        /// <param name="asContentEl">The asContent XElement to parse.</param>
+        /// <returns>A tuple containing form code, code system, and display name.</returns>
+        /// <remarks>
+        /// Searches for either containerPackagedProduct or containerPackagedMedicine elements
+        /// and extracts the formCode information from the first one found.
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        private (string? FormCode, string? FormCodeSystem, string? FormDisplayName) extractPackageFormInformation(XElement asContentEl)
+        {
+            #region implementation
+            // Look for containerPackagedProduct or containerPackagedMedicine element
             var cppEl = asContentEl.SplElement(sc.E.ContainerPackagedProduct)
                 ?? asContentEl.SplElement(sc.E.ContainerPackagedMedicine);
 
-            string? packageFormCode = null, packageFormCodeSystem = null, packageFormDisplayName = null;
-
-            if (cppEl != null)
+            if (cppEl == null)
             {
-                var formCodeEl = cppEl.SplElement(sc.E.FormCode);
-                if (formCodeEl != null)
-                {
-                    packageFormCode = formCodeEl.GetAttrVal(sc.A.CodeValue);
-                    packageFormCodeSystem = formCodeEl.GetAttrVal(sc.A.CodeSystem);
-                    packageFormDisplayName = formCodeEl.GetAttrVal(sc.A.DisplayName);
-                }
+                return (null, null, null);
             }
 
-            // 3. Create and save the current packaging level entity.
+            var formCodeEl = cppEl.SplElement(sc.E.FormCode);
+            if (formCodeEl == null)
+            {
+                return (null, null, null);
+            }
+
+            return (
+                formCodeEl.GetAttrVal(sc.A.CodeValue),
+                formCodeEl.GetAttrVal(sc.A.CodeSystem),
+                formCodeEl.GetAttrVal(sc.A.DisplayName)
+            );
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates and saves a PackagingLevel entity with the extracted information.
+        /// </summary>
+        /// <param name="product">The associated Product entity.</param>
+        /// <param name="parentProductInstanceId">The parent product instance ID.</param>
+        /// <param name="quantityInfo">Tuple containing quantity information.</param>
+        /// <param name="packageFormInfo">Tuple containing package form information.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>The created PackagingLevel entity.</returns>
+        /// <remarks>
+        /// Constructs a new PackagingLevel entity with all the extracted data
+        /// and saves it to the database using the repository pattern.
+        /// </remarks>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<PackagingLevel> createPackagingLevelEntityAsync(
+            Product? product,
+            int? parentProductInstanceId,
+            (decimal? Value, string? Unit, decimal? Denominator, string? TranslationCode,
+             string? TranslationCodeSystem, string? TranslationDisplayName) quantityInfo,
+            (string? FormCode, string? FormCodeSystem, string? FormDisplayName) packageFormInfo,
+            SplParseContext context)
+        {
+            #region implementation
+            var repo = context.GetRepository<PackagingLevel>();
+
             var packagingLevel = new PackagingLevel
             {
-                ProductID = product != null ? product.ProductID : null,
+                ProductID = product?.ProductID,
                 ProductInstanceID = parentProductInstanceId,
-                QuantityNumerator = quantityValue,
-                QuantityNumeratorUnit = quantityUnit,
-                QuantityDenominator = quantityDenominator,
-                PackageFormCode = packageFormCode,
-                PackageFormCodeSystem = packageFormCodeSystem,
-                PackageFormDisplayName = packageFormDisplayName,
-                NumeratorTranslationCode = numTranslationCode,
-                NumeratorTranslationCodeSystem = numTranslationCodeSystem,
-                NumeratorTranslationDisplayName = numTranslationDisplayName
+                QuantityNumerator = quantityInfo.Value,
+                QuantityNumeratorUnit = quantityInfo.Unit,
+                QuantityDenominator = quantityInfo.Denominator,
+                PackageFormCode = packageFormInfo.FormCode,
+                PackageFormCodeSystem = packageFormInfo.FormCodeSystem,
+                PackageFormDisplayName = packageFormInfo.FormDisplayName,
+                NumeratorTranslationCode = quantityInfo.TranslationCode,
+                NumeratorTranslationCodeSystem = quantityInfo.TranslationCodeSystem,
+                NumeratorTranslationDisplayName = quantityInfo.TranslationDisplayName
             };
 
             await repo.CreateAsync(packagingLevel);
-            count++;
-            context.Logger.LogInformation($"PackagingLevel created: ID={packagingLevel.PackagingLevelID}, ProductID={packagingLevel.ProductID}, FormCode={packageFormCode}");
+            return packagingLevel;
+            #endregion
+        }
 
-            // 4. Parse and save package identifiers (e.g., NDC Package Code) for this level.
-            if (cppEl != null)
+        /**************************************************************/
+        /// <summary>
+        /// Processes package identifiers and product events for the current packaging level.
+        /// </summary>
+        /// <param name="asContentEl">The asContent XElement.</param>
+        /// <param name="packagingLevel">The PackagingLevel entity to associate with.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>The count of additional records created (identifiers + events).</returns>
+        /// <remarks>
+        /// Handles both package identifier parsing and product event creation
+        /// for the current packaging level. Uses the containerPackagedProduct element
+        /// to extract relevant information.
+        /// </remarks>
+        /// <seealso cref="PackageIdentifier"/>
+        /// <seealso cref="ProductEventParser"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> processPackageIdentifiersAndEventsAsync(
+            XElement asContentEl,
+            PackagingLevel packagingLevel,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+
+            var cppEl = asContentEl.SplElement(sc.E.ContainerPackagedProduct)
+                ?? asContentEl.SplElement(sc.E.ContainerPackagedMedicine);
+
+            if (cppEl == null)
             {
-                count += await parseAndSavePackageIdentifiersAsync(cppEl, asContentEl, packagingLevel, context);
+                return count;
+            }
 
-                // Use the orphaned method to get the ID of the level we just created.
-                var newPackagingLevelId = await getPackagingLevelIdFromContextAsync(cppEl, context);
+            // Parse and save package identifiers (e.g., NDC Package Code)
+            count += await parseAndSavePackageIdentifiersAsync(cppEl, asContentEl, packagingLevel, context);
 
-                if (newPackagingLevelId.HasValue)
+            // Get the packaging level ID for event processing
+            var packagingLevelId = await getPackagingLevelIdFromContextAsync(cppEl, context);
+            if (packagingLevelId.HasValue)
+            {
+                // Parse and create ProductEvent entities
+                var eventCount = await ProductEventParser.BuildProductEventAsync(
+                    cppEl,
+                    new PackagingLevel { PackagingLevelID = packagingLevelId },
+                    context);
+
+                if (eventCount > 0)
                 {
-                    // Now, parse any ProductEvent entities associated with this packaging level.
-                    // This assumes you have a ProductEventParser like in the "Old" code.
-                    var eventCount = await ProductEventParser.BuildProductEventAsync(
-                        cppEl,
-                        new PackagingLevel { PackagingLevelID = newPackagingLevelId },
-                        context);
-
-                    if (eventCount > 0)
-                    {
-                        context?.Logger?.LogInformation(
-                            "Created {EventCount} ProductEvent records for PackagingLevelID {PackagingLevelID}",
-                            eventCount, newPackagingLevelId);
-                        count += eventCount;
-                    }
+                    context?.Logger?.LogInformation(
+                        "Created {EventCount} ProductEvent records for PackagingLevelID {PackagingLevelID}",
+                        eventCount, packagingLevelId);
+                    count += eventCount;
                 }
             }
 
-            // 5. If this is an inner package, create the hierarchy link to its parent.
-            if (parentPackagingLevelId.HasValue && packagingLevel.PackagingLevelID.HasValue)
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a packaging hierarchy link between parent and child packaging levels.
+        /// </summary>
+        /// <param name="parentPackagingLevelId">The parent packaging level ID.</param>
+        /// <param name="childPackagingLevel">The child PackagingLevel entity.</param>
+        /// <param name="sequenceNumber">The sequence number within the parent.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <remarks>
+        /// Only creates the hierarchy link if both parent and child IDs are available.
+        /// Used to establish the tree structure of nested packaging levels.
+        /// </remarks>
+        /// <seealso cref="PackagingHierarchy"/>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="Label"/>
+        private async Task createPackagingHierarchyLinkAsync(
+            int? parentPackagingLevelId,
+            PackagingLevel childPackagingLevel,
+            int? sequenceNumber,
+            SplParseContext context)
+        {
+            #region implementation
+            if (parentPackagingLevelId.HasValue && childPackagingLevel.PackagingLevelID.HasValue)
             {
-                await saveOrGetPackagingHierarchyAsync(dbContext, parentPackagingLevelId.Value, packagingLevel.PackagingLevelID.Value, sequenceNumber);
-                context?.Logger?.LogInformation($"PackagingHierarchy created: OuterID={parentPackagingLevelId}, InnerID={packagingLevel.PackagingLevelID}, Seq={sequenceNumber}");
+                var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
+
+                if (dbContext == null)
+                {
+                    context?.Logger?.LogWarning("Could not create PackagingHierarchy due to missing DbContext.");
+                    return;
+                }
+
+                await saveOrGetPackagingHierarchyAsync(
+                    dbContext,
+                    parentPackagingLevelId.Value,
+                    childPackagingLevel.PackagingLevelID.Value,
+                    sequenceNumber);
+
+                context?.Logger?.LogInformation(
+                    $"PackagingHierarchy created: OuterID={parentPackagingLevelId}, InnerID={childPackagingLevel.PackagingLevelID}, Seq={sequenceNumber}");
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recursively processes nested asContent elements to create child packaging levels.
+        /// </summary>
+        /// <param name="asContentEl">The parent asContent XElement.</param>
+        /// <param name="product">The associated Product entity.</param>
+        /// <param name="parentPackagingLevel">The parent PackagingLevel entity.</param>
+        /// <param name="parentProductInstanceId">The parent product instance ID.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>The count of nested packaging levels created.</returns>
+        /// <remarks>
+        /// Iterates through all nested asContent elements within containerPackagedProduct
+        /// and recursively calls the main parsing method to create the full packaging tree.
+        /// Each nested level gets an incremented sequence number.
+        /// </remarks>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> processNestedPackagingLevelsAsync(
+            XElement asContentEl,
+            Product? product,
+            PackagingLevel parentPackagingLevel,
+            int? parentProductInstanceId,
+            SplParseContext context)
+        {
+            #region implementation
+            int count = 0;
+
+            if (!parentPackagingLevel.PackagingLevelID.HasValue)
+            {
+                return count;
             }
 
-            // 6. Recursively process nested <asContent> for child packaging levels.
-            if (cppEl != null && packagingLevel.PackagingLevelID.HasValue)
-            {
-                int innerSequence = 1;
-                foreach (var nestedAsContent in cppEl.SplElements(sc.E.AsContent))
-                {
-                    if(context == null || context.ServiceProvider == null)
-                    {
-                        context?.Logger?.LogWarning("Context is null, skipping nested packaging level parsing.");
-                        continue; // Skip if context is not available
-                    }
+            var cppEl = asContentEl.SplElement(sc.E.ContainerPackagedProduct)
+                ?? asContentEl.SplElement(sc.E.ContainerPackagedMedicine);
 
-                    count += await parseAndSavePackagingLevelsAsync(
-                        nestedAsContent, product, context, packagingLevel.PackagingLevelID, innerSequence, parentProductInstanceId);
-                    innerSequence++;
+            if (cppEl == null)
+            {
+                return count;
+            }
+
+            int innerSequence = 1;
+            foreach (var nestedAsContent in cppEl.SplElements(sc.E.AsContent))
+            {
+                if (context?.ServiceProvider == null)
+                {
+                    context?.Logger?.LogWarning("Context is null, skipping nested packaging level parsing.");
+                    continue;
                 }
+
+                // Recursively process each nested packaging level
+                count += await parseAndSavePackagingLevelsAsync(
+                    nestedAsContent,
+                    product,
+                    context,
+                    parentPackagingLevel.PackagingLevelID,
+                    innerSequence,
+                    parentProductInstanceId);
+
+                innerSequence++;
             }
 
             return count;

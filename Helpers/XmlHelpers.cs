@@ -969,6 +969,87 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Extracts the inner HTML of a an element, preserving all markup.
+        /// </summary>
+        /// <param name="itemElement">The [item] XElement to process.</param>
+        /// <param name="stripNamespaces">If true, removes namespace declarations and converts 
+        /// name-spaced elements to their local names.</param>
+        /// <returns>The inner XML as a string, or null if the input is null.</returns>
+        /// <example>
+        /// <code>
+        /// XElement item = XElement.Parse("&lt;item&gt;&lt;caption&gt;Title&lt;/caption&gt;&lt;br xmlns='urn:hl7-org:v3' /&gt;&lt;em&gt;Content&lt;/em&gt;&lt;/item&gt;");
+        /// string content = XElementExtensions.GetSplHtml(item, stripNamespaces: true);
+        /// // content will be "&lt;br /&gt;&lt;em&gt;Content&lt;/em&gt;" (caption excluded, namespaces stripped)
+        /// </code>
+        /// </example>
+        /// <seealso cref="TextListItem"/>
+        /// <seealso cref="Label"/>
+        public static string? GetSplHtml(this XElement itemElement, bool stripNamespaces)
+        {
+            #region implementation
+            if (itemElement == null) return null;
+
+            // Create a temporary clone to manipulate without affecting the original XDocument tree.
+            var clone = new XElement(itemElement);
+
+            if (stripNamespaces)
+            {
+                // Process each node to strip namespaces
+                var processedNodes = clone.Nodes().Select(n => stripNamespacesFromNode(n));
+                return string.Concat(processedNodes.Select(n => n.ToString())).Trim();
+            }
+            else
+            {
+                // Concatenate the remaining nodes (including text and other elements/tags) into a single string.
+                return string.Concat(clone.Nodes().Select(n => n.ToString())).Trim();
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recursively strips namespaces from an XNode and its descendants.
+        /// </summary>
+        /// <param name="node">The node to process.</param>
+        /// <returns>A new node with namespaces removed.</returns>
+        private static XNode stripNamespacesFromNode(XNode node)
+        {
+            if (node is XElement element)
+            {
+                // Create a new element with just the local name (no namespace)
+                var newElement = new XElement(element.Name.LocalName);
+
+                // Copy attributes, but exclude namespace declarations
+                foreach (var attr in element.Attributes())
+                {
+                    if (!attr.IsNamespaceDeclaration)
+                    {
+                        newElement.Add(new XAttribute(attr.Name.LocalName, attr.Value));
+                    }
+                }
+
+                // Recursively process child nodes
+                foreach (var childNode in element.Nodes())
+                {
+                    newElement.Add(stripNamespacesFromNode(childNode));
+                }
+
+                return newElement;
+            }
+            else if (node is XText textNode)
+            {
+                // Text nodes don't have namespaces, so just return a copy
+                return new XText(textNode.Value);
+            }
+            else
+            {
+                // For other node types (comments, processing instructions, etc.), return as-is
+                return node;
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Extracts the inner XML of a highlight text element, preserving all markup
         /// for rich content display and round-trip fidelity.
         /// </summary>

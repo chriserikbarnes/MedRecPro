@@ -548,6 +548,8 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // Find the 'code' element once to reuse it for multiple attribute extractions
                 var ce = docEl.SplElement(sc.E.Code);
+                var titleEl = docEl.GetSplElement(sc.E.Title);
+                var titleHtml = titleEl?.GetSplHtml(stripNamespaces: true)?.Trim();
 
                 // Create and populate the Document entity with extracted metadata
                 var document = new Document
@@ -564,8 +566,8 @@ namespace MedRecPro.Service.ParsingServices
                     // Extract display name from the code element's displayName attribute
                     DocumentDisplayName = ce?.GetAttrVal(sc.A.DisplayName),
 
-                    // Extract and trim the document title from the title element
-                    Title = docEl.GetSplElementVal(sc.E.Title)?.Trim(),
+                    // Document title from the title element
+                    Title = titleHtml,
 
                     // Extract and parse effective time from the effectiveTime element's value attribute
                     EffectiveTime = Util.ParseNullableDateTime(docEl.GetSplElementAttrVal(sc.E.EffectiveTime, sc.A.Value) ?? string.Empty),

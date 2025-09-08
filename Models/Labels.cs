@@ -46,7 +46,10 @@ namespace MedRecPro.Models
     public class Label
     {
         private static List<string> preserveTags = new List<string>
-            { "paragraph", "list", "item", "caption", "linkHtml", "sup", "sub", "content", "br", "p" };
+            { "paragraph", "list", "item", "caption", "linkHtml", "sup", "sub", "content", "br", "p", "linkHtml" };
+
+        private static List<string> preserveFormatTags = new List<string>
+            { "linkHtml", "content", "sup", "sub", "br", "p", "b", "em", "i", "span" };
 
         #region Properties
 
@@ -763,7 +766,7 @@ namespace MedRecPro.Models
             public string? ContentText
             {
                 get => _contentText;
-                set => _contentText = value?.RemoveUnwantedTags(preserveTags: preserveTags);
+                set => _contentText = value?.RemoveUnwantedTags(preserveTags: preserveFormatTags);
             }
             #endregion properties
         }

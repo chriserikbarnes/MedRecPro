@@ -409,16 +409,13 @@ namespace MedRecPro.Service.ParsingServices
             // Extract optional style code for formatting information
             var styleCode = block.Attribute(sc.A.StyleCode)?.Value?.Trim();
 
-            // Helper function to extract inner XML while preserving markup
-            string? getInnerXml(XElement element) => string.Concat(element.Nodes().Select(n => n.ToString())).Trim();
-
             // ContentText is null for container types like List or Table.
             // Extract content text only for non-container elements
             string? contentText = null;
             if (!contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase) &&
                 !contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
             {
-                contentText = getInnerXml(block);
+                contentText = block.GetSplHtml(stripNamespaces: true);
             }
 
             // Deduplication: Find existing record based on a unique signature

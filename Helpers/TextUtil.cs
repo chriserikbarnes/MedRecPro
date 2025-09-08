@@ -225,7 +225,7 @@ namespace MedRecPro.Helpers
         /// </summary>
         /// <param name="html">This string (html)</param>
         /// <param name="preserveTags">list of allowed tags</param>
-        /// <param name="cleanAll">default = true</param>
+        /// <param name="cleanAll">default = false</param>
         /// <returns>Sanitized HTML string</returns>
         public static string? RemoveUnwantedTags(this string html, List<string> preserveTags, bool cleanAll = false)
         {

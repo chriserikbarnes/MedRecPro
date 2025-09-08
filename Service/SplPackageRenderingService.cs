@@ -170,9 +170,9 @@ namespace MedRecPro.Service
 
                 // Set translation codes directly from packaging level data
                 // Numerator translation should use package form, not ingredient data
-                NumeratorTranslationCode = packagingLevel.PackageFormCode,
-                NumeratorCodeSystem = packagingLevel.PackageFormCodeSystem ?? parentProduct.FormCodeSystem ?? "2.16.840.1.113883.3.26.1.1",
-                NumeratorDisplayName = packagingLevel.PackageFormDisplayName,
+                NumeratorTranslationCode = packagingLevel.NumeratorTranslationCode,
+                NumeratorCodeSystem = packagingLevel.NumeratorTranslationCodeSystem ?? parentProduct.FormCodeSystem ?? "2.16.840.1.113883.3.26.1.1",
+                NumeratorDisplayName = packagingLevel.NumeratorTranslationDisplayName,
 
                 // Explicitly set denominator properties to null to prevent unwanted XML attributes
                 DenominatorTranslationCode = null,
