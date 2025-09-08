@@ -3340,6 +3340,31 @@ namespace MedRecPro.Models
                 : null;
 
         /// <summary>
+        /// Corresponds to [translation][numerator code].
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? NumeratorTranslationCode =>
+            PackagingLevel.TryGetValue(nameof(NumeratorTranslationCode), out var value)
+                ? value as string
+                : null;
+        /// <summary>
+        /// Corresponds to [translation][numerator codeSystem].
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? NumeratorTranslationCodeSystem =>
+            PackagingLevel.TryGetValue(nameof(NumeratorTranslationCodeSystem), out var value)
+                ? value as string
+                : null;
+        /// <summary>
+        /// Corresponds to [translation][displayName unit].
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? NumeratorTranslationDisplayName =>
+            PackagingLevel.TryGetValue(nameof(NumeratorTranslationDisplayName), out var value)
+                ? value as string
+                : null;
+
+        /// <summary>
         /// Corresponds to [quantity][denominator value].
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]

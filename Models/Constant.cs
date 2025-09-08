@@ -246,6 +246,7 @@
             public const string AsEquivalentSubstance = "asEquivalentSubstance";
             public const string Moiety = "moiety";
             public const string PartMoiety = "partMoiety";
+            public const string Translation = "translation";
 
             #endregion
         }

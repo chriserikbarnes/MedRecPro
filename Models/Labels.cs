@@ -1879,6 +1879,21 @@ namespace MedRecPro.Models
             public decimal? QuantityNumerator { get; set; } // Made nullable
 
             /// <summary>
+            /// Gets or sets the translation code for the numerator. (e.g., translation code="C48542")
+            /// </summary>
+            public string? NumeratorTranslationCode { get; set; }
+
+            /// <summary>
+            /// Gets or sets the translation code system for the numerator. (e.g., translation codeSystem="2.16.840.1.113883.3.26.1.1")
+            /// </summary>
+            public string? NumeratorTranslationCodeSystem { get; set; }
+
+            /// <summary>
+            /// Gets or sets the translation display for the numerator. (e.g., translation value="TABLET")
+            /// </summary>
+            public string? NumeratorTranslationDisplayName { get; set; }
+
+            /// <summary>
             /// Corresponds to [quantity][denominator value].
             /// </summary>
             public decimal? QuantityDenominator { get; set; } // Made nullable

@@ -141,111 +141,14 @@ namespace MedRecPro.Service.ParsingServices
             var repo = context.GetRepository<PackagingLevel>();
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-            /*
-             * TODO: https://gemini.google.com/app/995dc400f246069f
-             * 
-                1. Update Your Data Model
-                   
-            
-                    First, you need to add properties to your PackagingLevel entity (and the corresponding PackagingLevelDto) to store the numerator's translation details.
-
-                    PackagingLevel Model/DTO:
-
-                    C#
-
-                    public class PackagingLevel
-                    {
-                        // ... existing properties
-                        public decimal? QuantityNumerator { get; set; }
-                        public string? QuantityNumeratorUnit { get; set; } // This might be redundant now
-                        public decimal? QuantityDenominator { get; set; }
-                        public string? PackageFormCode { get; set; }
-                        // ... etc.
-
-                        // ADD THESE NEW PROPERTIES
-                        public string? NumeratorTranslationCode { get; set; }
-                        public string? NumeratorTranslationCodeSystem { get; set; }
-                        public string? NumeratorTranslationDisplayName { get; set; }
-                    }
-                    2. Update Your Parsing Logic
-                    Now, modify your import method to find that <translation> element and save its attributes to the new properties you just created.
-
-                    C#
-
-                    // 1. Extract quantity information from the <asContent> element.
-                    var quantityEl = asContentEl.SplElement(sc.E.Quantity);
-                    decimal? quantityValue = null;
-                    decimal? quantityDenominator = null;
-                    string? quantityUnit = null;
-
-                    // ---> START NEW LOGIC
-                    string? numTranslationCode = null;
-                    string? numTranslationCodeSystem = null;
-                    string? numTranslationDisplayName = null;
-                    // ---> END NEW LOGIC
-
-                    if (quantityEl != null)
-                    {
-                        var numeratorEl = quantityEl.SplElement(sc.E.Numerator);
-                        if (numeratorEl != null)
-                        {
-                            quantityValue = numeratorEl.GetAttrDecimal(sc.A.Value);
-                            quantityUnit = numeratorEl.GetAttrVal(sc.A.Unit);
-
-                            // ---> START NEW LOGIC
-                            // Extract the translation element from the numerator
-                            var translationEl = numeratorEl.SplElement(sc.E.Translation);
-                            if (translationEl != null)
-                            {
-                                numTranslationCode = translationEl.GetAttrVal(sc.A.CodeValue);
-                                numTranslationCodeSystem = translationEl.GetAttrVal(sc.A.CodeSystem);
-                                numTranslationDisplayName = translationEl.GetAttrVal(sc.A.DisplayName);
-                            }
-                            // ---> END NEW LOGIC
-                        }
-    
-                        var denominatorEl = quantityEl.SplElement(sc.E.Denominator);
-                        if (denominatorEl != null)
-                        {
-                            quantityDenominator = denominatorEl.GetAttrDecimal(sc.A.Value);
-                        }
-                    }
-
-                    // ... (Your existing code for step 2 to get cppEl and formCode remains the same) ...
-
-                    // 3. Create and save the current packaging level entity.
-                    var packagingLevel = new PackagingLevel
-                    {
-                        ProductID = product != null ? product.ProductID : null,
-                        ProductInstanceID = parentProductInstanceId,
-                        QuantityNumerator = quantityValue,
-                        QuantityNumeratorUnit = quantityUnit,
-                        QuantityDenominator = quantityDenominator,
-                        PackageFormCode = packageFormCode,
-                        PackageFormCodeSystem = packageFormCodeSystem,
-                        PackageFormDisplayName = packageFormDisplayName,
-
-                        // ---> START NEW LOGIC
-                        // Assign the newly extracted translation values
-                        NumeratorTranslationCode = numTranslationCode,
-                        NumeratorTranslationCodeSystem = numTranslationCodeSystem,
-                        NumeratorTranslationDisplayName = numTranslationDisplayName
-                        // ---> END NEW LOGIC
-                    };
-
-                    // ... (save the packagingLevel entity)
-                    Putting It All Together
-                    By making these changes, you are now correctly capturing the essential translation data at the source—during the initial import.
-
-                    This will allow your PackageRenderingService to access these accurate values directly from the PackagingLevelDto, finally resolving the last remaining discrepancy and enabling the renderer to produce XML that is identical to your source file.
-             * 
-             */
-
             // 1. Extract quantity information from the <asContent> element.
             var quantityEl = asContentEl.SplElement(sc.E.Quantity);
             decimal? quantityValue = null;
             decimal? quantityDenominator = null;
             string? quantityUnit = null;
+            string? numTranslationCode = null;
+            string? numTranslationCodeSystem = null;
+            string? numTranslationDisplayName = null;
 
             if (quantityEl != null)
             {
@@ -254,6 +157,35 @@ namespace MedRecPro.Service.ParsingServices
                 {
                     quantityValue = numeratorEl.GetAttrDecimal(sc.A.Value);
                     quantityUnit = numeratorEl.GetAttrVal(sc.A.Unit);
+
+                    // Extract the translation element from the numerator
+                    // These are numerator values related to the package how ever
+                    // there reside outside the containerPackagedProduct element.
+                    /* Example:
+
+                     <asContent>
+						<quantity>
+							<numerator value="100">
+								<translation code="C48542" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="TABLET" value="100" />
+							</numerator>
+							<denominator value="1">
+								<translation value="1" />
+							</denominator>
+						</quantity>
+						<containerPackagedMedicine>
+							<code code="0054-4221-25" codeSystem="2.16.840.1.113883.6.69" codeSystemName="NDC" />
+							<formCode code="C43173" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="BOTTLE, PLASTIC" />
+						</containerPackagedMedicine>
+					</asContent>
+
+                     */
+                    var translationEl = numeratorEl.SplElement(sc.E.Translation);
+                    if (translationEl != null)
+                    {
+                        numTranslationCode = translationEl.GetAttrVal(sc.A.CodeValue);
+                        numTranslationCodeSystem = translationEl.GetAttrVal(sc.A.CodeSystem);
+                        numTranslationDisplayName = translationEl.GetAttrVal(sc.A.DisplayName);
+                    }
                 }
                 var denominatorEl = quantityEl.SplElement(sc.E.Denominator);
                 if (denominatorEl != null)
@@ -291,6 +223,9 @@ namespace MedRecPro.Service.ParsingServices
                 PackageFormCode = packageFormCode,
                 PackageFormCodeSystem = packageFormCodeSystem,
                 PackageFormDisplayName = packageFormDisplayName,
+                NumeratorTranslationCode = numTranslationCode,
+                NumeratorTranslationCodeSystem = numTranslationCodeSystem,
+                NumeratorTranslationDisplayName = numTranslationDisplayName
             };
 
             await repo.CreateAsync(packagingLevel);

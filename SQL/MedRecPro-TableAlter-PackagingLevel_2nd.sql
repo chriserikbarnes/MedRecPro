@@ -8,6 +8,7 @@
 *   CHANGES:
 *   1.  Table [dbo].[PackagingLevel]:
 *       - Adds the [PackageCode] and [PackageCodeSystem] columns if they don't exist.
+*       - Adds the [NumeratorTranslationCode], [NumeratorTranslationCodeSystem], and [NumeratorTranslationDisplayName] columns if they don't exist.
 *       - Adds or updates MS_Description extended properties for the table and its columns.
 *
 *   NOTES:
@@ -34,6 +35,15 @@ BEGIN TRY
 
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'PackageCodeSystem' AND Object_ID = Object_ID(N'dbo.PackagingLevel')) 
         ALTER TABLE [dbo].[PackagingLevel] ADD [PackageCodeSystem] VARCHAR(64) NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'NumeratorTranslationCode' AND Object_ID = Object_ID(N'dbo.PackagingLevel')) 
+        ALTER TABLE [dbo].[PackagingLevel] ADD [NumeratorTranslationCode] NVARCHAR(64) NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'NumeratorTranslationCodeSystem' AND Object_ID = Object_ID(N'dbo.PackagingLevel')) 
+        ALTER TABLE [dbo].[PackagingLevel] ADD [NumeratorTranslationCodeSystem] NVARCHAR(64) NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'NumeratorTranslationDisplayName' AND Object_ID = Object_ID(N'dbo.PackagingLevel')) 
+        ALTER TABLE [dbo].[PackagingLevel] ADD [NumeratorTranslationDisplayName] NVARCHAR(256) NULL;
 
     -- Add/Update Extended Properties for [dbo].[PackagingLevel]
     PRINT ' -> Updating extended properties for [dbo].[PackagingLevel].';
@@ -62,6 +72,30 @@ BEGIN TRY
     -- Column: PackageCodeSystem
     SET @ColumnName = N'PackageCodeSystem';
     SET @PropValue = N'The code system OID for the package item code (<containerPackagedProduct><code codeSystem=.../>).';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
+        EXEC sp_updateextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
+    ELSE
+        EXEC sp_addextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
+
+    -- Column: NumeratorTranslationCode
+    SET @ColumnName = N'NumeratorTranslationCode';
+    SET @PropValue = N'The translation code for the numerator quantity (<quantity><numerator><translation code=.../>). Provides an alternative coded representation of the packaging form or unit type (e.g., C43168 for BLISTER PACK).';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
+        EXEC sp_updateextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
+    ELSE
+        EXEC sp_addextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
+
+    -- Column: NumeratorTranslationCodeSystem
+    SET @ColumnName = N'NumeratorTranslationCodeSystem';
+    SET @PropValue = N'The code system OID for the numerator translation code (<quantity><numerator><translation codeSystem=.../>). Typically 2.16.840.1.113883.3.26.1.1 for FDA form codes used in SPL packaging specifications.';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
+        EXEC sp_updateextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
+    ELSE
+        EXEC sp_addextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
+
+    -- Column: NumeratorTranslationDisplayName
+    SET @ColumnName = N'NumeratorTranslationDisplayName';
+    SET @PropValue = N'The human-readable display name for the numerator translation code (<quantity><numerator><translation displayName=.../>). Provides the descriptive text for the packaging form or unit type (e.g., "BLISTER PACK", "PACKAGE", "TABLET").';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name=N'MS_Description', @value=@PropValue, @level0type=N'SCHEMA', @level0name=@SchemaName, @level1type=N'TABLE', @level1name=@TableName, @level2type=N'COLUMN', @level2name=@ColumnName;
     ELSE
