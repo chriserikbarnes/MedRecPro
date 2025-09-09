@@ -190,6 +190,11 @@ namespace MedRecPro.Service.ParsingServices
 
                     // 3. Delegate to specialized parsers for different aspects of section processing
 
+                    // Parse media elements (observation media, rendered media) NOTE: this must
+                    // precede contentParser.
+                    var mediaResult = await _mediaParser.ParseAsync(xEl, context, reportProgress);
+                    result.MergeFrom(mediaResult);
+
                     // Parse the content within this section (text, highlights, etc.)
                     var contentResult = await _contentParser.ParseAsync(xEl, context, reportProgress);
                     result.MergeFrom(contentResult);
@@ -197,10 +202,6 @@ namespace MedRecPro.Service.ParsingServices
                     // Parse section hierarchies and child sections
                     var hierarchyResult = await _hierarchyParser.ParseAsync(xEl, context, reportProgress);
                     result.MergeFrom(hierarchyResult);
-
-                    // Parse media elements (observation media, rendered media)
-                    var mediaResult = await _mediaParser.ParseAsync(xEl, context, reportProgress);
-                    result.MergeFrom(mediaResult);
 
                     // Parse indexing information (pharmacologic classes, billing units, etc.)
                     var indexingResult = await _indexingParser.ParseAsync(xEl, context, reportProgress);

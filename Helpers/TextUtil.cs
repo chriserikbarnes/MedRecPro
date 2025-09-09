@@ -150,7 +150,7 @@ namespace MedRecPro.Helpers
             }
             #endregion
         }
-
+    
         /******************************************************/
         public static bool IsValidEmail(string email)
         {
@@ -229,9 +229,6 @@ namespace MedRecPro.Helpers
         /// <returns>Sanitized HTML string</returns>
         public static string? RemoveUnwantedTags(this string html, List<string> preserveTags, bool cleanAll = false)
         {
-            #region implementation
-            HtmlDocument document;
-
             if (String.IsNullOrEmpty(html))
             {
                 return html;
@@ -239,17 +236,15 @@ namespace MedRecPro.Helpers
 
             try
             {
-                document = new HtmlDocument();
+                var document = new HtmlDocument();
                 document.LoadHtml(html);
-                HtmlNodeCollection? tryGetNodes = document?.DocumentNode?.SelectNodes("./*|./text()");
 
-                //remove all tags
-                if (tryGetNodes != null && cleanAll)
+                // Remove all tags
+                if (cleanAll)
                 {
                     char[] array = new char[html.Length];
                     int arrayIndex = 0;
                     bool inside = false;
-
                     for (int i = 0; i < html.Length; i++)
                     {
                         char let = html[i];
@@ -269,46 +264,13 @@ namespace MedRecPro.Helpers
                             arrayIndex++;
                         }
                     }
-
-                    html = new string(array, 0, arrayIndex);
-                    return html;
+                    return new string(array, 0, arrayIndex);
                 }
 
-                //remove anything not preserved
-                else
-                {
-                    if (tryGetNodes == null || !tryGetNodes.Any())
-                    {
-                        return html;
-                    }
+                // Remove unwanted tags using recursive approach
+                processNode(document.DocumentNode, preserveTags);
 
-                    var nodes = new Queue<HtmlNode>(tryGetNodes);
-
-                    while (nodes.Count > 0)
-                    {
-                        var node = nodes.Dequeue();
-                        var parentNode = node.ParentNode;
-
-                        if (!preserveTags.Contains(node.Name) && node.Name != "#text")
-                        {
-                            var childNodes = node.SelectNodes("./*|./text()");
-
-                            if (childNodes != null)
-                            {
-                                foreach (var child in childNodes)
-                                {
-                                    nodes.Enqueue(child);
-                                    parentNode.InsertBefore(child, node);
-                                }
-                            }
-
-                            parentNode.RemoveChild(node);
-
-                        }
-                    }
-                }
-
-                return document?.DocumentNode.InnerHtml;
+                return document.DocumentNode.InnerHtml;
             }
             catch (Exception e)
             {
@@ -316,7 +278,38 @@ namespace MedRecPro.Helpers
             }
 
             return html;
-            #endregion
+        }
+
+        private static void processNode(HtmlNode node, List<string> preserveTags)
+        {
+            // Process children first (depth-first)
+            var childrenToProcess = node.ChildNodes.ToList(); // Create copy to avoid modification during iteration
+
+            foreach (var child in childrenToProcess)
+            {
+                processNode(child, preserveTags);
+            }
+
+            // Now process this node
+            if (node.NodeType == HtmlNodeType.Element &&
+                !preserveTags.Contains(node.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                // This is an element node that should be removed
+                var parent = node.ParentNode;
+                if (parent != null)
+                {
+                    // Move all child nodes to where this node is
+                    var children = node.ChildNodes.ToList(); // Create copy
+
+                    foreach (var child in children)
+                    {
+                        parent.InsertBefore(child, node);
+                    }
+
+                    // Remove this node
+                    parent.RemoveChild(node);
+                }
+            }
         }
 
         /******************************************************/

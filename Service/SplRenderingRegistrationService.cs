@@ -6,17 +6,18 @@ namespace MedRecPro.Configuration
     /**************************************************************/
     /// <summary>
     /// Enhanced service registration extensions for SPL document rendering functionality.
-    /// Now includes ingredient rendering capabilities.
+    /// Now includes ingredient rendering and text content rendering capabilities.
     /// </summary>
     /// <seealso cref="ISplExportService"/>
     /// <seealso cref="IDocumentRenderingService"/>
     /// <seealso cref="IIngredientRenderingService"/>
+    /// <seealso cref="ITextContentRenderingService"/>
     public static class SplRenderingServiceRegistration
     {
         /**************************************************************/
         /// <summary>
         /// Enhanced registration of all SPL document rendering services with dependency injection container.
-        /// Configures the complete service layer for optimized document rendering and export including ingredient processing.
+        /// Configures the complete service layer for optimized document rendering and export including ingredient and text content processing.
         /// </summary>
         /// <param name="services">The service collection to configure</param>
         /// <returns>The configured service collection for method chaining</returns>
@@ -30,7 +31,6 @@ namespace MedRecPro.Configuration
         /// <remarks>
         /// Services are registered in dependency order to ensure proper resolution.
         /// All services are registered with scoped lifetime for request-based processing.
-        /// Enhanced to include ingredient rendering service for comprehensive ingredient processing.
         /// </remarks>
         public static IServiceCollection AddDocumentRenderingServices(this IServiceCollection services)
         {
@@ -41,12 +41,16 @@ namespace MedRecPro.Configuration
             services.AddScoped<IDocumentRenderingService, DocumentRenderingService>();
             services.AddScoped<ITemplateRenderingService, TemplateRenderingService>();
 
+            // Register content and component rendering services
+            services.AddScoped<ITextContentRenderingService, TextContentRenderingService>();
+            services.AddScoped<IIngredientRenderingService, IngredientRenderingService>();
+            services.AddScoped<IPackageRenderingService, PackageRenderingService>();
+
             // Register hierarchy and rendering services
             services.AddScoped<ISectionHierarchyService, SectionHierarchyService>();
             services.AddScoped<ISectionRenderingService, SectionRenderingService>();
             services.AddScoped<IProductRenderingService, ProductRenderingService>();
-            services.AddScoped<IIngredientRenderingService, IngredientRenderingService>();
-            services.AddScoped<IPackageRenderingService, PackageRenderingService>();
+            services.AddScoped<ICharacteristicRenderingService, CharacteristicRenderingService>();
 
             // Register structured body and section services
             services.AddScoped<IStructuredBodyViewModelFactory, StructuredBodyViewModelFactory>();
@@ -63,7 +67,7 @@ namespace MedRecPro.Configuration
         /**************************************************************/
         /// <summary>
         /// Enhanced registration of document rendering services with custom configuration options.
-        /// Provides flexibility for advanced configuration scenarios including ingredient processing settings.
+        /// Provides flexibility for advanced configuration scenarios including ingredient and text content processing settings.
         /// </summary>
         /// <param name="services">The service collection to configure</param>
         /// <param name="configureOptions">Optional configuration action for advanced settings</param>
@@ -76,6 +80,7 @@ namespace MedRecPro.Configuration
         ///     options.EnablePerformanceLogging = true;
         ///     options.CacheTemplates = true;
         ///     options.EnableIngredientOptimization = true;
+        ///     options.EnableTextContentOptimization = true;
         /// });
         /// </code>
         /// </example>
@@ -101,7 +106,7 @@ namespace MedRecPro.Configuration
     /**************************************************************/
     /// <summary>
     /// Enhanced configuration options for document rendering services.
-    /// Provides settings for performance optimization and advanced features including ingredient processing.
+    /// Provides settings for performance optimization and advanced features including ingredient and text content processing.
     /// </summary>
     public class DocumentRenderingOptions
     {
@@ -141,6 +146,22 @@ namespace MedRecPro.Configuration
         /// Default: 1000 ingredients per product.
         /// </summary>
         public int MaxIngredientsPerProduct { get; set; } = 1000;
+
+        /**************************************************************/
+        /// <summary>
+        /// Enables optimized text content processing with pre-computed properties.
+        /// When enabled, text content is processed with enhanced rendering contexts.
+        /// Default: true for optimal text content rendering performance.
+        /// </summary>
+        public bool EnableTextContentOptimization { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Maximum number of text content items to process per section.
+        /// Prevents performance issues with sections containing excessive text content.
+        /// Default: 500 text content items per section.
+        /// </summary>
+        public int MaxTextContentItemsPerSection { get; set; } = 500;
 
         /**************************************************************/
         /// <summary>

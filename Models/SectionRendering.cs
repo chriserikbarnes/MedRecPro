@@ -59,6 +59,24 @@ namespace MedRecPro.Models
         /// </summary>
         public List<SectionTextContentDto>? OrderedTextContent { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and enhanced text content rendering contexts for efficient template rendering.
+        /// Contains TextContentRendering objects with all pre-computed properties instead of raw SectionTextContentDto objects.
+        /// This collection corresponds to the OrderedTextContent but with enhanced rendering data.
+        /// Null if no text content exists.
+        /// </summary>
+        /// <seealso cref="TextContentRendering"/>
+        /// <seealso cref="OrderedTextContent"/>
+        public List<TextContentRendering>? RenderedTextContent { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this section has enhanced text content to render.
+        /// </summary>
+        /// <seealso cref="RenderedTextContent"/>
+        public bool HasRenderedTextContent { get; set; }
+
         /// <summary>
         /// Pre-computed and ordered products for efficient rendering.
         /// Null if no products exist.

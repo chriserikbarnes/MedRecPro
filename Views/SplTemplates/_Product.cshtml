@@ -1,10 +1,11 @@
 ﻿@using RazorLight.Razor;
 @using MedRecPro.Models;
 @using MedRecPro.Helpers;
+@using MedRecPro.Service;
 @inherits RazorLight.TemplatePage<MedRecPro.Models.ProductRendering>;
 @model ProductRendering;
 
-@* Clean template with no business logic - all data pre-computed by ProductRenderingService *@
+@* Clean template with proper fallback logic *@
 @if (Model != null)
 {
     var productModel = Model.ProductDto;
@@ -15,14 +16,11 @@
                 @* Render NDC identifier if available *@
                 @if (Model.HasNdcIdentifier && Model.NdcProductIdentifier != null)
                 {
-                    <code @SplTemplateHelpers.Attribute("code", Model.NdcProductIdentifier.IdentifierValue)
-                          @SplTemplateHelpers.Attribute("codeSystem", Model.NdcProductIdentifier.IdentifierSystemOID) />
+                    <code @SplTemplateHelpers.Attribute("code", Model.NdcProductIdentifier.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", Model.NdcProductIdentifier.IdentifierSystemOID) />
                 }
 
                 <name>@productModel.ProductName</name>
-                <formCode @SplTemplateHelpers.Attribute("code", productModel.FormCode)
-                          @SplTemplateHelpers.Attribute("codeSystem", productModel.FormCodeSystem)
-                          @SplTemplateHelpers.Attribute("displayName", productModel.FormDisplayName) />
+                <formCode @SplTemplateHelpers.Attribute("code", productModel.FormCode) @SplTemplateHelpers.Attribute("codeSystem", productModel.FormCodeSystem) @SplTemplateHelpers.Attribute("displayName", productModel.FormDisplayName) />
 
                 @* Render active ingredients if available *@
                 @if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
@@ -65,14 +63,32 @@
                 }
             </manufacturedMedicine>
 
-            @* Render characteristics if available *@
-            @if (Model.HasCharacteristics && Model.OrderedCharacteristics != null)
+            @* Render characteristics with proper fallback logic *@
+            @if (Model.HasCharacteristicRendering && Model.CharacteristicRendering != null)
             {
-                foreach (var characteristic in Model.OrderedCharacteristics)
+                @* Use enhanced characteristic rendering *@
+                foreach (var characteristicRendering in Model.CharacteristicRendering)
                 {
                     <subjectOf>
                         @{
-                            await IncludeAsync("_Characteristic", characteristic);
+                            await IncludeAsync("_Characteristic", characteristicRendering);
+                        }
+                    </subjectOf>
+                }
+            }
+            else if (Model.HasCharacteristics && Model.OrderedCharacteristics != null)
+            {
+   
+                var characteristicService = new CharacteristicRenderingService();
+            
+                foreach (var characteristic in Model.OrderedCharacteristics)
+                {
+
+                    var enhancedCharacteristic = characteristicService.PrepareForRendering(characteristic);
+
+                    <subjectOf>
+                        @{
+                            await IncludeAsync("_Characteristic", enhancedCharacteristic);
                         }
                     </subjectOf>
                 }

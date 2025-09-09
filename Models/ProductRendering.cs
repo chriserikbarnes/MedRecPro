@@ -184,7 +184,7 @@ namespace MedRecPro.Models
 
         #endregion
 
-        #region packaging rendering properties (NEW)
+        #region packaging rendering properties
 
         /**************************************************************/
         /// <summary>
@@ -209,6 +209,34 @@ namespace MedRecPro.Models
         /// </summary>
         /// <seealso cref="PackageRendering"/>
         public bool HasPackageRendering { get; set; }
+
+        #endregion
+
+        #region characteristic rendering properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed characteristic rendering contexts for efficient template rendering.
+        /// Contains CharacteristicRendering objects with all pre-computed properties instead of raw CharacteristicDto objects.
+        /// This collection provides optimized characteristic data for template processing with pre-computed business logic.
+        /// Null if no characteristics exist.
+        /// </summary>
+        /// <seealso cref="CharacteristicRendering"/>
+        /// <seealso cref="OrderedCharacteristics"/>
+        /// <remarks>
+        /// This collection contains characteristics with pre-computed properties for optimal performance.
+        /// Use this collection in preference to the raw OrderedCharacteristics for optimal template performance.
+        /// Each CharacteristicRendering object contains pre-computed value type flags, rendering logic decisions,
+        /// formatted values, and display flags to eliminate template processing overhead and complex conditional logic.
+        /// </remarks>
+        public List<CharacteristicRendering>? CharacteristicRendering { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this product has characteristic rendering contexts.
+        /// </summary>
+        /// <seealso cref="CharacteristicRendering"/>
+        public bool HasCharacteristicRendering { get; set; }
 
         #endregion
 

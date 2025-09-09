@@ -1,153 +1,79 @@
 ﻿@using MedRecPro.Models;
 @using MedRecPro.Helpers;
-@inherits RazorLight.TemplatePage<List<MedRecPro.Models.SectionTextContentDto>>;
-@model List<SectionTextContentDto>;
+@inherits RazorLight.TemplatePage<List<MedRecPro.Models.TextContentRendering>>;
+@model List<TextContentRendering>;
 
 <text>
     @if (Model != null)
     {
-        var orderedContent = Model.OrderBy(c => c.SequenceNumber ?? 0);
-
-        foreach (var content in orderedContent)
+        foreach (var renderedContent in Model)
         {
-            var contentType = content.ContentType?.Trim();
-            var hasContentText = !string.IsNullOrWhiteSpace(content.ContentText?.ToString());
-            var hasLists = content.TextLists?.Any() == true;
-            var hasTables = content.TextTables?.Any() == true;
-            var contentText = content.ContentText?.ToString();
-            var hasReferencedObject = contentText?.Contains("referencedObject") == true;
-
-            if (!string.IsNullOrWhiteSpace(contentType))
+            switch (renderedContent.RenderingAction)
             {
-                switch (contentType)
-                {
-                    case "Paragraph":
-                        @if (hasContentText)
-                        {
-                            <paragraph>@Raw(content.ContentText?.ToString() ?? "")</paragraph>
-                        }
-                        break;
+                case TextContentRenderingAction.RenderParagraph:
+                case TextContentRenderingAction.RenderDefaultParagraph:
+                    <paragraph>@Raw(renderedContent.ProcessedContentText)</paragraph>
+                    break;
 
-                    case "RenderMultiMedia":
-                        if (hasContentText)
-                        {
-                            if (hasReferencedObject)
-                            {
-                                @Raw(contentText)
-                            }
-                            else
-                            {
-                                <renderMultiMedia>@Raw(contentText)</renderMultiMedia>
-                            }
-                        }
-                        break;
-
-                    case "List":
-                        if (hasLists 
-                            && content != null
-                            && content.TextLists != null
-                            && content.TextLists.Any())
-                        {
-                            foreach (var list in content.TextLists)
-                            {
-                                await IncludeAsync("_List", list);
-                            }
-                        }
-                        break;
-
-                    case "Table":
-                        if (hasTables
-                        && content != null
-                        && content.TextTables != null
-                        && content.TextTables.Any())
-                        {
-                            foreach (var table in content.TextTables)
-                            {
-                                await IncludeAsync("_Table", table);
-                            }
-                        }
-                        break;
-
-                    case "Caption":
-                        if (hasContentText)
-                        {
-                            <caption>@Raw(content.ContentText?.ToString() ?? "")</caption>
-                        }
-                        break;
-
-                    case "Footnote":
-                        if (hasContentText)
-                        {
-                            <footnote>@Raw(content.ContentText?.ToString() ?? "")</footnote>
-                        }
-                        break;
-
-                    case "Content":
-                    case "Text":
-                    default:
-                        var hasStructuredContent = hasLists || hasTables;
-                        if (hasStructuredContent)
-                        {
-                            if (hasLists
-                            && content != null
-                            && content.TextLists != null
-                            && content.TextLists.Any())
-                            {
-                                foreach (var list in content.TextLists)
-                                {
-                                    await IncludeAsync("_List", list);
-                                }
-                            }
-                            if (hasTables
-                            && content != null
-                            && content.TextTables != null
-                            && content.TextTables.Any())
-                            {
-                                foreach (var table in content.TextTables)
-                                {
-                                    await IncludeAsync("_Table", table);
-                                }
-                            }
-                        }
-                        else if (hasContentText)
-                        {
-                            <paragraph>@Raw(content.ContentText?.ToString() ?? "")</paragraph>
-                        }
-                        break;
-                }
-            }
-            else
-            {
-
-                var hasAnyStructuredContent = hasLists || hasTables;
-
-                if (hasAnyStructuredContent)
-                {
-                    if (hasLists
-                        && content != null
-                        && content.TextLists != null
-                        && content.TextLists.Any())
+                case TextContentRenderingAction.RenderMultiMedia:
+                    if (!string.IsNullOrEmpty(renderedContent.ReferencedObjectId))
                     {
-                        foreach (var list in content.TextLists)
+                        <renderMultiMedia @SplTemplateHelpers.Attribute("referencedObject", renderedContent.ReferencedObjectId)>@Raw(renderedContent.ProcessedContentText)</renderMultiMedia>
+                    }
+                    else
+                    {
+                        <renderMultiMedia>@Raw(renderedContent.ProcessedContentText)</renderMultiMedia>
+                    }
+                    break;
+
+                case TextContentRenderingAction.RenderLists:
+                    @if (renderedContent.OrderedTextLists != null)
+                    {
+                        foreach (var list in renderedContent.OrderedTextLists)
                         {
                             await IncludeAsync("_List", list);
                         }
                     }
-                    if (hasTables
-                        && content != null
-                        && content.TextTables != null
-                        && content.TextTables.Any())
+                    break;
+
+                case TextContentRenderingAction.RenderTables:
+                    @if (renderedContent.OrderedTextTables != null)
                     {
-                        foreach (var table in content.TextTables)
+                        foreach (var table in renderedContent.OrderedTextTables)
                         {
                             await IncludeAsync("_Table", table);
                         }
                     }
-                }
-                else if (hasContentText)
-                {
-                    <paragraph>@Raw(content.ContentText?.ToString() ?? "")</paragraph>
-                }
+                    break;
+
+                case TextContentRenderingAction.RenderCaption:
+                    <caption>@Raw(renderedContent.ProcessedContentText)</caption>
+                    break;
+
+                case TextContentRenderingAction.RenderFootnote:
+                    <footnote>@Raw(renderedContent.ProcessedContentText)</footnote>
+                    break;
+
+                case TextContentRenderingAction.RenderStructuredContent:
+                    @if (renderedContent.OrderedTextLists != null)
+                    {
+                        foreach (var list in renderedContent.OrderedTextLists)
+                        {
+                            await IncludeAsync("_List", list);
+                        }
+                    }
+                    @if (renderedContent.OrderedTextTables != null)
+                    {
+                        foreach (var table in renderedContent.OrderedTextTables)
+                        {
+                            await IncludeAsync("_Table", table);
+                        }
+                    }
+                    break;
+
+                case TextContentRenderingAction.SkipRendering:
+                    @* Skip rendering - no output *@
+                    break;
             }
         }
     }

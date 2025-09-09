@@ -543,6 +543,16 @@ namespace MedRecPro.Service
         private readonly IPackageRenderingService _packageRenderingService;
 
         /// <summary>
+        /// Service for text content rendering preparation
+        /// </summary>
+        private readonly ITextContentRenderingService _textContentRenderingService;
+
+        /// <summary>
+        /// Characteristic rendering service
+        /// </summary>
+        private readonly ICharacteristicRenderingService _characteristicRenderingService;
+
+        /// <summary>
         /// Logger instance for operation tracking, performance monitoring, and diagnostic information.
         /// </summary>
         /// <seealso cref="ILogger"/>
@@ -556,7 +566,7 @@ namespace MedRecPro.Service
         /// <summary>
         /// Initializes a new instance of the SplExportService with required service dependencies.
         /// Sets up the export service with document data access, template rendering capabilities,
-        /// product rendering services, and logging for comprehensive SPL export functionality.
+        /// product rendering services, text content rendering services, and logging for comprehensive SPL export functionality.
         /// </summary>
         /// <param name="documentDataService">Service for retrieving document data from the database</param>
         /// <param name="documentRenderingService">Service for rendering top level spl xml view</param>
@@ -566,6 +576,8 @@ namespace MedRecPro.Service
         /// <param name="productRenderingService">Service for product rendering preparation</param>
         /// <param name="ingredientRenderingService">Service for ingredient rendering preparation</param>
         /// <param name="packageRenderingService">Service for packaging</param>
+        /// <param name="textContentRenderingService">Service for text content rendering preparation</param>
+        /// <param name="characteristicRenderingService">Service for characteristic rendering</param>
         /// <param name="logger">Logger instance for operation tracking and diagnostics</param>
         /// <exception cref="ArgumentNullException">Thrown when any required service dependency is null</exception>
         /// <seealso cref="IDocumentDataService"/>
@@ -574,11 +586,12 @@ namespace MedRecPro.Service
         /// <seealso cref="IStructuredBodyViewModelFactory"/>
         /// <seealso cref="ISectionRenderingService"/>
         /// <seealso cref="IProductRenderingService"/>
+        /// <seealso cref="ITextContentRenderingService"/>
         /// <seealso cref="ILogger"/>
         /// <remarks>
         /// All service dependencies are validated for null values during construction.
         /// The constructor follows the dependency injection pattern for service resolution.
-        /// The product rendering service is now passed to section rendering preparation for enhanced integration.
+        /// The text content rendering service is now passed to section rendering preparation for enhanced integration.
         /// </remarks>
         public SplExportService(
         IDocumentDataService documentDataService,
@@ -587,13 +600,14 @@ namespace MedRecPro.Service
         IStructuredBodyViewModelFactory structuredBodyViewModelFactory,
         ISectionRenderingService sectionRenderingService,
         IProductRenderingService productRenderingService,
-        IIngredientRenderingService ingredientRenderingService,  
+        IIngredientRenderingService ingredientRenderingService,
         IPackageRenderingService packageRenderingService,
+        ITextContentRenderingService textContentRenderingService,
+        ICharacteristicRenderingService characteristicRenderingService,
         ILogger logger
        )
         {
             #region implementation
-
             _documentDataService = documentDataService ?? throw new ArgumentNullException(nameof(documentDataService));
             _documentRenderingService = documentRenderingService ?? throw new ArgumentNullException(nameof(documentRenderingService));
             _templateRenderingService = templateRenderingService ?? throw new ArgumentNullException(nameof(templateRenderingService));
@@ -602,6 +616,8 @@ namespace MedRecPro.Service
             _productRenderingService = productRenderingService ?? throw new ArgumentNullException(nameof(productRenderingService));
             _ingredientRenderingService = ingredientRenderingService ?? throw new ArgumentNullException(nameof(ingredientRenderingService));
             _packageRenderingService = packageRenderingService ?? throw new ArgumentNullException(nameof(packageRenderingService));
+            _textContentRenderingService = textContentRenderingService ?? throw new ArgumentNullException(nameof(textContentRenderingService));
+            _characteristicRenderingService = characteristicRenderingService ?? throw new ArgumentNullException(nameof(characteristicRenderingService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             #endregion
         }
@@ -811,36 +827,38 @@ namespace MedRecPro.Service
             // Process each section context individually for maximum rendering optimization
             foreach (var context in sectionContexts)
             {
-                // Use the rendering service to create a fully prepared section context with integrated product rendering
+                // Use the rendering service to create a fully prepared section context with integrated services
                 var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
                     section: context.Section,
                     children: context.Children,
                     hierarchicalChildren: context.HierarchicalChildren,
                     isStandalone: isStandalone,
-                    productRenderingService: _productRenderingService
+                    productRenderingService: _productRenderingService,
+                    textContentRenderingService: _textContentRenderingService
                 );
 
                 // Process products within this section for enhanced collections and optimized rendering
                 processProductsInSection(enhancedContext, documentGuid);
 
-                // Add the fully enhanced context with enhanced products to the collection
+                // Add the fully enhanced context with enhanced products and text content to the collection
                 enhancedContexts.Add(enhancedContext);
             }
 
             return enhancedContexts;
+
 
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Enhances hierarchical section contexts recursively with pre-computed properties and processes products using enhanced collections.
-        /// Processes the complete hierarchy tree to prepare all levels for rendering with optimized performance and enhanced product integration.
-        /// Maintains parent-child relationships while ensuring comprehensive product processing at all levels using enhanced collections.
+        /// Enhances hierarchical section contexts recursively with pre-computed properties and processes products and text content using enhanced collections.
+        /// Processes the complete hierarchy tree to prepare all levels for rendering with optimized performance and enhanced integration.
+        /// Maintains parent-child relationships while ensuring comprehensive processing at all levels using enhanced collections.
         /// </summary>
         /// <param name="hierarchicalContexts">Hierarchical contexts to enhance with nested processing</param>
         /// <param name="documentGuid">Document GUID for logging context and traceability</param>
-        /// <returns>Enhanced hierarchical contexts with complete nested preparation and enhanced product collections</returns>
+        /// <returns>Enhanced hierarchical contexts with complete nested preparation, enhanced product collections, and rendered text content</returns>
         /// <seealso cref="ISectionRenderingService.PrepareSectionForRendering"/>
         /// <seealso cref="SectionRendering"/>
         /// <seealso cref="SectionDto"/>
@@ -848,10 +866,10 @@ namespace MedRecPro.Service
         /// <remarks>
         /// Recursive processing workflow:
         /// - Child contexts are processed first (depth-first approach)
-        /// - Parent contexts are enhanced with prepared children and product rendering service integration
-        /// - Enhanced product collection processing occurs at each level
+        /// - Parent contexts are enhanced with prepared children and comprehensive service integration
+        /// - Enhanced product and text content collection processing occurs at each level
         /// - Hierarchical relationships are preserved throughout
-        /// - Product rendering service integration provides comprehensive optimization
+        /// - Service integration provides comprehensive optimization
         /// </remarks>
         private async Task<List<SectionRendering>> enhanceHierarchicalSectionContextsAsync(
             List<SectionRendering> hierarchicalContexts,
@@ -861,7 +879,7 @@ namespace MedRecPro.Service
 
             var enhancedContexts = new List<SectionRendering>();
 
-            // Process each hierarchical context with recursive child enhancement and enhanced product integration
+            // Process each hierarchical context with recursive child enhancement and comprehensive service integration
             foreach (var context in hierarchicalContexts)
             {
                 // Recursively enhance child contexts first (depth-first processing for optimal hierarchy handling)
@@ -869,19 +887,20 @@ namespace MedRecPro.Service
                     ? await enhanceHierarchicalSectionContextsAsync(context.HierarchicalChildren, documentGuid)
                     : new List<SectionRendering>();
 
-                // Create enhanced parent context with prepared children and integrated product rendering service
+                // Create enhanced parent context with prepared children and integrated services
                 var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
                     section: context.Section,
                     children: context.Children,
                     hierarchicalChildren: enhancedChildContexts,
                     isStandalone: false,
-                    productRenderingService: _productRenderingService
+                    productRenderingService: _productRenderingService,
+                    textContentRenderingService: _textContentRenderingService
                 );
 
                 // Process products within this section for enhanced collections at the current level
                 processProductsInSection(enhancedContext, documentGuid);
 
-                // Add the fully enhanced hierarchical context with enhanced products to the collection
+                // Add the fully enhanced hierarchical context with enhanced products and text content to the collection
                 enhancedContexts.Add(enhancedContext);
             }
 
@@ -892,13 +911,13 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Enhances the unified AllSectionContexts collection recursively and processes products using enhanced collections.
+        /// Enhances the unified AllSectionContexts collection recursively and processes products and text content using enhanced collections.
         /// Processes both standalone and hierarchical sections in document order while maintaining
-        /// section type distinctions and applying appropriate processing logic for each type with enhanced product integration.
+        /// section type distinctions and applying appropriate processing logic for each type with comprehensive service integration.
         /// </summary>
         /// <param name="allSectionContexts">All section contexts to enhance in unified processing</param>
         /// <param name="documentGuid">Document GUID for logging context and traceability</param>
-        /// <returns>Enhanced unified section contexts with comprehensive processing and enhanced product collections</returns>
+        /// <returns>Enhanced unified section contexts with comprehensive processing, enhanced product collections, and rendered text content</returns>
         /// <seealso cref="ISectionRenderingService.PrepareSectionForRendering"/>
         /// <seealso cref="SectionRendering"/>
         /// <seealso cref="SectionDto"/>
@@ -906,11 +925,11 @@ namespace MedRecPro.Service
         /// <seealso cref="enhanceHierarchicalSectionContextsAsync"/>
         /// <remarks>
         /// Unified processing handles:
-        /// - Standalone sections with direct enhancement and enhanced product collections
-        /// - Hierarchical sections with recursive child processing and enhanced products
+        /// - Standalone sections with direct enhancement, enhanced product collections, and rendered text content
+        /// - Hierarchical sections with recursive child processing, enhanced products, and text content
         /// - Document order preservation
-        /// - Enhanced product collection processing at all levels
-        /// - Section type-appropriate rendering logic with product rendering service integration
+        /// - Enhanced collection processing at all levels
+        /// - Section type-appropriate rendering logic with comprehensive service integration
         /// </remarks>
         private async Task<List<SectionRendering>> enhanceAllSectionContextsAsync(
             List<SectionRendering> allSectionContexts,
@@ -920,18 +939,19 @@ namespace MedRecPro.Service
 
             var enhancedContexts = new List<SectionRendering>();
 
-            // Process each section context with type-appropriate enhancement logic and enhanced product integration
+            // Process each section context with type-appropriate enhancement logic and comprehensive service integration
             foreach (var context in allSectionContexts)
             {
                 if (context.IsStandalone)
                 {
-                    // Handle standalone section with direct processing and integrated product rendering service
+                    // Handle standalone section with direct processing and integrated services
                     var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
                         section: context.Section,
                         children: context.Children,
                         hierarchicalChildren: context.HierarchicalChildren,
                         isStandalone: true,
-                        productRenderingService: _productRenderingService
+                        productRenderingService: _productRenderingService,
+                        textContentRenderingService: _textContentRenderingService
                     );
 
                     // Process products within this standalone section using enhanced collections
@@ -941,18 +961,19 @@ namespace MedRecPro.Service
                 }
                 else
                 {
-                    // Handle hierarchical section with recursive enhancement for nested structures and enhanced products
+                    // Handle hierarchical section with recursive enhancement for nested structures and comprehensive services
                     var enhancedChildContexts = context.HierarchicalChildren?.Any() == true
                         ? await enhanceHierarchicalSectionContextsAsync(context.HierarchicalChildren, documentGuid)
                         : new List<SectionRendering>();
 
-                    // Create enhanced hierarchical context with prepared children and integrated product rendering
+                    // Create enhanced hierarchical context with prepared children and integrated services
                     var enhancedContext = _sectionRenderingService.PrepareSectionForRendering(
                         section: context.Section,
                         children: context.Children,
                         hierarchicalChildren: enhancedChildContexts,
                         isStandalone: false,
-                        productRenderingService: _productRenderingService
+                        productRenderingService: _productRenderingService,
+                        textContentRenderingService: _textContentRenderingService
                     );
 
                     // Process products within this hierarchical section using enhanced collections
@@ -1015,7 +1036,8 @@ namespace MedRecPro.Service
                         product: product,
                         additionalParams: new { DocumentGuid = documentGuid },
                         ingredientRenderingService: _ingredientRenderingService,
-                        packageRenderingService: _packageRenderingService
+                        packageRenderingService: _packageRenderingService,
+                        characteristicRenderingService: _characteristicRenderingService
                     );
 
                     // Add the enhanced product rendering to the collection

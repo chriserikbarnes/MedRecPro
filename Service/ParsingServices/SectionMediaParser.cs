@@ -219,7 +219,7 @@ namespace MedRecPro.Service.ParsingServices
 
             // Find all <renderMultimedia> elements. If the block is the element itself, this will be the only one.
             // If it's a paragraph, it will find all descendants.
-            var renderedElements = contentBlockEl.Name.LocalName == sc.E.RenderMultimedia
+            var renderedElements = contentBlockEl.Name.LocalName.Equals(sc.E.RenderMultimedia, StringComparison.OrdinalIgnoreCase)
                 ? new List<XElement> { contentBlockEl }
                 : contentBlockEl.Descendants(ns + sc.E.RenderMultimedia).ToList();
 

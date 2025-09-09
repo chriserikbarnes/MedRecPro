@@ -76,6 +76,18 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Decrypts the specified value using the provided secret and returns the decrypted string.
+        /// </summary>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        public static string? DecryptAndParseString(object? value)
+        {
+            return _encryptionService?.DecryptToString(value?.ToString() ?? string.Empty) ?? null;
+        }
+
+
+        /**************************************************************/
+        /// <summary>
         /// Safely parses a string to a nullable integer.
         /// </summary>
         /// <param name="value">String value to parse</param>

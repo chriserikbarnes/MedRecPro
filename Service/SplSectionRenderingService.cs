@@ -20,6 +20,7 @@ namespace MedRecPro.Service
         /// <param name="children">Optional child sections</param>
         /// <param name="hierarchicalChildren">Optional hierarchical children</param>
         /// <param name="productRenderingService">Service for processing products within the section</param>
+        /// <param name="textContentRenderingService">Service for processing text content within the section</param>
         /// <param name="isStandalone">Whether this section is standalone</param>
         /// <returns>A fully prepared SectionRendering object</returns>
         /// <seealso cref="SectionRendering"/>
@@ -28,6 +29,7 @@ namespace MedRecPro.Service
             List<SectionDto>? children = null,
             List<SectionRendering>? hierarchicalChildren = null,
             IProductRenderingService? productRenderingService = null,
+            ITextContentRenderingService? textContentRenderingService = null,
             bool isStandalone = false);
 
         /**************************************************************/
@@ -118,6 +120,7 @@ namespace MedRecPro.Service
         /// <param name="children">Optional child sections</param>
         /// <param name="hierarchicalChildren">Optional hierarchical children</param>
         /// <param name="productRenderingService">Service for processing products within the section</param>
+        /// <param name="textContentRenderingService">Service for processing text content within the section</param>
         /// <param name="isStandalone">Whether this section is standalone</param>
         /// <returns>A fully prepared SectionRendering object with computed properties</returns>
         /// <seealso cref="SectionRendering"/>
@@ -126,6 +129,7 @@ namespace MedRecPro.Service
         /// var preparedSection = service.PrepareSectionForRendering(
         ///     section: sectionDto,
         ///     children: childSections,
+        ///     textContentRenderingService: textContentService,
         ///     isStandalone: true
         /// );
         /// // preparedSection now has all computed properties ready for rendering
@@ -136,12 +140,29 @@ namespace MedRecPro.Service
             List<SectionDto>? children = null,
             List<SectionRendering>? hierarchicalChildren = null,
             IProductRenderingService? productRenderingService = null,
+            ITextContentRenderingService? textContentRenderingService = null,
             bool isStandalone = false)
         {
             #region implementation
 
             if (section == null)
                 throw new ArgumentNullException(nameof(section));
+
+            // Get ordered text content and observation media for reference resolution
+            var orderedTextContent = GetOrderedTextContent(section);
+            var orderedMedia = GetOrderedMedia(section);
+
+            // Process text content with media context for multimedia reference resolution
+            List<TextContentRendering>? renderedTextContent = null;
+            bool hasRenderedTextContent = false;
+
+            if (textContentRenderingService != null && orderedTextContent?.Any() == true)
+            {
+                // Pass observation media context for multimedia reference resolution
+                renderedTextContent = textContentRenderingService.PrepareTextContentForRendering(
+                    orderedTextContent, orderedMedia);
+                hasRenderedTextContent = renderedTextContent?.Any() == true;
+            }
 
             return new SectionRendering
             {
@@ -154,14 +175,16 @@ namespace MedRecPro.Service
                 SectionIdAttribute = GenerateSectionIdAttribute(section),
                 HasSectionCode = HasSectionCodeData(section),
                 SectionCodeSystemName = GetSectionCodeSystemName(section),
-                OrderedTextContent = GetOrderedTextContent(section),
+                OrderedTextContent = orderedTextContent,
+                RenderedTextContent = renderedTextContent,
+                HasRenderedTextContent = hasRenderedTextContent,
                 OrderedProducts = GetOrderedProducts(section),
-                OrderedMedia = GetOrderedMedia(section),
+                OrderedMedia = orderedMedia,
 
                 // Pre-compute availability flags
-                HasTextContent = GetOrderedTextContent(section)?.Any() == true,
+                HasTextContent = orderedTextContent?.Any() == true,
                 HasProducts = GetOrderedProducts(section)?.Any() == true,
-                HasMedia = GetOrderedMedia(section)?.Any() == true
+                HasMedia = orderedMedia?.Any() == true
             };
 
             #endregion

@@ -46,10 +46,10 @@ namespace MedRecPro.Models
     public class Label
     {
         private static List<string> preserveTags = new List<string>
-            { "paragraph", "list", "item", "caption", "linkHtml", "sup", "sub", "content", "br", "p", "linkHtml" };
+            { "br", "caption", "content", "item", "linkHtml", "list", "p", "paragraph", "sub", "sup" };
 
         private static List<string> preserveFormatTags = new List<string>
-            { "linkHtml", "content", "sup", "sub", "br", "p", "b", "em", "i", "span" };
+            { "b", "br", "caption", "cite", "content", "em", "i", "linkHtml", "p", "span", "strong", "sub", "sup" };
 
         #region Properties
 
@@ -604,7 +604,7 @@ namespace MedRecPro.Models
                 get => _sectionLinkGUID;
                 set => _sectionLinkGUID = value?.RemoveHtmlXss();
             }
-           
+
 
             /// <summary>
             /// Unique identifier for the section ([id root]).
@@ -1055,7 +1055,7 @@ namespace MedRecPro.Models
             public string? DescriptionText
             {
                 get => _descriptionText;
-                set => _descriptionText = value?.RemoveHtmlXss();
+                set => _descriptionText = value?.RemoveUnwantedTags(preserveTags: preserveTags);
             }
 
             private string? _mediaType;
@@ -4054,7 +4054,7 @@ namespace MedRecPro.Models
             /// </summary>
             public int? BusinessOperationID { get; set; } // Made nullable
 
-            
+
             private string? _licenseNumber;
             /// <summary>
             /// The license number string.
@@ -4741,7 +4741,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Date the warning letter alert was issued.
             /// </summary>
-            [WarningLetterDateValidation] 
+            [WarningLetterDateValidation]
             public DateTime? AlertIssueDate { get; set; } // Made nullable
 
             /// <summary>
@@ -5214,7 +5214,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Code for the compliance action (e.g., C162847 Inactivated).
             /// </summary>
-            
+
             [ComplianceActionCodeValidation]
             public string? ActionCode
             {

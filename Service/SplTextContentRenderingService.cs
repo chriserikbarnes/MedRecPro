@@ -1,0 +1,681 @@
+﻿using MedRecPro.Models;
+
+namespace MedRecPro.Service
+{
+    /**************************************************************/
+    /// <summary>
+    /// Interface for preparing text content data for rendering by handling formatting,
+    /// content type processing, and attribute generation logic.
+    /// </summary>
+    /// <seealso cref="SectionTextContentDto"/>
+    /// <seealso cref="TextContentRendering"/>
+    public interface ITextContentRenderingService
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Prepares a collection of text content items for optimized rendering with observation media context.
+        /// Pre-computes all rendering properties and content type classifications for efficient template processing,
+        /// including resolution of referenced multimedia objects from observation media.
+        /// </summary>
+        /// <param name="textContents">The text content items to prepare for rendering</param>
+        /// <param name="observationMedia">Optional observation media for resolving multimedia references</param>
+        /// <returns>A list of prepared text content rendering objects</returns>
+        /// <seealso cref="TextContentRendering"/>
+        /// <seealso cref="ObservationMediaDto"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <example>
+        /// <code>
+        /// var textContents = section.TextContents;
+        /// var observationMedia = section.ObservationMedia;
+        /// var renderedContents = service.PrepareTextContentForRendering(textContents, observationMedia);
+        /// // renderedContents now contains pre-computed rendering data with resolved media references
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This overload enables proper resolution of referencedObject attributes in multimedia content
+        /// by providing access to the section's observation media collection.
+        /// </remarks>
+        List<TextContentRendering> PrepareTextContentForRendering(
+            IEnumerable<SectionTextContentDto>? textContents,
+            IEnumerable<ObservationMediaDto>? observationMedia = null);
+
+        /**************************************************************/
+        /// <summary>
+        /// Prepares a collection of text content items for optimized rendering.
+        /// Pre-computes all rendering properties and content type classifications
+        /// for efficient template processing.
+        /// </summary>
+        /// <param name="textContents">The text content items to prepare for rendering</param>
+        /// <returns>A list of prepared text content rendering objects</returns>
+        /// <seealso cref="TextContentRendering"/>
+        List<TextContentRendering> PrepareTextContentForRendering(IEnumerable<SectionTextContentDto>? textContents);
+
+        /**************************************************************/
+        /// <summary>
+        /// Prepares a single text content item for rendering with all computed properties.
+        /// </summary>
+        /// <param name="textContent">The text content item to prepare</param>
+        /// <returns>A prepared text content rendering object</returns>
+        /// <seealso cref="TextContentRendering"/>
+        TextContentRendering PrepareTextContentItemForRendering(SectionTextContentDto textContent);
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines the normalized content type for a text content item.
+        /// </summary>
+        /// <param name="textContent">The text content item to analyze</param>
+        /// <returns>Normalized content type string</returns>
+        string DetermineContentType(SectionTextContentDto textContent);
+
+        /**************************************************************/
+        /// <summary>
+        /// Analyzes content characteristics for rendering optimization.
+        /// </summary>
+        /// <param name="textContent">The text content item to analyze</param>
+        /// <returns>Content characteristics object</returns>
+        ContentCharacteristics AnalyzeContentCharacteristics(SectionTextContentDto textContent);
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Service for preparing text content data for rendering by handling formatting,
+    /// content type processing, and attribute generation logic. Separates view logic from templates.
+    /// </summary>
+    /// <seealso cref="ITextContentRenderingService"/>
+    /// <seealso cref="SectionTextContentDto"/>
+    /// <seealso cref="TextContentRendering"/>
+    /// <remarks>
+    /// This service encapsulates all the business logic that was previously
+    /// embedded in the _TextContent Razor view, promoting better separation of concerns
+    /// and testability.
+    /// </remarks>
+    public class TextContentRenderingService : ITextContentRenderingService
+    {
+        #region constants
+
+        /**************************************************************/
+        /// <summary>
+        /// Content type constant for paragraph rendering.
+        /// </summary>
+        private const string CONTENT_TYPE_PARAGRAPH = "Paragraph";
+
+        /**************************************************************/
+        /// <summary>
+        /// Content type constant for multimedia rendering.
+        /// </summary>
+        private const string CONTENT_TYPE_MULTIMEDIA = "RenderMultiMedia";
+
+        /**************************************************************/
+        /// <summary>
+        /// Content type constant for list rendering.
+        /// </summary>
+        private const string CONTENT_TYPE_LIST = "List";
+
+        /**************************************************************/
+        /// <summary>
+        /// Content type constant for table rendering.
+        /// </summary>
+        private const string CONTENT_TYPE_TABLE = "Table";
+
+        /**************************************************************/
+        /// <summary>
+        /// Content type constant for caption rendering.
+        /// </summary>
+        private const string CONTENT_TYPE_CAPTION = "Caption";
+
+        /**************************************************************/
+        /// <summary>
+        /// Content type constant for footnote rendering.
+        /// </summary>
+        private const string CONTENT_TYPE_FOOTNOTE = "Footnote";
+
+        /**************************************************************/
+        /// <summary>
+        /// Content type constant for generic content.
+        /// </summary>
+        private const string CONTENT_TYPE_CONTENT = "Content";
+
+        /**************************************************************/
+        /// <summary>
+        /// Content type constant for text content.
+        /// </summary>
+        private const string CONTENT_TYPE_TEXT = "Text";
+
+        /**************************************************************/
+        /// <summary>
+        /// Referenced object identifier for special multimedia handling.
+        /// </summary>
+        private const string REFERENCED_OBJECT = "referencedObject";
+
+        #endregion
+
+        #region public methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Prepares a collection of text content items for optimized rendering with observation media context.
+        /// Orders content by sequence number and pre-computes all rendering properties including
+        /// multimedia reference resolution for efficient template processing.
+        /// </summary>
+        /// <param name="textContents">The text content items to prepare for rendering</param>
+        /// <param name="observationMedia">Optional observation media for resolving multimedia references</param>
+        /// <returns>A list of prepared text content rendering objects ordered by sequence</returns>
+        /// <seealso cref="TextContentRendering"/>
+        /// <seealso cref="ObservationMediaDto"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <example>
+        /// <code>
+        /// var textContents = section.TextContents;
+        /// var observationMedia = section.ObservationMedia;
+        /// var renderedContents = service.PrepareTextContentForRendering(textContents, observationMedia);
+        /// foreach (var content in renderedContents)
+        /// {
+        ///     if (content.HasReferencedObject)
+        ///     {
+        ///         // Multimedia content with resolved reference
+        ///         Console.WriteLine($"Referenced Object: {content.ReferencedObjectId}");
+        ///     }
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method enables proper resolution of multimedia references by providing access to
+        /// the section's observation media collection. The MediaID from observation media is used
+        /// to populate the ReferencedObjectId property for multimedia content.
+        /// </remarks>
+        public List<TextContentRendering> PrepareTextContentForRendering(
+            IEnumerable<SectionTextContentDto>? textContents,
+            IEnumerable<ObservationMediaDto>? observationMedia = null)
+        {
+            #region implementation
+
+            if (textContents?.Any() != true)
+                return new List<TextContentRendering>();
+
+            // Order content by sequence number for consistent display order
+            var orderedContent = textContents.OrderBy(c => c.SequenceNumber ?? 0);
+            var renderedContents = new List<TextContentRendering>();
+
+            // Process each content item with media context for reference resolution
+            foreach (var content in orderedContent)
+            {
+                var renderedContent = prepareTextContentItemForRendering(content, observationMedia);
+                renderedContents.Add(renderedContent);
+            }
+
+            return renderedContents;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prepares a collection of text content items for optimized rendering without media context.
+        /// Provides backward compatibility for existing code that doesn't require multimedia reference resolution.
+        /// </summary>
+        /// <param name="textContents">The text content items to prepare for rendering</param>
+        /// <returns>A list of prepared text content rendering objects ordered by sequence</returns>
+        /// <seealso cref="TextContentRendering"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <remarks>
+        /// This method maintains backward compatibility while internally delegating to the enhanced
+        /// version that supports media context resolution.
+        /// </remarks>
+        public List<TextContentRendering> PrepareTextContentForRendering(IEnumerable<SectionTextContentDto>? textContents)
+        {
+            #region implementation
+
+            // Delegate to enhanced version without media context
+            return PrepareTextContentForRendering(textContents, null);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prepares a single text content item for rendering with observation media context.
+        /// Analyzes content characteristics and determines appropriate rendering actions
+        /// including multimedia reference resolution for optimal template processing performance.
+        /// </summary>
+        /// <param name="textContent">The text content item to prepare</param>
+        /// <param name="observationMedia">Optional observation media for resolving multimedia references</param>
+        /// <returns>A prepared text content rendering object with computed properties</returns>
+        /// <seealso cref="TextContentRendering"/>
+        /// <seealso cref="ObservationMediaDto"/>
+        /// <seealso cref="AnalyzeContentCharacteristics"/>
+        /// <seealso cref="determineRenderingAction"/>
+        /// <example>
+        /// <code>
+        /// var contentItem = new SectionTextContentDto { ContentType = "RenderMultiMedia", ContentText = "&lt;caption&gt;Sample&lt;/caption&gt;" };
+        /// var mediaItems = new[] { new ObservationMediaDto { MediaID = "MEDIA_123" } };
+        /// var renderedItem = service.PrepareTextContentItemForRendering(contentItem, mediaItems);
+        /// // renderedItem.ReferencedObjectId will be "MEDIA_123" for multimedia content
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method performs comprehensive analysis including multimedia reference resolution
+        /// when observation media context is provided. The MediaID from the first matching
+        /// observation media item is used as the referenced object identifier.
+        /// </remarks>
+        public TextContentRendering PrepareTextContentItemForRendering(
+            SectionTextContentDto textContent,
+            IEnumerable<ObservationMediaDto>? observationMedia = null)
+        {
+            #region implementation
+
+            if (textContent == null)
+                throw new ArgumentNullException(nameof(textContent));
+
+            // Analyze content characteristics with media context for reference resolution
+            var characteristics = analyzeContentCharacteristics(textContent, observationMedia);
+
+            // Determine appropriate rendering action based on content type and characteristics
+            var renderingAction = determineRenderingAction(characteristics);
+
+            return new TextContentRendering
+            {
+                TextContent = textContent,
+                NormalizedContentType = characteristics.NormalizedContentType,
+                ProcessedContentText = characteristics.ProcessedContentText,
+                HasContentText = characteristics.HasContentText,
+                HasLists = characteristics.HasLists,
+                HasTables = characteristics.HasTables,
+                HasReferencedObject = characteristics.HasReferencedObject,
+                HasStructuredContent = characteristics.HasStructuredContent,
+                RenderingAction = renderingAction,
+                OrderedTextLists = getOrderedTextLists(textContent),
+                OrderedTextTables = getOrderedTextTables(textContent),
+                ReferencedObjectId = characteristics.ReferencedObjectId
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prepares a single text content item for rendering without media context.
+        /// Provides backward compatibility for existing code that doesn't require multimedia reference resolution.
+        /// </summary>
+        /// <param name="textContent">The text content item to prepare</param>
+        /// <returns>A prepared text content rendering object with computed properties</returns>
+        /// <seealso cref="TextContentRendering"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <remarks>
+        /// This method maintains backward compatibility while internally delegating to the enhanced
+        /// version that supports media context resolution.
+        /// </remarks>
+        public TextContentRendering PrepareTextContentItemForRendering(SectionTextContentDto textContent)
+        {
+            #region implementation
+
+            // Delegate to enhanced version without media context
+            return PrepareTextContentItemForRendering(textContent, null);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines the normalized content type for a text content item.
+        /// Provides consistent content type classification for rendering decisions.
+        /// </summary>
+        /// <param name="textContent">The text content item to analyze</param>
+        /// <returns>Normalized content type string</returns>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <example>
+        /// <code>
+        /// var contentType = service.DetermineContentType(textContent);
+        /// // Returns standardized content type for rendering logic
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// Content type is trimmed and standardized for consistent processing.
+        /// Returns empty string if content type is null or whitespace.
+        /// </remarks>
+        public string DetermineContentType(SectionTextContentDto textContent)
+        {
+            #region implementation
+
+            return textContent?.ContentType?.Trim() ?? string.Empty;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Analyzes content characteristics for rendering optimization with observation media context.
+        /// Examines all aspects of the content including multimedia reference resolution
+        /// to determine rendering requirements and provides comprehensive characteristic analysis.
+        /// </summary>
+        /// <param name="textContent">The text content item to analyze</param>
+        /// <param name="observationMedia">Optional observation media for resolving multimedia references</param>
+        /// <returns>Content characteristics object with detailed analysis including resolved references</returns>
+        /// <seealso cref="ContentCharacteristics"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <seealso cref="ObservationMediaDto"/>
+        /// <example>
+        /// <code>
+        /// var characteristics = service.AnalyzeContentCharacteristics(textContent, observationMedia);
+        /// if (characteristics.HasReferencedObject)
+        /// {
+        ///     Console.WriteLine($"Multimedia content references: {characteristics.ReferencedObjectId}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// Enhanced analysis includes multimedia reference resolution when observation media context
+        /// is provided. For multimedia content, the MediaID from the first available observation
+        /// media item is used as the referenced object identifier.
+        /// </remarks>
+        public ContentCharacteristics AnalyzeContentCharacteristics(
+            SectionTextContentDto textContent,
+            IEnumerable<ObservationMediaDto>? observationMedia = null)
+        {
+            #region implementation
+
+            // Delegate to private implementation method
+            return analyzeContentCharacteristics(textContent, observationMedia);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Analyzes content characteristics for rendering optimization without media context.
+        /// Provides backward compatibility for existing code that doesn't require multimedia reference resolution.
+        /// </summary>
+        /// <param name="textContent">The text content item to analyze</param>
+        /// <returns>Content characteristics object with detailed analysis</returns>
+        /// <seealso cref="ContentCharacteristics"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <remarks>
+        /// This method maintains backward compatibility while internally delegating to the enhanced
+        /// version that supports media context resolution.
+        /// </remarks>
+        public ContentCharacteristics AnalyzeContentCharacteristics(SectionTextContentDto textContent)
+        {
+            #region implementation
+
+            // Delegate to enhanced version without media context
+            return analyzeContentCharacteristics(textContent, null);
+
+            #endregion
+        }
+
+        #endregion
+
+        #region private methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Internal implementation for analyzing content characteristics with optional media context.
+        /// Performs comprehensive content analysis including multimedia reference resolution
+        /// when observation media context is available.
+        /// </summary>
+        /// <param name="textContent">The text content item to analyze</param>
+        /// <param name="observationMedia">Optional observation media for resolving multimedia references</param>
+        /// <returns>Content characteristics object with detailed analysis including resolved references</returns>
+        /// <seealso cref="ContentCharacteristics"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <seealso cref="ObservationMediaDto"/>
+        /// <remarks>
+        /// This private method implements the core logic for content analysis with multimedia
+        /// reference resolution. For multimedia content types, it attempts to resolve the
+        /// referenced object identifier from the provided observation media collection.
+        /// </remarks>
+        private ContentCharacteristics analyzeContentCharacteristics(
+            SectionTextContentDto textContent,
+            IEnumerable<ObservationMediaDto>? observationMedia)
+        {
+            #region implementation
+
+            if (textContent == null)
+                throw new ArgumentNullException(nameof(textContent));
+
+            var contentText = textContent.ContentText?.ToString() ?? string.Empty;
+            var normalizedContentType = DetermineContentType(textContent);
+
+            // Initialize reference resolution variables
+            string? referencedObjectId = null;
+            bool hasReferencedObject = false;
+
+            // Attempt to resolve multimedia references when media context is available
+            if (!string.IsNullOrWhiteSpace(contentText) &&
+                normalizedContentType == CONTENT_TYPE_MULTIMEDIA &&
+                observationMedia?.Any() == true)
+            {
+                // For multimedia content, use the first available MediaID as the referenced object
+                // This assumes one media per multimedia text content (typical SPL pattern)
+                var firstMedia = observationMedia.FirstOrDefault();
+                if (firstMedia?.MediaID != null)
+                {
+                    referencedObjectId = firstMedia.MediaID;
+                    hasReferencedObject = true;
+                }
+            }
+
+            // Fallback to original string-based detection if no media context available
+            if (!hasReferencedObject)
+            {
+                hasReferencedObject = contentText.Contains(REFERENCED_OBJECT);
+            }
+
+            return new ContentCharacteristics
+            {
+                HasContentText = !string.IsNullOrWhiteSpace(contentText),
+                HasLists = textContent.TextLists?.Any() == true,
+                HasTables = textContent.TextTables?.Any() == true,
+                HasReferencedObject = hasReferencedObject,
+                ProcessedContentText = contentText,
+                NormalizedContentType = normalizedContentType,
+                ReferencedObjectId = referencedObjectId
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prepares a single text content item for rendering with optional media context.
+        /// Private implementation method that handles the core logic for text content preparation
+        /// including multimedia reference resolution.
+        /// </summary>
+        /// <param name="textContent">The text content item to prepare</param>
+        /// <param name="observationMedia">Optional observation media for resolving multimedia references</param>
+        /// <returns>A prepared text content rendering object with computed properties</returns>
+        /// <seealso cref="TextContentRendering"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <seealso cref="ObservationMediaDto"/>
+        /// <remarks>
+        /// This private method implements the core text content preparation logic with support
+        /// for multimedia reference resolution when observation media context is provided.
+        /// </remarks>
+        private TextContentRendering prepareTextContentItemForRendering(
+            SectionTextContentDto textContent,
+            IEnumerable<ObservationMediaDto>? observationMedia)
+        {
+            #region implementation
+
+            if (textContent == null)
+                throw new ArgumentNullException(nameof(textContent));
+
+            // Analyze content characteristics with media context for reference resolution
+            var characteristics = analyzeContentCharacteristics(textContent, observationMedia);
+
+            // Determine appropriate rendering action based on content type and characteristics
+            var renderingAction = determineRenderingAction(characteristics);
+
+            return new TextContentRendering
+            {
+                TextContent = textContent,
+                NormalizedContentType = characteristics.NormalizedContentType,
+                ProcessedContentText = characteristics.ProcessedContentText,
+                HasContentText = characteristics.HasContentText,
+                HasLists = characteristics.HasLists,
+                HasTables = characteristics.HasTables,
+                HasReferencedObject = characteristics.HasReferencedObject,
+                HasStructuredContent = characteristics.HasStructuredContent,
+                RenderingAction = renderingAction,
+                OrderedTextLists = getOrderedTextLists(textContent),
+                OrderedTextTables = getOrderedTextTables(textContent),
+                ReferencedObjectId = characteristics.ReferencedObjectId
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines the appropriate rendering action based on content characteristics.
+        /// Implements the rendering logic that was previously in the Razor view
+        /// for consistent and testable content processing.
+        /// </summary>
+        /// <param name="characteristics">Content characteristics to analyze</param>
+        /// <returns>Appropriate rendering action for the content</returns>
+        /// <seealso cref="ContentCharacteristics"/>
+        /// <seealso cref="TextContentRenderingAction"/>
+        /// <remarks>
+        /// This method encapsulates the complex conditional logic from the original view:
+        /// - Content type-specific handling (Paragraph, RenderMultiMedia, List, Table, etc.)
+        /// - Referenced object detection for multimedia content
+        /// - Structured content prioritization
+        /// - Fallback logic for unknown content types
+        /// </remarks>
+        private static TextContentRenderingAction determineRenderingAction(ContentCharacteristics characteristics)
+        {
+            #region implementation
+
+            // Handle content with explicit content type
+            if (!string.IsNullOrWhiteSpace(characteristics.NormalizedContentType))
+            {
+                switch (characteristics.NormalizedContentType)
+                {
+                    case CONTENT_TYPE_PARAGRAPH:
+                        return characteristics.HasContentText
+                            ? TextContentRenderingAction.RenderParagraph
+                            : TextContentRenderingAction.SkipRendering;
+
+                    case CONTENT_TYPE_MULTIMEDIA:
+                        return characteristics.HasContentText
+                            ? TextContentRenderingAction.RenderMultiMedia
+                            : TextContentRenderingAction.SkipRendering;
+
+                    case CONTENT_TYPE_LIST:
+                        return characteristics.HasLists
+                            ? TextContentRenderingAction.RenderLists
+                            : TextContentRenderingAction.SkipRendering;
+
+                    case CONTENT_TYPE_TABLE:
+                        return characteristics.HasTables
+                            ? TextContentRenderingAction.RenderTables
+                            : TextContentRenderingAction.SkipRendering;
+
+                    case CONTENT_TYPE_CAPTION:
+                        return characteristics.HasContentText
+                            ? TextContentRenderingAction.RenderCaption
+                            : TextContentRenderingAction.SkipRendering;
+
+                    case CONTENT_TYPE_FOOTNOTE:
+                        return characteristics.HasContentText
+                            ? TextContentRenderingAction.RenderFootnote
+                            : TextContentRenderingAction.SkipRendering;
+
+                    case CONTENT_TYPE_CONTENT:
+                    case CONTENT_TYPE_TEXT:
+                    default:
+                        // Handle Content/Text or unknown content types
+                        return determineDefaultRenderingAction(characteristics);
+                }
+            }
+            else
+            {
+                // Handle content without explicit content type
+                return determineDefaultRenderingAction(characteristics);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines rendering action for default content types or content without explicit types.
+        /// Implements fallback logic prioritizing structured content over plain text.
+        /// </summary>
+        /// <param name="characteristics">Content characteristics to analyze</param>
+        /// <returns>Appropriate default rendering action</returns>
+        /// <seealso cref="ContentCharacteristics"/>
+        /// <seealso cref="TextContentRenderingAction"/>
+        /// <remarks>
+        /// Default logic prioritizes structured content (lists and tables) over plain text.
+        /// If both structured content and text exist, structured content takes precedence.
+        /// </remarks>
+        private static TextContentRenderingAction determineDefaultRenderingAction(ContentCharacteristics characteristics)
+        {
+            #region implementation
+
+            // Prioritize structured content over plain text
+            if (characteristics.HasStructuredContent)
+            {
+                return TextContentRenderingAction.RenderStructuredContent;
+            }
+            else if (characteristics.HasContentText)
+            {
+                return TextContentRenderingAction.RenderDefaultParagraph;
+            }
+            else
+            {
+                return TextContentRenderingAction.SkipRendering;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets ordered text lists from a content item for efficient rendering.
+        /// Returns null if no lists exist to avoid unnecessary processing.
+        /// </summary>
+        /// <param name="textContent">Content item containing potential lists</param>
+        /// <returns>Ordered lists or null if none exist</returns>
+        /// <seealso cref="TextListDto"/>
+        /// <remarks>
+        /// Lists are returned in their existing order as they should already be properly sequenced.
+        /// Future enhancements could add specific ordering logic if needed.
+        /// </remarks>
+        private static IEnumerable<TextListDto>? getOrderedTextLists(SectionTextContentDto textContent)
+        {
+            #region implementation
+
+            return textContent?.TextLists?.Any() == true
+                ? textContent.TextLists
+                : null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets ordered text tables from a content item for efficient rendering.
+        /// Returns null if no tables exist to avoid unnecessary processing.
+        /// </summary>
+        /// <param name="textContent">Content item containing potential tables</param>
+        /// <returns>Ordered tables or null if none exist</returns>
+        /// <seealso cref="TextTableDto"/>
+        /// <remarks>
+        /// Tables are returned in their existing order as they should already be properly sequenced.
+        /// Future enhancements could add specific ordering logic if needed.
+        /// </remarks>
+        private static IEnumerable<TextTableDto>? getOrderedTextTables(SectionTextContentDto textContent)
+        {
+            #region implementation
+
+            return textContent?.TextTables?.Any() == true
+                ? textContent.TextTables
+                : null;
+
+            #endregion
+        }
+
+        #endregion
+    }
+}

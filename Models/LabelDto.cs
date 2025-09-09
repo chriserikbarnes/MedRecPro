@@ -3031,8 +3031,8 @@ namespace MedRecPro.Models
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public string? MediaID =>
-            ObservationMedia.TryGetValue(nameof(MediaID), out var value)
-                ? value as string
+            ObservationMedia.TryGetValue("EncryptedMediaID", out var value)
+                ? Util.DecryptAndParseString(value)
                 : null;
 
         /// <summary>

@@ -27,9 +27,9 @@
         }
 
         @* Render text content if available *@
-        @if (Model.HasTextContent && Model.OrderedTextContent != null)
+        @if (Model.HasTextContent && Model.RenderedTextContent != null)
         {
-            await IncludeAsync("_TextContent", Model.OrderedTextContent);
+            await IncludeAsync("_TextContent", Model.RenderedTextContent);
         }
 
         @* Render enhanced products if available using the corrected approach *@

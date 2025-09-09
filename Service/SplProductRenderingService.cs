@@ -18,19 +18,23 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Enhanced PrepareForRendering method with ingredient rendering integration.
+        /// Enhanced PrepareForRendering method with comprehensive rendering integration.
         /// </summary>
         /// <param name="product">The product to prepare for rendering</param>
         /// <param name="additionalParams">Additional context parameters as needed</param>
         /// <param name="ingredientRenderingService">Optional ingredient rendering service for enhanced processing</param>
         /// <param name="packageRenderingService">Optional package rendering service</param>
-        /// <returns>A fully prepared ProductRendering object with enhanced ingredients</returns>
+        /// <param name="characteristicRenderingService">Optional characteristic rendering service</param>
+        /// <returns>A fully prepared ProductRendering object with enhanced components</returns>
         /// <seealso cref="ProductRendering"/>
         /// <seealso cref="IIngredientRenderingService"/>
+        /// <seealso cref="IPackageRenderingService"/>
+        /// <seealso cref="ICharacteristicRenderingService"/>
         ProductRendering PrepareForRendering(ProductDto product,
             object? additionalParams = null,
             IIngredientRenderingService? ingredientRenderingService = null,
-            IPackageRenderingService? packageRenderingService = null);
+            IPackageRenderingService? packageRenderingService = null,
+            ICharacteristicRenderingService? characteristicRenderingService = null);
 
         /**************************************************************/
         /// <summary>
@@ -134,6 +138,8 @@ namespace MedRecPro.Service
 
         private IDictionaryUtilityService? _dictionaryUtilityService;
 
+        private ICharacteristicRenderingService? _characteristicRenderingService;
+
         #endregion
 
         #region initialization
@@ -149,41 +155,46 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Enhanced PrepareForRendering method with comprehensive packaging and ingredient rendering integration.
-        /// Prepares a complete ProductRendering object with all computed properties including optimized packaging collections
-        /// for efficient template rendering following the established ingredient pattern for backward compatibility.
+        /// Enhanced PrepareForRendering method with comprehensive rendering integration including characteristics.
+        /// Prepares a complete ProductRendering object with all computed properties including optimized packaging, ingredient,
+        /// and characteristic collections for efficient template rendering following established patterns for backward compatibility.
         /// </summary>
         /// <param name="product">The product to prepare for rendering</param>
         /// <param name="additionalParams">Additional context parameters as needed</param>
         /// <param name="ingredientRenderingService">Optional ingredient rendering service for enhanced processing</param>
         /// <param name="packageRenderingService">Optional package rendering service for enhanced processing</param>
-        /// <returns>A fully prepared ProductRendering object with enhanced ingredients and packaging</returns>
+        /// <param name="characteristicRenderingService">Optional characteristic rendering service for enhanced processing</param>
+        /// <returns>A fully prepared ProductRendering object with enhanced components</returns>
         /// <seealso cref="ProductRendering"/>
         /// <seealso cref="ProductDto"/>
         /// <seealso cref="IIngredientRenderingService"/>
         /// <seealso cref="IPackageRenderingService"/>
+        /// <seealso cref="ICharacteristicRenderingService"/>
         /// <example>
         /// <code>
         /// var preparedProduct = service.PrepareForRendering(
         ///     product: productDto,
         ///     additionalParams: new { DocumentGuid = documentGuid },
         ///     ingredientRenderingService: ingredientService,
-        ///     packageRenderingService: packageService
+        ///     packageRenderingService: packageService,
+        ///     characteristicRenderingService: characteristicService
         /// );
-        /// // preparedProduct now has all computed properties with enhanced ingredients and packaging ready for rendering
+        /// // preparedProduct now has all computed properties with enhanced components ready for rendering
         /// </code>
         /// </example>
         /// <remarks>
-        /// The enhanced preparation process follows the ingredient pattern:
+        /// The enhanced preparation process follows established patterns:
         /// - All existing product property computation
         /// - Optional ingredient enhancement via ingredientRenderingService
         /// - Optional packaging enhancement via packageRenderingService
+        /// - Optional characteristic enhancement via characteristicRenderingService
         /// - Maintains backward compatibility through optional parameters
         /// </remarks>
         public ProductRendering PrepareForRendering(ProductDto product,
             object? additionalParams = null,
             IIngredientRenderingService? ingredientRenderingService = null,
-            IPackageRenderingService? packageRenderingService = null)
+            IPackageRenderingService? packageRenderingService = null,
+            ICharacteristicRenderingService? characteristicRenderingService = null)
         {
             #region implementation
 
@@ -192,6 +203,7 @@ namespace MedRecPro.Service
 
             // Use provided package rendering service or default to internal instance
             _packageRenderingService = packageRenderingService ?? new PackageRenderingService();
+            _characteristicRenderingService = characteristicRenderingService ?? new CharacteristicRenderingService();
 
             // Create base product rendering with existing logic
             var productRendering = new ProductRendering
@@ -225,7 +237,14 @@ namespace MedRecPro.Service
                 processIngredients(productRendering, ingredientRenderingService, additionalParams);
             }
 
+            // Process enhanced packaging following established pattern
             processPackagingForRendering(product, productRendering, additionalParams);
+
+            // Process enhanced characteristics if service is provided
+            if (characteristicRenderingService != null)
+            {
+                processCharacteristics(productRendering, _characteristicRenderingService, additionalParams);
+            }
 
             return productRendering;
 
@@ -558,7 +577,7 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// NEW METHOD: Processes ingredients within a product for enhanced rendering contexts.
+        /// Processes ingredients within a product for enhanced rendering contexts.
         /// Creates enhanced IngredientRendering objects and populates both unified and filtered collections
         /// for optimal template processing performance.
         /// </summary>
@@ -769,6 +788,67 @@ namespace MedRecPro.Service
             {
                 packageRendering.ChildPackageRendering = null;
                 packageRendering.HasChildPackageRendering = false;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes characteristics within a product for enhanced rendering contexts.
+        /// Creates enhanced CharacteristicRendering objects and populates the characteristics collection
+        /// for optimal template processing performance following the established ingredient pattern.
+        /// </summary>
+        /// <param name="productRendering">The product rendering context to enhance with characteristic data</param>
+        /// <param name="characteristicRenderingService">Service for creating enhanced characteristic rendering contexts</param>
+        /// <param name="additionalParams">Additional context parameters for characteristic processing</param>
+        /// <seealso cref="ProductRendering.CharacteristicRendering"/>
+        /// <seealso cref="ProductRendering.OrderedCharacteristics"/>
+        /// <seealso cref="ICharacteristicRenderingService.PrepareForRendering"/>
+        /// <remarks>
+        /// Enhanced characteristic processing workflow following established patterns:
+        /// - Process all characteristics with enhanced rendering service
+        /// - Create enhanced CharacteristicRendering collection with pre-computed properties
+        /// - Set appropriate availability flags for template optimization
+        /// - Eliminate complex conditional logic from templates
+        /// 
+        /// The enhanced collection provides pre-computed value type flags, rendering decisions,
+        /// formatted values, and display flags to eliminate template processing overhead.
+        /// </remarks>
+        private static void processCharacteristics(
+            ProductRendering productRendering,
+            ICharacteristicRenderingService characteristicRenderingService,
+            object? additionalParams)
+        {
+            #region implementation
+
+            // Process characteristics if they exist following the established ingredient pattern
+            if (productRendering.HasCharacteristics && productRendering.OrderedCharacteristics?.Any() == true)
+            {
+                var enhancedCharacteristics = new List<CharacteristicRendering>();
+
+                // Process each characteristic with enhanced service
+                foreach (var characteristic in productRendering.OrderedCharacteristics)
+                {
+                    // Create enhanced characteristic rendering context with all computed properties
+                    var enhancedCharacteristic = characteristicRenderingService.PrepareForRendering(
+                        characteristic: characteristic,
+                        additionalParams: additionalParams
+                    );
+
+                    // Add to enhanced collection for template processing
+                    enhancedCharacteristics.Add(enhancedCharacteristic);
+                }
+
+                // Populate characteristic rendering collections
+                productRendering.CharacteristicRendering = enhancedCharacteristics.Any() ? enhancedCharacteristics : null;
+                productRendering.HasCharacteristicRendering = enhancedCharacteristics.Any();
+            }
+            else
+            {
+                // No characteristics - initialize characteristic rendering collections as empty
+                productRendering.CharacteristicRendering = null;
+                productRendering.HasCharacteristicRendering = false;
             }
 
             #endregion

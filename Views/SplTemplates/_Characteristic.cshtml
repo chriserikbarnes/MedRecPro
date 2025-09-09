@@ -2,60 +2,53 @@
 @using Microsoft.AspNetCore.Html;
 @using RazorLight.Razor;
 @using MedRecPro.Helpers;
-@inherits RazorLight.TemplatePage<MedRecPro.Models.CharacteristicDto>;
-@model CharacteristicDto;
+@inherits RazorLight.TemplatePage<MedRecPro.Models.CharacteristicRendering>;
+@model CharacteristicRendering;
 
-@if (Model != null)
+@* data pre-computed by CharacteristicRenderingService *@
+@if (Model?.HasRenderableContent == true)
 {
-    var valueType = Model.ValueType?.ToString()?.ToUpperInvariant();
-    var hasCodedValue = !string.IsNullOrEmpty(Model.ValueCV_Code);
-    var hasQuantityValue = Model.ValuePQ_Value.HasValue;
-    var hasBooleanValue = Model.ValueBL != null;
-    var hasIntegerValue = Model.ValueINT.HasValue;
-    var hasStringValue = !string.IsNullOrEmpty(Model.ValueST);
-
+    var characteristic = Model.CharacteristicDto;
     <characteristic classCode="OBS">
-        <code @SplTemplateHelpers.Attribute("code", Model.CharacteristicCode) @SplTemplateHelpers.Attribute("codeSystem", Model.CharacteristicCodeSystem) />
+        <code @SplTemplateHelpers.Attribute("code", characteristic.CharacteristicCode) @SplTemplateHelpers.Attribute("codeSystem", characteristic.CharacteristicCodeSystem) />
 
-        @if (valueType == "CE" || (hasCodedValue && string.IsNullOrEmpty(valueType)))
+        @if (Model.ShouldRenderAsCodedElement)
         {
-            <value @SplTemplateHelpers.Attribute("code", Model.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", Model.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.ValueCV_DisplayName)
-                   xsi:type="CE">
-                @if (!string.IsNullOrEmpty(Model.ValueCV_DisplayName))
+            <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="CE">
+                @if (Model.ShouldDisplayOriginalText)
                 {
-                    <originalText>@Model.ValueCV_DisplayName</originalText>
+                    <originalText>@characteristic.ValueCV_DisplayName</originalText>
                 }
             </value>
         }
-        else if (valueType == "PQ" || (hasQuantityValue && string.IsNullOrEmpty(valueType)))
+        else if (Model.ShouldRenderAsPhysicalQuantity)
         {
-            <value @SplTemplateHelpers.Attribute("unit", Model.ValuePQ_Unit) @SplTemplateHelpers.Attribute("value", Model.ValuePQ_Value?.ToString("G29")) xsi:type="PQ" />
+            <value @SplTemplateHelpers.Attribute("unit", characteristic.ValuePQ_Unit) @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityValue) xsi:type="PQ" />
         }
-        else if (valueType == "BL" || (hasBooleanValue && string.IsNullOrEmpty(valueType)))
+        else if (Model.ShouldRenderAsBoolean)
         {
-            var boolValue = Model.ValueBL == true ? "true" : "false";
-            <value @SplTemplateHelpers.Attribute("value", boolValue) xsi:type="BL" />
+            <value @SplTemplateHelpers.Attribute("value", Model.FormattedBooleanValue) xsi:type="BL" />
         }
-        else if (valueType == "INT" || (hasIntegerValue && string.IsNullOrEmpty(valueType)))
+        else if (Model.ShouldRenderAsInteger)
         {
-            <value @SplTemplateHelpers.Attribute("value", Model.ValueINT?.ToString("G29")) xsi:type="INT" />
+            <value @SplTemplateHelpers.Attribute("value", Model.FormattedIntegerValue) xsi:type="INT" />
         }
-        else if (valueType == "ST" || (hasStringValue && string.IsNullOrEmpty(valueType)))
+        else if (Model.ShouldRenderAsString)
         {
-            <value xsi:type="ST">@Model.ValueST</value>
+            <value xsi:type="ST">@characteristic.ValueST</value>
         }
-        else if (hasCodedValue)
+        else if (Model.ShouldRenderAsFallbackCoded)
         {
-            <value @SplTemplateHelpers.Attribute("code", Model.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", Model.ValueCV_CodeSystem)@SplTemplateHelpers.Attribute("displayName", Model.ValueCV_DisplayName) xsi:type="CE">
-                @if (!string.IsNullOrEmpty(Model.ValueCV_DisplayName))
+            <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="CE">
+                @if (Model.ShouldDisplayOriginalText)
                 {
-                    <originalText>@Model.ValueCV_DisplayName</originalText>
+                    <originalText>@characteristic.ValueCV_DisplayName</originalText>
                 }
             </value>
         }
-        else if (hasStringValue)
+        else if (Model.ShouldRenderAsFallbackString)
         {
-            <value xsi:type="ST">@Model.ValueST</value>
+            <value xsi:type="ST">@characteristic.ValueST</value>
         }
     </characteristic>
 }
