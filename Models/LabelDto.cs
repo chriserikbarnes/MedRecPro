@@ -5769,7 +5769,7 @@ namespace MedRecPro.Models
         [Newtonsoft.Json.JsonIgnore]
         public string? ItemText =>
             TextListItem.TryGetValue(nameof(ItemText), out var value)
-                ? value as string
+                ? (value as string)?.Trim()
                 : null;
     }
 

@@ -19,6 +19,7 @@ using Humanizer;
 
 using System.ComponentModel.DataAnnotations;
 using static MedRecPro.Helpers.StringCipher;
+using MedRecPro.Models;
 
 namespace MedRecPro.Helpers
 {
@@ -227,8 +228,25 @@ namespace MedRecPro.Helpers
         /// <param name="preserveTags">list of allowed tags</param>
         /// <param name="cleanAll">default = false</param>
         /// <returns>Sanitized HTML string</returns>
+        /// <example>
+        /// <code>
+        /// var html = "&lt;div&gt;&lt;p&gt;Hello&lt;/p&gt;&lt;script&gt;alert('test')&lt;/script&gt;&lt;/div&gt;";
+        /// var preservedTags = new List&lt;string&gt; { "p", "div" };
+        /// var result = html.RemoveUnwantedTags(preservedTags);
+        /// // Result: "&lt;div&gt;&lt;p&gt;Hello&lt;/p&gt;&lt;/div&gt;"
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method uses HtmlAgilityPack to parse and sanitize HTML content.
+        /// When cleanAll is true, all HTML tags are removed and only text content is preserved.
+        /// When cleanAll is false, only tags not listed in preserveTags are removed.
+        /// </remarks>
+        /// <seealso cref="Label"/>
         public static string? RemoveUnwantedTags(this string html, List<string> preserveTags, bool cleanAll = false)
         {
+            #region implementation
+
+            // Early return for null or empty input
             if (String.IsNullOrEmpty(html))
             {
                 return html;
@@ -239,78 +257,318 @@ namespace MedRecPro.Helpers
                 var document = new HtmlDocument();
                 document.LoadHtml(html);
 
-                // Remove all tags
+                // Remove all tags and return plain text content
                 if (cleanAll)
                 {
+                    #region strip all html tags
+
                     char[] array = new char[html.Length];
                     int arrayIndex = 0;
-                    bool inside = false;
+                    bool inside = false; // Tracks whether we're inside an HTML tag
+
                     for (int i = 0; i < html.Length; i++)
                     {
                         char let = html[i];
+
+                        // Start of HTML tag
                         if (let == '<')
                         {
                             inside = true;
                             continue;
                         }
+
+                        // End of HTML tag
                         if (let == '>')
                         {
                             inside = false;
                             continue;
                         }
+
+                        // Add character to result if we're not inside a tag
                         if (!inside)
                         {
                             array[arrayIndex] = let;
                             arrayIndex++;
                         }
                     }
+
                     return new string(array, 0, arrayIndex);
+
+                    #endregion
                 }
 
-                // Remove unwanted tags using recursive approach
+                // Remove unwanted tags using recursive approach while preserving allowed tags
                 processNode(document.DocumentNode, preserveTags);
-
                 return document.DocumentNode.InnerHtml;
             }
             catch (Exception e)
             {
+                // Log error and return original HTML as fallback
                 ErrorHelper.AddErrorMsg("TextUtil.RemoveUnwantedTags: " + e);
             }
 
             return html;
+
+            #endregion
         }
 
+        /******************************************************/
+        /// <summary>
+        /// Recursively processes HTML nodes to remove unwanted tags while preserving specified tags and their content.
+        /// Uses depth-first traversal to process child nodes before parent nodes.
+        /// </summary>
+        /// <param name="node">The HTML node to process</param>
+        /// <param name="preserveTags">List of tag names that should be preserved during sanitization</param>
+        /// <remarks>
+        /// This method moves child nodes of removed elements up to the parent level,
+        /// ensuring content is preserved even when the containing tag is removed.
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="RemoveUnwantedTags(string, List{string}, bool)"/>
         private static void processNode(HtmlNode node, List<string> preserveTags)
         {
-            // Process children first (depth-first)
-            var childrenToProcess = node.ChildNodes.ToList(); // Create copy to avoid modification during iteration
+            #region implementation
+
+            // Process children first using depth-first traversal
+            // Create copy of child nodes to avoid modification during iteration
+            var childrenToProcess = node.ChildNodes.ToList();
 
             foreach (var child in childrenToProcess)
             {
                 processNode(child, preserveTags);
             }
 
-            // Now process this node
+            // Process current node after children have been processed
             if (node.NodeType == HtmlNodeType.Element &&
                 !preserveTags.Contains(node.Name, StringComparer.OrdinalIgnoreCase))
             {
-                // This is an element node that should be removed
+                #region remove unwanted element
+
                 var parent = node.ParentNode;
                 if (parent != null)
                 {
-                    // Move all child nodes to where this node is
-                    var children = node.ChildNodes.ToList(); // Create copy
+                    // Move all child nodes to the parent level before removing this node
+                    var children = node.ChildNodes.ToList(); // Create copy to avoid collection modification issues
 
                     foreach (var child in children)
                     {
+                        // Insert each child before the current node
                         parent.InsertBefore(child, node);
                     }
 
-                    // Remove this node
+                    // Remove the unwanted tag node (content has already been preserved)
                     parent.RemoveChild(node);
                 }
+
+                #endregion
+            }
+
+            #endregion
+        }
+
+        /******************************************************/
+        /// <summary>
+        /// Removes unwanted HTML/XML tags from text fragments while properly handling nested structures 
+        /// and preserving the original case of both tag names and attribute names.
+        /// This method tracks opening/closing tag pairs to handle complex nesting scenarios correctly.
+        /// </summary>
+        /// <param name="html">The text fragment containing HTML/XML tags to process</param>
+        /// <param name="preserveTags">List of tag names to preserve (case-insensitive matching)</param>
+        /// <param name="cleanAll">If true, removes all tags and returns only text content</param>
+        /// <returns>Text with unwanted tags removed while preserving case and proper nesting</returns>
+        /// <example>
+        /// <code>
+        /// var html = "&lt;caption&gt;&lt;unwanted&gt;Some text&lt;content styleCode=\"bold\"&gt;&lt;linkHtml href=\"ID_\"&gt;txt&lt;/linkHtml&gt;&lt;/content&gt;&lt;/unwanted&gt;&lt;/caption&gt;";
+        /// var preserveTags = new List&lt;string&gt; { "caption", "content", "linkHtml" };
+        /// var result = html.RemoveUnwantedTagsRegEx(preserveTags);
+        /// // Result: "&lt;caption&gt;Some text&lt;content styleCode=\"bold\"&gt;&lt;linkHtml href=\"ID_\"&gt;txt&lt;/linkHtml&gt;&lt;/content&gt;&lt;/caption&gt;"
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method fails in the following scenarios:
+        /// 1. Malformed HTML with unmatched tags: "&lt;div&gt;&lt;span&gt;content&lt;/div&gt;" - May produce unexpected results
+        /// 2. Tags with complex attributes containing angle brackets: "&lt;script&gt;if (a &lt; b) {}&lt;/script&gt;" - Regex may not parse correctly
+        /// 3. CDATA sections: "&lt;![CDATA[&lt;unwanted&gt;content&lt;/unwanted&gt;]]&gt;" - Content inside CDATA is not processed
+        /// 4. Comments containing tag-like content: "&lt;!-- &lt;unwanted&gt;comment&lt;/unwanted&gt; --&gt;" - Comments are not handled specially
+        /// 5. Script/style content with tag-like strings: "&lt;script&gt;document.write('&lt;div&gt;');&lt;/script&gt;" - May interfere with tag matching
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        public static string? RemoveUnwantedTagsRegEx(this string html, List<string> preserveTags, bool cleanAll = false)
+        {
+            if (String.IsNullOrEmpty(html))
+            {
+                return html;
+            }
+
+            try
+            {
+                #region implementation
+
+                // Handle complete tag removal scenario
+                if (cleanAll)
+                {
+                    // Pattern explanation: <[^>]*>; matches any content between angle brackets
+                    // [^>]* means "any character except >" zero or more times
+                    return Regex.Replace(html, @"<[^>]*>", "");
+                }
+
+                // Create case-insensitive lookup set for performance
+                var preserveSet = new HashSet<string>(preserveTags, StringComparer.OrdinalIgnoreCase);
+                var result = new StringBuilder();
+                var tagStack = new Stack<tagInfo>(); // Track nested tag hierarchy
+
+                // Pattern explanation:
+                // (/?)                    - Group 1: Optional forward slash for closing tags
+                // ([a-zA-Z][a-zA-Z0-9-]*) - Group 2: Tag name starting with letter, followed by letters/numbers/hyphens
+                // [^>]*?                  - Non-greedy match of any attributes until closing bracket
+                // (/?)                    - Group 3: Optional forward slash for self-closing tags
+                var tagPattern = @"<(/?)([a-zA-Z][a-zA-Z0-9-]*)[^>]*?(/?)>";
+                var lastIndex = 0;
+
+                foreach (Match match in Regex.Matches(html, tagPattern))
+                {
+                    var isClosing = match.Groups[1].Value == "/";      // Detect closing tags like </div>
+                    var tagName = match.Groups[2].Value;               // Extract tag name (preserves original case)
+                    var isSelfClosing = match.Groups[3].Value == "/";  // Detect self-closing tags like <br/>
+                    var shouldPreserve = preserveSet.Contains(tagName); // Case-insensitive tag preservation check
+
+                    // Extract and process text content before this tag
+                    var textBefore = html.Substring(lastIndex, match.Index - lastIndex);
+
+                    // Only include text content if we're not inside an unwanted tag block
+                    if (!isInsideUnwantedTag(tagStack))
+                    {
+                        result.Append(textBefore);
+                    }
+
+                    // Process different tag types
+                    if (isSelfClosing)
+                    {
+                        // Self-closing tags don't affect nesting hierarchy
+                        if (shouldPreserve && !isInsideUnwantedTag(tagStack))
+                        {
+                            result.Append(match.Value); // Preserve original case and attributes
+                        }
+                    }
+                    else if (isClosing)
+                    {
+                        // Handle closing tags by matching with most recent opening tag
+                        if (tagStack.Count > 0 &&
+                            string.Equals(tagStack.Peek().Name, tagName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var poppedTag = tagStack.Pop();
+                            // Only output closing tag if the opening tag was preserved
+                            if (poppedTag.ShouldPreserve && !isInsideUnwantedTag(tagStack))
+                            {
+                                result.Append(match.Value); // Preserve original case
+                            }
+                        }
+                        // Unmatched closing tags are silently ignored
+                    }
+                    else
+                    {
+                        // Handle opening tags by pushing to stack for nesting tracking
+                        var tagInfo = new tagInfo
+                        {
+                            Name = tagName,                    // Store original case
+                            ShouldPreserve = shouldPreserve,   // Cache preservation decision
+                            OriginalTag = match.Value          // Store complete original tag with attributes
+                        };
+
+                        tagStack.Push(tagInfo);
+
+                        // Output opening tag if it should be preserved and we're not inside unwanted content
+                        if (shouldPreserve && !isInsideUnwantedTag(tagStack, excludeCurrent: true))
+                        {
+                            result.Append(match.Value); // Preserve original case and all attributes
+                        }
+                    }
+
+                    lastIndex = match.Index + match.Length;
+                }
+
+                // Append any remaining text after the last tag
+                var remainingText = html.Substring(lastIndex);
+                if (!isInsideUnwantedTag(tagStack))
+                {
+                    result.Append(remainingText);
+                }
+
+                return result.ToString();
+
+                #endregion
+            }
+            catch (Exception e)
+            {
+                ErrorHelper.AddErrorMsg("TextUtil.RemoveUnwantedTagsRegEx: " + e);
+                return html; // Return original content on error
             }
         }
+
+        #region regex tag handling helpers
+
+        /******************************************************/
+        /// <summary>
+        /// Helper class to track tag information during processing.
+        /// Maintains original tag case and preservation status for nested tag handling.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        private class tagInfo
+        {
+            /// <summary>
+            /// Gets or sets the original tag name with preserved case.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public string Name { get; set; } = "";
+
+            /// <summary>
+            /// Gets or sets whether this tag should be preserved in the output.
+            /// Cached during processing for performance optimization.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public bool ShouldPreserve { get; set; }
+
+            /// <summary>
+            /// Gets or sets the complete original tag string including all attributes.
+            /// Preserves exact case and formatting of the source content.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public string OriginalTag { get; set; } = "";
+        }
+
+        /******************************************************/
+        /// <summary>
+        /// Determines if the current processing position is inside an unwanted tag block.
+        /// Traverses the tag stack to check if any parent tag is marked for removal.
+        /// </summary>
+        /// <param name="tagStack">Stack containing the current tag hierarchy</param>
+        /// <param name="excludeCurrent">If true, excludes the topmost tag from the check</param>
+        /// <returns>True if inside an unwanted tag block, false otherwise</returns>
+        /// <remarks>
+        /// This method is critical for proper nesting handling. It ensures that content
+        /// inside unwanted tags is not included in the output, even if it contains wanted tags.
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        private static bool isInsideUnwantedTag(Stack<tagInfo> tagStack, bool excludeCurrent = false)
+        {
+            // Convert stack to array for efficient traversal
+            var stackArray = tagStack.ToArray();
+            var startIndex = excludeCurrent ? 1 : 0; // Skip current tag if requested
+
+            // Check each parent tag in the hierarchy
+            for (int i = startIndex; i < stackArray.Length; i++)
+            {
+                // If any parent tag is not preserved, we're inside unwanted content
+                if (!stackArray[i].ShouldPreserve)
+                {
+                    return true;
+                }
+            }
+
+            return false; // All parent tags are preserved
+        }
+
+        #endregion
 
         /******************************************************/
         public static string SanitizeXML(string text)

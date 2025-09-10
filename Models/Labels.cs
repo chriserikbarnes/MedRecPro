@@ -117,7 +117,7 @@ namespace MedRecPro.Models
             public string? Title
             {
                 get => _title;
-                set => _title = value?.RemoveUnwantedTags(preserveTags: preserveTags);
+                set => _title = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
             }
 
             /// <summary>
@@ -766,7 +766,7 @@ namespace MedRecPro.Models
             public string? ContentText
             {
                 get => _contentText;
-                set => _contentText = value?.RemoveUnwantedTags(preserveTags: preserveFormatTags);
+                set => _contentText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveFormatTags);
             }
             #endregion properties
         }
@@ -849,7 +849,7 @@ namespace MedRecPro.Models
             public string? ItemText
             {
                 get => _itemText;
-                set => _itemText = value?.RemoveUnwantedTags(preserveTags: preserveTags);
+                set => _itemText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
             }
             #endregion properties
         }
@@ -976,7 +976,7 @@ namespace MedRecPro.Models
             public string? CellText
             {
                 get => _cellText;
-                set => _cellText = value?.RemoveUnwantedTags(preserveTags: preserveTags);
+                set => _cellText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
             }
 
             /// <summary>
@@ -1055,7 +1055,7 @@ namespace MedRecPro.Models
             public string? DescriptionText
             {
                 get => _descriptionText;
-                set => _descriptionText = value?.RemoveUnwantedTags(preserveTags: preserveTags);
+                set => _descriptionText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
             }
 
             private string? _mediaType;
@@ -1152,7 +1152,7 @@ namespace MedRecPro.Models
             public string? HighlightText
             {
                 get => _highlightText;
-                set => _highlightText = value?.RemoveUnwantedTags(preserveTags: new List<string>
+                set => _highlightText = value?.RemoveUnwantedTagsRegEx(preserveTags: new List<string>
                 { "paragraph", "list", "item", "caption", "linkHtml" });
             }
             #endregion properties
@@ -5483,6 +5483,14 @@ namespace MedRecPro.Models
                 get => _productName;
                 set => _productName = value?.RemoveHtmlXss();
             }
+
+            /// <summary>
+            /// This is for adding links in a pending state (e.g., Facility Reg received before CLN assigned). 
+            /// True if link is finalized/resolved.
+            /// </summary>
+            public bool IsResolved { get; set; } = false; // Not nullable, default is false
+
+            public virtual DocumentRelationship? DocumentRelationship { get; set; } // Navigation property
             #endregion properties
         }
 

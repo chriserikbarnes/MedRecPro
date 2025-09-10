@@ -7,6 +7,9 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
+using MedRecPro.Data;
+using static MedRecPro.Models.Label;
+using Microsoft.EntityFrameworkCore;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 
@@ -161,6 +164,97 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Resolves deferred facility-product links after all products have been created.
+        /// </summary>
+        /// <param name="context">The parsing context containing database access.</param>
+        /// <returns>The number of links successfully resolved.</returns>
+        private async Task<int> resolveDeferredFacilityLinksAsync(SplParseContext context)
+        {
+            if (context != null && context?.ServiceProvider == null) return 0;
+
+            var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
+            int resolvedCount = 0;
+
+            if(dbContext == null) return 0;
+
+            // Get all unresolved facility links for this document
+            var unresolvedLinks = await dbContext.Set<FacilityProductLink>()
+                .Include(fl => fl.DocumentRelationship)
+                .Where(fl => !fl.IsResolved 
+                    && fl.DocumentRelationship != null
+                    && context != null
+                    && context.Document != null
+                    && fl.DocumentRelationship.DocumentID == context.Document.DocumentID &&
+                       !string.IsNullOrEmpty(fl.ProductName))
+                .ToListAsync();
+
+            context?.Logger?.LogInformation("Found {count} unresolved facility-product links to process", unresolvedLinks.Count);
+
+            foreach (var link in unresolvedLinks)
+            {
+                bool resolved = false;
+
+                // Try to resolve by CLN first (most common case)
+                // CLN codes follow pattern like "63020-230", "63020-390", etc.
+                var productIdentifier = await dbContext.Set<ProductIdentifier>()
+                    .OrderByDescending(pi => pi.ProductIdentifierID) // Prefer latest entry if multiple
+                    .FirstOrDefaultAsync(pi => pi.IdentifierValue == link.ProductName);
+
+                if (productIdentifier != null)
+                {
+                    // Resolve by CLN
+                    link.ProductID = productIdentifier.ProductID;
+                    link.ProductIdentifierID = productIdentifier.ProductIdentifierID;
+                    link.ProductName = link.ProductName;
+                    link.IsResolved = true;
+                    resolved = true;
+                    context?.Logger?.LogInformation("Resolved facility link via CLN: {cln} -> ProductID {productId}",
+                        productIdentifier.IdentifierValue, productIdentifier.ProductID);
+                }
+                else
+                {
+                    // Try to resolve by product name
+                    var product = await dbContext.Set<Product>()
+                        .FirstOrDefaultAsync(p => p.ProductName == link.ProductName);
+
+                    if (product != null)
+                    {
+                        link.ProductID = product.ProductID;
+                        link.IsResolved = true;
+                        resolved = true;
+                        context?.Logger?.LogInformation("Resolved facility link via name: '{name}' -> ProductID {productId}",
+                            link.ProductName, product.ProductID);
+                        link.ProductName = null; // Clear since we now have ProductID
+                    }
+                }
+
+                if (resolved)
+                {
+                    resolvedCount++;
+                }
+                else
+                {
+                    context?.Logger?.LogWarning("Could not resolve facility link for: '{reference}' - product may not exist in this document",
+                        link.ProductName);
+                }
+            }
+
+            // Save changes if any links were resolved
+            if (resolvedCount > 0)
+            {
+                await dbContext.SaveChangesAsync();
+                context?.Logger?.LogInformation("Successfully resolved {count} facility-product links", resolvedCount);
+            }
+            else if (unresolvedLinks.Any())
+            {
+                context?.Logger?.LogWarning("No facility-product links could be resolved. Products may be in different documents or have different identifiers.");
+            }
+
+            return resolvedCount;
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Parses SPL XML content by orchestrating specialized parsers and saves all extracted entities to the database.
         /// </summary>
         /// <param name="xmlContent">Raw XML content string to parse</param>
@@ -282,7 +376,10 @@ namespace MedRecPro.Service
                     context.UpdateFileResult(sbParseResult);
                 }
 
-                // You can add calls to other top-level element parsers here as needed.
+                // Add calls to other top-level element parsers here as needed.
+                reportProgress?.Invoke("Resolving facility-product links...");
+                var resolvedCount = await resolveDeferredFacilityLinksAsync(context);
+                fileResult.Message += $" Resolved {resolvedCount} facility links.";
 
                 // Determine final success status based on error accumulation
                 fileResult.Success = fileResult.Errors.Count == 0;

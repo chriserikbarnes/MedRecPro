@@ -31,7 +31,7 @@ namespace MedRecPro.Helpers
             }
 
             // SecurityElement.Escape handles XML-invalid characters like '&', '<', '>'
-            return new HtmlString($" {name}=\"{SecurityElement.Escape(value.ToString())}\"");
+            return new HtmlString($"{name}=\"{SecurityElement.Escape(value.ToString())}\"");
         }
 
         /**************************************************************/
@@ -52,7 +52,7 @@ namespace MedRecPro.Helpers
             var value = SafeGet(dictionary, key);
             if (value != null && !string.IsNullOrWhiteSpace(value.ToString()))
             {
-                return new HtmlString($" {name}=\"{SecurityElement.Escape(value.ToString())}\"");
+                return new HtmlString($"{name}=\"{SecurityElement.Escape(value.ToString())}\"");
             }
 
             return HtmlString.Empty;
@@ -75,7 +75,7 @@ namespace MedRecPro.Helpers
             var value = GetNestedPropertyValue(sourceObject, propertyPath);
             if (value != null && !string.IsNullOrWhiteSpace(value.ToString()))
             {
-                return new HtmlString($" {name}=\"{SecurityElement.Escape(value.ToString())}\"");
+                return new HtmlString($"{name}=\"{SecurityElement.Escape(value.ToString())}\"");
             }
 
             return HtmlString.Empty;
@@ -97,7 +97,7 @@ namespace MedRecPro.Helpers
 
             if (!string.IsNullOrEmpty(dateString))
             {
-                return new HtmlString($" {name}=\"{SecurityElement.Escape(dateString)}\"");
+                return new HtmlString($"{name}=\"{SecurityElement.Escape(dateString)}\"");
             }
 
             return HtmlString.Empty;
@@ -280,7 +280,7 @@ namespace MedRecPro.Helpers
             if (string.IsNullOrWhiteSpace(value))
                 return "";
 
-            return $" {name}=\"{SecurityElement.Escape(value)}\"";
+            return $"{name}=\"{SecurityElement.Escape(value)}\"";
         }
 
         /**************************************************************/

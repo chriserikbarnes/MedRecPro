@@ -133,7 +133,15 @@ namespace MedRecPro.Service.ParsingServices
             var dbSet = dbContext.Set<ObservationMedia>();
 
             // Find all <component><observationMedia> children within the section
-            var mediaElements = sectionEl.SplElements(sc.E.Component, sc.E.ObservationMedia);
+            var mediaElements = sectionEl.SplElements(sc.E.Component, sc.E.ObservationMedia).ToList();
+
+            // This handles cases where the section itself is wrapped in a component
+            var parentEl = sectionEl.Parent;
+            if (parentEl != null)
+            {
+                var siblingMediaElements = parentEl.Parent?.SplElements(sc.E.Component, sc.E.ObservationMedia) ?? Enumerable.Empty<XElement>();
+                mediaElements.AddRange(siblingMediaElements.Where(media => !mediaElements.Contains(media)));
+            }
 
             foreach (var mediaEl in mediaElements)
             {

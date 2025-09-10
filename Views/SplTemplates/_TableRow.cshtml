@@ -12,23 +12,11 @@
             var cellType = cell.CellType ?? "td";
             if (cellType.Equals("th", StringComparison.OrdinalIgnoreCase))
             {
-                <th align="@cell.Align"
-                    valign="@cell.VAlign"
-                    colspan="@cell.ColSpan"
-                    rowspan="@cell.RowSpan"
-                    style-code="@cell.StyleCode">
-                    @Raw(cell.CellText ?? "")
-                </th>
+                <th align="@cell.Align" valign="@cell.VAlign" colspan="@cell.ColSpan" rowspan="@cell.RowSpan" style-code="@cell.StyleCode">@Raw(cell.CellText ?? "")</th>
             }
             else
             {
-                <td align="@cell.Align"
-                    valign="@cell.VAlign"
-                    colspan="@cell.ColSpan"
-                    rowspan="@cell.RowSpan"
-                    style-code="@cell.StyleCode">
-                    @Raw(cell.CellText ?? "")
-                </td>
+                <td align="@cell.Align" valign="@cell.VAlign" colspan="@cell.ColSpan" rowspan="@cell.RowSpan" style-code="@cell.StyleCode"> @Raw(cell.CellText ?? "")</td>
             }
         }
     </tr>
