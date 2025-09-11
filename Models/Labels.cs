@@ -149,7 +149,9 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores information about organizations (e.g., labelers, registrants, establishments). Identifiers (DUNS, FEI, Labeler Code etc) stored in OrganizationIdentifier table. Based on Section 2.1.4, 2.1.5.
+        /// Stores information about organizations (e.g., labelers, registrants, establishments). 
+        /// Identifiers (DUNS, FEI, Labeler Code etc) stored in OrganizationIdentifier table. 
+        /// Based on Section 2.1.4, 2.1.5.
         /// </summary>
         public class Organization
         {
@@ -5449,7 +5451,8 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links a Facility (in Registration or Listing docs) to a Cosmetic Product ([performance][actDefinition][product]). Link via ProductID, ProductIdentifierID (CLN), or ProductName. Based on Section 35.2.2, 36.1.6.
+        /// Links a Facility (in Registration or Listing docs) to a Cosmetic Product ([performance][actDefinition][product]). 
+        /// Link via ProductID, ProductIdentifierID (CLN), or ProductName. Based on Section 35.2.2, 36.1.6.
         /// </summary>
         public class FacilityProductLink
         {

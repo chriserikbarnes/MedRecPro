@@ -21,17 +21,23 @@ namespace MedRecPro.Service.ParsingServices
     /// <summary>
     /// Parses the author element, finds or creates the representedOrganization,
     /// and links it to the document. Normalizes organization data to prevent duplicates.
+    /// Enhanced to capture business operations during author parsing to ensure complete
+    /// organizational hierarchy with associated business operations.
     /// </summary>
     /// <remarks>
     /// This parser specifically handles the author section of SPL documents, extracting
     /// organization information from the representedOrganization element and creating
     /// appropriate database entities and relationships. It implements deduplication
-    /// logic to prevent duplicate organizations in the database.
+    /// logic to prevent duplicate organizations in the database. Enhanced to integrate
+    /// business operation parsing to address order-of-operations issues where business
+    /// operations were missed during author processing.
     /// </remarks>
     /// <seealso cref="ISplSectionParser"/>
     /// <seealso cref="SplParseContext"/>
     /// <seealso cref="Organization"/>
     /// <seealso cref="DocumentAuthor"/>
+    /// <seealso cref="BusinessOperation"/>
+    /// <seealso cref="Label"/>
     public class AuthorSectionParser : ISplSectionParser
     {
         #region implementation
@@ -46,12 +52,35 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <seealso cref="MedRecPro.Models.Constant"/>
         private static readonly XNamespace ns = c.XML_NAMESPACE;
+
+        /// <summary>
+        /// Reference to the Business Operation Parser for delegating business operation processing.
+        /// </summary>
+        /// <seealso cref="BusinessOperationParser"/>
+        private readonly BusinessOperationParser _businessOperationParser;
         #endregion
 
         /**************************************************************/
         /// <summary>
+        /// Initializes a new instance of the AuthorSectionParser with business operation parsing capability.
+        /// </summary>
+        /// <remarks>
+        /// Creates the parser with an integrated BusinessOperationParser to handle business operations
+        /// during author processing, ensuring operations are captured regardless of parser execution order.
+        /// </remarks>
+        /// <seealso cref="BusinessOperationParser"/>
+        public AuthorSectionParser()
+        {
+            #region implementation
+            _businessOperationParser = new BusinessOperationParser();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Parses the author section of an SPL document, extracting organization information
-        /// and creating necessary database entities and relationships.
+        /// and creating necessary database entities and relationships. Enhanced to capture
+        /// business operations during author processing.
         /// </summary>
         /// <param name="element">The XElement representing the author section to parse.</param>
         /// <param name="context">The current parsing context containing document and service information.</param>
@@ -64,6 +93,7 @@ namespace MedRecPro.Service.ParsingServices
         /// if (result.Success)
         /// {
         ///     Console.WriteLine($"Organizations created: {result.OrganizationsCreated}");
+        ///     Console.WriteLine($"Business operations captured: {result.ProductElementsCreated}");
         /// }
         /// </code>
         /// </example>
@@ -73,10 +103,12 @@ namespace MedRecPro.Service.ParsingServices
         /// 2. Extracts the representedOrganization element from the author structure
         /// 3. Gets or creates the organization entity in the database
         /// 4. Creates a DocumentAuthor link between the document and organization
+        /// 5. Processes organizational hierarchy and captures associated business operations
         /// </remarks>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement element,
             SplParseContext context, Action<string>? reportProgress)
         {
@@ -163,10 +195,11 @@ namespace MedRecPro.Service.ParsingServices
                     reportProgress?.Invoke($"Completed Author XML Elements {context.FileNameInZip}");
                 }
 
-                // --- PARSE DOCUMENT RELATIONSHIP ---
-                var relationshipsCount = await parseOrganizationalHierarchyAsync(
+                // --- PARSE DOCUMENT RELATIONSHIP WITH BUSINESS OPERATIONS ---
+                var relationshipsCount = await parseOrganizationalHierarchyWithBusinessOperationsAsync(
                      element, context, docID, orgID);
-                result.OrganizationsCreated += relationshipsCount;
+                result.OrganizationsCreated += relationshipsCount.OrganizationsCreated;
+                result.ProductElementsCreated += relationshipsCount.BusinessOperationsCreated;
 
                 // --- PARSE CONTACT PARTIES ---
                 var (partiesCreated, telecomsCreated) = await parseAndSaveContactPartiesAsync(element, context, orgID);
@@ -286,8 +319,12 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Infers a friendly identifier type from its OID root.
         /// </summary>
+        /// <param name="oid">The OID root to analyze.</param>
+        /// <returns>A friendly identifier type string.</returns>
+        /// <seealso cref="Label"/>
         private static string inferIdentifierTypeFromOid(string? oid)
         {
+            #region implementation
             return oid switch
             {
                 "1.3.6.1.4.1.519.1" => "DUNS",
@@ -295,6 +332,7 @@ namespace MedRecPro.Service.ParsingServices
                 "2.16.840.1.113883.6.69" => "NDC Labeler Code",
                 _ => "Other"
             };
+            #endregion
         }
 
         /**************************************************************/
@@ -304,6 +342,9 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="orgElement">The XElement representing the organization (e.g., representedOrganization).</param>
         /// <param name="context">The current parsing context.</param>
         /// <returns>A tuple containing the Organization entity and a boolean indicating if it was newly created.</returns>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
         public static async Task<(Organization? Organization, bool Created)> GetOrCreateOrganizationByNameAsync(XElement orgElement, SplParseContext context)
         {
             #region implementation
@@ -335,38 +376,50 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Dynamically parses organizational hierarchies of 1-4 levels.
-        /// Detects the structure and processes relationships accordingly.
+        /// Enhanced organizational hierarchy parsing that captures business operations
+        /// during author processing to address order-of-operations issues.
         /// </summary>
         /// <param name="authorEl">The author XML element containing organization hierarchy information.</param>
         /// <param name="context">The parsing context providing database access and logging services.</param>
         /// <param name="documentId">The document ID to associate relationships with.</param>
         /// <param name="labelerId">The labeler organization ID as the root of the hierarchy.</param>
-        /// <returns>The count of DocumentRelationship records created.</returns>
-        private async Task<int> parseOrganizationalHierarchyAsync(
+        /// <returns>A tuple containing counts of organizations and business operations created.</returns>
+        /// <remarks>
+        /// This enhanced method processes the organizational hierarchy while simultaneously
+        /// capturing business operations from performance elements. This ensures business
+        /// operations are available during author processing, solving the issue where
+        /// business operations were missed due to parser execution order.
+        /// </remarks>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Label"/>
+        private async Task<(int OrganizationsCreated, int BusinessOperationsCreated)> parseOrganizationalHierarchyWithBusinessOperationsAsync(
             XElement authorEl, SplParseContext context, int documentId, int labelerId)
         {
-            int count = 0;
+            #region implementation
+            int orgCount = 0;
+            int bizOpCount = 0;
 
             if (context?.ServiceProvider == null || context.Logger == null)
-                return count;
+                return (orgCount, bizOpCount);
 
             var labelerEntityEl = authorEl.GetSplElement(sc.E.AssignedEntity);
-            if (labelerEntityEl == null) return count;
+            if (labelerEntityEl == null) return (orgCount, bizOpCount);
 
             var representedOrgEl = labelerEntityEl.GetSplElement(sc.E.RepresentedOrganization);
-            if (representedOrgEl == null) return count;
+            if (representedOrgEl == null) return (orgCount, bizOpCount);
 
             // Start recursive parsing from the represented organization
-            count = await parseHierarchyLevelAsync(
+            var result = await parseHierarchyLevelWithBusinessOperationsAsync(
                 representedOrgEl, context, documentId, labelerId, "Labeler", 1);
 
-            return count;
+            return (result.OrganizationsCreated, result.BusinessOperationsCreated);
+            #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Recursively parses a single level of the organizational hierarchy.
+        /// Recursively parses a single level of the organizational hierarchy while capturing business operations.
         /// </summary>
         /// <param name="currentEl">Current element to examine for child organizations.</param>
         /// <param name="context">Parsing context.</param>
@@ -374,12 +427,17 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="parentOrgId">Parent organization ID.</param>
         /// <param name="relationshipPrefix">Prefix for relationship type (e.g., "Labeler", "Registrant").</param>
         /// <param name="currentLevel">Current hierarchy level (1-4).</param>
-        /// <returns>Count of relationships and entities created.</returns>
-        private async Task<int> parseHierarchyLevelAsync(
+        /// <returns>A tuple containing counts of organizations and business operations created.</returns>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Label"/>
+        private async Task<(int OrganizationsCreated, int BusinessOperationsCreated)> parseHierarchyLevelWithBusinessOperationsAsync(
             XElement currentEl, SplParseContext context, int documentId,
             int parentOrgId, string relationshipPrefix, int currentLevel)
         {
-            int count = 0;
+            #region implementation
+            int orgCount = 0;
+            int bizOpCount = 0;
 
             // Check for direct assignedEntity children (facilities/establishments)
             var childEntities = currentEl.SplElements(sc.E.AssignedEntity).ToList();
@@ -388,9 +446,12 @@ namespace MedRecPro.Service.ParsingServices
             {
                 foreach (var childEntityEl in childEntities)
                 {
-                    count += await processChildEntityAsync(
+                    var result = await processChildEntityWithBusinessOperationsAsync(
                         childEntityEl, context, documentId, parentOrgId,
                         relationshipPrefix, currentLevel);
+
+                    orgCount += result.OrganizationsCreated;
+                    bizOpCount += result.BusinessOperationsCreated;
                 }
             }
             else
@@ -399,20 +460,33 @@ namespace MedRecPro.Service.ParsingServices
                 context?.Logger?.LogInformation($"Terminal level reached at level {currentLevel} for organization {parentOrgId}");
             }
 
-            return count;
+            return (orgCount, bizOpCount);
+            #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Processes a single child entity, determining if it contains further hierarchy.
+        /// Processes a single child entity while capturing associated business operations.
         /// </summary>
-        private async Task<int> processChildEntityAsync(
+        /// <param name="entityEl">The entity element to process.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <param name="documentId">The document ID.</param>
+        /// <param name="parentOrgId">The parent organization ID.</param>
+        /// <param name="relationshipPrefix">The relationship prefix.</param>
+        /// <param name="currentLevel">The current hierarchy level.</param>
+        /// <returns>A tuple containing counts of organizations and business operations created.</returns>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Label"/>
+        private async Task<(int OrganizationsCreated, int BusinessOperationsCreated)> processChildEntityWithBusinessOperationsAsync(
             XElement entityEl, SplParseContext context, int documentId,
             int parentOrgId, string relationshipPrefix, int currentLevel)
         {
-            int count = 0;
+            #region implementation
+            int orgCount = 0;
+            int bizOpCount = 0;
 
-          if(entityEl == null || context?.ServiceProvider == null) return count;
+            if (entityEl == null || context?.ServiceProvider == null) return (orgCount, bizOpCount);
 
             // Try to get organization from this entity
             var (childOrg, childOrgEl) = await getOrgFromEntityAsync(entityEl, context);
@@ -424,11 +498,12 @@ namespace MedRecPro.Service.ParsingServices
                 if (assignedOrgEl != null)
                 {
                     // This is an intermediate level - recurse deeper
-                    count += await parseHierarchyLevelAsync(
+                    var result = await parseHierarchyLevelWithBusinessOperationsAsync(
                         assignedOrgEl, context, documentId, parentOrgId,
                         relationshipPrefix, currentLevel + 1);
+                    return (result.OrganizationsCreated, result.BusinessOperationsCreated);
                 }
-                return count;
+                return (orgCount, bizOpCount);
             }
 
             // We have a valid organization - create relationship
@@ -438,41 +513,268 @@ namespace MedRecPro.Service.ParsingServices
                 documentId, parentOrgId, childOrg.OrganizationID,
                 relationshipType, currentLevel);
 
-            count++;
+            orgCount++;
 
             // Process organization attributes
             if (childOrgEl != null)
                 await processOrganizationAttributesAsync(childOrgEl, childOrg.OrganizationID.Value, context);
 
-                // Process performance elements (facility-product links)
-                if (entityEl.SplElements(sc.E.Performance).Any())
+            // --- ENHANCED: PROCESS BUSINESS OPERATIONS FROM PERFORMANCE ELEMENTS ---
+            if (entityEl.SplElements(sc.E.Performance).Any())
+            {
+                // Set document relationship context for business operation processing
+                var oldDocRel = context.CurrentDocumentRelationship;
+                context.CurrentDocumentRelationship = relationship;
+
+                try
                 {
-                    int linksCreated = await parseAndSaveFacilityProductLinksAsync(
+                    // Process both facility-product links and business operations
+                    var facilityLinksCreated = await parseAndSaveFacilityProductLinksAsync(
                         entityEl, relationship.DocumentRelationshipID, context);
-                    count += linksCreated;
+
+                    // Process business operations using the BusinessOperationParser methods
+                    var businessOpsCreated = await parseBusinessOperationsFromPerformanceElementsAsync(
+                        entityEl, context, relationship.DocumentRelationshipID);
+
+                    bizOpCount += businessOpsCreated;
+
+                    context.Logger?.LogInformation(
+                        "Processed performance elements for organization {OrgId}: {FacilityLinks} facility links, {BusinessOps} business operations",
+                        childOrg.OrganizationID, facilityLinksCreated, businessOpsCreated);
                 }
-
-                // Check for further hierarchy levels
-                var assignedOrgElement = entityEl.GetSplElement(sc.E.AssignedOrganization);
-                if (assignedOrgElement != null)
+                finally
                 {
-                    // This organization has children - recurse deeper
-                    count += await parseHierarchyLevelAsync(
-                        assignedOrgElement, context, documentId, childOrg.OrganizationID.Value,
-                        getNextRelationshipPrefix(relationshipPrefix, currentLevel), currentLevel + 1);
-                } 
-        
+                    // Restore previous document relationship context
+                    context.CurrentDocumentRelationship = oldDocRel;
+                }
+            }
 
-            return count;
+            // Check for further hierarchy levels
+            var assignedOrgElement = entityEl.GetSplElement(sc.E.AssignedOrganization);
+            if (assignedOrgElement != null)
+            {
+                // This organization has children - recurse deeper
+                var result = await parseHierarchyLevelWithBusinessOperationsAsync(
+                    assignedOrgElement, context, documentId, childOrg.OrganizationID.Value,
+                    getNextRelationshipPrefix(relationshipPrefix, currentLevel), currentLevel + 1);
+
+                orgCount += result.OrganizationsCreated;
+                bizOpCount += result.BusinessOperationsCreated;
+            }
+
+            return (orgCount, bizOpCount);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses business operations from performance elements within the author context.
+        /// Leverages BusinessOperationParser methods to maintain DRY principles.
+        /// </summary>
+        /// <param name="parentEl">The parent element containing performance elements.</param>
+        /// <param name="context">The parsing context with document relationship set.</param>
+        /// <param name="documentRelationshipId">The document relationship ID for linking operations.</param>
+        /// <returns>The count of business operations created.</returns>
+        /// <remarks>
+        /// This method addresses the core issue by extracting business operations during
+        /// author processing using the same logic as BusinessOperationParser. This ensures
+        /// business operations are captured regardless of parser execution order.
+        /// </remarks>
+        /// <seealso cref="BusinessOperationParser"/>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseBusinessOperationsFromPerformanceElementsAsync(
+            XElement parentEl, SplParseContext context, int? documentRelationshipId)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            if (context?.ServiceProvider == null || context.Logger == null || !documentRelationshipId.HasValue)
+                return createdCount;
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Process each performance element
+            foreach (var perfEl in parentEl.SplElements(sc.E.Performance))
+            {
+                foreach (var actDefEl in perfEl.SplElements(sc.E.ActDefinition))
+                {
+                    // Extract business operation details from the actDefinition
+                    var bizOp = await parseAndSaveBusinessOperationAsync(
+                        dbContext, documentRelationshipId, actDefEl, context);
+
+                    if (bizOp?.BusinessOperationID != null)
+                    {
+                        createdCount++;
+
+                        context.Logger?.LogInformation(
+                            "Created/found BusinessOperation {OperationCode} ({DisplayName}) for DocumentRelationship {DocRelId}",
+                            bizOp.OperationCode, bizOp.OperationDisplayName, documentRelationshipId);
+
+                        // Process any business operation qualifiers (approvals, licenses, etc.)
+                        await processBusinessOperationQualifiersAsync(actDefEl, bizOp, dbContext, context);
+                    }
+                }
+            }
+
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves a business operation from an act definition element.
+        /// Uses similar logic to BusinessOperationParser to maintain consistency.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="documentRelationshipId">The document relationship ID to associate with the operation.</param>
+        /// <param name="actDefEl">The act definition XML element to parse.</param>
+        /// <param name="context">The parsing context for logging.</param>
+        /// <returns>The existing or newly created BusinessOperation entity.</returns>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Label"/>
+        private async Task<BusinessOperation?> parseAndSaveBusinessOperationAsync(
+            ApplicationDbContext dbContext, int? documentRelationshipId, XElement actDefEl, SplParseContext context)
+        {
+            #region implementation
+            // Extract business operation code details
+            var opCodeEl = actDefEl.GetSplElement(sc.E.Code);
+            string? opCode = opCodeEl?.GetAttrVal(sc.A.CodeValue);
+            string? opCodeSystem = opCodeEl?.GetAttrVal(sc.A.CodeSystem);
+            string? opDisplayName = opCodeEl?.GetAttrVal(sc.A.DisplayName);
+
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(opCode) || string.IsNullOrWhiteSpace(opCodeSystem))
+            {
+                context.Logger?.LogWarning("Business operation missing required code or code system, skipping.");
+                return null;
+            }
+
+            // Check for existing business operation
+            var existing = await dbContext.Set<BusinessOperation>().FirstOrDefaultAsync(op =>
+                op.DocumentRelationshipID == documentRelationshipId &&
+                op.OperationCode == opCode &&
+                op.OperationCodeSystem == opCodeSystem);
+
+            if (existing != null)
+                return existing;
+
+            // Create new business operation
+            var newOp = new BusinessOperation
+            {
+                DocumentRelationshipID = documentRelationshipId,
+                OperationCode = opCode,
+                OperationCodeSystem = opCodeSystem,
+                OperationDisplayName = opDisplayName
+            };
+
+            dbContext.Set<BusinessOperation>().Add(newOp);
+            await dbContext.SaveChangesAsync();
+
+            return newOp;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes business operation qualifiers (approvals, licenses) from an act definition element.
+        /// </summary>
+        /// <param name="actDefEl">The act definition element containing qualifiers.</param>
+        /// <param name="businessOperation">The business operation to associate qualifiers with.</param>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="context">The parsing context for logging.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <seealso cref="BusinessOperationQualifier"/>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Label"/>
+        private async Task processBusinessOperationQualifiersAsync(
+            XElement actDefEl, BusinessOperation businessOperation,
+            ApplicationDbContext dbContext, SplParseContext context)
+        {
+            #region implementation
+            // Process approval elements that contain qualifiers
+            foreach (var approvalEl in actDefEl.SplElements(sc.E.SubjectOf, sc.E.Approval))
+            {
+                var qualifierCodeEl = approvalEl.GetSplElement(sc.E.Code);
+                if (qualifierCodeEl == null) continue;
+
+                string? qualifierCode = qualifierCodeEl.GetAttrVal(sc.A.CodeValue);
+                string? qualifierCodeSystem = qualifierCodeEl.GetAttrVal(sc.A.CodeSystem);
+                string? qualifierDisplayName = qualifierCodeEl.GetAttrVal(sc.A.DisplayName);
+
+                if (string.IsNullOrWhiteSpace(qualifierCode) || businessOperation.BusinessOperationID == null)
+                    continue;
+
+                // Create or find business operation qualifier
+                await getOrSaveBusinessOperationQualifierAsync(
+                    dbContext, businessOperation.BusinessOperationID,
+                    qualifierCode, qualifierCodeSystem, qualifierDisplayName);
+
+                context.Logger?.LogInformation(
+                    "Processed qualifier {QualifierCode} ({DisplayName}) for BusinessOperation {BusinessOpId}",
+                    qualifierCode, qualifierDisplayName, businessOperation.BusinessOperationID);
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets an existing BusinessOperationQualifier or creates and saves it if not found.
+        /// </summary>
+        /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="businessOperationId">The business operation ID to associate with the qualifier.</param>
+        /// <param name="qualifierCode">The code identifying the business operation qualifier.</param>
+        /// <param name="qualifierCodeSystem">The code system for the qualifier code.</param>
+        /// <param name="qualifierDisplayName">The display name for the qualifier.</param>
+        /// <returns>The existing or newly created BusinessOperationQualifier entity.</returns>
+        /// <seealso cref="BusinessOperationQualifier"/>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Label"/>
+        private async Task<BusinessOperationQualifier> getOrSaveBusinessOperationQualifierAsync(
+            ApplicationDbContext dbContext,
+            int? businessOperationId,
+            string? qualifierCode,
+            string? qualifierCodeSystem,
+            string? qualifierDisplayName)
+        {
+            #region implementation
+            var existing = await dbContext.Set<BusinessOperationQualifier>().FirstOrDefaultAsync(q =>
+                q.BusinessOperationID == businessOperationId &&
+                q.QualifierCode == qualifierCode &&
+                q.QualifierCodeSystem == qualifierCodeSystem);
+
+            if (existing != null)
+                return existing;
+
+            var newQualifier = new BusinessOperationQualifier
+            {
+                BusinessOperationID = businessOperationId,
+                QualifierCode = qualifierCode,
+                QualifierCodeSystem = qualifierCodeSystem,
+                QualifierDisplayName = qualifierDisplayName
+            };
+
+            dbContext.Set<BusinessOperationQualifier>().Add(newQualifier);
+            await dbContext.SaveChangesAsync();
+            return newQualifier;
+            #endregion
         }
 
         /**************************************************************/
         /// <summary>
         /// Processes organization attributes like identifiers, telecoms, etc.
         /// </summary>
+        /// <param name="orgEl">The organization element to process.</param>
+        /// <param name="organizationId">The organization ID.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="Label"/>
         private async Task processOrganizationAttributesAsync(
             XElement orgEl, int organizationId, SplParseContext context)
         {
+            #region implementation
             if (orgEl == null) return;
 
             // Process identifiers
@@ -490,14 +792,20 @@ namespace MedRecPro.Service.ParsingServices
             context.Logger?.LogInformation(
                 "Processed organization {OrgId}: {IdentifierCount} identifiers, {TelecomCount} telecoms, {EntityCount} named entities",
                 organizationId, identifiers?.Count ?? 0, telecoms, namedEntities?.Count ?? 0);
+            #endregion
         }
 
         /**************************************************************/
         /// <summary>
         /// Determines the relationship type based on the current context and level.
         /// </summary>
+        /// <param name="prefix">The relationship prefix.</param>
+        /// <param name="level">The hierarchy level.</param>
+        /// <returns>The relationship type string.</returns>
+        /// <seealso cref="Label"/>
         private string determineRelationshipType(string prefix, int level)
         {
+            #region implementation
             return level switch
             {
                 1 => $"{prefix}ToRegistrant",
@@ -506,14 +814,20 @@ namespace MedRecPro.Service.ParsingServices
                 4 => "FacilityToSubFacility",
                 _ => $"Level{level}Relationship"
             };
+            #endregion
         }
 
         /**************************************************************/
         /// <summary>
         /// Gets the next relationship prefix for deeper hierarchy levels.
         /// </summary>
+        /// <param name="currentPrefix">The current relationship prefix.</param>
+        /// <param name="level">The current level.</param>
+        /// <returns>The next relationship prefix.</returns>
+        /// <seealso cref="Label"/>
         private string getNextRelationshipPrefix(string currentPrefix, int level)
         {
+            #region implementation
             return level switch
             {
                 1 => "Registrant",
@@ -521,6 +835,7 @@ namespace MedRecPro.Service.ParsingServices
                 3 => "Facility",
                 _ => $"Level{level + 1}"
             };
+            #endregion
         }
 
         /**************************************************************/
@@ -568,10 +883,9 @@ namespace MedRecPro.Service.ParsingServices
                 var entityTypeCodeSystem = codeEl?.Attribute(sc.A.CodeSystem)?.Value?.Trim();
                 var entityTypeDisplayName = codeEl?.Attribute(sc.A.DisplayName)?.Value?.Trim();
 
-                // Validation: Must be code="C117113" and codeSystem="2.16.840.1.113883.3.26.1.1" for DBA
-                // Only process legitimate DBA (Doing Business As) entries per specification
-                if (entityTypeCode != "C117113" || entityTypeCodeSystem != "2.16.840.1.113883.3.26.1.1")
-                    continue; // Only capture true DBA names
+                // Validate that the code system is from the expected healthcare coding system
+                if (entityTypeCodeSystem != "2.16.840.1.113883.3.26.1.1")
+                    continue; // Only process entities from the standard healthcare code system
 
                 // <name> is required for DBA
                 // Extract the entity name which is mandatory for DBA entries
@@ -768,7 +1082,7 @@ namespace MedRecPro.Service.ParsingServices
                     continue;
 
                 // Determine telecom type: "tel", "mailto", "fax"
-                string telecomType = null;
+                string? telecomType = null;
                 if (value.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)) telecomType = "tel";
                 else if (value.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) telecomType = "mailto";
                 else if (value.StartsWith("fax:", StringComparison.OrdinalIgnoreCase)) telecomType = "fax";
@@ -963,11 +1277,14 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="context">Parsing context (repos, logger, etc).</param>
         /// <param name="organizationId">Owning OrganizationID (required).</param>
         /// <returns>Count of new ContactParty entities created.</returns>
+        /// <seealso cref="ContactParty"/>
+        /// <seealso cref="Label"/>
         private static async Task<(int createdct, int telecomCt)> parseAndSaveContactPartiesAsync(
             XElement element,
             SplParseContext context,
             int organizationId)
         {
+            #region implementation
             int createdCt = 0;
             int telecomCt = 0;
 
@@ -1002,11 +1319,8 @@ namespace MedRecPro.Service.ParsingServices
                 }
             }
             return (createdCt, telecomCt);
+            #endregion
         }
-
-       
-
-    
 
         /**************************************************************/
         /// <summary>
@@ -1056,6 +1370,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="resolveProductFromLinkElementAsync"/>
         /// <seealso cref="getOrSaveFacilityProductLinkAsync"/>
+        /// <seealso cref="Label"/>
         private async Task<int> parseAndSaveFacilityProductLinksAsync(
             XElement parentEl,
             int? documentRelationshipId,
@@ -1073,8 +1388,11 @@ namespace MedRecPro.Service.ParsingServices
             // Get database context for entity operations
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-            // Find all <performance><actDefinition> elements that define product links
-            foreach (var actDefEl in parentEl.SplElements(sc.E.Performance, sc.E.ActDefinition))
+            // Get the elements defining product links i.e. <performance><actDefinition> elements
+            var productLinkEls = parentEl.SplElements(sc.E.Performance, sc.E.ActDefinition);
+
+            // Operate on all <performance><actDefinition> elements that define product links
+            foreach (var actDefEl in productLinkEls)
             {
                 // Each actDefinition should reference one product
                 var productEl = actDefEl.GetSplElement(sc.E.Product);
@@ -1130,6 +1448,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="XElement"/>
         /// <seealso cref="ILogger"/>
+        /// <seealso cref="Label"/>
         private async Task<(int? ProductId, int? ProductIdentifierId, string? ProductName)> resolveProductFromLinkElementAsync(
             XElement productEl,
             ApplicationDbContext dbContext,
@@ -1148,7 +1467,7 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // Find the ProductIdentifier record for this CLN using the standard CLN OID
                 var productIdentifier = await dbContext.Set<ProductIdentifier>()
-                    .FirstOrDefaultAsync(pi => pi.IdentifierValue == clnValue && pi.IdentifierSystemOID == "2.16.840.1.113883.3.9848");
+                    .FirstOrDefaultAsync(pi => pi.IdentifierValue == clnValue);
 
                 if (productIdentifier != null)
                 {
@@ -1212,6 +1531,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Product"/>
         /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="Label"/>
         private async Task<FacilityProductLink> getOrSaveFacilityProductLinkAsync(
             ApplicationDbContext dbContext,
             int? documentRelationshipId,
@@ -1576,6 +1896,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Organization"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="XElementExtensions.GetSplElementVal(XElement, string)"/>
+        /// <seealso cref="Label"/>
         private static async Task<(Organization? Organization, bool Created)> getOrCreateOrganizationAsync(XElement orgElement, SplParseContext context)
         {
             #region implementation
@@ -1654,6 +1975,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </remarks>
         /// <seealso cref="DocumentAuthor"/>
         /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
         private static async Task<(DocumentAuthor? DocumentAuthor, bool Created)> getOrCreateDocumentAuthorAsync(int docId, int orgId, string authorType, SplParseContext context)
         {
             #region implementation
