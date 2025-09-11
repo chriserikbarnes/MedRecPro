@@ -14,6 +14,7 @@ using MedRecPro.Models;
 using System.Security.Cryptography;
 using AngleSharp.Svg.Dom;
 using System.Collections.Generic;
+using static MedRecPro.Models.Constant;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -179,25 +180,28 @@ namespace MedRecPro.Service.ParsingServices
                         organization.OrganizationName, organization.OrganizationID);
                 }
 
+                // --- DETERMINE AUTHOR TYPE FROM BUSINESS OPERATIONS ---
+                var authorType = determineDocumentAuthorType(element, context!);
+
                 // --- PARSE AUTHOR ---
                 var (docAuthor, docAuthorCreated) = await getOrCreateDocumentAuthorAsync(
                     context!.Document.DocumentID.Value,
                     orgID,
-                    "Labeler",
+                    authorType,
                     context);
 
                 // Log the document author link creation if it was newly created
                 if (docAuthorCreated)
                 {
-                    context.Logger.LogInformation("Created DocumentAuthor link for DocumentID {DocumentID} and OrganizationID {OrganizationID}",
-                       docID, orgID);
+                    context.Logger.LogInformation("Created DocumentAuthor link for DocumentID {DocumentID} and OrganizationID {OrganizationID} as {AuthorType}",
+                       docID, orgID, authorType);
 
                     reportProgress?.Invoke($"Completed Author XML Elements {context.FileNameInZip}");
                 }
 
                 // --- PARSE DOCUMENT RELATIONSHIP WITH BUSINESS OPERATIONS ---
                 var relationshipsCount = await parseOrganizationalHierarchyWithBusinessOperationsAsync(
-                     element, context, docID, orgID);
+                     element, context, docID, orgID, authorType);
                 result.OrganizationsCreated += relationshipsCount.OrganizationsCreated;
                 result.ProductElementsCreated += relationshipsCount.BusinessOperationsCreated;
 
@@ -317,21 +321,248 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Infers a friendly identifier type from its OID root.
+        /// Maps FDA business operation codes to corresponding author types based on SPL Implementation Guide v1.
         /// </summary>
-        /// <param name="oid">The OID root to analyze.</param>
-        /// <returns>A friendly identifier type string.</returns>
+        /// <param name="operationCode">The business operation code from FDA's standardized list (e.g., "C43360", "C82401").</param>
+        /// <returns>The corresponding author type string, or null if the operation code is not recognized.</returns>
+        /// <remarks>
+        /// This method maps FDA business operation codes to logical author types based on the nature of the operation.
+        /// Manufacturing operations map to "Manufacturer", packaging operations to "Packager", etc.
+        /// All codes are validated against the SPL Implementation Guide with Validation Procedures v1, Section 4.1.4.8.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// string? authorType = mapOperationCodeToAuthorType("C43360"); // Returns "Manufacturer"
+        /// string? authorType2 = mapOperationCodeToAuthorType("C84731"); // Returns "Packager"
+        /// string? authorType3 = mapOperationCodeToAuthorType("INVALID"); // Returns null
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label"/>
+        private string? mapOperationCodeToAuthorType(string operationCode)
+        {
+            #region implementation
+            // Validate input parameter
+            if (string.IsNullOrWhiteSpace(operationCode))
+                return null;
+
+            // Map FDA business operation codes to author types based on SPL Implementation Guide
+            return operationCode switch
+            {
+                // Manufacturing operations - entities that produce or manufacture products
+                "C43360" => "Manufacturer",        // MANUFACTURE
+                "C82401" => "Manufacturer",        // API MANUFACTURE  
+                "C91403" => "Manufacturer",        // POSITRON EMISSION TOMOGRAPHY DRUG PRODUCTION
+                "C101510" => "Manufacturer",       // FDF MANUFACTURE
+
+                // Packaging operations - entities that package or repackage products
+                "C84731" => "Packager",           // PACK
+                "C73606" => "Packager",           // REPACK
+
+                // Labeling operations - entities that label or relabel products
+                "C84732" => "Labeler",            // LABEL
+                "C73607" => "Labeler",            // RELABEL
+
+                // Analysis and testing operations - entities that perform analytical testing
+                "C101509" => "Analyzer",          // API/FDF ANALYTICAL TESTING
+                "C101511" => "Analyzer",          // CLINICAL BIOEQUIVALENCE OR BIOAVAILABILITY STUDY
+                "C101512" => "Analyzer",          // IN VITRO BIOEQUIVALENCE OR BIOANALYTICAL TESTING
+
+                // Distribution operations - entities that distribute products
+                "C73608" => "Distributor",        // DISTRIBUTES DRUG PRODUCTS UNDER OWN PRIVATE LABEL
+                "C118411" => "Distributor",       // WHOLESALE DRUG DISTRIBUTOR
+                "C118412" => "Distributor",       // THIRD-PARTY LOGISTICS PROVIDER
+
+                // Import operations - entities that import products
+                "C73599" => "Importer",           // IMPORT
+
+                // Agent operations - entities acting as agents
+                "C73330" => "Agent",              // UNITED STATES AGENT
+
+                // Compounding operations - entities that compound drugs
+                "C112113" => "Compounder",        // HUMAN DRUG COMPOUNDING OUTSOURCING FACILITY
+                "C122061" => "Compounder",        // OUTSOURCING ANIMAL DRUG COMPOUNDING
+
+                // Salvage operations - entities that salvage products
+                "C70827" => "Salvager",           // SALVAGE
+
+                // Unknown or unsupported operation codes
+                _ => null
+            };
+            #endregion
+        }
+
+        /**************************************************************/
+
+        /// <summary>
+        /// Infers a friendly identifier type from its OID root based on FDA and industry standards.
+        /// </summary>
+        /// <param name="oid">The OID root string to analyze for identifier type determination.</param>
+        /// <returns>A friendly identifier type string corresponding to the OID, or "Other" if not recognized.</returns>
+        /// <remarks>
+        /// Maps standard OID roots to their corresponding identifier types used in pharmaceutical 
+        /// and healthcare industries. Includes FDA-specific identifiers (DUNS, FEI, NDC) and 
+        /// industry standards (GS1, HIBCC, ISBT 128). Based on SPL Implementation Guide and 
+        /// regulatory identifier specifications.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// string type1 = inferIdentifierTypeFromOid("1.3.6.1.4.1.519.1"); // Returns "DUNS"
+        /// string type2 = inferIdentifierTypeFromOid("2.16.840.1.113883.6.69"); // Returns "NDC/NHRIC"
+        /// string type3 = inferIdentifierTypeFromOid("1.3.160"); // Returns "GS1"
+        /// string type4 = inferIdentifierTypeFromOid("unknown.oid"); // Returns "Other"
+        /// </code>
+        /// </example>
         /// <seealso cref="Label"/>
         private static string inferIdentifierTypeFromOid(string? oid)
         {
             #region implementation
+            // Handle null or empty OID inputs
+            if (string.IsNullOrWhiteSpace(oid))
+                return "Other";
+
+            // Map OID roots to friendly identifier types based on industry and regulatory standards
             return oid switch
             {
-                "1.3.6.1.4.1.519.1" => "DUNS",
-                "2.16.840.1.113883.4.82" => "FEI",
-                "2.16.840.1.113883.6.69" => "NDC Labeler Code",
+                // FDA and regulatory identifiers
+                "1.3.6.1.4.1.519.1" => "DUNS",                    // Data Universal Numbering System
+                "2.16.840.1.113883.4.82" => "FEI",                // FDA Facility Establishment Identifier
+                "2.16.840.1.113883.6.69" => "NDC/NHRIC",          // National Drug Code / National Health Related Item Code
+                "2.16.840.1.113883.3.9848" => "Cosmetic Product Listing Number", // FDA Cosmetic Product Listing Number
+
+                // Industry standard identifiers  
+                "1.3.160" => "GS1",                               // GS1 Global Trade Item Number
+                "2.16.840.1.113883.6.40" => "HIBCC",              // Health Industry Business Communications Council
+                "2.16.840.1.113883.6.18" => "ISBT 128",           // International Society of Blood Transfusion 128
+
+                // Unknown or unsupported OID roots
                 _ => "Other"
             };
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines the document author type based on business operations found in performance elements.
+        /// Maps business operation codes to appropriate author types with intelligent fallback logic.
+        /// </summary>
+        /// <param name="authorElement">The author XML element containing performance/business operation data.</param>
+        /// <param name="context">The parsing context for logging and database access.</param>
+        /// <returns>The determined author type (e.g., "Manufacturer", "Packager", "Labeler", etc.).</returns>
+        /// <remarks>
+        /// This method analyzes business operation codes to determine the organization's primary role:
+        /// - Manufacturing operations (C43360, C82401, etc.) → "Manufacturer"
+        /// - Packaging operations (C84731, C73606) → "Packager" 
+        /// - Labeling operations (C84732, C73607) → "Labeler"
+        /// - Analysis/Testing operations → "Analyzer"
+        /// - Multiple operations → Combined type (e.g., "Manufacturer/Packager")
+        /// - No operations found → "Labeler" (default for author section)
+        /// </remarks>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Label"/>
+        private string determineDocumentAuthorType(XElement authorElement, SplParseContext context)
+        {
+            #region implementation
+            var operationTypes = new HashSet<string>();
+
+            try
+            {
+                // Find all business operations in performance elements
+                var assignedEntityEl = authorElement.GetSplElement(sc.E.AssignedEntity);
+                if (assignedEntityEl != null)
+                {
+                    foreach (var performanceEl in assignedEntityEl.SplElements(sc.E.Performance))
+                    {
+                        foreach (var actDefEl in performanceEl.SplElements(sc.E.ActDefinition))
+                        {
+                            var codeEl = actDefEl.GetSplElement(sc.E.Code);
+                            var operationCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+
+                            if (!string.IsNullOrWhiteSpace(operationCode))
+                            {
+                                var authorType = mapOperationCodeToAuthorType(operationCode);
+                                if (!string.IsNullOrWhiteSpace(authorType))
+                                {
+                                    operationTypes.Add(authorType);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If no operations found, default to "Labeler" for author section
+                if (!operationTypes.Any())
+                {
+                    context?.Logger?.LogInformation("No business operations found in author section, defaulting to 'Labeler'");
+                    return "Labeler";
+                }
+
+                // If multiple operation types found, combine them in priority order
+                if (operationTypes.Count > 1)
+                {
+                    var priorityOrder = new[] { "Manufacturer", "Packager", "Labeler", "Analyzer", "Distributor", "Importer" };
+                    var sortedTypes = operationTypes
+                        .OrderBy(type => Array.IndexOf(priorityOrder, type) == -1 ? int.MaxValue : Array.IndexOf(priorityOrder, type))
+                        .ToList();
+
+                    var combinedType = string.Join("/", sortedTypes);
+                    context?.Logger?.LogInformation("Multiple business operations found, combined author type: {AuthorType}", combinedType);
+                    return combinedType;
+                }
+
+                // Single operation type found
+                var singleType = operationTypes.First();
+                context?.Logger?.LogInformation("Single business operation found, author type: {AuthorType}", singleType);
+                return singleType;
+            }
+            catch (Exception ex)
+            {
+                context?.Logger?.LogWarning(ex, "Error determining author type from business operations, defaulting to 'Labeler'");
+                return "Labeler";
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Enhanced organizational hierarchy parsing that captures business operations
+        /// during author processing to address order-of-operations issues.
+        /// </summary>
+        /// <param name="authorEl">The author XML element containing organization hierarchy information.</param>
+        /// <param name="context">The parsing context providing database access and logging services.</param>
+        /// <param name="documentId">The document ID to associate relationships with.</param>
+        /// <param name="labelerId">The labeler organization ID as the root of the hierarchy.</param>
+        /// <param name="authorType">The determined author type for this organization.</param>
+        /// <returns>A tuple containing counts of organizations and business operations created.</returns>
+        /// <remarks>
+        /// This enhanced method processes the organizational hierarchy while simultaneously
+        /// capturing business operations from performance elements. This ensures business
+        /// operations are available during author processing, solving the issue where
+        /// business operations were missed due to parser execution order.
+        /// </remarks>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="Label"/>
+        private async Task<(int OrganizationsCreated, int BusinessOperationsCreated)> parseOrganizationalHierarchyWithBusinessOperationsAsync(
+            XElement authorEl, SplParseContext context, int documentId, int labelerId, string authorType)
+        {
+            #region implementation
+            int orgCount = 0;
+            int bizOpCount = 0;
+
+            if (context?.ServiceProvider == null || context.Logger == null)
+                return (orgCount, bizOpCount);
+
+            var labelerEntityEl = authorEl.GetSplElement(sc.E.AssignedEntity);
+            if (labelerEntityEl == null) return (orgCount, bizOpCount);
+
+            var representedOrgEl = labelerEntityEl.GetSplElement(sc.E.RepresentedOrganization);
+            if (representedOrgEl == null) return (orgCount, bizOpCount);
+
+            // Start recursive parsing from the represented organization
+            var result = await parseHierarchyLevelWithBusinessOperationsAsync(
+                representedOrgEl, context, documentId, labelerId, authorType, 1);
+
+            return (result.OrganizationsCreated, result.BusinessOperationsCreated);
             #endregion
         }
 
@@ -371,49 +602,6 @@ namespace MedRecPro.Service.ParsingServices
             };
             await orgRepo.CreateAsync(newOrganization);
             return (newOrganization, true);
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Enhanced organizational hierarchy parsing that captures business operations
-        /// during author processing to address order-of-operations issues.
-        /// </summary>
-        /// <param name="authorEl">The author XML element containing organization hierarchy information.</param>
-        /// <param name="context">The parsing context providing database access and logging services.</param>
-        /// <param name="documentId">The document ID to associate relationships with.</param>
-        /// <param name="labelerId">The labeler organization ID as the root of the hierarchy.</param>
-        /// <returns>A tuple containing counts of organizations and business operations created.</returns>
-        /// <remarks>
-        /// This enhanced method processes the organizational hierarchy while simultaneously
-        /// capturing business operations from performance elements. This ensures business
-        /// operations are available during author processing, solving the issue where
-        /// business operations were missed due to parser execution order.
-        /// </remarks>
-        /// <seealso cref="DocumentRelationship"/>
-        /// <seealso cref="BusinessOperation"/>
-        /// <seealso cref="Label"/>
-        private async Task<(int OrganizationsCreated, int BusinessOperationsCreated)> parseOrganizationalHierarchyWithBusinessOperationsAsync(
-            XElement authorEl, SplParseContext context, int documentId, int labelerId)
-        {
-            #region implementation
-            int orgCount = 0;
-            int bizOpCount = 0;
-
-            if (context?.ServiceProvider == null || context.Logger == null)
-                return (orgCount, bizOpCount);
-
-            var labelerEntityEl = authorEl.GetSplElement(sc.E.AssignedEntity);
-            if (labelerEntityEl == null) return (orgCount, bizOpCount);
-
-            var representedOrgEl = labelerEntityEl.GetSplElement(sc.E.RepresentedOrganization);
-            if (representedOrgEl == null) return (orgCount, bizOpCount);
-
-            // Start recursive parsing from the represented organization
-            var result = await parseHierarchyLevelWithBusinessOperationsAsync(
-                representedOrgEl, context, documentId, labelerId, "Labeler", 1);
-
-            return (result.OrganizationsCreated, result.BusinessOperationsCreated);
             #endregion
         }
 
@@ -532,9 +720,9 @@ namespace MedRecPro.Service.ParsingServices
                     var facilityLinksCreated = await parseAndSaveFacilityProductLinksAsync(
                         entityEl, relationship.DocumentRelationshipID, context);
 
-                    // Process business operations using the BusinessOperationParser methods
+                    // NEW: Process business operations using the BusinessOperationParser methods
                     var businessOpsCreated = await parseBusinessOperationsFromPerformanceElementsAsync(
-                        entityEl, context, relationship.DocumentRelationshipID);
+                        entityEl, context, relationship.DocumentRelationshipID, childOrg.OrganizationID.Value);
 
                     bizOpCount += businessOpsCreated;
 
@@ -574,6 +762,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="parentEl">The parent element containing performance elements.</param>
         /// <param name="context">The parsing context with document relationship set.</param>
         /// <param name="documentRelationshipId">The document relationship ID for linking operations.</param>
+        /// <param name="performingOrganizationId">The organization performing the action</param>
         /// <returns>The count of business operations created.</returns>
         /// <remarks>
         /// This method addresses the core issue by extracting business operations during
@@ -585,7 +774,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="DocumentRelationship"/>
         /// <seealso cref="Label"/>
         private async Task<int> parseBusinessOperationsFromPerformanceElementsAsync(
-            XElement parentEl, SplParseContext context, int? documentRelationshipId)
+            XElement parentEl, SplParseContext context, int? documentRelationshipId, int? performingOrganizationId)
         {
             #region implementation
             int createdCount = 0;
@@ -596,25 +785,22 @@ namespace MedRecPro.Service.ParsingServices
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
             // Process each performance element
-            foreach (var perfEl in parentEl.SplElements(sc.E.Performance))
+            foreach (var actDefEl in parentEl.SplElements(sc.E.Performance, sc.E.ActDefinition))
             {
-                foreach (var actDefEl in perfEl.SplElements(sc.E.ActDefinition))
+                // Extract business operation details from the actDefinition
+                var bizOp = await parseAndSaveBusinessOperationAsync(
+                    dbContext, documentRelationshipId, performingOrganizationId, actDefEl, context);
+
+                if (bizOp?.BusinessOperationID != null)
                 {
-                    // Extract business operation details from the actDefinition
-                    var bizOp = await parseAndSaveBusinessOperationAsync(
-                        dbContext, documentRelationshipId, actDefEl, context);
+                    createdCount++;
 
-                    if (bizOp?.BusinessOperationID != null)
-                    {
-                        createdCount++;
+                    context.Logger?.LogInformation(
+                        "Created/found BusinessOperation {OperationCode} ({DisplayName}) for DocumentRelationship {DocRelId}",
+                        bizOp.OperationCode, bizOp.OperationDisplayName, documentRelationshipId);
 
-                        context.Logger?.LogInformation(
-                            "Created/found BusinessOperation {OperationCode} ({DisplayName}) for DocumentRelationship {DocRelId}",
-                            bizOp.OperationCode, bizOp.OperationDisplayName, documentRelationshipId);
-
-                        // Process any business operation qualifiers (approvals, licenses, etc.)
-                        await processBusinessOperationQualifiersAsync(actDefEl, bizOp, dbContext, context);
-                    }
+                    // Process any business operation qualifiers (approvals, licenses, etc.)
+                    await processBusinessOperationQualifiersAsync(actDefEl, bizOp, dbContext, context);
                 }
             }
 
@@ -629,13 +815,14 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="dbContext">The database context for entity operations.</param>
         /// <param name="documentRelationshipId">The document relationship ID to associate with the operation.</param>
+        /// <param name="performingOrganizationId">The organization performing the action</param>
         /// <param name="actDefEl">The act definition XML element to parse.</param>
         /// <param name="context">The parsing context for logging.</param>
         /// <returns>The existing or newly created BusinessOperation entity.</returns>
         /// <seealso cref="BusinessOperation"/>
         /// <seealso cref="Label"/>
         private async Task<BusinessOperation?> parseAndSaveBusinessOperationAsync(
-            ApplicationDbContext dbContext, int? documentRelationshipId, XElement actDefEl, SplParseContext context)
+            ApplicationDbContext dbContext, int? documentRelationshipId, int? performingOrganizationId, XElement actDefEl, SplParseContext context)
         {
             #region implementation
             // Extract business operation code details
@@ -654,6 +841,7 @@ namespace MedRecPro.Service.ParsingServices
             // Check for existing business operation
             var existing = await dbContext.Set<BusinessOperation>().FirstOrDefaultAsync(op =>
                 op.DocumentRelationshipID == documentRelationshipId &&
+                op.PerformingOrganizationID == performingOrganizationId &&
                 op.OperationCode == opCode &&
                 op.OperationCodeSystem == opCodeSystem);
 
@@ -664,6 +852,7 @@ namespace MedRecPro.Service.ParsingServices
             var newOp = new BusinessOperation
             {
                 DocumentRelationshipID = documentRelationshipId,
+                PerformingOrganizationID = performingOrganizationId,
                 OperationCode = opCode,
                 OperationCodeSystem = opCodeSystem,
                 OperationDisplayName = opDisplayName
@@ -883,6 +1072,11 @@ namespace MedRecPro.Service.ParsingServices
                 var entityTypeCodeSystem = codeEl?.Attribute(sc.A.CodeSystem)?.Value?.Trim();
                 var entityTypeDisplayName = codeEl?.Attribute(sc.A.DisplayName)?.Value?.Trim();
 
+                // Validation: Ensure we have valid entity type code and code system
+                // Process all valid named entity types, not just DBA
+                if (string.IsNullOrWhiteSpace(entityTypeCode) || string.IsNullOrWhiteSpace(entityTypeCodeSystem))
+                    continue; // Skip entries without proper coding
+
                 // Validate that the code system is from the expected healthcare coding system
                 if (entityTypeCodeSystem != "2.16.840.1.113883.3.26.1.1")
                     continue; // Only process entities from the standard healthcare code system
@@ -1082,7 +1276,7 @@ namespace MedRecPro.Service.ParsingServices
                     continue;
 
                 // Determine telecom type: "tel", "mailto", "fax"
-                string? telecomType = null;
+                string telecomType = null;
                 if (value.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)) telecomType = "tel";
                 else if (value.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) telecomType = "mailto";
                 else if (value.StartsWith("fax:", StringComparison.OrdinalIgnoreCase)) telecomType = "fax";
@@ -1811,12 +2005,6 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="relationshipType">The type of relationship between the organizations.</param>
         /// <param name="relationshipLevel">The hierarchical level of the relationship.</param>
         /// <returns>The existing or newly created DocumentRelationship entity.</returns>
-        /// <remarks>
-        /// Implements a get-or-create pattern with fallback search logic. First attempts to find
-        /// an exact match on all parameters, then falls back to matching by document and parent
-        /// organization if no exact match is found. This supports scenarios where relationship
-        /// details may vary while maintaining organizational hierarchy integrity.
-        /// </remarks>
         /// <exception cref="ArgumentNullException">Thrown when required parameters are null.</exception>
         /// <seealso cref="DocumentRelationship"/>
         /// <seealso cref="ApplicationDbContext"/>
@@ -1841,17 +2029,9 @@ namespace MedRecPro.Service.ParsingServices
                 dr.ChildOrganizationID == childOrgId &&
                 dr.RelationshipType == relationshipType);
 
-            // Fallback: search by document and parent organization only
-            if (existing == null)
-            {
-                existing = await dbContext.Set<DocumentRelationship>().FirstOrDefaultAsync(dr =>
-                    dr.DocumentID == docId &&
-                    dr.ParentOrganizationID == parentOrgId);
-            }
-
-            // Return existing relationship if found
-            if (existing != null)
-                return existing;
+            // Fallback: was deleted b/c of multiple child orgs
+            // that can appear in the author section and need
+            // to be captured as separate relationships
 
             // Create new relationship entity with provided parameters
             var newRel = new DocumentRelationship

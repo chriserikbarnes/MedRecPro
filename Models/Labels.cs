@@ -517,7 +517,8 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Defines hierarchical relationships between organizations within a document header (e.g., Labeler -] Registrant -] Establishment).
+        /// Defines hierarchical relationships between organizations within a 
+        /// document header (e.g., Labeler - Registrant - Establishment).
         /// </summary>
         public class DocumentRelationship
         {
@@ -544,7 +545,11 @@ namespace MedRecPro.Models
 
             private string? _relationshipType;
             /// <summary>
-            /// Describes the specific relationship, e.g., LabelerToRegistrant (4.1.3 [cite: 788]), RegistrantToEstablishment (4.1.4 [cite: 791]), EstablishmentToUSagent (6.1.4 [cite: 914]), EstablishmentToImporter (6.1.5 [cite: 918]), LabelerToDetails (5.1.3 [cite: 863]), FacilityToParentCompany (35.1.6 [cite: 1695]), LabelerToParentCompany (36.1.2.5 [cite: 1719]), DocumentToBulkLotManufacturer (16.1.3).
+            /// Describes the specific relationship, e.g., LabelerToRegistrant (4.1.3 [cite: 788]), 
+            /// RegistrantToEstablishment (4.1.4 [cite: 791]), EstablishmentToUSagent (6.1.4 [cite: 914]), 
+            /// EstablishmentToImporter (6.1.5 [cite: 918]), LabelerToDetails (5.1.3 [cite: 863]), 
+            /// FacilityToParentCompany (35.1.6 [cite: 1695]), LabelerToParentCompany (36.1.2.5 [cite: 1719]), 
+            /// DocumentToBulkLotManufacturer (16.1.3).
             /// </summary>
             public string? RelationshipType
             {
@@ -2687,7 +2692,8 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores business operation details for an establishment or labeler ([performance][actDefinition]). Based on Section 4.1.4, 5.1.5, 6.1.6.
+        /// Stores business operation details for an establishment or labeler ([performance][actDefinition]). 
+        /// Based on Section 4.1.4, 5.1.5, 6.1.6.
         /// </summary>
         public class BusinessOperation
         {
@@ -2701,6 +2707,11 @@ namespace MedRecPro.Models
             /// Foreign key to DocumentRelationship (linking to the Org performing the operation).
             /// </summary>
             public int? DocumentRelationshipID { get; set; } // Made nullable
+
+            /// <summary>
+            /// Organization performing the operation ([performance][actDefinition][code code="code"]).
+            /// </summary>
+            public int? PerformingOrganizationID { get; set; } // Already nullable
 
             private string? _operationCode;
             /// <summary>
@@ -2731,12 +2742,18 @@ namespace MedRecPro.Models
                 get => _operationDisplayName;
                 set => _operationDisplayName = value?.RemoveHtmlXss();
             }
+
+            /// <summary>
+            /// Navigation property to the performing organization.
+            /// </summary>
+            public virtual Organization? PerformingOrganization { get; set; }
             #endregion properties
         }
 
         /*******************************************************************************/
         /// <summary>
-        /// Stores qualifier details for a specific Business Operation ([actDefinition][subjectOf][approval][code]). Based on Section 5.1.5, 6.1.7.
+        /// Stores qualifier details for a specific Business Operation ([actDefinition][subjectOf][approval][code]). 
+        /// Based on Section 5.1.5, 6.1.7.
         /// </summary>
         public class BusinessOperationQualifier
         {
@@ -2785,7 +2802,8 @@ namespace MedRecPro.Models
 
         /*******************************************************************************/
         /// <summary>
-        /// Links a Business Operation performed by an establishment to a specific product ([actDefinition][product]). Based on Section 4.1.5.
+        /// Links a Business Operation performed by an establishment to a specific product 
+        /// ([actDefinition][product]). Based on Section 4.1.5.
         /// </summary>
         public class BusinessOperationProductLink
         {

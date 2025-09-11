@@ -467,6 +467,15 @@ namespace MedRecPro.Models
                 : null;
 
         /// <summary>
+        /// Organization performing the operation ([performance][actDefinition][code code="code"]).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? PerformingOrganizationID =>
+            BusinessOperation.TryGetValue("EncryptedPerformingOrganizationID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+
+        /// <summary>
         /// Code identifying the business operation.
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
