@@ -1,5 +1,5 @@
 ﻿using MedRecPro.Models;
-
+using Microsoft.EntityFrameworkCore;
 namespace MedRecPro.Service
 {
     /**************************************************************/
@@ -354,7 +354,7 @@ namespace MedRecPro.Service
             var productLinks = allFacilityProductLinks
                 .Where(fpl => fpl.DocumentRelationshipID == relationshipId)
                 .ToList();
-
+ 
             _logger.LogDebug("Found {ProductLinkCount} product links for relationship {RelationshipId}",
                 productLinks.Count, relationshipId);
 

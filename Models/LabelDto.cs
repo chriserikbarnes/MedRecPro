@@ -1602,6 +1602,8 @@ namespace MedRecPro.Models
     {
         public required Dictionary<string, object?> FacilityProductLink { get; set; }
 
+        public ProductIdentifierDto? ProductIdentifier { get; set; }
+
         /// <summary>
         /// Primary key for the FacilityProductLink table.
         /// </summary>
@@ -1646,6 +1648,8 @@ namespace MedRecPro.Models
             FacilityProductLink.TryGetValue(nameof(ProductName), out var value)
                 ? value as string
                 : null;
+
+       
     }
 
     /**************************************************************/

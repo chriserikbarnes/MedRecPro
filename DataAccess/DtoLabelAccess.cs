@@ -5271,19 +5271,79 @@ namespace MedRecPro.DataAccess
             #region implementation
             if (docRelId == null) return new List<FacilityProductLinkDto>();
 
+            List<FacilityProductLinkDto> retSet = new List<FacilityProductLinkDto>();
+
             // Query facility product links for the specified document relationship
             var items = await db.Set<Label.FacilityProductLink>()
                 .AsNoTracking()
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();
 
-            if (items == null || !items.Any())
+            if (!items.Any())
                 return new List<FacilityProductLinkDto>();
 
-            // Transform entities to DTOs with encrypted IDs
-            return items
-                .Select(item => new FacilityProductLinkDto { FacilityProductLink = item.ToEntityWithEncryptedId(pkSecret, logger) })
+            // Use HashSet for O(1) lookup performance instead of O(n) with List.Contains
+            var productNamesSet = items.Select(x => x.ProductName).ToHashSet();
+
+            // Get distinct ProductIDs to avoid duplicate calls
+            var distinctProductIds = items
+                .Where(i => i != null && i.ProductID != null)
+                .Select(i => i.ProductID)
+                .Distinct()
                 .ToList();
+
+            // prod identifiers batch fetch
+            var allProductIdentifiers = await buildProductIdentifiersBatchAsync(db, distinctProductIds, pkSecret, logger);
+
+            // Filter product identifiers efficiently using HashSet
+            var filteredProductIdentifiers = allProductIdentifiers
+                .Where(pi => pi?.IdentifierValue != null 
+                    && productNamesSet.Contains(pi.IdentifierValue))
+                .ToList();
+
+            // Map each FacilityProductLink to its corresponding ProductIdentifier
+            foreach (var item in items)
+            {
+                // Get the matching ProductIdentifier for this FacilityProductLink
+                var prodIdentifier = filteredProductIdentifiers.FirstOrDefault(pi => pi?.IdentifierValue == item.ProductName);
+
+                // Create and add the DTO to the result set
+                retSet.Add(new FacilityProductLinkDto
+                {
+                    FacilityProductLink = item.ToEntityWithEncryptedId(pkSecret, logger),
+                    ProductIdentifier = prodIdentifier
+                });
+
+            }
+
+            // return processed facility product links with associated product identifiers
+            return retSet;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Helper method to batch fetch ProductIdentifier entities for multiple ProductIDs.
+        /// </summary>
+        /// <param name="db"></param>
+        /// <param name="productIds"></param>
+        /// <param name="pkSecret"></param>
+        /// <param name="logger"></param>
+        /// <returns></returns>
+        private static async Task<List<ProductIdentifierDto>> buildProductIdentifiersBatchAsync(
+            DbContext db,
+            List<int?> productIds,
+            string pkSecret,
+            ILogger logger)
+        {
+
+            #region implementation
+            // Single query to get all product identifiers for multiple ProductIDs
+            return await db.Set<ProductIdentifier>()
+                 .AsNoTracking()
+                 .Where(pi => pi != null && pi.ProductID != null && productIds.Contains(pi.ProductID))
+                 .Select(pi => new ProductIdentifierDto { ProductIdentifier = pi.ToEntityWithEncryptedId(pkSecret, logger) })
+                 .ToListAsync();
             #endregion
         }
         #endregion

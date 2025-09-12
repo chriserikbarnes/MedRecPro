@@ -82,7 +82,7 @@
                                                             <product>
                                                                 <manufacturedProduct classCode="MANU">
                                                                     <manufacturedMaterialKind>
-                                                                        <code @SplTemplateHelpers.Attribute("code", productLink.ProductName) codeSystem="2.16.840.1.113883.6.69" />
+                                                                        <code @SplTemplateHelpers.Attribute("code", productLink.ProductName) @SplTemplateHelpers.Attribute("codeSystem", productLink?.ProductIdentifier?.IdentifierSystemOID ?? "2.16.840.1.113883.6.69") />
                                                                     </manufacturedMaterialKind>
                                                                 </manufacturedProduct>
                                                             </product>
@@ -92,7 +92,7 @@
                                                             <product>
                                                                 <manufacturedProduct classCode="MANU">
                                                                     <manufacturedMaterialKind>
-                                                                        <code @SplTemplateHelpers.Attribute("code", productLink.ProductIdentifierID.Value.ToString()) codeSystem="2.16.840.1.113883.6.69" />
+                                                                        <code @SplTemplateHelpers.Attribute("code", productLink.ProductIdentifierID.Value.ToString()) @SplTemplateHelpers.Attribute("codeSystem", productLink?.ProductIdentifier?.IdentifierSystemOID ?? "2.16.840.1.113883.6.69") />
                                                                     </manufacturedMaterialKind>
                                                                 </manufacturedProduct>
                                                             </product>
