@@ -140,6 +140,8 @@ namespace MedRecPro.Service
                 PrimaryAuthorOrgName = getPrimaryAuthorOrganizationName(documentDto),
                 OrderedAuthors = GetOrderedAuthors(documentDto),
                 HasAuthors = documentDto.DocumentAuthors?.Any() == true,
+                HasRenderedAuthors = documentDto.RenderedAuthors?.Any() == true,
+                RenderedAuthors = documentDto.RenderedAuthors,
 
                 // Pre-compute version handling
                 VersionNumber = documentDto.VersionNumber ?? DEFAULT_VERSION_NUMBER,

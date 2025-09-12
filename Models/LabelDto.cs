@@ -1,5 +1,6 @@
 ﻿
 using MedRecPro.Helpers;
+using MedRecPro.Service;
 
 namespace MedRecPro.Models
 {
@@ -1370,6 +1371,15 @@ namespace MedRecPro.Models
             Document.TryGetValue(nameof(SubmissionFileName), out var value)
                 ? value as string
                 : null;
+
+        /// <summary>
+        /// Author renderings with pre-computed hierarchical structures and business operations
+        /// for optimized SPL template processing. Populated during export processing.
+        /// </summary>
+        /// <seealso cref="AuthorRendering"/>
+        /// <seealso cref="IAuthorRenderingService"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public List<AuthorRendering>? RenderedAuthors { get; set; }
     }
 
     /**************************************************************/
@@ -1377,7 +1387,6 @@ namespace MedRecPro.Models
     public class DocumentRelationshipDto
     {
         public required Dictionary<string, object?> DocumentRelationship { get; set; }
-        public DocumentDto? Document { get; set; }
         public OrganizationDto? ParentOrganization { get; set; }
         public OrganizationDto? ChildOrganization { get; set; }
         public List<BusinessOperationDto> BusinessOperations { get; set; } = new();

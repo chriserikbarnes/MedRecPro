@@ -1,0 +1,113 @@
+﻿@using MedRecPro.Models;
+@using MedRecPro.Helpers;
+@inherits RazorLight.TemplatePage<MedRecPro.Models.AuthorRendering>;
+@model AuthorRendering;
+
+@* Hierarchical author template with child organizations and business operations *@
+<author>
+    <time />
+    <assignedEntity>
+        <representedOrganization>
+            @* Render author organization identifiers if available *@
+            @if (Model.HasAuthorIdentifiers)
+            {
+                foreach (var identifier in Model.AuthorIdentifiers)
+                {
+                    if (!string.IsNullOrWhiteSpace(identifier.IdentifierValue) &&
+                    !string.IsNullOrWhiteSpace(identifier.IdentifierSystemOID))
+                    {
+                        <id @SplTemplateHelpers.Attribute("extension", identifier.IdentifierValue) @SplTemplateHelpers.Attribute("root", identifier.IdentifierSystemOID) />
+                    }
+                }
+            }
+
+            @* Author organization name *@
+            <name>@Model.AuthorOrganizationName</name>
+            @* Render child organizations if available *@
+            @if (Model.HasChildOrganizations)
+            {
+                <assignedEntity>
+                    <assignedOrganization>
+                        @foreach (var childOrg in Model.ChildOrganizations)
+                        {
+                            <assignedEntity>
+                                @* Render confidentiality code if organization is confidential *@
+                                @if (childOrg.IsConfidential)
+                                {
+                                    <confidentialityCode code="B" codeSystem="2.16.840.1.113883.5.25" />
+                                }
+
+                                <assignedOrganization>
+                                    @* Render child organization identifiers *@
+                                    @if (childOrg.HasOrganizationIdentifiers)
+                                    {
+                                        foreach (var identifier in childOrg.OrganizationIdentifiers)
+                                        {
+                                            if (!string.IsNullOrWhiteSpace(identifier.IdentifierValue) &&
+                                            !string.IsNullOrWhiteSpace(identifier.IdentifierSystemOID))
+                                            {
+                                                <id @SplTemplateHelpers.Attribute("extension", identifier.IdentifierValue) @SplTemplateHelpers.Attribute("root", identifier.IdentifierSystemOID) />
+                                            }
+                                        }
+                                    }
+
+                                    @* Child organization name *@
+                                    <name>@childOrg.OrganizationName</name>
+                                </assignedOrganization>
+
+                                @* Render business operations for this child organization *@
+                                @if (childOrg.HasBusinessOperations)
+                                {
+                                    foreach (var businessOp in childOrg.BusinessOperations)
+                                    {
+                                        if (businessOp.HasOperationCode 
+                                            && businessOp.HasOperationCodeSystem 
+                                            && businessOp.HasProductLinks)
+                                        {
+                                            foreach (var productLink in businessOp.ProductLinks)
+                                            {
+                                                <performance>
+                                                    <actDefinition>
+                                                        @if (businessOp.HasOperationDisplayName)
+                                                        {
+                                                            <code @SplTemplateHelpers.Attribute("code", businessOp.OperationCode) @SplTemplateHelpers.Attribute("codeSystem", businessOp.OperationCodeSystem) @SplTemplateHelpers.Attribute("displayName", businessOp.OperationDisplayName) />
+                                                        }
+                                                        else
+                                                        {
+                                                            <code @SplTemplateHelpers.Attribute("code", businessOp.OperationCode) @SplTemplateHelpers.Attribute("codeSystem", businessOp.OperationCodeSystem) />
+                                                        }
+                                                        @* Render product based on available identifier *@
+                                                        @if (!string.IsNullOrWhiteSpace(productLink.ProductName))
+                                                        {
+                                                            <product>
+                                                                <manufacturedProduct classCode="MANU">
+                                                                    <manufacturedMaterialKind>
+                                                                        <code @SplTemplateHelpers.Attribute("code", productLink.ProductName) codeSystem="2.16.840.1.113883.6.69" />
+                                                                    </manufacturedMaterialKind>
+                                                                </manufacturedProduct>
+                                                            </product>
+                                                        }
+                                                        else if (productLink.ProductIdentifierID.HasValue)
+                                                        {
+                                                            <product>
+                                                                <manufacturedProduct classCode="MANU">
+                                                                    <manufacturedMaterialKind>
+                                                                        <code @SplTemplateHelpers.Attribute("code", productLink.ProductIdentifierID.Value.ToString()) codeSystem="2.16.840.1.113883.6.69" />
+                                                                    </manufacturedMaterialKind>
+                                                                </manufacturedProduct>
+                                                            </product>
+                                                        }
+                                                    </actDefinition>
+                                                </performance>
+                                            }
+                                        }
+                                    }
+                                }
+                            </assignedEntity>
+                        }
+                    </assignedOrganization>
+                </assignedEntity>
+            }
+        </representedOrganization>
+    </assignedEntity>
+</author>

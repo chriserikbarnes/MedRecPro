@@ -332,6 +332,10 @@ namespace MedRecPro.DataAccess
             foreach (var rel in relationships)
             {
                 // Build all child collections for this relationship
+                var childOrg = await buildOrganizationAsync(db, rel.ChildOrganizationID, pkSecret, logger);
+
+                var parentOrg = await buildOrganizationAsync(db, rel.ParentOrganizationID, pkSecret, logger);
+
                 var businessOps = await buildBusinessOperationsAsync(db, rel.DocumentRelationshipID, pkSecret, logger);
 
                 var certLinks = await buildCertificationProductLinksAsync(db, rel.DocumentRelationshipID, pkSecret, logger);
@@ -347,7 +351,9 @@ namespace MedRecPro.DataAccess
                     BusinessOperations = businessOps,
                     CertificationProductLinks = certLinks,
                     ComplianceActions = complianceActions,
-                    FacilityProductLinks = facilityLinks
+                    FacilityProductLinks = facilityLinks,
+                    ChildOrganization = childOrg,
+                    ParentOrganization = parentOrg
                 });
             }
             return dtos;

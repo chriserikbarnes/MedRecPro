@@ -227,8 +227,6 @@ namespace MedRecPro.Helpers
             #endregion
         }
 
-        // ADD THESE METHODS AFTER THE EXISTING GetSplElementVal METHODS (around line 100)
-
         /**************************************************************/
         /// <summary>
         /// Gets the value of a nested child element using a 2-level path with the configured namespace.

@@ -51,6 +51,7 @@ namespace MedRecPro.Configuration
             services.AddScoped<ISectionRenderingService, SectionRenderingService>();
             services.AddScoped<IProductRenderingService, ProductRenderingService>();
             services.AddScoped<ICharacteristicRenderingService, CharacteristicRenderingService>();
+            services.AddScoped<IAuthorRenderingService, AuthorRenderingService>();
 
             // Register structured body and section services
             services.AddScoped<IStructuredBodyViewModelFactory, StructuredBodyViewModelFactory>();

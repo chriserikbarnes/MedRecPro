@@ -3,7 +3,7 @@
 @inherits RazorLight.TemplatePage<MedRecPro.Models.DocumentRendering>;
 @model DocumentRendering;
 
-@* Clean template with no business logic *@
+@* Enhanced template with hierarchical author rendering support *@
 @if (Model != null)
 {
     var documentModel = Model.DocumentDto;
@@ -33,23 +33,27 @@
     <setId @SplTemplateHelpers.Attribute("root", Model.SetIdRoot) />
     <versionNumber @SplTemplateHelpers.Attribute("value", Model.VersionNumber.ToString()) />
     
-    @* Render authors if available *@
-    @if (Model.OrderedAuthors != null)
+    @* Render authors with hierarchical structure if available *@
+    @if (Model.HasRenderedAuthors && Model.RenderedAuthors != null)
     {
+        foreach (var authorRendering in Model.RenderedAuthors)
+        {
+            if (authorRendering != null && authorRendering.HasAuthorOrganizationName)
+            {
+                await IncludeAsync("_AuthorHierarchical", authorRendering);               
+            }
+        }
+    }
+    else if (Model.OrderedAuthors != null)
+    {
+        @* Fallback to simple author rendering for backward compatibility *@
         foreach (var author in Model.OrderedAuthors)
         {
             if(author != null
             && author.Organization != null
             && !string.IsNullOrWhiteSpace(author.Organization.OrganizationName))
             {
-                <author>
-                    <time />
-                    <assignedEntity>
-                        <representedOrganization>
-                            <name>@author.Organization.OrganizationName</name>
-                        </representedOrganization>
-                    </assignedEntity>
-                </author>
+                await IncludeAsync("_Author", author);     
             }
         }
     }

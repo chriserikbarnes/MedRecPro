@@ -446,16 +446,19 @@ namespace MedRecPro.Service
 
     /**************************************************************/
     /// <summary>
-    /// Enhanced SPL export service implementation with comprehensive product rendering integration.
+    /// Enhanced SPL export service implementation with comprehensive author, product and content rendering integration.
     /// Provides complete document-to-SPL XML conversion with structured body processing,
-    /// section rendering optimization, and product rendering preparation using enhanced product collections.
+    /// section rendering optimization, product rendering preparation, and optimized author rendering using hierarchical structures.
     /// </summary>
+    /// <seealso cref="IAuthorRenderingService"/>
     /// <seealso cref="IProductRenderingService"/>
     /// <seealso cref="ISplExportService"/>
     /// <seealso cref="DocumentDto"/>
     /// <seealso cref="StructuredBodyDto"/>
     /// <seealso cref="SectionDto"/>
     /// <seealso cref="ProductDto"/>
+    /// <seealso cref="DocumentAuthorDto"/>
+    /// <seealso cref="AuthorRendering"/>
     /// <seealso cref="IDocumentDataService"/>
     /// <seealso cref="IDocumentRenderingService"/>
     /// <seealso cref="ITemplateRenderingService"/>
@@ -466,20 +469,21 @@ namespace MedRecPro.Service
     /// <remarks>
     /// This service orchestrates the complete SPL export pipeline, including:
     /// - Document data retrieval and validation
+    /// - Author rendering preparation with hierarchical organization structures
     /// - Structured body processing and view model creation
     /// - Section context enhancement with pre-computed properties
     /// - Product rendering preparation using enhanced product collections
     /// - Final SPL XML template rendering with optimized performance
     /// 
-    /// The service now uses enhanced product collections (EnhancedProducts) within section rendering
-    /// contexts to provide optimal template processing performance.
+    /// The service now includes comprehensive author rendering capabilities using enhanced author collections
+    /// within document rendering contexts to provide optimal template processing performance.
     /// </remarks>
     /// <example>
     /// <code>
     /// // Inject the service through dependency injection
     /// var splService = serviceProvider.GetRequiredService&lt;ISplExportService&gt;();
     /// 
-    /// // Export document to SPL XML
+    /// // Export document to SPL XML with enhanced author rendering
     /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
     /// var splXml = await splService.ExportDocumentToSplAsync(documentGuid);
     /// </code>
@@ -533,24 +537,37 @@ namespace MedRecPro.Service
         private readonly IProductRenderingService _productRenderingService;
 
         /// <summary>
-        /// Service for ingredient rendering preparation
+        /// Service for ingredient rendering preparation with optimization and enhanced ingredient collection creation.
         /// </summary>
+        /// <seealso cref="IIngredientRenderingService"/>
         private readonly IIngredientRenderingService _ingredientRenderingService;
 
         /// <summary>
-        /// Service for packaging spl products
+        /// Service for packaging rendering preparation with optimization and enhanced packaging collection creation.
         /// </summary>
+        /// <seealso cref="IPackageRenderingService"/>
         private readonly IPackageRenderingService _packageRenderingService;
 
         /// <summary>
-        /// Service for text content rendering preparation
+        /// Service for text content rendering preparation with optimization and enhanced text content collection creation.
         /// </summary>
+        /// <seealso cref="ITextContentRenderingService"/>
         private readonly ITextContentRenderingService _textContentRenderingService;
 
         /// <summary>
-        /// Characteristic rendering service
+        /// Service for characteristic rendering preparation with optimization and enhanced characteristic collection creation.
         /// </summary>
+        /// <seealso cref="ICharacteristicRenderingService"/>
         private readonly ICharacteristicRenderingService _characteristicRenderingService;
+
+        /// <summary>
+        /// Service for author rendering preparation with hierarchical organization structures and business operations.
+        /// Provides optimized author rendering with pre-computed properties for efficient template processing.
+        /// </summary>
+        /// <seealso cref="IAuthorRenderingService"/>
+        /// <seealso cref="AuthorRendering"/>
+        /// <seealso cref="DocumentAuthorDto"/>
+        private readonly IAuthorRenderingService _authorRenderingService;
 
         /// <summary>
         /// Logger instance for operation tracking, performance monitoring, and diagnostic information.
@@ -566,7 +583,8 @@ namespace MedRecPro.Service
         /// <summary>
         /// Initializes a new instance of the SplExportService with required service dependencies.
         /// Sets up the export service with document data access, template rendering capabilities,
-        /// product rendering services, text content rendering services, and logging for comprehensive SPL export functionality.
+        /// product rendering services, text content rendering services, author rendering services,
+        /// and logging for comprehensive SPL export functionality.
         /// </summary>
         /// <param name="documentDataService">Service for retrieving document data from the database</param>
         /// <param name="documentRenderingService">Service for rendering top level spl xml view</param>
@@ -578,6 +596,7 @@ namespace MedRecPro.Service
         /// <param name="packageRenderingService">Service for packaging</param>
         /// <param name="textContentRenderingService">Service for text content rendering preparation</param>
         /// <param name="characteristicRenderingService">Service for characteristic rendering</param>
+        /// <param name="authorRenderingService">Service for author rendering preparation with hierarchical structures</param>
         /// <param name="logger">Logger instance for operation tracking and diagnostics</param>
         /// <exception cref="ArgumentNullException">Thrown when any required service dependency is null</exception>
         /// <seealso cref="IDocumentDataService"/>
@@ -586,26 +605,31 @@ namespace MedRecPro.Service
         /// <seealso cref="IStructuredBodyViewModelFactory"/>
         /// <seealso cref="ISectionRenderingService"/>
         /// <seealso cref="IProductRenderingService"/>
+        /// <seealso cref="IIngredientRenderingService"/>
+        /// <seealso cref="IPackageRenderingService"/>
         /// <seealso cref="ITextContentRenderingService"/>
+        /// <seealso cref="ICharacteristicRenderingService"/>
+        /// <seealso cref="IAuthorRenderingService"/>
         /// <seealso cref="ILogger"/>
         /// <remarks>
         /// All service dependencies are validated for null values during construction.
         /// The constructor follows the dependency injection pattern for service resolution.
-        /// The text content rendering service is now passed to section rendering preparation for enhanced integration.
+        /// The author rendering service is now integrated for comprehensive author processing.
         /// </remarks>
         public SplExportService(
-        IDocumentDataService documentDataService,
-        IDocumentRenderingService documentRenderingService,
-        ITemplateRenderingService templateRenderingService,
-        IStructuredBodyViewModelFactory structuredBodyViewModelFactory,
-        ISectionRenderingService sectionRenderingService,
-        IProductRenderingService productRenderingService,
-        IIngredientRenderingService ingredientRenderingService,
-        IPackageRenderingService packageRenderingService,
-        ITextContentRenderingService textContentRenderingService,
-        ICharacteristicRenderingService characteristicRenderingService,
-        ILogger logger
-       )
+            IDocumentDataService documentDataService,
+            IDocumentRenderingService documentRenderingService,
+            ITemplateRenderingService templateRenderingService,
+            IStructuredBodyViewModelFactory structuredBodyViewModelFactory,
+            ISectionRenderingService sectionRenderingService,
+            IProductRenderingService productRenderingService,
+            IIngredientRenderingService ingredientRenderingService,
+            IPackageRenderingService packageRenderingService,
+            ITextContentRenderingService textContentRenderingService,
+            ICharacteristicRenderingService characteristicRenderingService,
+            IAuthorRenderingService authorRenderingService,
+            ILogger logger
+        )
         {
             #region implementation
             _documentDataService = documentDataService ?? throw new ArgumentNullException(nameof(documentDataService));
@@ -618,6 +642,7 @@ namespace MedRecPro.Service
             _packageRenderingService = packageRenderingService ?? throw new ArgumentNullException(nameof(packageRenderingService));
             _textContentRenderingService = textContentRenderingService ?? throw new ArgumentNullException(nameof(textContentRenderingService));
             _characteristicRenderingService = characteristicRenderingService ?? throw new ArgumentNullException(nameof(characteristicRenderingService));
+            _authorRenderingService = authorRenderingService ?? throw new ArgumentNullException(nameof(authorRenderingService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             #endregion
         }
@@ -628,29 +653,33 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Enhanced ExportDocumentToSplAsync method with comprehensive product rendering preparation.
+        /// Enhanced ExportDocumentToSplAsync method with comprehensive author, product, and content rendering preparation.
         /// Orchestrates the complete document export pipeline from data retrieval through SPL XML generation,
-        /// including structured body processing, section enhancement, and optimized product rendering collections.
+        /// including author rendering, structured body processing, section enhancement, and optimized content rendering collections.
         /// </summary>
         /// <param name="documentGuid">Unique identifier for the document to export to SPL format</param>
         /// <returns>Complete SPL XML content as a string ready for output or further processing</returns>
         /// <exception cref="InvalidOperationException">Thrown when the document is not found or inaccessible</exception>
         /// <exception cref="ArgumentException">Thrown when documentGuid is empty or invalid</exception>
         /// <seealso cref="DocumentDto"/>
+        /// <seealso cref="AuthorRendering"/>
+        /// <seealso cref="IAuthorRenderingService.PrepareAuthorsForRendering"/>
         /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
         /// <seealso cref="IDocumentDataService.GetDocumentAsync"/>
         /// <seealso cref="IDocumentRenderingService.PrepareForRendering"/>
         /// <seealso cref="ITemplateRenderingService.RenderAsync"/>
         /// <seealso cref="processStructuredBodyForRenderingAsync"/>
+        /// <seealso cref="processAuthorsForRendering"/>
         /// <remarks>
         /// The export process follows these key steps:
         /// 1. Document data retrieval with validation
-        /// 2. Document rendering context preparation
-        /// 3. Structured body processing with enhanced product collections
-        /// 4. SPL template rendering with optimized context
+        /// 2. Author rendering context preparation with hierarchical structures
+        /// 3. Document rendering context preparation
+        /// 4. Structured body processing with enhanced collections
+        /// 5. SPL template rendering with optimized context
         /// 
         /// All operations are logged for audit trails and performance monitoring.
-        /// Enhanced product collections provide improved template processing performance.
+        /// Enhanced collections provide improved template processing performance.
         /// </remarks>
         /// <example>
         /// <code>
@@ -677,24 +706,27 @@ namespace MedRecPro.Service
                     throw new InvalidOperationException($"Document with GUID {documentGuid} not found");
                 }
 
-                // Step 2: Prepare document for optimized rendering with pre-computed properties and context
+                // Step 2: Process authors for optimized rendering with hierarchical structures and business operations
+                processAuthorsForRendering(documentDto, documentGuid);
+
+                // Step 3: Prepare document for optimized rendering with pre-computed properties and enhanced author context
                 _logger.LogDebug("Preparing document rendering context for {DocumentGuid}", documentGuid);
                 var documentRendering = _documentRenderingService.PrepareForRendering(documentDto);
 
-                // Step 3: Process structured bodies for rendering optimization with enhanced product collections
+                // Step 4: Process structured bodies for rendering optimization with enhanced collections
                 if (documentDto.StructuredBodies != null && documentDto.StructuredBodies.Any())
                 {
                     // Iterate through each structured body to prepare comprehensive rendering context
                     foreach (var body in documentDto.StructuredBodies)
                     {
                         _logger.LogDebug("Processing structured body for document {DocumentGuid}", documentGuid);
-                        // Process each body with section and enhanced product preparation
+                        // Process each body with section and enhanced content preparation
                         await processStructuredBodyForRenderingAsync(body, documentGuid);
                     }
                 }
 
-                // Step 4: Render the SPL template with the enhanced document rendering context
-                // The "GenerateSpl" template uses the fully prepared document rendering context with enhanced products
+                // Step 5: Render the SPL template with the enhanced document rendering context including prepared authors
+                // The "GenerateSpl" template uses the fully prepared document rendering context with enhanced authors and products
                 var xmlContent = await _templateRenderingService.RenderAsync("GenerateSpl", documentRendering);
 
                 // Log successful completion with basic metrics for performance monitoring
@@ -719,8 +751,88 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Processes document authors for optimized rendering with hierarchical organization structures and business operations.
+        /// Creates enhanced AuthorRendering objects with pre-computed properties and child organization relationships
+        /// for optimal template processing performance and comprehensive author context preparation.
+        /// </summary>
+        /// <param name="documentDto">The document containing authors to process for rendering optimization</param>
+        /// <param name="documentGuid">Document GUID for logging context and traceability</param>
+        /// <returns>Task representing the asynchronous author processing operation</returns>
+        /// <seealso cref="DocumentDto.DocumentAuthors"/>
+        /// <seealso cref="DocumentDto.DocumentRelationships"/>
+        /// <seealso cref="DocumentRelationshipDto.BusinessOperations"/>
+        /// <seealso cref="DocumentRelationshipDto.FacilityProductLinks"/>
+        /// <seealso cref="IAuthorRenderingService.PrepareAuthorsForRendering"/>
+        /// <seealso cref="AuthorRendering"/>
+        /// <seealso cref="DocumentAuthorDto"/>
+        /// <seealso cref="DocumentRendering.RenderedAuthors"/>
+        /// <remarks>
+        /// Author processing workflow includes:
+        /// - Validation of existing authors in the document
+        /// - Collection of related document data for hierarchical processing from nested relationship structures
+        /// - Enhanced AuthorRendering creation with child organizations and business operations
+        /// - Integration with document rendering context for template access
+        /// - Performance tracking and comprehensive logging
+        /// 
+        /// The enhanced authors provide optimized template processing with pre-computed hierarchical structures.
+        /// If no authors exist, the enhanced author collections are properly initialized as empty.
+        /// Business operations and facility product links are flattened from all document relationships
+        /// for complete hierarchical author structure preparation.
+        /// </remarks>
+        private void processAuthorsForRendering(DocumentDto documentDto, Guid documentGuid)
+        {
+            #region implementation
+
+            // Process authors if they exist within the document
+            if (documentDto.DocumentAuthors != null && documentDto.DocumentAuthors.Any())
+            {
+                _logger.LogDebug("Processing {Count} authors for document {DocumentGuid}",
+                    documentDto.DocumentAuthors.Count, documentGuid);
+
+                // Collect all related data needed for hierarchical author processing
+                var allRelationships = documentDto.DocumentRelationships ?? new List<DocumentRelationshipDto>();
+
+                // Flatten business operations from all document relationships
+                var allBusinessOperations = allRelationships
+                    .SelectMany(r => r.BusinessOperations ?? new List<BusinessOperationDto>())
+                    .ToList();
+
+                // Flatten facility product links from all document relationships
+                var allFacilityProductLinks = allRelationships
+                    .SelectMany(r => r.FacilityProductLinks ?? new List<FacilityProductLinkDto>())
+                    .ToList();
+
+                _logger.LogDebug("Collected {RelationshipCount} relationships, {BusinessOpCount} business operations, {ProductLinkCount} facility product links for document {DocumentGuid}",
+                    allRelationships.Count, allBusinessOperations.Count, allFacilityProductLinks.Count, documentGuid);
+
+                // Process all authors simultaneously for optimized performance and comprehensive hierarchical structure creation
+                var enhancedAuthors = _authorRenderingService.PrepareAuthorsForRendering(
+                    authors: documentDto.DocumentAuthors,
+                    allRelationships: allRelationships,
+                    allBusinessOperations: allBusinessOperations,
+                    allFacilityProductLinks: allFacilityProductLinks
+                );
+
+                // Store the enhanced authors in a temporary property for document rendering service access
+                documentDto.RenderedAuthors = enhancedAuthors;
+
+                _logger.LogDebug("Successfully enhanced {Count} authors for document {DocumentGuid}",
+                    enhancedAuthors.Count, documentGuid);
+            }
+            else
+            {
+                // No authors to process - initialize enhanced author collections as empty
+                documentDto.RenderedAuthors = null;
+                _logger.LogDebug("No authors found for document {DocumentGuid}", documentGuid);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Processes a structured body for optimized rendering with pre-computed section and product properties.
-        /// Creates view models and prepares all section contexts with rendering-ready data and enhanced product collections.
+        /// Creates view models and prepares all section contexts with rendering-ready data and enhanced collections.
         /// Handles both standalone and hierarchical section organization patterns with comprehensive optimization.
         /// </summary>
         /// <param name="structuredBody">The structured body to process with sections and products</param>
@@ -759,7 +871,7 @@ namespace MedRecPro.Service
                 _logger.LogDebug("Enhancing {Count} standalone sections for document {DocumentGuid}",
                     viewModel.StandaloneSectionContexts.Count, documentGuid);
 
-                // Process standalone sections with optimized rendering preparation and enhanced product collections
+                // Process standalone sections with optimized rendering preparation and enhanced collections
                 var enhancedStandalone = enhanceSectionContexts(viewModel.StandaloneSectionContexts, true, documentGuid);
                 viewModel.StandaloneSectionContexts = enhancedStandalone;
             }
@@ -845,7 +957,6 @@ namespace MedRecPro.Service
             }
 
             return enhancedContexts;
-
 
             #endregion
         }
@@ -991,7 +1102,7 @@ namespace MedRecPro.Service
         /**************************************************************/
         /// <summary>
         /// Processes products within a section rendering context for optimized rendering with pre-computed properties.
-        /// Creates enhanced ProductRendering objects from OrderedProducts and stores them in the section's EnhancedProducts collection
+        /// Creates enhanced ProductRendering objects from OrderedProducts and stores them in the section's RenderedProducts collection
         /// for optimal template processing performance and comprehensive property computation.
         /// </summary>
         /// <param name="sectionRendering">The section rendering context containing products to process</param>

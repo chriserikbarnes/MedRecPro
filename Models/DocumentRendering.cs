@@ -25,6 +25,22 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
+        /// Pre-computed flag indicating whether document has authors.
+        /// </summary>
+        /// <seealso cref="DocumentAuthorDto"/>
+        public bool HasRenderedAuthors { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed author renderings with child organizations and business operations
+        /// for hierarchical author section rendering. Null if no authors exist.
+        /// </summary>
+        /// <seealso cref="AuthorRendering"/>
+        /// <seealso cref="DocumentAuthorDto"/>
+        public List<AuthorRendering>? RenderedAuthors { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Pre-computed ID root attribute for SPL document rendering.
         /// Generated from DocumentGUID with proper formatting.
         /// </summary>

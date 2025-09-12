@@ -60,4 +60,12 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 	</ItemGroup>
+
+	<ItemGroup>
+	  <Content Remove="Views\SplTemplates\_AuthorHierarchical.cshtml" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <EmbeddedResource Remove="Views\SplTemplates\_AuthorHierarchical.cshtml" />
+	</ItemGroup>
 </Project>
