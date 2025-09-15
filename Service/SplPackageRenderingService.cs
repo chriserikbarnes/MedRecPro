@@ -153,6 +153,7 @@ namespace MedRecPro.Service
                 // Pre-compute availability flags
                 HasPackageIdentifiers = GetOrderedPackageIdentifiers(packagingLevel)?.Any() == true,
                 HasChildPackaging = GetOrderedChildPackaging(packagingLevel)?.Any() == true,
+                HasMarketing = packagingLevel?.MarketingStatuses?.Any() == true,
 
                 // Pre-compute formatted values with translation support
                 FormattedQuantityNumerator = FormatQuantity(packagingLevel.QuantityNumerator),

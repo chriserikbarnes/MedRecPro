@@ -714,7 +714,9 @@ namespace MedRecPro.Service
                 var documentRendering = _documentRenderingService.PrepareForRendering(documentDto);
 
                 // Step 4: Process structured bodies for rendering optimization with enhanced collections
-                if (documentDto.StructuredBodies != null && documentDto.StructuredBodies.Any())
+                if (documentRendering != null
+                    && documentRendering.OrderedStructuredBodies != null 
+                    && documentRendering.OrderedStructuredBodies.Any())
                 {
                     // Iterate through each structured body to prepare comprehensive rendering context
                     foreach (var body in documentDto.StructuredBodies)

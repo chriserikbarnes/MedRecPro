@@ -315,15 +315,42 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            if (product?.Ingredients == null)
+            // Early return for null cases
+            if (product?.Ingredients == null || !product.Ingredients.Any())
                 return null;
 
-            var activeIngredients = product.Ingredients
-                .Where(i => string.Equals(i.OriginatingElement, ACTIVE_INGREDIENT_TYPE, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(i => i.SequenceNumber)
-                .ToList();
+            // Cache the first class code to avoid repeated FirstOrDefault() calls
+            var defaultClassCode = Constant.ACTIVE_INGREDIENT_CLASS_CODES.FirstOrDefault();
 
-            return activeIngredients.Any() ? activeIngredients : null;
+            var activeIngredients = new List<IngredientDto>();
+
+            // Single pass through ingredients with combined filtering and processing
+            foreach (var ingredient in product.Ingredients)
+            {
+                // Check if ingredient qualifies as active
+                bool isActive = string.Equals(ingredient.OriginatingElement, ACTIVE_INGREDIENT_TYPE, StringComparison.OrdinalIgnoreCase) ||
+                               (!string.IsNullOrWhiteSpace(ingredient.ClassCode) && Constant.ACTIVE_INGREDIENT_CLASS_CODES.Contains(ingredient.ClassCode));
+
+                if (isActive)
+                {
+                    // Set default ClassCode if missing during the same iteration
+                    if (string.IsNullOrWhiteSpace(ingredient.ClassCode))
+                    {
+                        ingredient.Ingredient[nameof(ingredient.ClassCode)] = defaultClassCode;
+                    }
+
+                    activeIngredients.Add(ingredient);
+                }
+            }
+
+            // Return null if no active ingredients found, otherwise sort and return
+            if (activeIngredients.Count == 0)
+                return null;
+
+            // Sort only if we have results
+            activeIngredients.Sort((x, y) => (x.SequenceNumber ?? 0).CompareTo(y.SequenceNumber ?? 0));
+
+            return activeIngredients;
 
             #endregion
         }
@@ -339,15 +366,43 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            if (product?.Ingredients == null)
+            // Early return for null cases
+            if (product?.Ingredients == null || !product.Ingredients.Any())
                 return null;
 
-            var inactiveIngredients = product.Ingredients
-                .Where(i => string.Equals(i.OriginatingElement, INACTIVE_INGREDIENT_TYPE, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(i => i.SequenceNumber)
-                .ToList();
+            // Cache the class code constant to avoid repeated access
+            var defaultClassCode = Constant.INACTIVE_INGREDIENT_CLASS_CODE;
 
-            return inactiveIngredients.Any() ? inactiveIngredients : null;
+            var inactiveIngredients = new List<IngredientDto>();
+
+            // Single pass through ingredients with combined filtering and processing
+            foreach (var ingredient in product.Ingredients)
+            {
+                // Check if ingredient qualifies as inactive
+                bool isInactive = string.Equals(ingredient.OriginatingElement, INACTIVE_INGREDIENT_TYPE, StringComparison.OrdinalIgnoreCase) ||
+                                 (!string.IsNullOrWhiteSpace(ingredient.ClassCode) &&
+                                  ingredient.ClassCode.Equals(defaultClassCode, StringComparison.OrdinalIgnoreCase));
+
+                if (isInactive)
+                {
+                    // Set default ClassCode if missing during the same iteration
+                    if (string.IsNullOrWhiteSpace(ingredient.ClassCode))
+                    {
+                        ingredient.Ingredient[nameof(ingredient.ClassCode)] = defaultClassCode;
+                    }
+
+                    inactiveIngredients.Add(ingredient);
+                }
+            }
+
+            // Return null if no inactive ingredients found, otherwise sort and return
+            if (inactiveIngredients.Count == 0)
+                return null;
+
+            // Sort only if we have results
+            inactiveIngredients.Sort((x, y) => (x.SequenceNumber ?? 0).CompareTo(y.SequenceNumber ?? 0));
+
+            return inactiveIngredients;
 
             #endregion
         }

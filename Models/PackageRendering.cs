@@ -66,6 +66,13 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
+        /// Pre-computed flag indicating whether this packaging has marketing statuses.
+        /// </summary>
+        /// <seealso cref="MarketingStatusDto"/>
+        public bool HasMarketing { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Pre-computed flag indicating whether this packaging has child packaging to render.
         /// </summary>
         /// <seealso cref="OrderedChildPackaging"/>

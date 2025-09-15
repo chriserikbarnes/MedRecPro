@@ -20,7 +20,6 @@
                     }
                 }
             }
-
             @* Author organization name *@
             <name>@Model.AuthorOrganizationName</name>
             @* Render child organizations if available *@
@@ -36,7 +35,6 @@
                                 {
                                     <confidentialityCode code="B" codeSystem="2.16.840.1.113883.5.25" />
                                 }
-
                                 <assignedOrganization>
                                     @* Render child organization identifiers *@
                                     @if (childOrg.HasOrganizationIdentifiers)
@@ -50,11 +48,9 @@
                                             }
                                         }
                                     }
-
                                     @* Child organization name *@
                                     <name>@childOrg.OrganizationName</name>
                                 </assignedOrganization>
-
                                 @* Render business operations for this child organization *@
                                 @if (childOrg.HasBusinessOperations)
                                 {

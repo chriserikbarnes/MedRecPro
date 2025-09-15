@@ -154,7 +154,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 if (!string.IsNullOrWhiteSpace(dateStr))
                 {
-                    approvalDate = MedRecPro.Helpers.Util.ParseNullableDateTime(dateStr);
+                    approvalDate = Util.ParseNullableDateTime(dateStr);
                 }
 
                 // 4. <author><territorialAuthority><territory><code code="USA">
@@ -204,6 +204,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Validates marketing activity codes against FDA SPL code system (2.16.840.1.113883.3.26.1.1).
         /// Accepts only permitted status codes: active, completed, new, cancelled.
         /// Parses effective time intervals with low and high date boundaries.
+        /// Recursively processes nested asContent and containerPackagedProduct elements.
         /// </remarks>
         /// <seealso cref="MarketingStatus"/>
         /// <seealso cref="Product"/>
@@ -222,8 +223,43 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || repo == null || context.Logger == null)
                 return count;
 
-            // Process all subjectOf/marketingAct structures
-            foreach (var subjOf in parentEl.SplElements(sc.E.SubjectOf))
+            // Process marketing acts at the current level
+            count += await processMarketingActsAtLevel(parentEl, product, context);
+
+            // Recursively process nested asContent elements
+            foreach (var asContent in parentEl.SplElements(sc.E.AsContent))
+            {
+                count += await parseAndSaveMarketingStatusesAsync(asContent, product, context);
+
+                // Also process containerPackagedProduct within asContent
+                foreach (var container in asContent.SplElements(sc.E.ContainerPackagedProduct))
+                {
+                    count += await parseAndSaveMarketingStatusesAsync(container, product, context);
+                }
+            }
+
+            return count;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes marketing acts at a specific element level (non-recursive helper).
+        /// </summary>
+        /// <param name="element">XElement to scan for direct subjectOf/marketingAct children.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of MarketingStatus records created at this level.</returns>
+        private async Task<int> processMarketingActsAtLevel(
+            XElement element,
+            Product product,
+            SplParseContext context)
+        {
+            int count = 0;
+            var repo = context.GetRepository<MarketingStatus>();
+
+            // Process all subjectOf/marketingAct structures at this level only
+            foreach (var subjOf in element.SplElements(sc.E.SubjectOf))
             {
                 foreach (var mktAct in subjOf.SplElements(sc.E.MarketingAct))
                 {
@@ -291,13 +327,12 @@ namespace MedRecPro.Service.ParsingServices
 
                     await repo.CreateAsync(marketingStatus);
                     count++;
-                    context.Logger.LogInformation(
+                    context?.Logger?.LogInformation(
                         $"MarketingStatus created: ProductID={product.ProductID}, ActCode={actCode}, Status={statusCode}, Start={effectiveStartDate:yyyy-MM-dd}, End={effectiveEndDate:yyyy-MM-dd}");
                 }
             }
 
             return count;
-            #endregion
         }
 
         /**************************************************************/

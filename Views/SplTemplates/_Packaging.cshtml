@@ -24,7 +24,7 @@
                 </denominator>
             </quantity>
         }
-        <containerPackagedMedicine>
+        <containerPackagedProduct>
             @* Render only NDCs that match this packaging level's PackagingLevelID *@
             @if (Model.HasPackageIdentifiers && Model.OrderedPackageIdentifiers != null)
             {
@@ -51,6 +51,28 @@
                     await IncludeAsync("_Packaging", childPackage);
                 }
             }
-        </containerPackagedMedicine>
+        </containerPackagedProduct>
+        @if (Model.HasMarketing)
+        {
+            foreach (var marketing in Model.PackagingLevelDto.MarketingStatuses)
+            {
+                <subjectOf>
+                    <marketingAct>
+                        <code @SplTemplateHelpers.Attribute("code", marketing.MarketingActCode) @SplTemplateHelpers.Attribute("codeSystem", marketing.MarketingActCodeSystem)  />
+                        <statusCode @SplTemplateHelpers.Attribute("code", marketing.MarketingActCodeSystem) />
+                        <effectiveTime>
+                            @if (marketing.EffectiveStartDate.HasValue)
+                            {
+                                <low @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketing.EffectiveStartDate)) />
+                            }
+                            @if (marketing.EffectiveEndDate.HasValue)
+                            {
+                                <high @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketing.EffectiveEndDate)) />
+                            }
+                        </effectiveTime>
+                    </marketingAct>
+                </subjectOf>
+            }
+        }
     </asContent>
 }

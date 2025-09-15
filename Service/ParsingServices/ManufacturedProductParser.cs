@@ -132,8 +132,11 @@ namespace MedRecPro.Service.ParsingServices
                 reportProgress?.Invoke($"Starting Manufactured Product XML Elements {context.FileNameInZip}");
 
                 // Handle SPL variations where the main data is in a nested manufacturedMedicine element
-                // Use the nested element if it exists, otherwise use the main element
-                var mmEl = element.SplElement(sc.E.ManufacturedMedicine) ?? element;
+                // Use the nested element if it exists, otherwise use the main element. Older labels
+                // will have medicine. Current 2023 requires product.
+                var mmEl = element.SplElement(sc.E.ManufacturedMedicine) 
+                    ?? element.SplElement(sc.E.ManufacturedProduct) 
+                    ?? element;
 
                 // Create the Product entity with extracted metadata
                 var product = new Product

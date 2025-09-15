@@ -1,8 +1,14 @@
-﻿namespace MedRecPro.Models
+﻿using System;
+
+namespace MedRecPro.Models
 {
     public static class Constant
     {
         public static string XML_NAMESPACE = "urn:hl7-org:v3";
+
+        public static readonly string[] ACTIVE_INGREDIENT_CLASS_CODES = { "ACTIB", "ACTIM", "ACTIR" };
+        public const string INACTIVE_INGREDIENT_CLASS_CODE = "IACT";
+
 
         public const string BLANKET_NO_CHANGES_CERTIFICATION_CODE = "BNCC";
         public const string CERTIFICATION_RELATIONSHIP_TYPE = "Certification";

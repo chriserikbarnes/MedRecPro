@@ -10,7 +10,7 @@
 
     @if (Model.IsActiveIngredient)
     {
-        <activeIngredient>
+        <ingredient @Raw(Model.ClassCodeAttribute)>
             @if (Model.HasQuantity)
             {
                 <quantity>
@@ -29,7 +29,7 @@
                 </quantity>
             }
 
-            <activeIngredientSubstance>
+            <ingredientSubstance>
                 @if (Model.HasSpecifiedSubstances && Model.OrderedSpecifiedSubstances != null)
                 {
                     foreach (var substance in Model.OrderedSpecifiedSubstances)
@@ -58,13 +58,13 @@
                         </activeMoiety>
                     }
                 }
-            </activeIngredientSubstance>
-        </activeIngredient>
+            </ingredientSubstance>
+        </ingredient>
     }
     else
     {
-        <inactiveIngredient @Raw(Model.ClassCodeAttribute)>
-            <inactiveIngredientSubstance>
+        <ingredient @Raw(Model.ClassCodeAttribute)>
+            <ingredientSubstance>
                 @if (Model.HasSpecifiedSubstances && Model.OrderedSpecifiedSubstances != null)
                 {
                     foreach (var substance in Model.OrderedSpecifiedSubstances)
@@ -78,7 +78,7 @@
                     <code @SplTemplateHelpers.Attribute("code", Model.UniiCode) @SplTemplateHelpers.Attribute("codeSystem", Model.FdaSrsCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", Model.FdaSrsCodeSystemName) />
                 }
                 <name>@Model.FormattedSubstanceName</name>
-            </inactiveIngredientSubstance>
-        </inactiveIngredient>
+            </ingredientSubstance>
+        </ingredient>
     }
 }
