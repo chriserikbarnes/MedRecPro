@@ -161,18 +161,18 @@ namespace MedRecPro.Service
 
                 // Enhanced unit code information with translation codes from parent product
                 UnitCode = packagingLevel.PackageCode,
-                UnitCodeSystem = packagingLevel.PackageCodeSystem ?? "2.16.840.1.113883.6.8", // UCUM
+                UnitCodeSystem = packagingLevel.PackageCodeSystem, // UCUM
                 UnitDisplayName = packagingLevel.QuantityNumeratorUnit,
 
                 // Enhanced package form information with parent product context
                 PackageFormCode = packagingLevel.PackageFormCode,
-                PackageFormCodeSystem = packagingLevel.PackageFormCodeSystem ?? parentProduct.FormCodeSystem ?? "2.16.840.1.113883.3.26.1.1",
+                PackageFormCodeSystem = packagingLevel.PackageFormCodeSystem ?? parentProduct.FormCodeSystem ?? Constant.FDA_SPL_CODE_SYSTEM,
                 PackageFormDisplayName = packagingLevel.PackageFormDisplayName,
 
                 // Set translation codes directly from packaging level data
                 // Numerator translation should use package form, not ingredient data
                 NumeratorTranslationCode = packagingLevel.NumeratorTranslationCode,
-                NumeratorCodeSystem = packagingLevel.NumeratorTranslationCodeSystem ?? parentProduct.FormCodeSystem ?? "2.16.840.1.113883.3.26.1.1",
+                NumeratorCodeSystem = packagingLevel.NumeratorTranslationCodeSystem ?? parentProduct.FormCodeSystem ?? Constant.FDA_SPL_CODE_SYSTEM,
                 NumeratorDisplayName = packagingLevel.NumeratorTranslationDisplayName,
 
                 // Explicitly set denominator properties to null to prevent unwanted XML attributes

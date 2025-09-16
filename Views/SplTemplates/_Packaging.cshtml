@@ -12,16 +12,8 @@
         @if (Model.HasQuantity)
         {
             <quantity>
-                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator)>
-                    @* Use existing NumeratorTranslation properties from IngredientDto *@
-                    @if (Model.HasNumeratorTranslation)
-                    {
-                        <translation @SplTemplateHelpers.Attribute("code", Model.NumeratorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", Model.NumeratorCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.NumeratorDisplayName) @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator) />
-                    }
-                </numerator>
-                <denominator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator)>
-                    <translation @SplTemplateHelpers.Attribute("code", Model.DenominatorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", Model.DenominatorCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.DenominatorDisplayName) @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator) />
-                </denominator>
+                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator)></numerator>
+                <denominator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator)></denominator>
             </quantity>
         }
         <containerPackagedProduct>
@@ -59,7 +51,7 @@
                 <subjectOf>
                     <marketingAct>
                         <code @SplTemplateHelpers.Attribute("code", marketing.MarketingActCode) @SplTemplateHelpers.Attribute("codeSystem", marketing.MarketingActCodeSystem)  />
-                        <statusCode @SplTemplateHelpers.Attribute("code", marketing.MarketingActCodeSystem) />
+                        <statusCode @SplTemplateHelpers.Attribute("code", marketing.StatusCode) />
                         <effectiveTime>
                             @if (marketing.EffectiveStartDate.HasValue)
                             {

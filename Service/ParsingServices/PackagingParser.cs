@@ -1,5 +1,4 @@
-﻿
-using MedRecPro.Data;
+﻿using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
@@ -19,12 +18,13 @@ namespace MedRecPro.Service.ParsingServices
     /**************************************************************/
     /// <summary>
     /// Parses all packaging-related elements, including the recursive packaging hierarchy,
-    /// package identifiers (like NDC Package Codes), and associated product events.
+    /// package identifiers (like NDC Package Codes), associated product events, and marketing status information.
     /// </summary>
     /// <remarks>
     /// This parser is responsible for the entire <c>asContent</c> section of a product. It recursively
     /// processes nested packaging levels and creates the necessary database entities to represent the
-    /// full packaging tree. It assumes `SplParseContext.CurrentProduct` is set by the calling parser.
+    /// full packaging tree with associated marketing status information. It assumes `SplParseContext.CurrentProduct` 
+    /// is set by the calling parser. Marketing status parsing is integrated to support packaging-level marketing information.
     /// </remarks>
     /// <seealso cref="ISplSectionParser"/>
     /// <seealso cref="Product"/>
@@ -32,19 +32,23 @@ namespace MedRecPro.Service.ParsingServices
     /// <seealso cref="PackagingHierarchy"/>
     /// <seealso cref="PackageIdentifier"/>
     /// <seealso cref="ProductEvent"/>
+    /// <seealso cref="MarketingStatusParser"/>
     /// <seealso cref="SplParseContext"/>
+    /// <seealso cref="Label"/>
     public class PackagingParser : ISplSectionParser
     {
         #region implementation
         /// <summary>
         /// Gets the section name for this parser.
         /// </summary>
+        /// <seealso cref="Label"/>
         public string SectionName => "packaging";
 
         /// <summary>
         /// The XML namespace used for element parsing, derived from the constant configuration.
         /// </summary>
         /// <seealso cref="MedRecPro.Models.Constant"/>
+        /// <seealso cref="Label"/>
         private static readonly XNamespace ns = c.XML_NAMESPACE;
         #endregion
 
@@ -59,11 +63,13 @@ namespace MedRecPro.Service.ParsingServices
         /// <remarks>
         /// This method serves as the entry point for packaging parsing. It finds all direct `asContent`
         /// child elements and initiates the recursive parsing for each, aggregating the results.
+        /// Includes integrated marketing status processing for packaging levels.
         /// </remarks>
         /// <seealso cref="Product"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
@@ -100,8 +106,8 @@ namespace MedRecPro.Service.ParsingServices
                     reportProgress?.Invoke($"Starting Packaging Level XML Elements {context.FileNameInZip}");
                     foreach (var asContentEl in asContentEls)
                     {
-                        // Use the enhanced method that includes event parsing. This method calls the base
-                        // packaging parser internally, ensuring no duplication.
+                        // Use the enhanced method that includes event parsing and marketing status processing. 
+                        // This method calls the base packaging parser internally, ensuring no duplication.
                         result.ProductElementsCreated +=
                             await parseAndSavePackagingLevelsAsync(asContentEl, product, context);
                     }
@@ -136,12 +142,13 @@ namespace MedRecPro.Service.ParsingServices
         /// Handles both outermost and nested package levels. Recursively processes nested packaging
         /// structures to create a full packaging tree using PackagingHierarchy links.
         /// Extracts quantity, package codes, and form codes from the XML.
-        /// This version also integrates the parsing of package identifiers.
+        /// This version also integrates the parsing of package identifiers and marketing status information.
         /// </remarks>
         /// <seealso cref="PackagingLevel"/>
         /// <seealso cref="PackagingHierarchy"/>
         /// <seealso cref="PackageIdentifier"/>
         /// <seealso cref="Product"/>
+        /// <seealso cref="MarketingStatusParser"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
         private async Task<int> parseAndSavePackagingLevelsAsync(
@@ -166,41 +173,58 @@ namespace MedRecPro.Service.ParsingServices
             var packagingLevel = await createPackagingLevelEntityAsync(
                 product, parentProductInstanceId, quantityInfo, packageFormInfo, context);
 
+            int count = 1;
+            context.Logger.LogInformation($"PackagingLevel created: ID={packagingLevel.PackagingLevelID}, ProductID={packagingLevel.ProductID}, FormCode={packageFormInfo.FormCode}");
+
             if (packagingLevel != null)
             {
                 // Update the current packaging level context for child parsers
                 var oldPackage = context.CurrentPackagingLevel;
+                var oldProduct = context.CurrentProduct;
                 context.CurrentPackagingLevel = packagingLevel;
+                context.CurrentProduct = product; // Ensure product context is maintained
+
                 try
                 {
                     // Ensure the context is restored even if an exception occurs
                     // during the processing of nested levels or identifiers.
                     // This prevents "leakage" of the current package context.
-                    // Note: We do not process nested levels here; that is done below.
 
-                    // Placeholder for potential future marketing parser integration
+                    // Process marketing status for this packaging level using the dedicated parser
+                    var marketingStatusParser = new MarketingStatusParser();
+                    var marketingStatusResult = await marketingStatusParser.ParseAsync(asContentEl, context, null);
 
-                    var marketingParser = new ProductMarketingParser();
-                
+                    // Add marketing status count to the overall packaging count
+                    if (marketingStatusResult.Success)
+                    {
+                        count += marketingStatusResult.ProductElementsCreated;
+                        context.Logger?.LogDebug(
+                            "Processed {MarketingStatusCount} marketing status records for PackagingLevelID {PackagingLevelID}",
+                            marketingStatusResult.ProductElementsCreated, packagingLevel.PackagingLevelID);
                     }
+                    else
+                    {
+                        context.Logger?.LogWarning(
+                            "Failed to process marketing status for PackagingLevelID {PackagingLevelID}: {Errors}",
+                            packagingLevel.PackagingLevelID, string.Join(", ", marketingStatusResult.Errors));
+                    }
+                }
                 finally
                 {
                     context.CurrentPackagingLevel = oldPackage;
+                    context.CurrentProduct = oldProduct;
                 }
+
+
+                // Process package identifiers and events for this level
+                count += await processPackageIdentifiersAndEventsAsync(asContentEl, packagingLevel, context);
+
+                // Create hierarchy link if this is a nested package
+                await createPackagingHierarchyLinkAsync(parentPackagingLevelId, packagingLevel, sequenceNumber, context);
+
+                // Recursively process nested packaging levels
+                count += await processNestedPackagingLevelsAsync(asContentEl, product, packagingLevel, parentProductInstanceId, context);
             }
-
-
-            int count = 1;
-            context.Logger.LogInformation($"PackagingLevel created: ID={packagingLevel.PackagingLevelID}, ProductID={packagingLevel.ProductID}, FormCode={packageFormInfo.FormCode}");
-
-            // Process package identifiers and events for this level
-            count += await processPackageIdentifiersAndEventsAsync(asContentEl, packagingLevel, context);
-
-            // Create hierarchy link if this is a nested package
-            await createPackagingHierarchyLinkAsync(parentPackagingLevelId, packagingLevel, sequenceNumber, context);
-
-            // Recursively process nested packaging levels
-            count += await processNestedPackagingLevelsAsync(asContentEl, product, packagingLevel, parentProductInstanceId, context);
 
             return count;
             #endregion
@@ -217,8 +241,8 @@ namespace MedRecPro.Service.ParsingServices
         /// that provide additional context about the packaging quantities.
         /// </remarks>
         /// <seealso cref="Label"/>
-        private (decimal? Value, string? Unit, decimal? Denominator, string? TranslationCode,
-                 string? TranslationCodeSystem, string? TranslationDisplayName) extractQuantityInformation(XElement asContentEl)
+        private (decimal? Value, string? Unit, decimal? Denominator, string? TranslationCode, string? TranslationCodeSystem, string? TranslationDisplayName) 
+            extractQuantityInformation(XElement asContentEl)
         {
             #region implementation
             var quantityEl = asContentEl.SplElement(sc.E.Quantity);
@@ -895,6 +919,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="PackagingHierarchy"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="Label"/>
         private async Task<PackagingHierarchy> saveOrGetPackagingHierarchyAsync(
             ApplicationDbContext dbContext,
             int outerId,
@@ -935,6 +960,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </remarks>
         /// <seealso cref="inferIdentifierType"/>
         /// <seealso cref="PackageIdentifier"/>
+        /// <seealso cref="Label"/>
         private static string? inferPackageIdentifierType(string? oid)
         {
             #region implementation
@@ -977,4 +1003,3 @@ namespace MedRecPro.Service.ParsingServices
         }
     }
 }
-

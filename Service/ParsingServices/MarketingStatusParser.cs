@@ -415,7 +415,7 @@ namespace MedRecPro.Service.ParsingServices
             string? activityCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
 
             // Validate activity code system - only accept FDA SPL codes
-            if (activityCodeSystem != "2.16.840.1.113883.3.26.1.1")
+            if (activityCodeSystem != c.FDA_SPL_CODE_SYSTEM)
             {
                 context?.Logger?.LogDebug("Skipping marketing act with invalid code system: {CodeSystem}", activityCodeSystem);
                 return null;
@@ -562,10 +562,12 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             // If we're currently processing a packaging level, associate with packaging
-            if (context.CurrentPackagingLevel?.PackagingLevelID != null)
-            {
+            if (context.CurrentPackagingLevel?.PackagingLevelID != null && context.CurrentProduct?.ProductID == null)
                 return (null, context.CurrentPackagingLevel.PackagingLevelID);
-            }
+
+            // If we are at the packing level hand have a product id then add that
+            else if (context.CurrentPackagingLevel?.PackagingLevelID != null && context.CurrentProduct?.ProductID != null)
+                return (context.CurrentProduct?.ProductID, context.CurrentPackagingLevel.PackagingLevelID);
 
             // Otherwise, associate with the current product
             return (context.CurrentProduct?.ProductID, null);

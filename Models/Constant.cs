@@ -9,27 +9,161 @@ namespace MedRecPro.Models
         public static readonly string[] ACTIVE_INGREDIENT_CLASS_CODES = { "ACTIB", "ACTIM", "ACTIR" };
         public const string INACTIVE_INGREDIENT_CLASS_CODE = "IACT";
 
-
         public const string BLANKET_NO_CHANGES_CERTIFICATION_CODE = "BNCC";
         public const string CERTIFICATION_RELATIONSHIP_TYPE = "Certification";
         public const int CERTIFICATION_RELATIONSHIP_LEVEL = 2;
         public const string DISCIPLINARY_ACTION_ENTITY_TYPE = "DisciplinaryAction";
         public const string COMPLIANCE_ACTION_ENTITY_TYPE = "ComplianceAction";
 
-        // Compliance Action Codes
-        public const string INACTIVATED_CODE = "C162847";
-        public const string REACTIVATED_CODE = "C162848";
 
         // Media Types
         public const string PDF_MEDIA_TYPE = "application/pdf";
         public const string PDF_FILE_EXTENSION = ".pdf";
+        public const string JPEG_MEDIA_TYPE = "image/jpeg";
+        public const string JPEG_FILE_EXTENSION = ".jpg";
+        public const string TEXT_PLAIN_MEDIA_TYPE = "text/plain";
 
-        // Warning Letter Document and Section Codes
+        // HL7 and XML General Codes
+        public const string DOCUMENT_CLASS_CODE = "DOC";
+        public const string EVENT_MOOD_CODE = "EVN";
+        public const string OBSERVATION_CLASS_CODE = "OBS";
+        public const string GENERIC_KIND_CLASS_CODE = "GEN";
+        public const string MANUFACTURED_PRODUCT_CLASS_CODE = "MANU";
+        public const string EQUIVALENCE_CLASS_CODE = "EQUIV";
+        public const string IDENTIFIED_ENTITY_CLASS_CODE = "IDENT";
+        public const string PERFORMER_PARTICIPATION_TYPE_CODE = "PPRF";
+        public const string NULL_FLAVOR_OTHER = "OTH";
+        public const string NULL_FLAVOR_POSITIVE_INFINITY = "PINF";
+
+        // Related Document Type Codes
+        public const string APPEND_REL_DOC_TYPE_CODE = "APND";
+        public const string DERIVED_REL_DOC_TYPE_CODE = "DRIV";
+        public const string REPLACE_REL_DOC_TYPE_CODE = "RPLC";
+        public const string SUBJECT_REL_DOC_TYPE_CODE = "SUBJ";
+        public const string EXCERPT_REL_DOC_TYPE_CODE = "XCRPT";
+        public const string TRANSFORM_REL_DOC_TYPE_CODE = "XFRM";
+
+        // Document and Section Type Codes
+        public const string SPL_PRODUCT_DATA_ELEMENTS_SECTION_CODE = "48780-1";
+        public const string SPL_INDEXING_DATA_ELEMENTS_SECTION_CODE = "48779-3";
+        public const string ESTABLISHMENT_REGISTRATION_DOC_CODE = "51725-0";
+        public const string ESTABLISHMENT_DE_REGISTRATION_DOC_CODE = "70097-1";
+        public const string NO_CHANGE_NOTIFICATION_DOC_CODE = "53410-7";
+        public const string OUT_OF_BUSINESS_NOTIFICATION_DOC_CODE = "53411-5";
+        public const string NDC_NHRIC_LABELER_CODE_REQUEST_DOC_CODE = "51726-8";
+        public const string NDC_LABELER_CODE_INACTIVATION_DOC_CODE = "69968-6";
+        public const string HUMAN_PRESCRIPTION_DRUG_LABEL_DOC_CODE = "34391-3";
+        public const string HUMAN_OTC_DRUG_LABEL_DOC_CODE = "34390-5";
+        public const string LOT_DISTRIBUTION_DATA_DOC_CODE = "66105-8";
+        public const string REMS_DOCUMENT_DOC_CODE = "82351-8";
+        public const string BLANKET_NO_CHANGES_CERTIFICATION_DOC_CODE = "86445-4";
+        public const string COSMETIC_PRODUCT_LISTING_DOC_CODE = "103572-4";
+        public const string COSMETIC_FACILITY_REGISTRATION_DOC_CODE = "103573-2";
+        public const string PACKAGE_LABEL_PRINCIPAL_DISPLAY_PANEL_SECTION_CODE = "51945-4";
         public const string WARNING_LETTER_DOCUMENT_CODE = "77288-9";
         public const string BIOLOGIC_DRUG_SUBSTANCE_DOCUMENT_CODE = "77648-4";
+        public const string DRUG_INTERACTIONS_INDEXING_DOC_CODE = "93723-5";
+        public const string NCT_INDEXING_DOC_CODE = "93372-1";
+        public const string FDA_INITIATED_COMPLIANCE_ACTION_DOC_CODE = "89600-1";
+        public const string FDA_INITIATED_COMPLIANCE_ACTION_ANIMAL_DRUG_DOC_CODE = "99282-6";
+        public const string WARNING_LETTER_SECTION_CODE = "48779-3";
 
-        // Other indexing document codes for reference
-        public const string BIOLOGIC_DRUG_SUBSTANCE_DOCUMENT_CODE = "77648-4";
+
+        // Marketing Status and Category Codes
+        public const string MARKETING_STATUS_ACTIVE = "active";
+        public const string MARKETING_STATUS_COMPLETED = "completed";
+        public const string MARKETING_STATUS_NEW = "new";
+        public const string MARKETING_STATUS_CANCELLED = "cancelled";
+        public const string MARKETING_CATEGORY_NDA = "C73594";
+        public const string MARKETING_CATEGORY_ANDA = "C73584";
+        public const string MARKETING_CATEGORY_BLA = "C73585";
+        public const string MARKETING_CATEGORY_OTC_MONOGRAPH_DRUG = "C200263";
+        public const string MARKETING_CATEGORY_UNAPPROVED_DRUG_OTHER = "C73627";
+        public const string MARKETING_CATEGORY_DIETARY_SUPPLEMENT = "C86952";
+        public const string MARKETING_CATEGORY_COSMETIC = "C86965";
+        public const string MARKETING_CATEGORY_MEDICAL_FOOD = "C86964";
+
+        // Business Operation Codes
+        public const string MANUFACTURE_CODE = "C43360";
+        public const string REPACK_CODE = "C73606";
+        public const string RELABEL_CODE = "C73607";
+        public const string ANALYSIS_CODE = "C25391";
+        public const string API_MANUFACTURE_CODE = "C82401";
+        public const string SALVAGE_CODE = "C70827";
+        public const string US_AGENT_CODE = "C73330";
+        public const string WHOLESALE_DRUG_DISTRIBUTOR_CODE = "C118411";
+        public const string THIRD_PARTY_LOGISTICS_PROVIDER_CODE = "C118412";
+        public const string HUMAN_DRUG_COMPOUNDING_OUTSOURCING_FACILITY_CODE = "C112113";
+        public const string DISTRIBUTE_CODE = "C201565";
+        public const string PACK_CODE = "C84731";
+
+        // Ingredient and Product Form Codes
+        public const string ACTIVE_INGREDIENT_BASIS_OF_STRENGTH_CODE = "ACTIB";
+        public const string ACTIVE_INGREDIENT_MOIETY_BASIS_CODE = "ACTIM";
+        public const string ACTIVE_INGREDIENT_REFERENCE_BASIS_CODE = "ACTIR";
+        public const string INACTIVE_INGREDIENT_CODE = "IACT";
+        public const string MAY_CONTAIN_CODE = "CNTM";
+        public const string KIT_FORM_CODE = "C47916";
+
+        // Characteristic Codes
+        public const string SPL_COLOR_CODE = "SPLCOLOR";
+        public const string SPL_SHAPE_CODE = "SPLSHAPE";
+        public const string SPL_SIZE_CODE = "SPLSIZE";
+        public const string SPL_SCORING_CODE = "SPLSCORE";
+        public const string SPL_IMPRINT_CODE = "SPLIMPRINT";
+        public const string SPL_FLAVOR_CODE = "SPLFLAVOR";
+        public const string SPL_IMAGE_CODE = "SPLIMAGE";
+        public const string SPL_COMBINATION_PRODUCT_TYPE_CODE = "SPLCMBPRDTP";
+        public const string SPL_SMALL_BUSINESS_CODE = "SPLSMALLBUSINESS";
+        public const string SPL_PROFESSIONAL_USE_CODE = "SPLPROFESSIONALUSE";
+
+        // Compliance Action Codes
+        public const string INACTIVATED_CODE = "C162847";
+        public const string REACTIVATED_CODE = "C162848";
+
+        // Drug Interaction Codes
+        public const string INTERACTION_CODE = "C54708";
+        public const string PHARMACOKINETIC_EFFECT_CODE = "C54386";
+        public const string MEDICAL_PROBLEM_CODE = "44100-6";
+
+        // REMS Codes
+        public const string REMS_APPROVAL_CODE = "C128899";
+        public const string REMS_SUMMARY_SECTION_CODE = "82347-6";
+        public const string REMS_ETASU_SECTION_CODE = "82345-0";
+        public const string REMS_PARTICIPANT_REQUIREMENTS_SECTION_CODE = "87525-2";
+
+
+        // Code systems
+        public const string LOINC_CODE_SYSTEM = "2.16.840.1.113883.6.1";
+        public const string SNOMED_CT_CODE_SYSTEM = "2.16.840.1.113883.6.96";
+        public const string CONFIDENTIALITY_CODE_SYSTEM = "2.16.840.1.113883.5.25";
+        public const string FDA_UNII_CODE_SYSTEM = "2.16.840.1.113883.4.9";
+        public const string FDA_SPL_CODE_SYSTEM = "2.16.840.1.113883.3.26.1.1";
+        public const string FDA_PROD_CLASSIFICATION_CODE_SYSTEM = "2.16.840.1.113883.6.303";
+        public const string NHRIC_CODE_SYSTEM = "2.16.840.1.113883.6.69";
+        public const string HIBCC_CODE_SYSTEM = "2.16.840.1.113883.6.40";
+        public const string DUNS_CODE_SYSTEM = "1.3.6.1.4.1.519.1";
+        public const string GS1_CODE_SYSTEM = "1.3.160";
+        public const string ISBT_128_CODE_SYSTEM = "2.16.840.1.113883.6.18";
+        public const string FDA_FEI_CODE_SYSTEM = "2.16.840.1.113883.4.82";
+        public const string FDA_APP_TRACKING_CODE_SYSTEM = "2.16.840.1.113883.3.150";
+        public const string SPL_CHARACTERISTICS_CODE_SYSTEM = "2.16.840.1.113883.1.11.19255";
+        public const string COSMETIC_PRODUCT_LISTING_CODE_SYSTEM = "2.16.840.1.113883.3.9848";
+        public const string ISO_3166_1_CODE_SYSTEM = "1.0.3166.1.2.3";
+        public const string ISO_3166_2_CODE_SYSTEM = "1.0.3166.2";
+        public const string OTC_MONOGRAPH_ID_CODE_SYSTEM = "2.16.840.1.113883.3.9421";
+        public const string MED_RT_CODE_SYSTEM = "2.16.840.1.113883.6.345";
+        public const string MESH_CODE_SYSTEM = "2.16.840.1.113883.6.177";
+        public const string NCPDP_BILLING_UNIT_CODE_SYSTEM = "2.16.840.1.113883.2.13";
+        public const string PRODUCT_CONCEPT_CODE_SYSTEM = "2.16.840.1.113883.3.3389";
+        public const string PRODUCT_CONCEPT_EQUIVALENCE_CODE_SYSTEM = "2.16.840.1.113883.3.2964";
+        public const string MANUFACTURER_LICENSE_NUMBER_CODE_SYSTEM = "1.3.6.1.4.1.32366.1.3.1.2";
+        public const string DEA_LICENSE_CODE_SYSTEM = "1.3.6.1.4.1.32366.4.840.1";
+        public const string EPA_DOCUMENT_TYPE_CODE_SYSTEM = "2.16.840.1.113883.6.275.1";
+        public const string EPA_SRS_TRACKING_CODE_SYSTEM = "2.16.840.1.113883.6.275";
+        public const string CFR_CODE_SYSTEM = "2.16.840.1.113883.3.149";
+        public const string SPECIFIED_SUBSTANCE_CODE_SYSTEM = "2.16.840.1.113883.3.6277";
+        public const string NCT_NUMBER_CODE_SYSTEM = "2.16.840.1.113883.3.1077";
 
         public enum ActorType
         {
