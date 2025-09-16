@@ -1,4 +1,3 @@
-﻿
 ﻿using System.Xml.Linq;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
@@ -18,18 +17,19 @@ namespace MedRecPro.Service.ParsingServices
 {
     /**************************************************************/
     /// <summary>
-    /// Parses product marketing and regulatory elements, including marketing categories (approvals),
-    /// marketing status, and DEA policies from an SPL document.
+    /// Parses product marketing and regulatory elements, including marketing categories (approvals)
+    /// and DEA policies from an SPL document. Marketing status parsing is delegated to the dedicated MarketingStatusParser.
     /// </summary>
     /// <remarks>
     /// This parser focuses on the commercial and regulatory aspects of a product. It is designed to be
     /// called by a parent parser (like ManufacturedProductParser) and assumes that the current product
-    /// context has been set.
+    /// context has been set. Marketing status parsing has been separated into its own dedicated parser
+    /// to support independent usage and packaging-level marketing status processing.
     /// </remarks>
     /// <seealso cref="ISplSectionParser"/>
     /// <seealso cref="Product"/>
     /// <seealso cref="MarketingCategory"/>
-    /// <seealso cref="MarketingStatus"/>
+    /// <seealso cref="MarketingStatusParser"/>
     /// <seealso cref="Policy"/>
     /// <seealso cref="SplParseContext"/>
     public class ProductMarketingParser : ISplSectionParser
@@ -38,12 +38,14 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Gets the section name for this parser.
         /// </summary>
+        /// <seealso cref="Label"/>
         public string SectionName => "productmarketing";
 
         /// <summary>
         /// The XML namespace used for element parsing, derived from the constant configuration.
         /// </summary>
         /// <seealso cref="MedRecPro.Models.Constant"/>
+        /// <seealso cref="Label"/>
         private static readonly XNamespace ns = c.XML_NAMESPACE;
         #endregion
 
@@ -57,12 +59,16 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>A SplParseResult indicating the success status and the count of created entities.</returns>
         /// <remarks>
         /// This method orchestrates the parsing of marketing and policy data by calling specialized
-        /// private methods for each section. It requires `context.CurrentProduct` to be set by the caller.
+        /// parsers for each section. It requires `context.CurrentProduct` to be set by the caller.
+        /// Marketing status parsing is now delegated to the dedicated MarketingStatusParser to maintain
+        /// separation of concerns and support independent usage.
         /// </remarks>
         /// <seealso cref="Product"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="MarketingStatusParser"/>
         /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
@@ -78,20 +84,32 @@ namespace MedRecPro.Service.ParsingServices
             }
             var product = context.CurrentProduct;
 
-            // --- PARSE MARKETING CATEGORY ---
-            reportProgress?.Invoke($"Starting Marketing Category XML Elements {context.FileNameInZip}");
-            var marketingCatCreated = await parseAndSaveMarketingCategoriesAsync(element, product, context);
-            result.ProductElementsCreated += marketingCatCreated;
+            try
+            {
+                // --- PARSE MARKETING CATEGORY ---
+                reportProgress?.Invoke($"Starting Marketing Category XML Elements {context.FileNameInZip}");
+                var marketingCatCreated = await parseAndSaveMarketingCategoriesAsync(element, product, context);
+                result.ProductElementsCreated += marketingCatCreated;
 
-            // --- PARSE MARKETING STATUS ---
-            reportProgress?.Invoke($"Starting Marketing Status XML Elements {context.FileNameInZip}");
-            var marketingCt = await parseAndSaveMarketingStatusesAsync(element, product, context);
-            result.ProductElementsCreated += marketingCt;
+                // --- PARSE MARKETING STATUS USING DEDICATED PARSER ---
+                reportProgress?.Invoke($"Starting Marketing Status XML Elements {context.FileNameInZip}");
+                var marketingStatusParser = new MarketingStatusParser();
+                var marketingStatusResult = await marketingStatusParser.ParseAsync(element, context, reportProgress);
 
-            // --- PARSE POLICY ---
-            reportProgress?.Invoke($"Starting Policy XML Elements {context.FileNameInZip}");
-            var policyCt = await parseAndSavePoliciesAsync(element, product, context);
-            result.ProductElementsCreated += policyCt;
+                // Merge results from the marketing status parser
+                result.MergeFrom(marketingStatusResult);
+
+                // --- PARSE POLICY ---
+                reportProgress?.Invoke($"Starting Policy XML Elements {context.FileNameInZip}");
+                var policyCt = await parseAndSavePoliciesAsync(element, product, context);
+                result.ProductElementsCreated += policyCt;
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Errors.Add($"Error in ProductMarketingParser: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error in ProductMarketingParser.ParseAsync");
+            }
 
             return result;
             #endregion
@@ -193,150 +211,6 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses and saves all MarketingStatus entities under [subjectOf][marketingAct] nodes for a given product.
-        /// </summary>
-        /// <param name="parentEl">XElement (usually [manufacturedProduct] or [containerPackagedProduct]) to scan for marketing status.</param>
-        /// <param name="product">The Product entity associated.</param>
-        /// <param name="context">The parsing context (repo, logger, etc).</param>
-        /// <returns>The count of MarketingStatus records created.</returns>
-        /// <remarks>
-        /// Handles activity codes, status codes, and effective time periods according to SPL IG Section 3.1.8.
-        /// Validates marketing activity codes against FDA SPL code system (2.16.840.1.113883.3.26.1.1).
-        /// Accepts only permitted status codes: active, completed, new, cancelled.
-        /// Parses effective time intervals with low and high date boundaries.
-        /// Recursively processes nested asContent and containerPackagedProduct elements.
-        /// </remarks>
-        /// <seealso cref="MarketingStatus"/>
-        /// <seealso cref="Product"/>
-        /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="Label"/>
-        private async Task<int> parseAndSaveMarketingStatusesAsync(
-        XElement parentEl,
-        Product product,
-        SplParseContext context)
-        {
-            #region implementation
-            int count = 0;
-            var repo = context.GetRepository<MarketingStatus>();
-
-            // Validate required dependencies before processing
-            if (context == null || repo == null || context.Logger == null)
-                return count;
-
-            // Process marketing acts at the current level
-            count += await processMarketingActsAtLevel(parentEl, product, context);
-
-            // Recursively process nested asContent elements
-            foreach (var asContent in parentEl.SplElements(sc.E.AsContent))
-            {
-                count += await parseAndSaveMarketingStatusesAsync(asContent, product, context);
-
-                // Also process containerPackagedProduct within asContent
-                foreach (var container in asContent.SplElements(sc.E.ContainerPackagedProduct))
-                {
-                    count += await parseAndSaveMarketingStatusesAsync(container, product, context);
-                }
-            }
-
-            return count;
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Processes marketing acts at a specific element level (non-recursive helper).
-        /// </summary>
-        /// <param name="element">XElement to scan for direct subjectOf/marketingAct children.</param>
-        /// <param name="product">The Product entity associated.</param>
-        /// <param name="context">The parsing context (repo, logger, etc).</param>
-        /// <returns>The count of MarketingStatus records created at this level.</returns>
-        private async Task<int> processMarketingActsAtLevel(
-            XElement element,
-            Product product,
-            SplParseContext context)
-        {
-            int count = 0;
-            var repo = context.GetRepository<MarketingStatus>();
-
-            // Process all subjectOf/marketingAct structures at this level only
-            foreach (var subjOf in element.SplElements(sc.E.SubjectOf))
-            {
-                foreach (var mktAct in subjOf.SplElements(sc.E.MarketingAct))
-                {
-                    // <code> (activity of marketing/sample)
-                    var codeEl = mktAct.GetSplElement(sc.E.Code);
-                    string? actCode = codeEl?.GetAttrVal(sc.A.CodeValue);
-                    string? actCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
-
-                    // Only accept act codes for marketing or drug sample (per SPL Table)
-                    if (actCodeSystem != "2.16.840.1.113883.3.26.1.1")
-                        continue;
-
-                    // <statusCode> (active, completed, new, cancelled)
-                    var statusCodeEl = mktAct.GetSplElement(sc.E.StatusCode);
-                    string? statusCode = statusCodeEl?.GetAttrVal(sc.A.CodeValue);
-
-                    // Accept only permitted status codes according to SPL standards
-                    if (statusCode == null ||
-                        !(statusCode.Equals("active", StringComparison.OrdinalIgnoreCase) ||
-                          statusCode.Equals("completed", StringComparison.OrdinalIgnoreCase) ||
-                          statusCode.Equals("new", StringComparison.OrdinalIgnoreCase) ||
-                          statusCode.Equals("cancelled", StringComparison.OrdinalIgnoreCase)))
-                        continue;
-
-                    // <effectiveTime> block - parse start and end dates
-                    var effTimeEl = mktAct.GetSplElement(sc.E.EffectiveTime);
-                    DateTime? effectiveStartDate = null;
-                    DateTime? effectiveEndDate = null;
-
-                    if (effTimeEl != null)
-                    {
-                        // Parse low (start) date
-                        var lowEl = effTimeEl.GetSplElement(sc.E.Low);
-                        if (lowEl != null)
-                        {
-                            var lowValue = lowEl.GetAttrVal(sc.A.Value);
-                            if (!string.IsNullOrEmpty(lowValue))
-                            {
-                                effectiveStartDate = Util.ParseNullableDateTime(lowValue);
-                            }
-                        }
-
-                        // Parse high (end) date
-                        var highEl = effTimeEl.GetSplElement(sc.E.High);
-                        if (highEl != null)
-                        {
-                            var highValue = highEl.GetAttrVal(sc.A.Value);
-                            if (!string.IsNullOrEmpty(highValue))
-                            {
-                                effectiveEndDate = Util.ParseNullableDateTime(highValue);
-                            }
-                        }
-                    }
-
-                    // Build and save the MarketingStatus entity
-                    var marketingStatus = new MarketingStatus
-                    {
-                        ProductID = product.ProductID,
-                        MarketingActCode = actCode,
-                        MarketingActCodeSystem = actCodeSystem,
-                        StatusCode = statusCode,
-                        EffectiveStartDate = effectiveStartDate,
-                        EffectiveEndDate = effectiveEndDate
-                    };
-
-                    await repo.CreateAsync(marketingStatus);
-                    count++;
-                    context?.Logger?.LogInformation(
-                        $"MarketingStatus created: ProductID={product.ProductID}, ActCode={actCode}, Status={statusCode}, Start={effectiveStartDate:yyyy-MM-dd}, End={effectiveEndDate:yyyy-MM-dd}");
-                }
-            }
-
-            return count;
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Parses and saves all DEA Policy entities under [subjectOf][policy] nodes for a given product.
         /// </summary>
         /// <param name="parentEl">XElement (usually [manufacturedProduct]) to scan for DEA schedule policies.</param>
@@ -411,4 +285,3 @@ namespace MedRecPro.Service.ParsingServices
         }
     }
 }
-

@@ -122,6 +122,11 @@ namespace MedRecPro.Service.ParsingServices
         public Product? CurrentProduct { get; set; }
 
         /// <summary>
+        /// Gets or sets the current packaging level being processed.
+        /// </summary>
+        public PackagingLevel? CurrentPackagingLevel { get; set; }
+
+        /// <summary>
         /// Gets or sets the current business operation being processed.
         /// </summary>
         public BusinessOperation? CurrentBusinessOperation { get; set; }

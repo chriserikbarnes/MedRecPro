@@ -4,7 +4,7 @@ using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using static MedRecPro.Models.Label;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
@@ -70,6 +70,13 @@ namespace MedRecPro.Service.ParsingServices
             var result = new SplParseResult();
             var product = context.CurrentProduct;
 
+            if (context == null || element == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Cannot parse packaging because context or element is null.");
+                return result;
+            }
+
             // Validate that a product is available in the context to link entities to.
             if (product?.ProductID == null)
             {
@@ -79,27 +86,39 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
-            // Find all top-level <asContent> elements to begin the recursive parsing.
-            var asContentEls = element.SplFindElements(sc.E.AsContent);
-            if (asContentEls != null && asContentEls.Any())
+            // --- SET PACKAGE LEVEL CONTEXT FOR CHILD PARSERS ---
+            // Store the previous level context to restore later. This ensures that even if an
+            // exception occurs, the context is restored, preventing side effects.
+            var oldPackage = context?.CurrentPackagingLevel;
+
+            try
             {
-                reportProgress?.Invoke($"Starting Packaging Level XML Elements {context.FileNameInZip}");
-                foreach (var asContentEl in asContentEls)
+                // Find all top-level <asContent> elements to begin the recursive parsing.
+                var asContentEls = element.SplFindElements(sc.E.AsContent);
+                if (asContentEls != null && asContentEls.Any() && context != null)
                 {
-                    // Use the enhanced method that includes event parsing. This method calls the base
-                    // packaging parser internally, ensuring no duplication.
-                    result.ProductElementsCreated +=
-                        await parseAndSavePackagingLevelsAsync(asContentEl, product, context);
+                    reportProgress?.Invoke($"Starting Packaging Level XML Elements {context.FileNameInZip}");
+                    foreach (var asContentEl in asContentEls)
+                    {
+                        // Use the enhanced method that includes event parsing. This method calls the base
+                        // packaging parser internally, ensuring no duplication.
+                        result.ProductElementsCreated +=
+                            await parseAndSavePackagingLevelsAsync(asContentEl, product, context);
+                    }
+                    reportProgress?.Invoke($"Completed Packaging Level XML Elements {context.FileNameInZip}");
                 }
-                reportProgress?.Invoke($"Completed Packaging Level XML Elements {context.FileNameInZip}");
+            }
+            finally
+            {
+                // CRITICAL: Restore the previous packaging level context to prevent leakage
+                // into sibling or parent element parsing.
+                if (context != null)
+                    context.CurrentPackagingLevel = oldPackage;
             }
 
             return result;
             #endregion
         }
-
-
-       
 
         /**************************************************************/
         /// <summary>
@@ -146,6 +165,30 @@ namespace MedRecPro.Service.ParsingServices
             // Create and save the main packaging level entity
             var packagingLevel = await createPackagingLevelEntityAsync(
                 product, parentProductInstanceId, quantityInfo, packageFormInfo, context);
+
+            if (packagingLevel != null)
+            {
+                // Update the current packaging level context for child parsers
+                var oldPackage = context.CurrentPackagingLevel;
+                context.CurrentPackagingLevel = packagingLevel;
+                try
+                {
+                    // Ensure the context is restored even if an exception occurs
+                    // during the processing of nested levels or identifiers.
+                    // This prevents "leakage" of the current package context.
+                    // Note: We do not process nested levels here; that is done below.
+
+                    // Placeholder for potential future marketing parser integration
+
+                    var marketingParser = new ProductMarketingParser();
+                
+                    }
+                finally
+                {
+                    context.CurrentPackagingLevel = oldPackage;
+                }
+            }
+
 
             int count = 1;
             context.Logger.LogInformation($"PackagingLevel created: ID={packagingLevel.PackagingLevelID}, ProductID={packagingLevel.ProductID}, FormCode={packageFormInfo.FormCode}");
