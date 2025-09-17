@@ -47,16 +47,18 @@
 
                 @if (Model.HasActiveMoieties && Model.OrderedActiveMoieties != null)
                 {
-                    foreach (var moiety in Model.OrderedActiveMoieties)
+                      <activeMoiety>
+                    @foreach (var moiety in Model.OrderedActiveMoieties)
                     {
                         <activeMoiety>
                             @if (!string.IsNullOrEmpty(moiety.MoietyUNII))
                             {
-                                <code @SplTemplateHelpers.Attribute("code", moiety.MoietyUNII) />
+                                <code @SplTemplateHelpers.Attribute("code", moiety.MoietyUNII) @SplTemplateHelpers.Attribute("codeSystem", Model.FdaSrsCodeSystem) />
                             }
                             <name>@(moiety.MoietyName ?? "")</name>
                         </activeMoiety>
                     }
+                    </activeMoiety>
                 }
             </ingredientSubstance>
         </ingredient>

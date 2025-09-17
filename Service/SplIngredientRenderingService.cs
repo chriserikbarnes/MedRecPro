@@ -1,4 +1,5 @@
 ﻿using MedRecPro.Models;
+using System.Linq;
 using static MedRecPro.Models.Label;
 
 namespace MedRecPro.Service
@@ -131,9 +132,7 @@ namespace MedRecPro.Service
         /// <summary>
         /// Default code system values for ingredient substances.
         /// </summary>
-        private const string FDA_SRS_CODE_SYSTEM = "2.16.840.1.113883.4.9";
-        private const string FDA_SRS_CODE_SYSTEM_NAME = "FDA SRS";
-        private const string ACTIVE_INGREDIENT_ELEMENT = "activeIngredient";
+        private const string ACTIVE_INGREDIENT_ELEMENT = SplConstants.E.ActiveIngredient;
 
         /**************************************************************/
         /// <summary>
@@ -251,7 +250,10 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return ingredient?.OriginatingElement?.Equals(ACTIVE_INGREDIENT_ELEMENT, StringComparison.OrdinalIgnoreCase) == true;
+            return ingredient?.OriginatingElement?.Equals(ACTIVE_INGREDIENT_ELEMENT, StringComparison.OrdinalIgnoreCase) == true
+                || (ingredient != null 
+                    && !string.IsNullOrWhiteSpace(ingredient.ClassCode) 
+                    && Constant.ACTIVE_INGREDIENT_CLASS_CODES.Contains(ingredient.ClassCode)) == true;
 
             #endregion
         }
@@ -531,34 +533,6 @@ namespace MedRecPro.Service
             // would be extracted from ingredient data and included in rendering context
 
             return quantity.Value.ToString("G29");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets the FDA SRS code system for UNII codes.
-        /// </summary>
-        /// <returns>FDA SRS code system constant</returns>
-        private static string getFdaSrsCodeSystem()
-        {
-            #region implementation
-
-            return FDA_SRS_CODE_SYSTEM;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets the FDA SRS code system name for UNII codes.
-        /// </summary>
-        /// <returns>FDA SRS code system name constant</returns>
-        private static string getFdaSrsCodeSystemName()
-        {
-            #region implementation
-
-            return FDA_SRS_CODE_SYSTEM_NAME;
 
             #endregion
         }

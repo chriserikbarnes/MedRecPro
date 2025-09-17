@@ -6,19 +6,19 @@
 @if (Model != null)
 {
     var sectionModel = Model.Section;
-    var sectionRootGuid = SplTemplateHelpers.GuidUp(sectionModel.SectionGUID);
+    var sectionRootGuid = SplTemplateHelpers.GuidDown(sectionModel.SectionGUID);
 
     <section @SplTemplateHelpers.Attribute("ID", Model.SectionIdAttribute)>
         <id @SplTemplateHelpers.Attribute("root", sectionRootGuid) />
 
         @if (Model.HasSectionCode)
         {
-            <code @SplTemplateHelpers.Attribute("code", sectionModel.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", sectionModel.SectionCodeSystem) @SplTemplateHelpers.Attribute("codeSystemName", Model.SectionCodeSystemName) @SplTemplateHelpers.Attribute("displayName", sectionModel.SectionDisplayName) />
+            <code @SplTemplateHelpers.Attribute("code", sectionModel.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", sectionModel.SectionCodeSystem) @SplTemplateHelpers.Attribute("displayName", sectionModel.SectionDisplayName) />
         }
 
         @if (!string.IsNullOrWhiteSpace(sectionModel.Title))
         {
-            <title mediaType="text/x-hl7-title+xml">@sectionModel.Title</title>
+            <title>@sectionModel.Title</title>
         }
 
         @if (Model?.Section?.EffectiveTime != null)

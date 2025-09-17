@@ -12,8 +12,8 @@
         @if (Model.HasQuantity)
         {
             <quantity>
-                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator)></numerator>
-                <denominator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator)></denominator>
+                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator) />
+                <denominator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator) />
             </quantity>
         }
         <containerPackagedProduct>
@@ -22,7 +22,7 @@
             {
                 foreach (var identifier in Model.OrderedPackageIdentifiers)
                 {
-                    <code @SplTemplateHelpers.Attribute("code", identifier.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", identifier.IdentifierSystemOID) @SplTemplateHelpers.Attribute("codeSystemName", identifier.IdentifierType ?? "NDC") />
+                    <code @SplTemplateHelpers.Attribute("code", identifier.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", identifier.IdentifierSystemOID) />
                 }
             }
             else

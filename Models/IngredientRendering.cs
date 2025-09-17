@@ -168,7 +168,7 @@
         /// This method is maintained for backward compatibility.
         /// New code should prefer using constants from the service.
         /// </remarks>
-        public string FdaSrsCodeSystem => "2.16.840.1.113883.4.9";
+        public string FdaSrsCodeSystem => Constant.FDA_UNII_CODE_SYSTEM;
 
         /**************************************************************/
         /// <summary>

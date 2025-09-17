@@ -250,6 +250,22 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Normalizes GUIDs to uppercase to match SPL examples
+        /// Enhanced with null safety and format validation
+        /// </summary>
+        /// <param name="g">The GUID to format</param>
+        /// <returns>Uppercase GUID string or empty string if null</returns>
+        /// <seealso cref="Label"/>
+        public static string GuidDown(Guid? g)
+        {
+            if (!g.HasValue || g.Value == Guid.Empty)
+                return "";
+
+            return g.Value.ToString("D").ToLowerInvariant();
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Safely converts string to uppercase GUID format
         /// </summary>
         /// <param name="guidString">String representation of GUID</param>

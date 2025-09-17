@@ -181,7 +181,7 @@ namespace MedRecPro.Service
             if (documentDto?.DocumentGUID == null)
                 return string.Empty;
 
-            return SplTemplateHelpers.GuidUp(documentDto.DocumentGUID) ?? string.Empty;
+            return SplTemplateHelpers.GuidDown(documentDto.DocumentGUID) ?? string.Empty;
 
             #endregion
         }
@@ -277,7 +277,7 @@ namespace MedRecPro.Service
             if (documentDto?.SetGUID == null)
                 return string.Empty;
 
-            return SplTemplateHelpers.GuidUp(documentDto.SetGUID) ?? string.Empty;
+            return SplTemplateHelpers.GuidDown(documentDto.SetGUID) ?? string.Empty;
 
             #endregion
         }

@@ -11,7 +11,7 @@
     var productModel = Model.ProductDto;
     <subject>
         <manufacturedProduct>
-            <manufacturedMedicine>
+            <manufacturedProduct>
 
                 @* Render NDC identifier if available *@
                 @if (Model.HasNdcIdentifier && Model.NdcProductIdentifier != null)
@@ -61,7 +61,7 @@
                         await IncludeAsync("_Packaging", packageRendering);
                     }
                 }
-            </manufacturedMedicine>
+            </manufacturedProduct>
 
             @* Render characteristics with proper fallback logic *@
             @if (Model.HasCharacteristicRendering && Model.CharacteristicRendering != null)
