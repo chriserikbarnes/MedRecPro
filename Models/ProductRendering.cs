@@ -1,6 +1,4 @@
-﻿using static MedRecPro.Models.Label;
-
-namespace MedRecPro.Models
+﻿namespace MedRecPro.Models
 {
     /**************************************************************/
     /// <summary>
@@ -9,6 +7,7 @@ namespace MedRecPro.Models
     /// for efficient template rendering.
     /// </summary>
     /// <seealso cref="ProductDto"/>
+    /// <seealso cref="Label"/>
     public class ProductRendering
     {
         #region core properties
@@ -30,6 +29,7 @@ namespace MedRecPro.Models
         /// Generated from product identifiers with NDC type filtering.
         /// </summary>
         /// <seealso cref="ProductIdentifierDto"/>
+        /// <seealso cref="Label"/>
         public ProductIdentifierDto? NdcProductIdentifier { get; set; }
 
         /**************************************************************/
@@ -37,6 +37,7 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has valid data.
         /// </summary>
         /// <seealso cref="ProductDto"/>
+        /// <seealso cref="Label"/>
         public bool HasValidData { get; set; }
 
         /**************************************************************/
@@ -45,6 +46,7 @@ namespace MedRecPro.Models
         /// Null if no active ingredients exist.
         /// </summary>
         /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="Label"/>
         public List<IngredientDto>? OrderedActiveIngredients { get; set; }
 
         /**************************************************************/
@@ -53,6 +55,7 @@ namespace MedRecPro.Models
         /// Null if no inactive ingredients exist.
         /// </summary>
         /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="Label"/>
         public List<IngredientDto>? OrderedInactiveIngredients { get; set; }
 
         /**************************************************************/
@@ -61,6 +64,7 @@ namespace MedRecPro.Models
         /// Null if no characteristics exist.
         /// </summary>
         /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="Label"/>
         public List<CharacteristicDto>? OrderedCharacteristics { get; set; }
 
         /**************************************************************/
@@ -69,6 +73,7 @@ namespace MedRecPro.Models
         /// Null if no top-level packaging exists.
         /// </summary>
         /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="Label"/>
         public List<PackagingLevelDto>? OrderedTopLevelPackaging { get; set; }
 
         /**************************************************************/
@@ -77,6 +82,7 @@ namespace MedRecPro.Models
         /// Null if no routes exist.
         /// </summary>
         /// <seealso cref="RouteDto"/>
+        /// <seealso cref="Label"/>
         public List<RouteDto>? OrderedRoutes { get; set; }
 
         /**************************************************************/
@@ -84,6 +90,7 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has NDC identifier.
         /// </summary>
         /// <seealso cref="NdcProductIdentifier"/>
+        /// <seealso cref="Label"/>
         public bool HasNdcIdentifier { get; set; }
 
         /**************************************************************/
@@ -91,6 +98,7 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has active ingredients to render.
         /// </summary>
         /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="Label"/>
         public bool HasActiveIngredients { get; set; }
 
         /**************************************************************/
@@ -98,6 +106,7 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has inactive ingredients to render.
         /// </summary>
         /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="Label"/>
         public bool HasInactiveIngredients { get; set; }
 
         /**************************************************************/
@@ -105,6 +114,7 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has characteristics to render.
         /// </summary>
         /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="Label"/>
         public bool HasCharacteristics { get; set; }
 
         /**************************************************************/
@@ -112,6 +122,7 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has top-level packaging to render.
         /// </summary>
         /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="Label"/>
         public bool HasTopLevelPackaging { get; set; }
 
         /**************************************************************/
@@ -119,6 +130,7 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has routes to render.
         /// </summary>
         /// <seealso cref="RouteDto"/>
+        /// <seealso cref="Label"/>
         public bool HasRoutes { get; set; }
 
         /**************************************************************/
@@ -126,7 +138,50 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has generic medicines to render.
         /// </summary>
         /// <seealso cref="GenericMedicineDto"/>
+        /// <seealso cref="Label"/>
         public bool HasGenericMedicines { get; set; }
+
+        #endregion
+
+        #region marketing status properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and ordered marketing categories for efficient rendering.
+        /// Contains MarketingCategoryDto objects with marketing status information.
+        /// Null if no marketing categories exist.
+        /// </summary>
+        /// <seealso cref="MarketingCategoryDto"/>
+        /// <seealso cref="Label"/>
+        public List<MarketingCategoryDto>? OrderedMarketingCategories { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this product has marketing status to render.
+        /// Based on the presence of marketing categories with valid status information.
+        /// </summary>
+        /// <seealso cref="MarketingCategoryDto"/>
+        /// <seealso cref="Label"/>
+        public bool HasMarketingStatus { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed primary marketing category for efficient rendering.
+        /// Contains the primary MarketingCategoryDto object for single-status scenarios.
+        /// Null if no primary marketing category exists.
+        /// </summary>
+        /// <seealso cref="MarketingCategoryDto"/>
+        /// <seealso cref="Label"/>
+        public MarketingCategoryDto? PrimaryMarketingCategory { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this product has a primary marketing category.
+        /// Used for template optimization in single-status rendering scenarios.
+        /// </summary>
+        /// <seealso cref="PrimaryMarketingCategory"/>
+        /// <seealso cref="Label"/>
+        public bool HasPrimaryMarketingCategory { get; set; }
 
         #endregion
 
@@ -142,6 +197,7 @@ namespace MedRecPro.Models
         /// <seealso cref="IngredientRendering"/>
         /// <seealso cref="OrderedActiveIngredients"/>
         /// <seealso cref="OrderedInactiveIngredients"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// This collection combines both active and inactive ingredients with pre-computed properties.
         /// Use this collection in preference to the raw OrderedActiveIngredients and OrderedInactiveIngredients 
@@ -159,6 +215,7 @@ namespace MedRecPro.Models
         /// <seealso cref="IngredientRendering"/>
         /// <seealso cref="Ingredients"/>
         /// <seealso cref="OrderedActiveIngredients"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// This filtered collection contains only active ingredients with optimized properties.
         /// Provides direct access to active ingredients without requiring filtering in templates.
@@ -175,6 +232,7 @@ namespace MedRecPro.Models
         /// <seealso cref="IngredientRendering"/>
         /// <seealso cref="Ingredients"/>
         /// <seealso cref="OrderedInactiveIngredients"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// This filtered collection contains only inactive ingredients with optimized properties.
         /// Provides direct access to inactive ingredients without requiring filtering in templates.
@@ -195,6 +253,7 @@ namespace MedRecPro.Models
         /// </summary>
         /// <seealso cref="PackageRendering"/>
         /// <seealso cref="OrderedTopLevelPackaging"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// This collection contains top-level packaging with pre-computed properties for optimal performance.
         /// Use this collection in preference to the raw OrderedTopLevelPackaging for optimal template performance.
@@ -208,6 +267,7 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has package rendering contexts.
         /// </summary>
         /// <seealso cref="PackageRendering"/>
+        /// <seealso cref="Label"/>
         public bool HasPackageRendering { get; set; }
 
         #endregion
@@ -223,6 +283,7 @@ namespace MedRecPro.Models
         /// </summary>
         /// <seealso cref="CharacteristicRendering"/>
         /// <seealso cref="OrderedCharacteristics"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// This collection contains characteristics with pre-computed properties for optimal performance.
         /// Use this collection in preference to the raw OrderedCharacteristics for optimal template performance.
@@ -236,6 +297,7 @@ namespace MedRecPro.Models
         /// Pre-computed flag indicating whether this product has characteristic rendering contexts.
         /// </summary>
         /// <seealso cref="CharacteristicRendering"/>
+        /// <seealso cref="Label"/>
         public bool HasCharacteristicRendering { get; set; }
 
         #endregion
@@ -248,6 +310,7 @@ namespace MedRecPro.Models
         /// </summary>
         /// <returns>True if any ingredients exist</returns>
         /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// This method is maintained for backward compatibility.
         /// New code should prefer using the service to pre-compute data.
@@ -260,6 +323,7 @@ namespace MedRecPro.Models
         /// </summary>
         /// <returns>True if packaging levels exist</returns>
         /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// This method is maintained for backward compatibility.
         /// New code should prefer using the service to pre-compute data.

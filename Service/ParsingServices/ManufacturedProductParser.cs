@@ -134,8 +134,8 @@ namespace MedRecPro.Service.ParsingServices
                 // Handle SPL variations where the main data is in a nested manufacturedMedicine element
                 // Use the nested element if it exists, otherwise use the main element. Older labels
                 // will have medicine. Current 2023 requires product.
-                var mmEl = element.SplElement(sc.E.ManufacturedMedicine) 
-                    ?? element.SplElement(sc.E.ManufacturedProduct) 
+                var mmEl = element.SplElement(sc.E.ManufacturedMedicine)
+                    ?? element.SplElement(sc.E.ManufacturedProduct)
                     ?? element;
 
                 // Create the Product entity with extracted metadata
@@ -144,7 +144,7 @@ namespace MedRecPro.Service.ParsingServices
                     SectionID = context.CurrentSection.SectionID.Value,
 
                     // Extract product name from the name element
-                    ProductName = mmEl.GetSplElementVal(sc.E.Name) 
+                    ProductName = mmEl.GetSplElementVal(sc.E.Name)
                         ?? mmEl.GetSplElementVal(sc.E.ManufacturedProduct, sc.E.Name),
 
                     // Extract product suffix from the suffix element
@@ -191,8 +191,19 @@ namespace MedRecPro.Service.ParsingServices
                     // --- PARSE MARKETING CATEGORY ---
                     reportProgress?.Invoke($"Starting Product Marketing XML Elements {context.FileNameInZip}");
                     var marketingParser = new ProductMarketingParser();
+
+                    // parse marketing for the product element within the second manufacturedProduct level
+                    // i.e. <manufacturedProduct><manufacturedProduct>
                     var marketingResult = await marketingParser.ParseAsync(mmEl, context, reportProgress);
                     result.MergeFrom(marketingResult);
+
+                    // parse marketing for the product element within the first manufacturedProduct level
+                    // if the element is different than the mmEl i.e. <manufacturedProduct> != <manufacturedProduct><manufacturedProduct>
+                    if (element != mmEl)
+                    {
+                        marketingResult = await marketingParser.ParseAsync(element, context, reportProgress);
+                        result.MergeFrom(marketingResult);
+                    }
 
                     // --- PARSE CHARACTERISTICS FOR MANUFACUTRED PRODUCT (this may exist as component separate from medicine) ---
                     reportProgress?.Invoke($"Starting Product Characteristics XML Product Elements {context.FileNameInZip}");
@@ -211,7 +222,7 @@ namespace MedRecPro.Service.ParsingServices
                     var businessOperationParser = new BusinessOperationParser();
                     var businessOperationResult = await businessOperationParser.ParseAsync(mmEl, context, reportProgress);
                     result.MergeFrom(businessOperationResult);
-             
+
                     // --- PARSE RODUCT RELATIONSHIP ---
                     reportProgress?.Invoke($"Starting Product Relation XML Elements {context.FileNameInZip}");
                     var relationshipParser = new ProductRelationshipParser(this); // 'this' provides the needed recursion callback
@@ -229,7 +240,7 @@ namespace MedRecPro.Service.ParsingServices
                     var packagingParser = new PackagingParser();
                     var packagingResult = await packagingParser.ParseAsync(mmEl, context, reportProgress);
                     result.MergeFrom(packagingResult);
-            
+
                     result.ProductsCreated++;
                     context.Logger.LogInformation("Created Product '{ProductName}' with ID {ProductID}", product.ProductName, product.ProductID);
                     reportProgress?.Invoke($"Completed Packaging Level XML Elements {context.FileNameInZip}");

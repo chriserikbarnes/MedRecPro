@@ -169,7 +169,7 @@ namespace MedRecPro.Models
         /// <summary>
         /// Pre-computed unit display name.
         /// </summary>
-        public string? UnitDisplayName { get; set; }
+        public string? NumeratorUnit { get; set; }
 
         #endregion
 

@@ -12,6 +12,7 @@ namespace MedRecPro.Service
     /// </summary>
     /// <seealso cref="ProductDto"/>
     /// <seealso cref="ProductRendering"/>
+    /// <seealso cref="Label"/>
     public interface IProductRenderingService
     {
         #region core methods
@@ -30,6 +31,7 @@ namespace MedRecPro.Service
         /// <seealso cref="IIngredientRenderingService"/>
         /// <seealso cref="IPackageRenderingService"/>
         /// <seealso cref="ICharacteristicRenderingService"/>
+        /// <seealso cref="Label"/>
         ProductRendering PrepareForRendering(ProductDto product,
             object? additionalParams = null,
             IIngredientRenderingService? ingredientRenderingService = null,
@@ -44,6 +46,7 @@ namespace MedRecPro.Service
         /// <returns>NDC product identifier or null if none exists</returns>
         /// <seealso cref="ProductDto"/>
         /// <seealso cref="ProductIdentifierDto"/>
+        /// <seealso cref="Label"/>
         ProductIdentifierDto? GetNdcProductIdentifier(ProductDto product);
 
         /**************************************************************/
@@ -53,6 +56,7 @@ namespace MedRecPro.Service
         /// <param name="product">The product to validate</param>
         /// <returns>True if product has valid data</returns>
         /// <seealso cref="ProductDto"/>
+        /// <seealso cref="Label"/>
         bool HasValidData(ProductDto product);
 
         /**************************************************************/
@@ -62,6 +66,7 @@ namespace MedRecPro.Service
         /// <param name="product">The product containing ingredients</param>
         /// <returns>Ordered list of active ingredients or null if none exists</returns>
         /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="Label"/>
         List<IngredientDto>? GetOrderedActiveIngredients(ProductDto product);
 
         /**************************************************************/
@@ -71,6 +76,7 @@ namespace MedRecPro.Service
         /// <param name="product">The product containing ingredients</param>
         /// <returns>Ordered list of inactive ingredients or null if none exists</returns>
         /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="Label"/>
         List<IngredientDto>? GetOrderedInactiveIngredients(ProductDto product);
 
         /**************************************************************/
@@ -80,6 +86,7 @@ namespace MedRecPro.Service
         /// <param name="product">The product containing characteristics</param>
         /// <returns>Ordered list of characteristics or null if none exists</returns>
         /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="Label"/>
         List<CharacteristicDto>? GetOrderedCharacteristics(ProductDto product);
 
         /**************************************************************/
@@ -89,6 +96,7 @@ namespace MedRecPro.Service
         /// <param name="product">The product containing packaging levels</param>
         /// <returns>Ordered list of top-level packaging or null if none exists</returns>
         /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="Label"/>
         List<PackagingLevelDto>? GetOrderedTopLevelPackaging(ProductDto product);
 
         /**************************************************************/
@@ -98,7 +106,28 @@ namespace MedRecPro.Service
         /// <param name="product">The product containing routes</param>
         /// <returns>Ordered list of routes or null if none exists</returns>
         /// <seealso cref="RouteDto"/>
+        /// <seealso cref="Label"/>
         List<RouteDto>? GetOrderedRoutes(ProductDto product);
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets marketing categories ordered by business rules for marketing status rendering.
+        /// </summary>
+        /// <param name="product">The product containing marketing categories</param>
+        /// <returns>Ordered list of marketing categories or null if none exists</returns>
+        /// <seealso cref="MarketingCategoryDto"/>
+        /// <seealso cref="Label"/>
+        List<MarketingCategoryDto>? GetOrderedMarketingCategories(ProductDto product);
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the primary marketing category for single-status rendering scenarios.
+        /// </summary>
+        /// <param name="product">The product containing marketing categories</param>
+        /// <returns>Primary marketing category or null if none exists</returns>
+        /// <seealso cref="MarketingCategoryDto"/>
+        /// <seealso cref="Label"/>
+        MarketingCategoryDto? GetPrimaryMarketingCategory(ProductDto product);
 
         #endregion
     }
@@ -110,7 +139,8 @@ namespace MedRecPro.Service
     /// </summary>
     /// <seealso cref="IProductRenderingService"/>
     /// <seealso cref="ProductDto"/>
-    /// <seealso cref="ProductDto"/>
+    /// <seealso cref="ProductRendering"/>
+    /// <seealso cref="Label"/>
     /// <remarks>
     /// This service encapsulates all business logic that was previously
     /// embedded in Razor views, promoting better separation of concerns
@@ -134,6 +164,15 @@ namespace MedRecPro.Service
         private const string NDC_IDENTIFIER_TYPE = "NDC";
         private const string NDC_PRODUCT_IDENTIFIER_TYPE = "NDCProduct";
 
+        /**************************************************************/
+        /// <summary>
+        /// Marketing status constants for status code validation and processing.
+        /// </summary>
+        private const string MARKETING_STATUS_ACTIVE = "active";
+        private const string MARKETING_STATUS_COMPLETED = "completed";
+        private const string MARKETING_STATUS_NEW = "new";
+        private const string MARKETING_STATUS_CANCELLED = "cancelled";
+
         private IPackageRenderingService? _packageRenderingService;
 
         private IDictionaryUtilityService? _dictionaryUtilityService;
@@ -155,9 +194,9 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Enhanced PrepareForRendering method with comprehensive rendering integration including characteristics.
+        /// Enhanced PrepareForRendering method with comprehensive rendering integration including characteristics and marketing status.
         /// Prepares a complete ProductRendering object with all computed properties including optimized packaging, ingredient,
-        /// and characteristic collections for efficient template rendering following established patterns for backward compatibility.
+        /// characteristic, and marketing status collections for efficient template rendering following established patterns for backward compatibility.
         /// </summary>
         /// <param name="product">The product to prepare for rendering</param>
         /// <param name="additionalParams">Additional context parameters as needed</param>
@@ -170,6 +209,7 @@ namespace MedRecPro.Service
         /// <seealso cref="IIngredientRenderingService"/>
         /// <seealso cref="IPackageRenderingService"/>
         /// <seealso cref="ICharacteristicRenderingService"/>
+        /// <seealso cref="Label"/>
         /// <example>
         /// <code>
         /// var preparedProduct = service.PrepareForRendering(
@@ -188,6 +228,7 @@ namespace MedRecPro.Service
         /// - Optional ingredient enhancement via ingredientRenderingService
         /// - Optional packaging enhancement via packageRenderingService
         /// - Optional characteristic enhancement via characteristicRenderingService
+        /// - Marketing status computation for SPL compliance
         /// - Maintains backward compatibility through optional parameters
         /// </remarks>
         public ProductRendering PrepareForRendering(ProductDto product,
@@ -219,6 +260,10 @@ namespace MedRecPro.Service
                 OrderedTopLevelPackaging = GetOrderedTopLevelPackaging(product),
                 OrderedRoutes = GetOrderedRoutes(product),
 
+                // Pre-compute marketing status properties
+                OrderedMarketingCategories = GetOrderedMarketingCategories(product),
+                PrimaryMarketingCategory = GetPrimaryMarketingCategory(product),
+
                 // Pre-compute availability flags
                 HasNdcIdentifier = GetNdcProductIdentifier(product) != null,
                 HasActiveIngredients = GetOrderedActiveIngredients(product)?.Any() == true,
@@ -226,7 +271,9 @@ namespace MedRecPro.Service
                 HasCharacteristics = GetOrderedCharacteristics(product)?.Any() == true,
                 HasTopLevelPackaging = GetOrderedTopLevelPackaging(product)?.Any() == true,
                 HasRoutes = GetOrderedRoutes(product)?.Any() == true,
-                HasGenericMedicines = product.GenericMedicines?.Any() == true
+                HasGenericMedicines = product.GenericMedicines?.Any() == true,
+                HasMarketingStatus = GetOrderedMarketingCategories(product)?.Any() == true,
+                HasPrimaryMarketingCategory = GetPrimaryMarketingCategory(product) != null
             };
 
             additionalParams ??= new { product };
@@ -260,6 +307,7 @@ namespace MedRecPro.Service
         /// <returns>NDC product identifier or null if none exists</returns>
         /// <seealso cref="ProductDto"/>
         /// <seealso cref="ProductIdentifierDto"/>
+        /// <seealso cref="Label"/>
         /// <example>
         /// <code>
         /// var ndcIdentifier = service.GetNdcProductIdentifier(product);
@@ -289,6 +337,7 @@ namespace MedRecPro.Service
         /// <param name="product">The product to validate</param>
         /// <returns>True if product has valid data</returns>
         /// <seealso cref="ProductDto"/>
+        /// <seealso cref="Label"/>
         public bool HasValidData(ProductDto product)
         {
             #region implementation
@@ -311,6 +360,7 @@ namespace MedRecPro.Service
         /// <param name="product">The product containing ingredients</param>
         /// <returns>Ordered list of active ingredients or null if none exists</returns>
         /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="Label"/>
         public List<IngredientDto>? GetOrderedActiveIngredients(ProductDto product)
         {
             #region implementation
@@ -362,6 +412,7 @@ namespace MedRecPro.Service
         /// <param name="product">The product containing ingredients</param>
         /// <returns>Ordered list of inactive ingredients or null if none exists</returns>
         /// <seealso cref="IngredientDto"/>
+        /// <seealso cref="Label"/>
         public List<IngredientDto>? GetOrderedInactiveIngredients(ProductDto product)
         {
             #region implementation
@@ -414,6 +465,7 @@ namespace MedRecPro.Service
         /// <param name="product">The product containing characteristics</param>
         /// <returns>Ordered list of characteristics or null if none exists</returns>
         /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="Label"/>
         public List<CharacteristicDto>? GetOrderedCharacteristics(ProductDto product)
         {
             #region implementation
@@ -548,6 +600,137 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Gets routes ordered by business rules.
+        /// </summary>
+        /// <param name="product">The product containing routes</param>
+        /// <returns>Ordered list of routes or null if none exists</returns>
+        /// <seealso cref="RouteDto"/>
+        /// <seealso cref="Label"/>
+        public List<RouteDto>? GetOrderedRoutes(ProductDto product)
+        {
+            #region implementation
+
+            if (product?.ProductRouteOfAdministrations == null || !product.ProductRouteOfAdministrations.Any())
+                return null;
+
+            return product.ProductRouteOfAdministrations
+                .Select(pra => new RouteDto
+                {
+                    Route = new Dictionary<string, object?>
+                    {
+                        [nameof(RouteDto.RouteCode)] = pra.RouteCode,
+                        [nameof(RouteDto.RouteCodeSystem)] = pra.RouteCodeSystem ?? product.FormCodeSystem,
+                        [nameof(RouteDto.RouteDisplayName)] = pra.RouteDisplayName,
+                        [nameof(RouteDto.ProductRouteOfAdministrationID)] = pra.ProductRouteOfAdministrationID,
+                        [nameof(RouteDto.ProductID)] = product.ProductID
+                    }
+                })
+                .OrderBy(r => r.ProductRouteOfAdministrationID ?? 0)
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets marketing categories ordered by business rules for marketing status rendering.
+        /// Filters and orders marketing categories based on SPL specifications for proper rendering.
+        /// </summary>
+        /// <param name="product">The product containing marketing categories</param>
+        /// <returns>Ordered list of marketing categories or null if none exists</returns>
+        /// <seealso cref="MarketingCategoryDto"/>
+        /// <seealso cref="ProductDto"/>
+        /// <seealso cref="Label"/>
+        /// <example>
+        /// <code>
+        /// var marketingCategories = service.GetOrderedMarketingCategories(product);
+        /// if (marketingCategories != null)
+        /// {
+        ///     foreach (var category in marketingCategories)
+        ///     {
+        ///         // Process marketing category for rendering
+        ///     }
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method applies SPL business rules for marketing status:
+        /// - Filters out invalid or incomplete marketing categories
+        /// - Orders by MarketingCategoryID for consistent rendering
+        /// - Validates required fields according to SPL specifications
+        /// </remarks>
+        public List<MarketingCategoryDto>? GetOrderedMarketingCategories(ProductDto product)
+        {
+            #region implementation
+
+            if (product?.MarketingCategories == null || !product.MarketingCategories.Any())
+                return null;
+
+            var validMarketingCategories = new List<MarketingCategoryDto>();
+
+            // Filter and validate marketing categories based on SPL requirements
+            foreach (var marketingCategory in product.MarketingCategories)
+            {
+                // Validate required fields for marketing status rendering
+                if (isValidMarketingCategory(marketingCategory))
+                {
+                    validMarketingCategories.Add(marketingCategory);
+                }
+            }
+
+            // Return null if no valid marketing categories found, otherwise sort and return
+            if (validMarketingCategories.Count == 0)
+                return null;
+
+            // Order by MarketingCategoryID for consistent rendering
+            validMarketingCategories.Sort((x, y) =>
+                (x.MarketingCategoryID ?? 0).CompareTo(y.MarketingCategoryID ?? 0));
+
+            return validMarketingCategories;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the primary marketing category for single-status rendering scenarios.
+        /// Returns the first valid marketing category when only one status needs to be rendered.
+        /// </summary>
+        /// <param name="product">The product containing marketing categories</param>
+        /// <returns>Primary marketing category or null if none exists</returns>
+        /// <seealso cref="MarketingCategoryDto"/>
+        /// <seealso cref="ProductDto"/>
+        /// <seealso cref="Label"/>
+        /// <example>
+        /// <code>
+        /// var primaryCategory = service.GetPrimaryMarketingCategory(product);
+        /// if (primaryCategory != null)
+        /// {
+        ///     // Render single marketing status
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method provides a convenient way to get the primary marketing category
+        /// for templates that need to render a single marketing status element.
+        /// Uses the same filtering logic as GetOrderedMarketingCategories.
+        /// </remarks>
+        public MarketingCategoryDto? GetPrimaryMarketingCategory(ProductDto product)
+        {
+            #region implementation
+
+            var orderedCategories = GetOrderedMarketingCategories(product);
+            return orderedCategories?.FirstOrDefault();
+
+            #endregion
+        }
+
+        #endregion
+
+        #region private methods
+
+        /**************************************************************/
+        /// <summary>
         /// Determines if a packaging level is a business duplicate of any child packaging level.
         /// Compares all relevant business attributes to identify functional duplicates that
         /// would result in redundant XML rendering.
@@ -596,39 +779,48 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Gets routes ordered by business rules.
+        /// Validates if a marketing category contains the required fields for marketing status rendering.
+        /// Checks against SPL specification requirements for marketing status elements.
         /// </summary>
-        /// <param name="product">The product containing routes</param>
-        /// <returns>Ordered list of routes or null if none exists</returns>
-        /// <seealso cref="RouteDto"/>
-        public List<RouteDto>? GetOrderedRoutes(ProductDto product)
+        /// <param name="marketingCategory">The marketing category to validate</param>
+        /// <returns>True if the marketing category is valid for rendering</returns>
+        /// <seealso cref="MarketingCategoryDto"/>
+        /// <seealso cref="Label"/>
+        /// <remarks>
+        /// This method validates SPL requirements including:
+        /// - Required category code and code system
+        /// - Valid territory code
+        /// - Application or monograph ID information
+        /// Additional validation rules can be added based on document type and business requirements.
+        /// </remarks>
+        private bool isValidMarketingCategory(MarketingCategoryDto marketingCategory)
         {
             #region implementation
 
-            if (product?.ProductRouteOfAdministrations == null || !product.ProductRouteOfAdministrations.Any())
-                return null;
+            if (marketingCategory == null)
+                return false;
 
-            return product.ProductRouteOfAdministrations
-                .Select(pra => new RouteDto
-                {
-                    Route = new Dictionary<string, object?>
-                    {
-                        [nameof(RouteDto.RouteCode)] = pra.RouteCode,
-                        [nameof(RouteDto.RouteCodeSystem)] = pra.RouteCodeSystem ?? product.FormCodeSystem,
-                        [nameof(RouteDto.RouteDisplayName)] = pra.RouteDisplayName,
-                        [nameof(RouteDto.ProductRouteOfAdministrationID)] = pra.ProductRouteOfAdministrationID,
-                        [nameof(RouteDto.ProductID)] = product.ProductID
-                    }
-                })
-                .OrderBy(r => r.ProductRouteOfAdministrationID ?? 0)
-                .ToList();
+            // Validate required fields according to SPL specifications
+            if (string.IsNullOrWhiteSpace(marketingCategory.CategoryCode))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(marketingCategory.CategoryCodeSystem))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(marketingCategory.TerritoryCode))
+                return false;
+
+            // Application or Monograph ID should be present for proper identification
+            if (string.IsNullOrWhiteSpace(marketingCategory.ApplicationOrMonographIDValue))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(marketingCategory.ApplicationOrMonographIDOID))
+                return false;
+
+            return true;
 
             #endregion
         }
-
-        #endregion
-
-        #region private methods
 
         /**************************************************************/
         /// <summary>
@@ -643,6 +835,7 @@ namespace MedRecPro.Service
         /// <seealso cref="ProductRendering.ActiveIngredients"/>
         /// <seealso cref="ProductRendering.InactiveIngredients"/>
         /// <seealso cref="IIngredientRenderingService.PrepareForRendering"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// Enhanced ingredient processing workflow:
         /// - Process all ingredients with enhanced rendering service
@@ -725,6 +918,7 @@ namespace MedRecPro.Service
         /// <seealso cref="ProductRendering.PackageRendering"/>
         /// <seealso cref="IPackageRenderingService.PrepareForRendering"/>
         /// <seealso cref="PackageRendering"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// Packaging processing workflow:
         /// - Validation of existing packaging in OrderedTopLevelPackaging collection
@@ -797,6 +991,7 @@ namespace MedRecPro.Service
         /// <seealso cref="PackageRendering.OrderedChildPackaging"/>
         /// <seealso cref="PackageRendering.ChildPackageRendering"/>
         /// <seealso cref="IPackageRenderingService.PrepareForRendering"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// Recursive processing ensures that all levels of packaging hierarchy are optimized:
         /// - Child packaging level creation through PackageRenderingService
@@ -860,6 +1055,7 @@ namespace MedRecPro.Service
         /// <seealso cref="ProductRendering.CharacteristicRendering"/>
         /// <seealso cref="ProductRendering.OrderedCharacteristics"/>
         /// <seealso cref="ICharacteristicRenderingService.PrepareForRendering"/>
+        /// <seealso cref="Label"/>
         /// <remarks>
         /// Enhanced characteristic processing workflow following established patterns:
         /// - Process all characteristics with enhanced rendering service

@@ -22,15 +22,6 @@
                 <name>@productModel.ProductName</name>
                 <formCode @SplTemplateHelpers.Attribute("code", productModel.FormCode) @SplTemplateHelpers.Attribute("codeSystem", productModel.FormCodeSystem) @SplTemplateHelpers.Attribute("displayName", productModel.FormDisplayName) />
 
-                @* Render active ingredients if available *@
-                @if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
-                {
-                    foreach (var ingredient in Model.ActiveIngredients)
-                    {
-                        await IncludeAsync("_Ingredient", ingredient);
-                    }
-                }
-
                 @* Render generic medicines if available *@
                 @if (Model.HasGenericMedicines && productModel.GenericMedicines != null)
                 {
@@ -41,6 +32,15 @@
                                 <name>@generic.GenericName</name>
                             </genericMedicine>
                         </asEntityWithGeneric>
+                    }
+                }
+
+                @* Render active ingredients if available *@
+                @if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
+                {
+                    foreach (var ingredient in Model.ActiveIngredients)
+                    {
+                        await IncludeAsync("_Ingredient", ingredient);
                     }
                 }
 
@@ -63,6 +63,28 @@
                 }
             </manufacturedProduct>
 
+            @* Render marketing status if available *@
+            @if (Model.HasMarketingStatus && Model.OrderedMarketingCategories != null)
+            {
+                foreach (var marketingCategory in Model.OrderedMarketingCategories)
+                {
+                    <subjectOf>
+                        @{
+                            await IncludeAsync("_MarketingStatus", marketingCategory);
+                        }
+                    </subjectOf>
+                }
+            }
+            else if (Model.HasPrimaryMarketingCategory && Model.PrimaryMarketingCategory != null)
+            {
+                @* Render single marketing status for simplified scenarios *@  
+                 <subjectOf>
+                    @{
+                        await IncludeAsync("_MarketingStatus", Model.PrimaryMarketingCategory);
+                    }
+                </subjectOf>
+            }
+
             @* Render characteristics with proper fallback logic *@
             @if (Model.HasCharacteristicRendering && Model.CharacteristicRendering != null)
             {
@@ -78,9 +100,9 @@
             }
             else if (Model.HasCharacteristics && Model.OrderedCharacteristics != null)
             {
-   
+
                 var characteristicService = new CharacteristicRenderingService();
-            
+
                 foreach (var characteristic in Model.OrderedCharacteristics)
                 {
 

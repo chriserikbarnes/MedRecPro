@@ -1,0 +1,39 @@
+﻿@using RazorLight.Razor
+@using MedRecPro.Models
+@using MedRecPro.Helpers
+@using MedRecPro.Service
+@inherits RazorLight.TemplatePage<MedRecPro.Models.MarketingCategoryDto>
+@model MarketingCategoryDto
+
+@* Marketing status partial following SPL specifications for marketing status rendering *@
+@if (Model != null)
+{
+    @* Render approval element based on marketing category information *@
+    <approval>
+        @* Application or monograph identifier *@
+        @if (!string.IsNullOrWhiteSpace(Model.ApplicationOrMonographIDValue) &&
+            !string.IsNullOrWhiteSpace(Model.ApplicationOrMonographIDOID))
+        {
+            <id @SplTemplateHelpers.Attribute("extension", Model.ApplicationOrMonographIDValue) @SplTemplateHelpers.Attribute("root", Model.ApplicationOrMonographIDOID) />
+        }
+
+        @* Marketing category code information *@
+        @if (!string.IsNullOrWhiteSpace(Model.CategoryCode) &&
+            !string.IsNullOrWhiteSpace(Model.CategoryCodeSystem))
+        {
+            <code @SplTemplateHelpers.Attribute("code", Model.CategoryCode) @SplTemplateHelpers.Attribute("codeSystem", Model.CategoryCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.CategoryDisplayName) />
+        }
+
+        @* Author with territorial authority *@
+        @if (!string.IsNullOrWhiteSpace(Model.TerritoryCode))
+        {
+            <author>
+                <territorialAuthority>
+                    <territory>
+                        <code @SplTemplateHelpers.Attribute("code", Model.TerritoryCode) @SplTemplateHelpers.Attribute("codeSystem", "2.16.840.1.113883.5.28") />
+                    </territory>
+                </territorialAuthority>
+            </author>
+        }
+    </approval>
+}

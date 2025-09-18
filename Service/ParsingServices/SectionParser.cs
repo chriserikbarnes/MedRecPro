@@ -688,7 +688,7 @@ namespace MedRecPro.Service.ParsingServices
             // Create the parser once, outside the loop, for efficiency.
             var productParser = new ManufacturedProductParser();
 
-            // CHANGE HERE: Loop through each <subject> element found.
+            // Loop through each <subject> element found.
             foreach (var subjectEl in subjectElements)
             {
                 // Find the <manufacturedProduct> within the current <subject>.

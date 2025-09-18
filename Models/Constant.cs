@@ -23,6 +23,7 @@ namespace MedRecPro.Models
         public const string JPEG_FILE_EXTENSION = ".jpg";
         public const string TEXT_PLAIN_MEDIA_TYPE = "text/plain";
 
+        #region hl7/general codes
         // HL7 and XML General Codes
         public const string DOCUMENT_CLASS_CODE = "DOC";
         public const string EVENT_MOOD_CODE = "EVN";
@@ -33,16 +34,20 @@ namespace MedRecPro.Models
         public const string IDENTIFIED_ENTITY_CLASS_CODE = "IDENT";
         public const string PERFORMER_PARTICIPATION_TYPE_CODE = "PPRF";
         public const string NULL_FLAVOR_OTHER = "OTH";
-        public const string NULL_FLAVOR_POSITIVE_INFINITY = "PINF";
+        public const string NULL_FLAVOR_POSITIVE_INFINITY = "PINF"; 
+        #endregion
 
+        #region document relation codes
         // Related Document Type Codes
         public const string APPEND_REL_DOC_TYPE_CODE = "APND";
         public const string DERIVED_REL_DOC_TYPE_CODE = "DRIV";
         public const string REPLACE_REL_DOC_TYPE_CODE = "RPLC";
         public const string SUBJECT_REL_DOC_TYPE_CODE = "SUBJ";
         public const string EXCERPT_REL_DOC_TYPE_CODE = "XCRPT";
-        public const string TRANSFORM_REL_DOC_TYPE_CODE = "XFRM";
+        public const string TRANSFORM_REL_DOC_TYPE_CODE = "XFRM"; 
+        #endregion
 
+        #region document section codes
         // Document and Section Type Codes
         public const string SPL_PRODUCT_DATA_ELEMENTS_SECTION_CODE = "48780-1";
         public const string SPL_INDEXING_DATA_ELEMENTS_SECTION_CODE = "48779-3";
@@ -66,9 +71,10 @@ namespace MedRecPro.Models
         public const string NCT_INDEXING_DOC_CODE = "93372-1";
         public const string FDA_INITIATED_COMPLIANCE_ACTION_DOC_CODE = "89600-1";
         public const string FDA_INITIATED_COMPLIANCE_ACTION_ANIMAL_DRUG_DOC_CODE = "99282-6";
-        public const string WARNING_LETTER_SECTION_CODE = "48779-3";
+        public const string WARNING_LETTER_SECTION_CODE = "48779-3"; 
+        #endregion
 
-
+        #region marketing status codes
         // Marketing Status and Category Codes
         public const string MARKETING_STATUS_ACTIVE = "active";
         public const string MARKETING_STATUS_COMPLETED = "completed";
@@ -81,8 +87,10 @@ namespace MedRecPro.Models
         public const string MARKETING_CATEGORY_UNAPPROVED_DRUG_OTHER = "C73627";
         public const string MARKETING_CATEGORY_DIETARY_SUPPLEMENT = "C86952";
         public const string MARKETING_CATEGORY_COSMETIC = "C86965";
-        public const string MARKETING_CATEGORY_MEDICAL_FOOD = "C86964";
+        public const string MARKETING_CATEGORY_MEDICAL_FOOD = "C86964"; 
+        #endregion
 
+        #region business operation codes
         // Business Operation Codes
         public const string MANUFACTURE_CODE = "C43360";
         public const string REPACK_CODE = "C73606";
@@ -95,16 +103,20 @@ namespace MedRecPro.Models
         public const string THIRD_PARTY_LOGISTICS_PROVIDER_CODE = "C118412";
         public const string HUMAN_DRUG_COMPOUNDING_OUTSOURCING_FACILITY_CODE = "C112113";
         public const string DISTRIBUTE_CODE = "C201565";
-        public const string PACK_CODE = "C84731";
+        public const string PACK_CODE = "C84731"; 
+        #endregion
 
+        #region ingredient form codes
         // Ingredient and Product Form Codes
         public const string ACTIVE_INGREDIENT_BASIS_OF_STRENGTH_CODE = "ACTIB";
         public const string ACTIVE_INGREDIENT_MOIETY_BASIS_CODE = "ACTIM";
         public const string ACTIVE_INGREDIENT_REFERENCE_BASIS_CODE = "ACTIR";
         public const string INACTIVE_INGREDIENT_CODE = "IACT";
         public const string MAY_CONTAIN_CODE = "CNTM";
-        public const string KIT_FORM_CODE = "C47916";
+        public const string KIT_FORM_CODE = "C47916"; 
+        #endregion
 
+        #region charactertistic codes
         // Characteristic Codes
         public const string SPL_COLOR_CODE = "SPLCOLOR";
         public const string SPL_SHAPE_CODE = "SPLSHAPE";
@@ -115,24 +127,31 @@ namespace MedRecPro.Models
         public const string SPL_IMAGE_CODE = "SPLIMAGE";
         public const string SPL_COMBINATION_PRODUCT_TYPE_CODE = "SPLCMBPRDTP";
         public const string SPL_SMALL_BUSINESS_CODE = "SPLSMALLBUSINESS";
-        public const string SPL_PROFESSIONAL_USE_CODE = "SPLPROFESSIONALUSE";
+        public const string SPL_PROFESSIONAL_USE_CODE = "SPLPROFESSIONALUSE"; 
+        #endregion
 
+        #region compliance codes
         // Compliance Action Codes
         public const string INACTIVATED_CODE = "C162847";
-        public const string REACTIVATED_CODE = "C162848";
+        public const string REACTIVATED_CODE = "C162848"; 
+        #endregion
 
+        #region drug interaction codes
         // Drug Interaction Codes
         public const string INTERACTION_CODE = "C54708";
         public const string PHARMACOKINETIC_EFFECT_CODE = "C54386";
-        public const string MEDICAL_PROBLEM_CODE = "44100-6";
+        public const string MEDICAL_PROBLEM_CODE = "44100-6"; 
+        #endregion
 
+        #region rems codes
         // REMS Codes
         public const string REMS_APPROVAL_CODE = "C128899";
         public const string REMS_SUMMARY_SECTION_CODE = "82347-6";
         public const string REMS_ETASU_SECTION_CODE = "82345-0";
-        public const string REMS_PARTICIPANT_REQUIREMENTS_SECTION_CODE = "87525-2";
+        public const string REMS_PARTICIPANT_REQUIREMENTS_SECTION_CODE = "87525-2"; 
+        #endregion
 
-
+        #region code systems
         // Code systems
         public const string LOINC_CODE_SYSTEM = "2.16.840.1.113883.6.1";
         public const string SNOMED_CT_CODE_SYSTEM = "2.16.840.1.113883.6.96";
@@ -163,7 +182,46 @@ namespace MedRecPro.Models
         public const string EPA_SRS_TRACKING_CODE_SYSTEM = "2.16.840.1.113883.6.275";
         public const string CFR_CODE_SYSTEM = "2.16.840.1.113883.3.149";
         public const string SPECIFIED_SUBSTANCE_CODE_SYSTEM = "2.16.840.1.113883.3.6277";
-        public const string NCT_NUMBER_CODE_SYSTEM = "2.16.840.1.113883.3.1077";
+        public const string NCT_NUMBER_CODE_SYSTEM = "2.16.840.1.113883.3.1077"; 
+        #endregion
+
+        #region marketing codes
+        // Marketing Category Codes
+        public const string ANADA_CODE = "C73583";
+        public const string ANDA_CODE = "C73584";
+        public const string APPROVED_DRUG_PRODUCT_MANUFACTURED_UNDER_CONTRACT_CODE = "C132333";
+        public const string BLA_CODE = "C73585";
+        public const string BULK_INGREDIENT_CODE = "C73626";
+        public const string BULK_INGREDIENT_FOR_ANIMAL_DRUG_COMPOUNDING_CODE = "C98252";
+        public const string BULK_INGREDIENT_FOR_HUMAN_PRESCRIPTION_COMPOUNDING_CODE = "C96793";
+        public const string CONDITIONAL_NADA_CODE = "C73588";
+        public const string COSMETIC_CODE = "C86965";
+        public const string DIETARY_SUPPLEMENT_CODE = "C86952";
+        public const string DRUG_FOR_FURTHER_PROCESSING_CODE = "C94795";
+        public const string EMERGENCY_USE_AUTHORIZATION_CODE = "C96966";
+        public const string EXEMPT_DEVICE_CODE = "C80438";
+        public const string EXPORT_ONLY_CODE = "C73590";
+        public const string HUMANITARIAN_DEVICE_EXEMPTION_CODE = "C80440";
+        public const string IND_CODE = "C75302";
+        public const string MEDICAL_FOOD_CODE = "C86964";
+        public const string LEGALLY_MARKETED_UNAPPROVED_NEW_ANIMAL_DRUGS_FOR_MINOR_SPECIES_CODE = "C92556";
+        public const string MULTI_MARKET_APPROVED_PRODUCT_CODE = "C175238";
+        public const string NADA_CODE = "C73593";
+        public const string NDA_CODE = "C73594";
+        public const string NDA_AUTHORIZED_GENERIC_CODE = "C73605";
+        public const string OTC_MONOGRAPH_DRUG_CODE = "C200263";
+        public const string OTC_MONOGRAPH_DRUG_PRODUCT_MANUFACTURED_UNDER_CONTRACT_CODE = "C132334";
+        public const string OUTSOURCING_FACILITY_COMPOUNDED_HUMAN_DRUG_PRODUCT_EXEMPT_FROM_APPROVAL_REQUIREMENTS_CODE = "C181659";
+        public const string OUTSOURCING_FACILITY_COMPOUNDED_HUMAN_DRUG_PRODUCT_NOT_MARKETED_NOT_DISTRIBUTED_CODE = "C190698";
+        public const string PREMARKET_APPLICATION_CODE = "C80441";
+        public const string PREMARKET_NOTIFICATION_CODE = "C80442";
+        public const string SIP_APPROVED_DRUG_CODE = "C175462";
+        public const string UNAPPROVED_DRUG_FOR_USE_IN_DRUG_SHORTAGE_CODE = "C101533";
+        public const string UNAPPROVED_DRUG_OTHER_CODE = "C73627";
+        public const string UNAPPROVED_DRUG_PRODUCT_MANUFACTURED_UNDER_CONTRACT_CODE = "C132335";
+        public const string UNAPPROVED_HOMEOPATHIC_CODE = "C73614";
+        public const string UNAPPROVED_MEDICAL_GAS_CODE = "C73613"; 
+        #endregion
 
         public enum ActorType
         {

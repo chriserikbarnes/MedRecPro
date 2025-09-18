@@ -162,7 +162,7 @@ namespace MedRecPro.Service
                 // Enhanced unit code information with translation codes from parent product
                 UnitCode = packagingLevel.PackageCode,
                 UnitCodeSystem = packagingLevel.PackageCodeSystem, // UCUM
-                UnitDisplayName = packagingLevel.QuantityNumeratorUnit,
+                NumeratorUnit = packagingLevel.QuantityNumeratorUnit,
 
                 // Enhanced package form information with parent product context
                 PackageFormCode = packagingLevel.PackageFormCode,

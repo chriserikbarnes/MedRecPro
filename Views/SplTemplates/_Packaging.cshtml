@@ -12,7 +12,7 @@
         @if (Model.HasQuantity)
         {
             <quantity>
-                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator) />
+                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator) @SplTemplateHelpers.Attribute("unit", Model.NumeratorUnit) />
                 <denominator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator) />
             </quantity>
         }
