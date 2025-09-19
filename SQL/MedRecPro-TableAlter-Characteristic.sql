@@ -9,6 +9,7 @@
 *   1.  Table [dbo].[Characteristic]:
 *       - Adds the [MoietyID] column if it doesn't exist.
 *       - Adds the [ValueED_CDATAContent] column if it doesn't exist.
+*       - Adds the [OriginalText] column if it doesn't exist.
 *       - Adds or updates MS_Description extended properties for the table and its columns.
 *
 *   NOTES:
@@ -48,6 +49,15 @@ BEGIN TRY
     )
         ALTER TABLE [dbo].[Characteristic] ADD [ValueED_CDATAContent] NVARCHAR(MAX) NULL;
 
+    -- Add OriginalText column
+    PRINT ' -> Adding [OriginalText] column if not exists.';
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.columns 
+        WHERE Name = N'OriginalText' 
+          AND Object_ID = Object_ID(N'dbo.Characteristic')
+    )
+        ALTER TABLE [dbo].[Characteristic] ADD [OriginalText] NVARCHAR(256) NULL;
+
     -- Add/Update Extended Properties
     PRINT ' -> Updating extended properties for [dbo].[Characteristic].';
 
@@ -84,6 +94,20 @@ BEGIN TRY
     -- Column: ValueED_CDATAContent
     SET @ColumnName = N'ValueED_CDATAContent';
     SET @PropValue = N'Raw CDATA content for ED type chemical structure characteristics. Contains molecular structure data in format specified by ValueED_MediaType (MOLFILE, InChI, InChI-Key). Preserves exact formatting for scientific integrity per FDA Substance Registration System requirements.';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
+        EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
+            @level0type = N'SCHEMA', @level0name = @SchemaName,
+            @level1type = N'TABLE', @level1name = @TableName,
+            @level2type = N'COLUMN', @level2name = @ColumnName;
+    ELSE
+        EXEC sp_addextendedproperty @name = N'MS_Description', @value = @PropValue,
+            @level0type = N'SCHEMA', @level0name = @SchemaName,
+            @level1type = N'TABLE', @level1name = @TableName,
+            @level2type = N'COLUMN', @level2name = @ColumnName;
+
+    -- Column: OriginalText
+    SET @ColumnName = N'OriginalText';
+    SET @PropValue = N'Optional original color description or flavor text';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,

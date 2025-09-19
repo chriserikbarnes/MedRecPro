@@ -192,7 +192,7 @@ namespace MedRecPro.Service.ParsingServices
                     reportProgress?.Invoke($"Starting Product Marketing XML Elements {context.FileNameInZip}");
                     var marketingParser = new ProductMarketingParser();
 
-                    // parse marketing for the product element within the second manufacturedProduct level
+                    // parse marketing for the product element within the current level
                     // i.e. <manufacturedProduct><manufacturedProduct>
                     var marketingResult = await marketingParser.ParseAsync(mmEl, context, reportProgress);
                     result.MergeFrom(marketingResult);

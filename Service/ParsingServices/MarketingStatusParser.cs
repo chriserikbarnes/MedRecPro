@@ -160,11 +160,10 @@ namespace MedRecPro.Service.ParsingServices
                     return null;
                 }
 
-                // Look for existing records that match the new marketing status criteria
-                // Priority: Records with matching ProductID and null PackagingLevelID
+                // Look for existing records that match the new marketing status criteria           
                 var matchingRecord = allMarketingStatuses.FirstOrDefault(ms =>
                     ms.ProductID == newMarketingStatus.ProductID &&
-                    ms.PackagingLevelID == null && // Looking for records created upstream without packaging context
+                    ms.PackagingLevelID == newMarketingStatus.PackagingLevelID &&
                     ms.MarketingActCode == newMarketingStatus.MarketingActCode &&
                     ms.MarketingActCodeSystem == newMarketingStatus.MarketingActCodeSystem &&
                     ms.StatusCode == newMarketingStatus.StatusCode &&
@@ -561,12 +560,8 @@ namespace MedRecPro.Service.ParsingServices
         private (int? ProductID, int? PackagingLevelID) determineEntityAssociation(SplParseContext context)
         {
             #region implementation
-            // If we're currently processing a packaging level, associate with packaging
-            if (context.CurrentPackagingLevel?.PackagingLevelID != null && context.CurrentProduct?.ProductID == null)
-                return (null, context.CurrentPackagingLevel.PackagingLevelID);
-
             // If we are at the packing level hand have a product id then add that
-            else if (context.CurrentPackagingLevel?.PackagingLevelID != null && context.CurrentProduct?.ProductID != null)
+            if (context.CurrentPackagingLevel?.PackagingLevelID != null && context.CurrentProduct?.ProductID != null)
                 return (context.CurrentProduct?.ProductID, context.CurrentPackagingLevel.PackagingLevelID);
 
             // Otherwise, associate with the current product

@@ -2422,6 +2422,15 @@ namespace MedRecPro.Models
                 get => _valueNullFlavor;
                 set => _valueNullFlavor = value?.RemoveHtmlXss();
             }
+
+            private string? originalText;
+            /// <summary>
+            /// Optional original color description or flavor text
+            /// </summary>
+            public string? OriginalText {
+                get => originalText;
+                set => originalText = value?.RemoveHtmlXss();
+            }
             #endregion properties
         }
 

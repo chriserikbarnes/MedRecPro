@@ -856,6 +856,15 @@ namespace MedRecPro.Models
             Characteristic.TryGetValue(nameof(ValueNullFlavor), out var value)
                 ? value as string
                 : null;
+
+        /// <summary>
+        /// Optional additional text describing the characteristic ([characteristic][value][originalText]).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? OriginalText =>
+           Characteristic.TryGetValue(nameof(OriginalText), out var value)
+               ? value as string
+               : null;
     }
 
     /**************************************************************/

@@ -127,7 +127,45 @@ namespace MedRecPro.Models
         public const string SPL_IMAGE_CODE = "SPLIMAGE";
         public const string SPL_COMBINATION_PRODUCT_TYPE_CODE = "SPLCMBPRDTP";
         public const string SPL_SMALL_BUSINESS_CODE = "SPLSMALLBUSINESS";
-        public const string SPL_PROFESSIONAL_USE_CODE = "SPLPROFESSIONALUSE"; 
+        public const string SPL_PROFESSIONAL_USE_CODE = "SPLPROFESSIONALUSE";
+
+        public const string BULK_INGREDIENT_CODE = "53409-9";
+        public const string BULK_INGREDIENT_ANIMAL_DRUG_CODE = "81203-2";
+        public const string OTC_ANIMAL_DRUG_LABEL_CODE = "50577-6";
+        public const string OTC_TYPE_A_MEDICATED_ARTICLE_ANIMAL_DRUG_LABEL_CODE = "50576-8";
+        public const string OTC_TYPE_B_MEDICATED_FEED_ANIMAL_DRUG_LABEL_CODE = "50574-3";
+        public const string OTC_TYPE_C_MEDICATED_FEED_ANIMAL_DRUG_LABEL_CODE = "50573-5";
+        public const string PRESCRIPTION_ANIMAL_DRUG_LABEL_CODE = "50578-4";
+        public const string VFD_TYPE_A_MEDICATED_ARTICLE_ANIMAL_DRUG_LABEL_CODE = "50575-0";
+        public const string VFD_TYPE_B_MEDICATED_FEED_ANIMAL_DRUG_LABEL_CODE = "50572-7";
+        public const string VFD_TYPE_C_MEDICATED_FEED_ANIMAL_DRUG_LABEL_CODE = "50571-9";
+        public const string COSMETIC_CODE = "58474-8";
+        public const string DIETARY_SUPPLEMENT_CODE = "58476-3";
+        public const string MEDICAL_FOOD_CODE = "58475-5";
+        public const string HUMAN_COMPOUNDED_DRUG_LABEL_CODE = "75031-5";
+        public const string LICENSED_VACCINE_BULK_INTERMEDIATE_LABEL_CODE = "53406-5";
+        public const string DRUG_FOR_FURTHER_PROCESSING_CODE = "78744-0";
+        public const string ANIMAL_COMPOUNDED_DRUG_LABEL_CODE = "77647-6";
+        public const string ANIMAL_CELLS_TISSUES_AND_CELL_AND_TISSUE_BASED_PRODUCT_LABEL_CODE = "98075-5";
+
+        public const string AEROSOL_METERED_CODE = "C42960";
+        public const string GEL_METERED_CODE = "C60930";
+        public const string POWDER_METERED_CODE = "C42961";
+        public const string SPRAY_METERED_CODE = "C42962";
+        public const string TABLET_WITH_SENSOR_CODE = "C147579";
+
+        public const string COMBINATION_PRODUCT_TYPE_0_NOT_A_COMBINATION_PRODUCT_CODE = "C112160";
+        public const string COMBINATION_PRODUCT_TYPE_1_CONVENIENCE_KIT_CODE = "C102834";
+        public const string COMBINATION_PRODUCT_TYPE_2_PREFILLED_DRUG_DELIVERY_DEVICE_CODE = "C102835";
+        public const string COMBINATION_PRODUCT_TYPE_3_PREFILLED_BIOLOGIC_DELIVERY_DEVICE_CODE = "C102836";
+        public const string COMBINATION_PRODUCT_TYPE_4_DEVICE_COATED_WITH_DRUG_CODE = "C102837";
+        public const string COMBINATION_PRODUCT_TYPE_9_OTHER_CODE = "C102842";
+
+        public const string INHALER_CODE = "C16738";
+        public const string SYRINGE_CODE = "C43202";
+        public const string SYRINGE_GLASS_CODE = "C43203";
+        public const string SYRINGE_PLASTIC_CODE = "C43204";
+
         #endregion
 
         #region compliance codes
@@ -191,19 +229,14 @@ namespace MedRecPro.Models
         public const string ANDA_CODE = "C73584";
         public const string APPROVED_DRUG_PRODUCT_MANUFACTURED_UNDER_CONTRACT_CODE = "C132333";
         public const string BLA_CODE = "C73585";
-        public const string BULK_INGREDIENT_CODE = "C73626";
         public const string BULK_INGREDIENT_FOR_ANIMAL_DRUG_COMPOUNDING_CODE = "C98252";
         public const string BULK_INGREDIENT_FOR_HUMAN_PRESCRIPTION_COMPOUNDING_CODE = "C96793";
         public const string CONDITIONAL_NADA_CODE = "C73588";
-        public const string COSMETIC_CODE = "C86965";
-        public const string DIETARY_SUPPLEMENT_CODE = "C86952";
-        public const string DRUG_FOR_FURTHER_PROCESSING_CODE = "C94795";
         public const string EMERGENCY_USE_AUTHORIZATION_CODE = "C96966";
         public const string EXEMPT_DEVICE_CODE = "C80438";
         public const string EXPORT_ONLY_CODE = "C73590";
         public const string HUMANITARIAN_DEVICE_EXEMPTION_CODE = "C80440";
         public const string IND_CODE = "C75302";
-        public const string MEDICAL_FOOD_CODE = "C86964";
         public const string LEGALLY_MARKETED_UNAPPROVED_NEW_ANIMAL_DRUGS_FOR_MINOR_SPECIES_CODE = "C92556";
         public const string MULTI_MARKET_APPROVED_PRODUCT_CODE = "C175238";
         public const string NADA_CODE = "C73593";

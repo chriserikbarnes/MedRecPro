@@ -67,6 +67,14 @@ namespace MedRecPro.Models
         /// <seealso cref="CharacteristicDto.ValueST"/>
         public bool HasStringValue { get; set; }
 
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this characteristic has an original text value.
+        /// </summary>
+        /// <seealso cref="CharacteristicDto.ValueST"/>
+        public bool HasOriginalText { get; set; }
+
         #endregion
 
         #region pre-computed rendering logic flags

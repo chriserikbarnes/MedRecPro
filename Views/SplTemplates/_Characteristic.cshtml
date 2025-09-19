@@ -14,12 +14,16 @@
 
         @if (Model.ShouldRenderAsCodedElement)
         {
-            <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="CE">
-                @if (Model.ShouldDisplayOriginalText)
-                {
-                    <originalText>@characteristic.ValueCV_DisplayName</originalText>
-                }
-            </value>
+            if (Model.HasOriginalText)
+            {
+                <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="CE">
+                    <originalText>@characteristic.OriginalText</originalText>
+                </value>
+            }
+            else
+            {
+                <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="CE" />
+            }
         }
         else if (Model.ShouldRenderAsPhysicalQuantity)
         {
@@ -39,12 +43,16 @@
         }
         else if (Model.ShouldRenderAsFallbackCoded)
         {
-            <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="CE">
-                @if (Model.ShouldDisplayOriginalText)
-                {
-                    <originalText>@characteristic.ValueCV_DisplayName</originalText>
-                }
-            </value>
+            if (Model.HasOriginalText)
+            {
+                <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="CE">
+                    <originalText>@characteristic.OriginalText</originalText>
+                </value>
+            }
+            else
+            {
+                <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="CE" />
+            }
         }
         else if (Model.ShouldRenderAsFallbackString)
         {

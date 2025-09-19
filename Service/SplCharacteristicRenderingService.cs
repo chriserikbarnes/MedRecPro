@@ -244,6 +244,7 @@ namespace MedRecPro.Service
             var hasBooleanValue = HasBooleanValue(characteristic);
             var hasIntegerValue = HasIntegerValue(characteristic);
             var hasStringValue = HasStringValue(characteristic);
+            var hasOriginalText = HasOriginalText(characteristic);
 
             // Compute rendering logic flags based on business rules from original template
             var shouldRenderAsCodedElement = ShouldRenderAsCodedElement(characteristic, normalizedValueType, hasCodedValue);
@@ -273,6 +274,7 @@ namespace MedRecPro.Service
                 HasBooleanValue = hasBooleanValue,
                 HasIntegerValue = hasIntegerValue,
                 HasStringValue = hasStringValue,
+                HasOriginalText = hasOriginalText,
 
                 // Rendering logic flags
                 ShouldRenderAsCodedElement = shouldRenderAsCodedElement,
@@ -391,6 +393,22 @@ namespace MedRecPro.Service
             #region implementation
 
             return !string.IsNullOrEmpty(characteristic?.ValueST);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if characteristic has a original text available for rendering.
+        /// </summary>
+        /// <param name="characteristic">The characteristic to check for string value</param>
+        /// <returns>True if string value exists</returns>
+        /// <seealso cref="CharacteristicDto.ValueST"/>
+        public bool HasOriginalText(CharacteristicDto characteristic)
+        {
+            #region implementation
+
+            return !string.IsNullOrEmpty(characteristic?.OriginalText);
 
             #endregion
         }
@@ -603,7 +621,8 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return !string.IsNullOrEmpty(characteristic?.ValueCV_DisplayName);
+            return !string.IsNullOrEmpty(characteristic?.ValueCV_DisplayName) 
+                && string.IsNullOrEmpty(characteristic?.OriginalText);
 
             #endregion
         }
