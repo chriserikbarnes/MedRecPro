@@ -121,6 +121,7 @@ namespace MedRecPro.Controllers
             if (signInResult.Succeeded)
             {
                 await updateExternalAuthenticationTokensAsync(info); // Persist tokens if needed
+                await updateLoginTimestampsAsync(user);
                 return LocalRedirect(returnUrl);
             }
             else if (signInResult.IsLockedOut)
@@ -133,6 +134,50 @@ namespace MedRecPro.Controllers
                 return RedirectToAction(nameof(LoginFailure), new { Message = "External login failed after attempting to update user information. Please try again or contact support." });
             }
             #endregion
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Updates the user's last login and last activity timestamps after a successful sign-in.
+        /// </summary>
+        /// <remarks>
+        /// Call this only after the sign-in has succeeded (password or external).
+        /// Uses <see cref="DateTimeOffset.UtcNow"/> to avoid timezone ambiguity and to ensure
+        /// consistent storage across environments and deployments.
+        /// </remarks>
+        /// <example>
+        /// await updateLoginTimestampsAsync(user);
+        /// </example>
+        /// <seealso cref="User.LastLoginAt"/>
+        /// <seealso cref="User.LastActivityAt"/>
+        /// <seealso cref="Microsoft.AspNetCore.Identity.UserManager{TUser}.UpdateAsync(TUser)"/>
+        private async Task updateLoginTimestampsAsync(User user)
+        {
+            #region implementation
+            // Guard: null user should never happen post sign-in, but be defensive.
+            if (user is null)
+            {
+                _logger.LogWarning("updateLoginTimestampsAsync called with null user.");
+                return;
+            }
+
+            // Use UTC to keep storage normalized in SQL and avoid daylight-saving confusion.
+            var now = Convert.ToDateTime(DateTimeOffset.UtcNow.ToString());
+
+            // Update both “last seen” fields on successful auth.
+            user.LastLoginAt = now; // <seealso cref="User.LastLoginAt"/>
+            user.LastActivityAt = now; // <seealso cref="User.LastActivityAt"/>
+
+            // Persist via Identity to ensure concurrency stamps and store behaviors are honored.
+            var result = await _userManager.UpdateAsync(user); // <seealso cref="Microsoft.AspNetCore.Identity.UserManager{TUser}.UpdateAsync(TUser)"/>
+
+            if (!result.Succeeded)
+            {
+                // Inline log helps surface mapping or store issues in dev without crashing login.
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                _logger.LogWarning("Failed to update login timestamps for user {UserId}: {Errors}", user.Id, errors);
+            }
             #endregion
         }
 
@@ -407,6 +452,7 @@ namespace MedRecPro.Controllers
         /// </summary>
         /// <param name="returnUrl">The URL to redirect to after successful login.</param>
         /// <param name="remoteError">Error information from the external provider, if any.</param>
+        /// <param name="cancellationToken">For stoping operations</param>
         /// <returns>A redirect to either the return URL or an error page.</returns>
         /// <remarks>
         /// This endpoint is automatically called by the external provider after the user 
