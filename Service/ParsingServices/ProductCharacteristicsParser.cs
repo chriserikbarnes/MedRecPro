@@ -1,11 +1,8 @@
-﻿
 ﻿using System.Xml.Linq;
-#pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+#pragma warning disable CS8981
 using sc = MedRecPro.Models.SplConstants;
-#pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
-#pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
-#pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+#pragma warning restore CS8981
 
 using MedRecPro.Helpers;
 using MedRecPro.Models;
@@ -21,11 +18,13 @@ namespace MedRecPro.Service.ParsingServices
     /**************************************************************/
     /// <summary>
     /// Parses product characteristics and attributes, including physical properties, additional identifiers
-    /// (like model/catalog numbers), and routes of administration.
+    /// (like model/catalog numbers), and routes of administration. Supports both product-level and 
+    /// package-level characteristic parsing.
     /// </summary>
     /// <remarks>
-    /// This parser is responsible for detailing the specific attributes of a product. It is called by a
-    /// parent parser and requires that the `SplParseContext.CurrentProduct` has been established.
+    /// This parser is responsible for detailing the specific attributes of a product and its packaging.
+    /// It is called by a parent parser and requires that the `SplParseContext.CurrentProduct` has been established.
+    /// For package-level characteristics, `SplParseContext.CurrentPackagingLevel` should also be set.
     /// </remarks>
     /// <seealso cref="ISplSectionParser"/>
     /// <seealso cref="Product"/>
@@ -33,6 +32,7 @@ namespace MedRecPro.Service.ParsingServices
     /// <seealso cref="AdditionalIdentifier"/>
     /// <seealso cref="ProductRouteOfAdministration"/>
     /// <seealso cref="SplParseContext"/>
+    /// <seealso cref="Label"/>
     public class ProductCharacteristicsParser : ISplSectionParser
     {
         #region implementation
@@ -64,6 +64,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
         {
             #region implementation
@@ -114,7 +115,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Each characteristic includes both the code identifying the characteristic type and the
         /// appropriately typed value based on the xsi:type attribute.
         /// Now recursively processes asContent/containerPackagedProduct structures to capture 
-        /// characteristics nested within packaging hierarchies.
+        /// characteristics nested within packaging hierarchies WITH proper PackagingLevelID association.
         /// Uses FirstOrDefaultAsync to check for existing characteristics before creating new ones.
         /// </remarks>
         /// <example>
@@ -138,10 +139,11 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || repo == null || context.Logger == null)
                 return count;
 
-            // Parse characteristics directly under the parent element
-            count += await parseCharacteristicsFromSubjectOfAsync(parentEl, product, context);
+            // Parse characteristics directly under the parent element (product-level)
+            count += await parseCharacteristicsFromSubjectOfAsync(parentEl, product, context, packagingLevelId: null);
 
-            // Recursively parse characteristics within asContent structures
+            // Recursively parse characteristics within asContent structures (package-level)
+            // NOTE: This method must be called AFTER packaging has been parsed and PackagingLevel entities exist
             count += await parseCharacteristicsFromAsContentAsync(parentEl, product, context);
 
             return count;
@@ -156,16 +158,20 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The XElement to search for direct subjectOf/characteristic structures.</param>
         /// <param name="product">The Product entity associated with these characteristics.</param>
         /// <param name="context">The parsing context containing repository and logging services.</param>
+        /// <param name="packagingLevelId">Optional PackagingLevelID for package-level characteristics.</param>
         /// <returns>The count of Characteristic records created or retrieved from direct structures.</returns>
         /// <remarks>
         /// This method handles the original parsing logic for characteristics that appear
-        /// directly under the parent element without nested packaging structures.
+        /// directly under the parent element. When packagingLevelId is provided, creates
+        /// package-level characteristics; otherwise creates product-level characteristics.
         /// Implements getOrCreate pattern by first querying existing characteristics using FirstOrDefaultAsync
         /// before creating new records to prevent duplicates.
         /// </remarks>
         /// <example>
-        /// // Parse characteristics from a product element
-        /// var count = await parseCharacteristicsFromSubjectOfAsync(productElement, product, context);
+        /// // Parse product-level characteristics
+        /// var count = await parseCharacteristicsFromSubjectOfAsync(productElement, product, context, null);
+        /// // Parse package-level characteristics
+        /// var count = await parseCharacteristicsFromSubjectOfAsync(asContentElement, product, context, packagingLevelId);
         /// </example>
         /// <seealso cref="parseAndSaveCharacteristicsAsync"/>
         /// <seealso cref="parseCharacteristicsFromAsContentAsync"/>
@@ -176,7 +182,8 @@ namespace MedRecPro.Service.ParsingServices
         private async Task<int> parseCharacteristicsFromSubjectOfAsync(
             XElement element,
             Product product,
-            SplParseContext context)
+            SplParseContext context,
+            int? packagingLevelId)
         {
             #region implementation
             int count = 0;
@@ -197,7 +204,7 @@ namespace MedRecPro.Service.ParsingServices
             {
                 foreach (var charEl in subjOf.SplElements(sc.E.Characteristic))
                 {
-                    var characteristic = buildCharacteristicFromElement(charEl, product, context!);
+                    var characteristic = buildCharacteristicFromElement(charEl, product, context!, packagingLevelId);
                     if (characteristic != null)
                     {
                         characteristicsToProcess.Add(characteristic);
@@ -268,11 +275,13 @@ namespace MedRecPro.Service.ParsingServices
                         // Add to HashSet to prevent duplicates within this parsing session
                         existingCharacteristicKeys.Add(currentKey);
 
-                        context?.Logger?.LogInformation($"New characteristic created: ProductID={product.ProductID}, PackagingLevelID={characteristic.PackagingLevelID}, Code={characteristic.CharacteristicCode}, ValueType={characteristic.ValueType}");
+                        var levelType = packagingLevelId.HasValue ? "package-level" : "product-level";
+                        context?.Logger?.LogInformation($"New {levelType} characteristic created: ProductID={product.ProductID}, PackagingLevelID={characteristic.PackagingLevelID}, Code={characteristic.CharacteristicCode}, ValueType={characteristic.ValueType}");
                     }
                     else
                     {
-                        context?.Logger?.LogInformation($"Duplicate characteristic skipped: ProductID={product.ProductID}, PackagingLevelID={characteristic.PackagingLevelID}, Code={characteristic.CharacteristicCode}, ValueType={characteristic.ValueType}");
+                        var levelType = packagingLevelId.HasValue ? "package-level" : "product-level";
+                        context?.Logger?.LogInformation($"Duplicate {levelType} characteristic skipped: ProductID={product.ProductID}, PackagingLevelID={characteristic.PackagingLevelID}, Code={characteristic.CharacteristicCode}, ValueType={characteristic.ValueType}");
                     }
                 }
 
@@ -350,10 +359,11 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
-
         /**************************************************************/
         /// <summary>
         /// Recursively parses characteristics from nested asContent/containerPackagedProduct structures.
+        /// CRITICAL: This method must be called AFTER PackagingParser has created PackagingLevel entities,
+        /// because it needs to look up PackagingLevelID values to associate with characteristics.
         /// </summary>
         /// <param name="element">The XElement to search for asContent structures.</param>
         /// <param name="product">The Product entity associated with these characteristics.</param>
@@ -362,12 +372,21 @@ namespace MedRecPro.Service.ParsingServices
         /// <remarks>
         /// This method addresses the missing functionality where characteristics nested within
         /// packaging hierarchies (asContent/containerPackagedProduct/asContent/subjectOf/characteristic)
-        /// were not being captured by the original parser.
+        /// were not being captured with proper PackagingLevelID associations.
+        /// 
+        /// The method works by:
+        /// 1. Finding containerPackagedProduct elements
+        /// 2. Extracting the package NDC code to identify the PackagingLevel
+        /// 3. Looking up the corresponding PackagingLevelID from the database
+        /// 4. Parsing characteristics with that PackagingLevelID
+        /// 5. Recursively processing nested asContent structures
         /// </remarks>
         /// <seealso cref="parseAndSaveCharacteristicsAsync"/>
         /// <seealso cref="parseCharacteristicsFromSubjectOfAsync"/>
         /// <seealso cref="Characteristic"/>
         /// <seealso cref="Product"/>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="Label"/>
         private async Task<int> parseCharacteristicsFromAsContentAsync(
             XElement element,
             Product product,
@@ -375,19 +394,53 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             int count = 0;
-            var repo = context.GetRepository<Characteristic>();
 
-            // Process all asContent elements recursively
+            if (context == null || context.ServiceProvider == null)
+                return count;
+
+            // Get repository for PackagingLevel lookups
+            var packagingRepo = context.GetRepository<PackagingLevel>();
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var packagingDbSet = dbContext.Set<PackagingLevel>();
+
+            // Process all asContent elements
             foreach (var asContentEl in element.SplElements(sc.E.AsContent))
             {
-                // Parse characteristics directly within this asContent
-                count += await parseCharacteristicsFromSubjectOfAsync(asContentEl, product, context);
+                // Find the containerPackagedProduct within this asContent
+                var containerEl = asContentEl.GetSplElement(sc.E.ContainerPackagedProduct);
 
-                // Process containerPackagedProduct elements within this asContent
-                foreach (var containerEl in asContentEl.SplElements(sc.E.ContainerPackagedProduct))
+                if (containerEl != null)
                 {
-                    // Parse characteristics within the container element
-                    count += await parseCharacteristicsFromSubjectOfAsync(containerEl, product, context);
+                    // Extract the package code (NDC) to identify the PackagingLevel
+                    var codeEl = containerEl.GetSplElement(sc.E.Code);
+                    var packageCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+
+                    int? packagingLevelId = null;
+
+                    // If we have a package code, look up the PackagingLevel
+                    if (!string.IsNullOrWhiteSpace(packageCode))
+                    {
+                        // Query PackagingLevel by ProductID and PackageCode
+                        var packagingLevel = await packagingDbSet.FirstOrDefaultAsync(
+                            pl => pl.ProductID == product.ProductID && pl.PackageCode == packageCode);
+
+                        if (packagingLevel != null)
+                        {
+                            packagingLevelId = packagingLevel.PackagingLevelID;
+                            context.Logger?.LogInformation($"Found PackagingLevel {packagingLevelId} for package code {packageCode}");
+                        }
+                        else
+                        {
+                            context.Logger?.LogWarning($"Could not find PackagingLevel for ProductID={product.ProductID}, PackageCode={packageCode}");
+                        }
+                    }
+
+                    // Parse characteristics at this asContent level (these are characteristics of the container)
+                    // These should be associated with the packaging level we just identified
+                    count += await parseCharacteristicsFromSubjectOfAsync(asContentEl, product, context, packagingLevelId);
+
+                    // Also check within the containerPackagedProduct for characteristics
+                    count += await parseCharacteristicsFromSubjectOfAsync(containerEl, product, context, packagingLevelId);
 
                     // Recursively process any nested asContent structures within the container
                     count += await parseCharacteristicsFromAsContentAsync(containerEl, product, context);
@@ -405,19 +458,25 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="charEl">The characteristic XElement containing the characteristic data.</param>
         /// <param name="product">The Product entity this characteristic belongs to.</param>
         /// <param name="context">The parsing context for logging and validation.</param>
+        /// <param name="packagingLevelId">Optional PackagingLevelID for package-level characteristics.</param>
         /// <returns>A populated Characteristic entity, or null if the element is invalid.</returns>
         /// <remarks>
         /// This method extracts the characteristic code, value type, and all possible value fields
         /// based on the xsi:type attribute. Supports PQ, INT, IVL_PQ, CV, ST, ED, and BL value types.
         /// Centralizes the characteristic building logic to maintain consistency across parsing methods.
+        /// When packagingLevelId is provided, creates package-level characteristics; otherwise creates
+        /// product-level characteristics.
         /// </remarks>
         /// <seealso cref="Characteristic"/>
         /// <seealso cref="Product"/>
+        /// <seealso cref="PackagingLevel"/>
         /// <seealso cref="parseCharacteristicsFromSubjectOfAsync"/>
+        /// <seealso cref="Label"/>
         private Characteristic? buildCharacteristicFromElement(
             XElement charEl,
             Product product,
-            SplParseContext context)
+            SplParseContext context,
+            int? packagingLevelId)
         {
             #region implementation
             if (charEl == null)
@@ -459,10 +518,9 @@ namespace MedRecPro.Service.ParsingServices
                 switch (valueType.ToUpperInvariant())
                 {
                     case "PQ":
-                    case "REAL": // treat as decimal/quantity
+                    case "REAL":
                         if (valueEl != null)
                         {
-                            // Parse physical quantity with value and unit
                             var valueAttr = valueEl.GetAttrVal(sc.A.Value);
                             valuePQ_Value = valueAttr != null ? Util.ParseNullableDecimal(valueAttr) : null;
                             valuePQ_Unit = valueEl.GetAttrVal(sc.A.Unit);
@@ -472,7 +530,6 @@ namespace MedRecPro.Service.ParsingServices
                     case "INT":
                         if (valueEl != null)
                         {
-                            // Parse integer value with optional null flavor
                             valueNullFlavor = valueEl.GetAttrVal(sc.A.NullFlavor);
                             var intAttr = valueEl.GetAttrVal(sc.A.Value);
                             valueINT = intAttr != null ? Util.ParseNullableInt(intAttr) : null;
@@ -480,22 +537,19 @@ namespace MedRecPro.Service.ParsingServices
                         break;
 
                     case "CV":
-                    case "CE": // Handle CV and CE the same way
-                               // Parse coded value with code, system, and display name
+                    case "CE":
                         valueCV_Code = valueEl?.GetAttrVal(sc.A.CodeValue);
                         valueCV_CodeSystem = valueEl?.GetAttrVal(sc.A.CodeSystem);
                         valueCV_DisplayName = valueEl?.GetAttrVal(sc.A.DisplayName);
                         break;
 
                     case "ST":
-                        // Parse string value from element text content
                         valueCV_Code = valueEl?.GetAttrVal(sc.A.CodeValue);
                         valueCV_CodeSystem = valueEl?.GetAttrVal(sc.A.CodeSystem);
                         valueST = valueEl?.Value;
                         break;
 
                     case "IVL_PQ":
-                        // Parse interval of physical quantities (low and high values)
                         var lowEl = valueEl?.GetSplElement(sc.E.Low);
                         if (lowEl != null)
                         {
@@ -514,7 +568,6 @@ namespace MedRecPro.Service.ParsingServices
                         break;
 
                     case "ED":
-                        // Parse encapsulated data (multimedia references)
                         valueED_MediaType = valueEl?.GetAttrVal(sc.A.MediaType);
                         valueED_FileName = valueEl?.GetAttrVal(sc.A.DisplayName);
                         break;
@@ -522,7 +575,6 @@ namespace MedRecPro.Service.ParsingServices
                     case "BL":
                         if (valueEl != null)
                         {
-                            // Parse boolean value from string representation
                             var boolAttr = valueEl.GetAttrVal(sc.A.Value);
                             valueBL = boolAttr != null ? Util.ParseNullableBoolWithStringValue(boolAttr) : null;
                         }
@@ -530,10 +582,11 @@ namespace MedRecPro.Service.ParsingServices
                 }
             }
 
-            // Build and return the Characteristic entity
+            // Build and return the Characteristic entity WITH PackagingLevelID when provided
             return new Characteristic
             {
                 ProductID = product.ProductID,
+                PackagingLevelID = packagingLevelId,
                 CharacteristicCode = charCode,
                 CharacteristicCodeSystem = charCodeSystem,
                 OriginalText = originalText,
@@ -583,47 +636,36 @@ namespace MedRecPro.Service.ParsingServices
             int count = 0;
             var repo = context.GetRepository<AdditionalIdentifier>();
 
-            // Validate required dependencies before processing
             if (context == null || repo == null || context.Logger == null)
                 return count;
 
-            // Find all <asIdentifiedEntity> nodes with classCode="IDENT"
             foreach (var idEnt in parentEl.SplElements(sc.E.AsIdentifiedEntity))
             {
-                // Only process if classCode="IDENT"
                 string? classCode = idEnt.GetAttrVal(sc.A.ClassCode);
                 if (!string.Equals(classCode, "IDENT", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                // Parse the <id> child for identifier value and root
                 var idEl = idEnt.GetSplElement(sc.E.Id);
                 string? identifierValue = idEl?.GetAttrVal(sc.A.Extension);
                 string? identifierRootOID = idEl?.GetAttrVal(sc.A.Root);
 
-                // Parse the <code> child (type of identifier)
                 var codeEl = idEnt.GetSplElement(sc.E.Code);
                 string? typeCode = codeEl?.GetAttrVal(sc.A.CodeValue);
                 string? typeCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
                 string? typeDisplayName = codeEl?.GetAttrVal(sc.A.DisplayName);
 
-                // Validation: Only accept NCI Thesaurus code system for type (per Table 3)
                 if (string.IsNullOrWhiteSpace(typeCodeSystem) ||
                     typeCodeSystem != "2.16.840.1.113883.3.26.1.1")
                     continue;
 
-                // At least one id (extension/root) must be present, and a recognized code type
                 if (string.IsNullOrWhiteSpace(identifierValue) || string.IsNullOrWhiteSpace(identifierRootOID))
                     continue;
 
-                // Recognized identifier codes (per Table 3)
-                bool recognized = typeCode == "C99286" // Model Number
-                               || typeCode == "C99285" // Catalog Number
-                               || typeCode == "C99287"; // Reference Number
+                bool recognized = typeCode == "C99286" || typeCode == "C99285" || typeCode == "C99287";
 
                 if (!recognized)
                     continue;
 
-                // Build and save the AdditionalIdentifier entity
                 var additionalIdentifier = new AdditionalIdentifier
                 {
                     ProductID = product.ProductID,
@@ -669,11 +711,9 @@ namespace MedRecPro.Service.ParsingServices
             int count = 0;
             var repo = context.GetRepository<ProductRouteOfAdministration>();
 
-            // Validate required dependencies before processing
             if (context == null || repo == null || context.Logger == null)
                 return count;
 
-            // Process all consumedIn/substanceAdministration structures
             foreach (var consumedInEl in parentEl.SplElements(sc.E.ConsumedIn))
             {
                 foreach (var substAdminEl in consumedInEl.SplElements(sc.E.SubstanceAdministration))
@@ -683,21 +723,17 @@ namespace MedRecPro.Service.ParsingServices
                     if (routeCodeEl == null)
                         continue;
 
-                    // Parse route attributes from the XML element
                     string? routeCode = routeCodeEl.GetAttrVal(sc.A.CodeValue);
                     string? routeCodeSystem = routeCodeEl.GetAttrVal(sc.A.CodeSystem);
                     string? displayName = routeCodeEl.GetAttrVal(sc.A.DisplayName);
                     string? nullFlavor = routeCodeEl.GetAttrVal(sc.A.NullFlavor);
 
-                    // Enforce SPL spec: Either code system is correct or nullFlavor is set
                     if (string.IsNullOrWhiteSpace(nullFlavor))
                     {
-                        // Only accept route codes with the proper FDA SPL code system
                         if (routeCodeSystem != "2.16.840.1.113883.3.26.1.1")
                             continue;
                     }
 
-                    // Build and save the ProductRouteOfAdministration entity
                     var route = new ProductRouteOfAdministration
                     {
                         ProductID = product.ProductID,

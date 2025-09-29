@@ -77,6 +77,18 @@ namespace MedRecPro.Service
         /// <returns>Formatted quantity string using G29 format</returns>
         string FormatQuantity(decimal? quantity);
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets characteristics ordered by business rules for a specific packaging level.
+        /// Filters characteristics where PackagingLevelID matches the provided packaging level ID.
+        /// </summary>
+        /// <param name="product">The product containing characteristics</param>
+        /// <param name="packagingLevelId">The packaging level ID to filter characteristics for</param>
+        /// <returns>Ordered list of characteristics or null if none exists</returns>
+        /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="Label"/>
+        List<CharacteristicDto>? GetOrderedCharacteristicsForPackaging(ProductDto product, int? packagingLevelId);
+
         #endregion
     }
 
@@ -105,6 +117,32 @@ namespace MedRecPro.Service
         /// </summary>
         private const string DEFAULT_IDENTIFIER_TYPE = "NDC";
         private const string DEFAULT_QUANTITY_FORMAT = "G29";
+
+        #endregion
+
+        #region fields
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional characteristic rendering service for enhanced characteristic processing.
+        /// </summary>
+        private ICharacteristicRenderingService? _characteristicRenderingService;
+
+        #endregion
+
+        #region initialization
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a new instance of the PackageRenderingService class.
+        /// </summary>
+        /// <param name="characteristicRenderingService">Optional characteristic rendering service</param>
+        public PackageRenderingService(ICharacteristicRenderingService? characteristicRenderingService = null)
+        {
+            #region implementation
+            _characteristicRenderingService = characteristicRenderingService;
+            #endregion
+        }
 
         #endregion
 
@@ -186,6 +224,12 @@ namespace MedRecPro.Service
 
             // Correlate ProductDto.PackageIdentifiers with packaging levels
             correlatePackageIdentifiers(packageRendering, parentProduct);
+
+            // Process characteristics for this packaging level if service is available
+            if (_characteristicRenderingService != null)
+            {
+                processPackagingCharacteristics(parentProduct, packageRendering, _characteristicRenderingService, additionalParams);
+            }
 
             return packageRendering;
             #endregion
@@ -309,6 +353,52 @@ namespace MedRecPro.Service
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets characteristics ordered by business rules for a specific packaging level.
+        /// Filters characteristics where PackagingLevelID matches the provided packaging level ID.
+        /// </summary>
+        /// <param name="product">The product containing characteristics</param>
+        /// <param name="packagingLevelId">The packaging level ID to filter characteristics for</param>
+        /// <returns>Ordered list of characteristics or null if none exists</returns>
+        /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="ProductDto"/>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="Label"/>
+        /// <example>
+        /// <code>
+        /// var packageCharacteristics = GetOrderedCharacteristicsForPackaging(product, packagingLevelId);
+        /// if (packageCharacteristics != null)
+        /// {
+        ///     foreach (var characteristic in packageCharacteristics)
+        ///     {
+        ///         // Process packaging-level characteristic
+        ///     }
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method filters characteristics to only those associated with a specific packaging level.
+        /// Characteristics with null PackagingLevelID are product-level and are excluded.
+        /// Orders by CharacteristicID for consistent rendering.
+        /// </remarks>
+        public List<CharacteristicDto>? GetOrderedCharacteristicsForPackaging(ProductDto product, int? packagingLevelId)
+        {
+            #region implementation
+
+            if (product?.Characteristics == null || !packagingLevelId.HasValue)
+                return null;
+
+            var orderedCharacteristics = product.Characteristics
+                .Where(c => c.PackagingLevelID == packagingLevelId)
+                .OrderBy(c => c.CharacteristicID)
+                .ToList();
+
+            return orderedCharacteristics.Any() ? orderedCharacteristics : null;
+
+            #endregion
+        }
+
         #endregion
 
         #region private methods
@@ -378,12 +468,12 @@ namespace MedRecPro.Service
 
             // Find matching NDC identifiers for this packaging level
             var matchingIdentifiers = parentProduct.PackageIdentifiers
-                .Where(pi => pi.PackagingLevelID == packagingLevel.PackagingLevelID 
+                .Where(pi => pi.PackagingLevelID == packagingLevel.PackagingLevelID
                     && !string.IsNullOrEmpty(pi.IdentifierValue))
                 .ToList();
 
             if (matchingIdentifiers.Any())
-            {              
+            {
                 foreach (var primaryIdentifier in matchingIdentifiers)
                 {
 
@@ -418,12 +508,85 @@ namespace MedRecPro.Service
                 packageRendering.HasPackageIdentifiers = false;
             }
 
+            #endregion
+        }
 
+        /**************************************************************/
+        /// <summary>
+        /// Processes characteristics for a specific packaging level for enhanced rendering contexts.
+        /// Creates enhanced CharacteristicRendering objects specific to the packaging level
+        /// and populates the characteristic collections for optimal template processing performance.
+        /// </summary>
+        /// <param name="product">The product containing all characteristics</param>
+        /// <param name="packageRendering">The package rendering context to enhance with characteristic data</param>
+        /// <param name="characteristicRenderingService">Service for creating enhanced characteristic rendering contexts</param>
+        /// <param name="additionalParams">Additional context parameters for characteristic processing</param>
+        /// <seealso cref="PackageRendering.Characteristics"/>
+        /// <seealso cref="PackageRendering.CharacteristicRendering"/>
+        /// <seealso cref="ICharacteristicRenderingService.PrepareForRendering"/>
+        /// <seealso cref="Label"/>
+        /// <remarks>
+        /// Enhanced characteristic processing workflow for packaging levels:
+        /// - Filter characteristics to those matching the packaging level ID
+        /// - Process characteristics with enhanced rendering service
+        /// - Create CharacteristicRendering collection with pre-computed properties
+        /// - Set appropriate availability flags for template optimization
+        /// 
+        /// The enhanced collections provide pre-computed properties specific to this packaging level
+        /// and eliminate the need for complex logic in templates.
+        /// </remarks>
+        private void processPackagingCharacteristics(
+            ProductDto product,
+            PackageRendering packageRendering,
+            ICharacteristicRenderingService characteristicRenderingService,
+            object? additionalParams)
+        {
+            #region implementation
 
+            if (packageRendering?.PackagingLevelDto?.PackagingLevelID == null)
+                return;
+
+            // Get characteristics for this specific packaging level
+            var packagingCharacteristics = GetOrderedCharacteristicsForPackaging(
+                product,
+                packageRendering.PackagingLevelDto.PackagingLevelID);
+
+            // Store the ordered characteristics
+            packageRendering.Characteristics = packagingCharacteristics;
+            packageRendering.HasCharacteristics = packagingCharacteristics?.Any() == true;
+
+            // Process enhanced characteristics if service is provided
+            if (characteristicRenderingService != null && packagingCharacteristics?.Any() == true)
+            {
+                var enhancedCharacteristics = new List<CharacteristicRendering>();
+
+                // Process each characteristic with enhanced service
+                foreach (var characteristic in packagingCharacteristics)
+                {
+                    // Create enhanced characteristic rendering context with all computed properties
+                    var enhancedCharacteristic = characteristicRenderingService.PrepareForRendering(
+                        characteristic: characteristic,
+                        additionalParams: additionalParams
+                    );
+
+                    // Add to enhanced collection for template processing
+                    enhancedCharacteristics.Add(enhancedCharacteristic);
+                }
+
+                // Populate characteristic rendering collections
+                packageRendering.CharacteristicRendering = enhancedCharacteristics.Any() ? enhancedCharacteristics : null;
+                packageRendering.HasCharacteristicRendering = enhancedCharacteristics.Any();
+            }
+            else
+            {
+                // No characteristic rendering service or no characteristics - initialize as null
+                packageRendering.CharacteristicRendering = null;
+                packageRendering.HasCharacteristicRendering = false;
+            }
 
             #endregion
         }
-        
+
         /**************************************************************/
         /// <summary>
         /// Formats package code according to domain-specific rules.

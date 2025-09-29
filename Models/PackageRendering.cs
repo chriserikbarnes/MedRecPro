@@ -198,7 +198,54 @@ namespace MedRecPro.Models
 
         #endregion
 
+        #region characteristic properties
 
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and ordered characteristics for this packaging level.
+        /// Filtered to characteristics where PackagingLevelID matches this packaging level.
+        /// Null if no characteristics exist for this packaging level.
+        /// </summary>
+        /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="Label"/>
+        public List<CharacteristicDto>? Characteristics { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed characteristic rendering contexts for efficient template rendering.
+        /// Contains CharacteristicRendering objects with all pre-computed properties instead of raw CharacteristicDto objects.
+        /// This collection provides optimized characteristic data for template processing with pre-computed business logic.
+        /// Null if no characteristics exist for this packaging level.
+        /// </summary>
+        /// <seealso cref="CharacteristicRendering"/>
+        /// <seealso cref="Characteristics"/>
+        /// <seealso cref="Label"/>
+        /// <remarks>
+        /// This collection contains characteristics specific to this packaging level with pre-computed properties.
+        /// Use this collection in preference to the raw Characteristics for optimal template performance.
+        /// Each CharacteristicRendering object contains pre-computed value type flags, rendering logic decisions,
+        /// formatted values, and display flags to eliminate template processing overhead.
+        /// </remarks>
+        public List<CharacteristicRendering>? CharacteristicRendering { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this packaging has characteristics to render.
+        /// </summary>
+        /// <seealso cref="Characteristics"/>
+        /// <seealso cref="Label"/>
+        public bool HasCharacteristics { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this packaging has characteristic rendering contexts.
+        /// </summary>
+        /// <seealso cref="CharacteristicRendering"/>
+        /// <seealso cref="Label"/>
+        public bool HasCharacteristicRendering { get; set; }
+
+        #endregion
 
         #region convenience properties
 
@@ -288,7 +335,5 @@ namespace MedRecPro.Models
         public bool HasIdentifiers => PackagingLevelDto?.PackageIdentifiers?.Any() == true;
 
         #endregion
-
-       
     }
 }

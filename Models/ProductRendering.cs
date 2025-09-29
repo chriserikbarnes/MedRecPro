@@ -87,6 +87,22 @@
 
         /**************************************************************/
         /// <summary>
+        /// Pre-computed and ordered marketing statuses (marketing acts) for efficient rendering.
+        /// Contains MarketingStatusDto objects with product-level marketing act information.
+        /// Null if no marketing statuses exist.
+        /// </summary>
+        /// <seealso cref="MarketingStatusDto"/>
+        /// <seealso cref="Label"/>
+        public List<MarketingStatusDto>? OrderedMarketingStatuses { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this product has marketing acts to render.
+        /// </summary>
+        public bool HasMarketingAct { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Pre-computed flag indicating whether this product has NDC identifier.
         /// </summary>
         /// <seealso cref="NdcProductIdentifier"/>

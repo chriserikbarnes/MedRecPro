@@ -129,6 +129,15 @@ namespace MedRecPro.Service
         /// <seealso cref="Label"/>
         MarketingCategoryDto? GetPrimaryMarketingCategory(ProductDto product);
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets marketing statuses (marketing acts) ordered by business rules.
+        /// Filters to product-level marketing statuses (PackagingLevelID = null).
+        /// </summary>
+        /// <param name="product">The product containing marketing statuses</param>
+        /// <returns>Ordered list of marketing statuses or null if none exists</returns>
+        List<MarketingStatusDto>? GetOrderedMarketingStatuses(ProductDto product);
+
         #endregion
     }
 
@@ -243,7 +252,7 @@ namespace MedRecPro.Service
                 throw new ArgumentNullException(nameof(product));
 
             // Use provided package rendering service or default to internal instance
-            _packageRenderingService = packageRenderingService ?? new PackageRenderingService();
+            _packageRenderingService = packageRenderingService ?? new PackageRenderingService(characteristicRenderingService);
             _characteristicRenderingService = characteristicRenderingService ?? new CharacteristicRenderingService();
 
             // Create base product rendering with existing logic
@@ -263,6 +272,8 @@ namespace MedRecPro.Service
                 // Pre-compute marketing status properties
                 OrderedMarketingCategories = GetOrderedMarketingCategories(product),
                 PrimaryMarketingCategory = GetPrimaryMarketingCategory(product),
+                OrderedMarketingStatuses = GetOrderedMarketingStatuses(product),
+                HasMarketingAct = GetOrderedMarketingStatuses(product)?.Any() == true,
 
                 // Pre-compute availability flags
                 HasNdcIdentifier = GetNdcProductIdentifier(product) != null,
@@ -723,6 +734,27 @@ namespace MedRecPro.Service
             return orderedCategories?.FirstOrDefault();
 
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets marketing statuses (marketing acts) ordered by business rules.
+        /// Filters to product-level marketing statuses (PackagingLevelID = null).
+        /// </summary>
+        /// <param name="product">The product containing marketing statuses</param>
+        /// <returns>Ordered list of marketing statuses or null if none exists</returns>
+        public List<MarketingStatusDto>? GetOrderedMarketingStatuses(ProductDto product)
+        {
+            if (product?.MarketingStatuses == null || !product.MarketingStatuses.Any())
+                return null;
+
+            // Filter to product-level marketing statuses only (PackagingLevelID = null)
+            var productLevelStatuses = product.MarketingStatuses
+                .Where(ms => ms.PackagingLevelID == null)
+                .OrderBy(ms => ms.MarketingStatusID)
+                .ToList();
+
+            return productLevelStatuses.Any() ? productLevelStatuses : null;
         }
 
         #endregion

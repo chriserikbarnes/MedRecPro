@@ -1,56 +1,87 @@
-﻿@using MedRecPro.Models;
-@using MedRecPro.Helpers;
-@inherits RazorLight.TemplatePage<MedRecPro.Models.PackageRendering>;
-@model PackageRendering;
+﻿@using MedRecPro.Models
+@using MedRecPro.Helpers
+@using MedRecPro.Service
+@inherits RazorLight.TemplatePage<MedRecPro.Models.PackageRendering>
+@model PackageRendering
 
-@* CORRECTED: Template using only existing DTO properties *@
+@* Template with package-level characteristic rendering *@
 @if (Model != null && Model.HasValidData)
 {
     var packagingModel = Model.PackagingLevelDto;
+
     <asContent>
-        @* Render quantity section with proper numerator translations *@
+        @* Quantity (with numerator/denominator) *@
         @if (Model.HasQuantity)
         {
             <quantity>
-                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator) @SplTemplateHelpers.Attribute("unit", Model.NumeratorUnit) />
+                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator)
+                           @SplTemplateHelpers.Attribute("unit", Model.NumeratorUnit) />
                 <denominator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator) />
             </quantity>
         }
+
         <containerPackagedProduct>
-            @* Render only NDCs that match this packaging level's PackagingLevelID *@
+            @* NDCs for this packaging level *@
             @if (Model.HasPackageIdentifiers && Model.OrderedPackageIdentifiers != null)
             {
                 foreach (var identifier in Model.OrderedPackageIdentifiers)
                 {
-                    <code @SplTemplateHelpers.Attribute("code", identifier.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", identifier.IdentifierSystemOID) />
+                    <code @SplTemplateHelpers.Attribute("code", identifier.IdentifierValue)
+                          @SplTemplateHelpers.Attribute("codeSystem", identifier.IdentifierSystemOID) />
                 }
             }
             else
             {
                 <code />
             }
-            @* Render form code using existing DTO properties *@
+
+            @* Form code *@
             @if (Model.HasFormCode)
             {
-                <formCode @SplTemplateHelpers.Attribute("code", Model.PackageFormCode) @SplTemplateHelpers.Attribute("codeSystem", Model.PackageFormCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.PackageFormDisplayName) />
+                <formCode @SplTemplateHelpers.Attribute("code", Model.PackageFormCode)
+                          @SplTemplateHelpers.Attribute("codeSystem", Model.PackageFormCodeSystem)
+                          @SplTemplateHelpers.Attribute("displayName", Model.PackageFormDisplayName) />
             }
-            @* Render nested child packaging using existing ChildPackagingLevel *@
+
+            @* Nested child packaging *@
             @if (Model.HasChildPackageRendering && Model.ChildPackageRendering != null)
             {
                 foreach (var childPackage in Model.ChildPackageRendering)
                 {
-                    @* Recursive inclusion creates proper nested <asContent> structure *@
+                    @* Recursive inclusion creates nested <asContent> structure *@
                     await IncludeAsync("_Packaging", childPackage);
                 }
             }
         </containerPackagedProduct>
-        @if (Model.HasMarketing)
+
+        @* Package-level characteristics *@
+        @if (packagingModel != null &&
+            packagingModel.Characteristics != null &&
+            packagingModel.Characteristics.Any())
         {
-            foreach (var marketing in Model.PackagingLevelDto.MarketingStatuses)
+            var characteristicService = new CharacteristicRenderingService();
+
+            foreach (var characteristic in packagingModel.Characteristics)
+            {
+                var enhancedCharacteristic = characteristicService.PrepareForRendering(characteristic);
+
+                <subjectOf>
+                    @{
+                        await IncludeAsync("_Characteristic", enhancedCharacteristic);
+                    }
+                </subjectOf>
+            }
+        }
+
+        @* Marketing acts for this package level *@
+        @if (Model.HasMarketing && packagingModel != null && packagingModel.MarketingStatuses != null)
+        {
+            foreach (var marketing in packagingModel.MarketingStatuses)
             {
                 <subjectOf>
                     <marketingAct>
-                        <code @SplTemplateHelpers.Attribute("code", marketing.MarketingActCode) @SplTemplateHelpers.Attribute("codeSystem", marketing.MarketingActCodeSystem)  />
+                        <code @SplTemplateHelpers.Attribute("code", marketing.MarketingActCode)
+                              @SplTemplateHelpers.Attribute("codeSystem", marketing.MarketingActCodeSystem) />
                         <statusCode @SplTemplateHelpers.Attribute("code", marketing.StatusCode) />
                         <effectiveTime>
                             @if (marketing.EffectiveStartDate.HasValue)
