@@ -1,0 +1,63 @@
+﻿@using MedRecPro.Models;
+@using Microsoft.AspNetCore.Html;
+@using RazorLight.Razor;
+@using MedRecPro.Helpers;
+@inherits RazorLight.TemplatePage<MedRecPro.Models.CharacteristicRendering>;
+@model CharacteristicRendering;
+
+@{
+    var characteristic = Model.CharacteristicDto;
+
+    @* Use stored ValueType for xsi:type instead of hardcoding CE *@
+    var xsiType = characteristic.ValueType?.ToUpperInvariant() ?? "CE";
+}
+
+@* data pre-computed by CharacteristicRenderingService *@
+<code @SplTemplateHelpers.Attribute("code", characteristic.CharacteristicCode) @SplTemplateHelpers.Attribute("codeSystem", characteristic.CharacteristicCodeSystem) />
+
+@if (Model.ShouldRenderAsCodedElement)
+{
+    if (Model.HasOriginalText)
+    {
+        <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="@xsiType">
+            <originalText>@characteristic.OriginalText</originalText>
+        </value>
+    }
+    else
+    {
+        <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="@xsiType" />
+    }
+}
+else if (Model.ShouldRenderAsPhysicalQuantity)
+{
+    <value @SplTemplateHelpers.Attribute("unit", characteristic.ValuePQ_Unit) @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityValue) xsi:type="PQ" />
+}
+else if (Model.ShouldRenderAsBoolean)
+{
+    <value @SplTemplateHelpers.Attribute("value", Model.FormattedBooleanValue) xsi:type="BL" />
+}
+else if (Model.ShouldRenderAsInteger)
+{
+    <value @SplTemplateHelpers.Attribute("value", Model.FormattedIntegerValue) xsi:type="INT" />
+}
+else if (Model.ShouldRenderAsString)
+{
+    <value xsi:type="ST">@characteristic.ValueST</value>
+}
+else if (Model.ShouldRenderAsFallbackCoded)
+{
+    if (Model.HasOriginalText)
+    {
+        <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="@xsiType">
+            <originalText>@characteristic.OriginalText</originalText>
+        </value>
+    }
+    else
+    {
+        <value @SplTemplateHelpers.Attribute("code", characteristic.ValueCV_Code) @SplTemplateHelpers.Attribute("codeSystem", characteristic.ValueCV_CodeSystem) @SplTemplateHelpers.Attribute("displayName", characteristic.ValueCV_DisplayName) xsi:type="@xsiType" />
+    }
+}
+else if (Model.ShouldRenderAsFallbackString)
+{
+    <value xsi:type="ST">@characteristic.ValueST</value>
+}

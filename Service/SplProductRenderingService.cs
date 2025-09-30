@@ -471,12 +471,28 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Gets characteristics ordered by business rules.
+        /// Gets characteristics ordered by business rules for product-level only.
+        /// Filters to exclude packaging-level characteristics which are rendered separately.
         /// </summary>
         /// <param name="product">The product containing characteristics</param>
-        /// <returns>Ordered list of characteristics or null if none exists</returns>
+        /// <returns>Ordered list of product-level characteristics or null if none exists</returns>
         /// <seealso cref="CharacteristicDto"/>
-        /// <seealso cref="Label"/>
+        /// <seealso cref="IPackageRenderingService.GetOrderedCharacteristicsForPackaging"/>
+        /// <seealso cref="Label.Characteristic"/>
+        /// <remarks>
+        /// This method explicitly filters characteristics to only those with null PackagingLevelID.
+        /// Package-level characteristics are rendered separately in the packaging hierarchy
+        /// through GetOrderedCharacteristicsForPackaging in PackageRenderingService.
+        /// 
+        /// CRITICAL: This filtering prevents characteristics from being rendered at both
+        /// product and packaging levels, which would violate SPL structural requirements.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var productCharacteristics = GetOrderedCharacteristics(product);
+        /// // Returns only characteristics where PackagingLevelID is null
+        /// </code>
+        /// </example>
         public List<CharacteristicDto>? GetOrderedCharacteristics(ProductDto product)
         {
             #region implementation
@@ -484,7 +500,10 @@ namespace MedRecPro.Service
             if (product?.Characteristics == null)
                 return null;
 
+            // CRITICAL: Filter to product-level characteristics only (PackagingLevelID = null)
+            // Package-level characteristics are handled separately by PackageRenderingService
             var orderedCharacteristics = product.Characteristics
+                .Where(c => c.PackagingLevelID == null)
                 .OrderBy(c => c.CharacteristicID)
                 .ToList();
 

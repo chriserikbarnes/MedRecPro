@@ -75,6 +75,15 @@ namespace MedRecPro.Models
         /// <seealso cref="CharacteristicDto.ValueST"/>
         public bool HasOriginalText { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether classCode should be rendered.
+        /// ClassCode="OBS" appears only on product-level characteristics (PackagingLevelID is null).
+        /// Package-level characteristics (with PackagingLevelID) omit classCode per SPL specifications.
+        /// </summary>
+        /// <seealso cref="CharacteristicDto.PackagingLevelID"/>
+        public bool ShouldRenderClassCode { get; set; }
+
         #endregion
 
         #region pre-computed rendering logic flags

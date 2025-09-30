@@ -262,6 +262,10 @@ namespace MedRecPro.Service
                                                !shouldRenderAsBoolean && !shouldRenderAsInteger &&
                                                !shouldRenderAsString && !shouldRenderAsFallbackCoded && hasStringValue;
 
+            // ADDED: Compute whether to render classCode attribute
+            // ClassCode="OBS" only appears on product-level characteristics
+            var shouldRenderClassCode = !characteristic.PackagingLevelID.HasValue;
+
             // Create comprehensive characteristic rendering object
             var characteristicRendering = new CharacteristicRendering
             {
@@ -284,6 +288,9 @@ namespace MedRecPro.Service
                 ShouldRenderAsString = shouldRenderAsString,
                 ShouldRenderAsFallbackCoded = shouldRenderAsFallbackCoded,
                 ShouldRenderAsFallbackString = shouldRenderAsFallbackString,
+
+                // Rendering context flag
+                ShouldRenderClassCode = shouldRenderClassCode,
 
                 // Formatted value properties for direct template output
                 FormattedBooleanValue = FormatBooleanValue(characteristic),

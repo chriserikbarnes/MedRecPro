@@ -2271,51 +2271,85 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
-        /// Builds a list of characteristic DTOs for a specified product ID, including associated packaging levels.
-        /// Stores characteristics of a product or package (subjectOf characteristic).
+        /// Builds a list of characteristic DTOs for a specified product ID or packaging level ID,
+        /// including associated packaging levels. Stores characteristics of a product or package 
+        /// (subjectOf characteristic).
         /// </summary>
         /// <param name="db">The database context for querying characteristic entities.</param>
-        /// <param name="productID">The product identifier to filter characteristics.</param>
+        /// <param name="productID">The product identifier to filter characteristics. Optional if packagingLevelID is provided.</param>
         /// <param name="pkSecret">The secret key used for encrypting entity IDs.</param>
         /// <param name="logger">The logger instance for tracking operations.</param>
-        /// <param name="sectionId">OPTIONAL used for compliance actions in indexing files</param>
+        /// <param name="sectionId">Optional section ID used for compliance actions in indexing files.</param>
+        /// <param name="packagingLevelID">Optional packaging level identifier to filter characteristics for package-level properties.</param>
         /// <returns>A list of CharacteristicDto objects with associated packaging levels.</returns>
         /// <seealso cref="Label.Characteristic"/>
         /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="PackagingLevelDto"/>
         /// <seealso cref="buildPackageIdentifierDtoAsync"/>
         /// <remarks>
-        /// Based on Section 3.1.9. Relates to the Characteristic table (ProductID and PackagingLevelID).
+        /// Based on Section 3.1.9 and enhanced for package-level characteristics per _Packaging.cshtml template.
+        /// Relates to the Characteristic table (ProductID and PackagingLevelID foreign keys).
+        /// Can filter by either ProductID or PackagingLevelID to support both product-level and package-level characteristics.
+        /// When filtering by PackagingLevelID, retrieves characteristics specific to that packaging level.
         /// </remarks>
-        private static async Task<List<CharacteristicDto>> buildCharacteristicsDtoAsync(ApplicationDbContext db,
+        /// <example>
+        /// <code>
+        /// // Get product-level characteristics
+        /// var productChars = await buildCharacteristicsDtoAsync(db, 123, pkSecret, logger);
+        /// 
+        /// // Get package-level characteristics
+        /// var packageChars = await buildCharacteristicsDtoAsync(db, null, pkSecret, logger, null, 456);
+        /// </code>
+        /// </example>
+        private static async Task<List<CharacteristicDto>> buildCharacteristicsDtoAsync(
+            ApplicationDbContext db,
             int? productID,
             string pkSecret,
             ILogger logger,
-            int? sectionId = null)
+            int? sectionId = null,
+            int? packagingLevelID = null)
         {
             #region implementation
-            // Return empty list if no product ID is provided
-            if (productID == null)
+
+            #region validation
+            // Return empty list if neither product ID nor packaging level ID is provided
+            if (productID == null && packagingLevelID == null)
                 return new List<CharacteristicDto>();
+            #endregion
 
-            // Query characteristics for the specified product
-            var entities = await db.Set<Label.Characteristic>()
+            #region query construction
+            // Build query based on provided parameters
+            var query = db.Set<Label.Characteristic>()
                 .AsNoTracking()
-                .Where(e => e.ProductID == productID)
-                .ToListAsync();
+                .AsQueryable();
 
+            // Apply appropriate filter based on which ID was provided
+            if (productID != null)
+            {
+                query = query.Where(e => e.ProductID == productID);
+            }
+            else if (packagingLevelID != null)
+            {
+                query = query.Where(e => e.PackagingLevelID == packagingLevelID);
+            }
+
+            // Execute query to retrieve characteristic entities
+            var entities = await query.ToListAsync();
+            #endregion
+
+            #region dto building
             var dtos = new List<CharacteristicDto>();
             List<PackagingLevelDto?> pkgLevelDtos = new List<PackagingLevelDto?>();
 
             // Process each characteristic and build associated packaging levels
             foreach (var item in entities)
             {
-                // For each characteristic, build its PackagingLevel(s) as dictionaries
+                // Build associated PackageIdentifiers if PackagingLevelID is present
                 var packageIdentifiers = new List<PackageIdentifierDto?>();
-
 
                 if (item.PackagingLevelID != null)
                 {
-                    // You might have one or many packaging levels per characteristic
+                    // Build package identifier for this characteristic's packaging level
                     var pkgDto = await buildPackageIdentifierDtoAsync(
                         db,
                         item.PackagingLevelID,
@@ -2328,16 +2362,23 @@ namespace MedRecPro.DataAccess
                         packageIdentifiers.Add(pkgDto);
                     }
 
-                    List<PackagingLevelDto>? itemPackagingLevels = (await buildPackagingLevelsAsync(db, productID, pkSecret, logger))
-                        ?.Where(pkl => pkl.PackagingLevelID == item.PackagingLevelID)
-                        ?.ToList();
+                    // Build packaging level details if needed for context
+                    // Note: Avoid recursive loops - only fetch if characteristic is product-level
+                    if (productID != null)
+                    {
+                        List<PackagingLevelDto>? itemPackagingLevels = (await buildPackagingLevelsDtoAsync(
+                            db,
+                            item.PackagingLevelID,
+                            pkSecret,
+                            logger))
+                            ?.ToList();
 
-                    if (itemPackagingLevels != null && itemPackagingLevels.Any())
-                        pkgLevelDtos.AddRange(itemPackagingLevels);
-
+                        if (itemPackagingLevels != null && itemPackagingLevels.Any())
+                            pkgLevelDtos.AddRange(itemPackagingLevels);
+                    }
                 }
 
-                // Create characteristic DTO with packaging levels
+                // Create characteristic DTO with packaging levels and identifiers
                 dtos.Add(new CharacteristicDto
                 {
                     Characteristic = item.ToEntityWithEncryptedId(pkSecret, logger),
@@ -2347,6 +2388,8 @@ namespace MedRecPro.DataAccess
             }
 
             return dtos;
+            #endregion
+
             #endregion
         }
 
@@ -3916,37 +3959,56 @@ namespace MedRecPro.DataAccess
         #region Packaging Hierarchy Builders
         /**************************************************************/
         /// <summary>
-        /// Builds a list of packaging level DTOs for a specified product, including packaging hierarchy data.
+        /// Builds a list of packaging level DTOs for a specified product, including packaging 
+        /// hierarchy data and package-level characteristics.
         /// </summary>
         /// <param name="db">The database context for querying packaging level entities.</param>
         /// <param name="productID">The product identifier to filter packaging levels.</param>
         /// <param name="pkSecret">The secret key used for encrypting entity IDs.</param>
         /// <param name="logger">The logger instance for tracking operations.</param>
-        /// <returns>A list of PackagingLevelDto objects with encrypted IDs and packaging hierarchy data.</returns>
+        /// <returns>A list of PackagingLevelDto objects with encrypted IDs, packaging hierarchy data, and characteristics.</returns>
         /// <seealso cref="Label.PackagingLevel"/>
         /// <seealso cref="Label.ProductEvent"/>
         /// <seealso cref="Label.PackagingHierarchy"/>
         /// <seealso cref="Label.MarketingStatus"/>
+        /// <seealso cref="Label.Characteristic"/>
         /// <seealso cref="PackagingLevelDto"/>
         /// <seealso cref="ProductEventDto"/>
         /// <seealso cref="PackagingHierarchyDto"/>
-        /// <seealso cref="MarketingStatusDto"/>"/>
+        /// <seealso cref="MarketingStatusDto"/>
+        /// <seealso cref="CharacteristicDto"/>
         /// <seealso cref="buildPackagingHierarchyDtoAsync"/>
         /// <seealso cref="buildProductEventsAsync"/>
         /// <seealso cref="buildPackageMarketingStatusesAsync"/>
+        /// <seealso cref="buildCharacteristicsDtoAsync"/>
+        /// <remarks>
+        /// Enhanced to include package-level characteristics as specified in _Packaging.cshtml template.
+        /// Package-level characteristics may include container type, labeling information, or other
+        /// package-specific properties that differ from product-level characteristics.
+        /// </remarks>
         /// <example>
+        /// <code>
         /// var packagingLevels = await buildPackagingLevelsAsync(dbContext, 123, "secretKey", logger);
+        /// </code>
         /// </example>
-        private static async Task<List<PackagingLevelDto>> buildPackagingLevelsAsync(ApplicationDbContext db, int? productID, string pkSecret, ILogger logger)
+        private static async Task<List<PackagingLevelDto>> buildPackagingLevelsAsync(
+            ApplicationDbContext db,
+            int? productID,
+            string pkSecret,
+            ILogger logger)
         {
             #region implementation
+
+            #region validation
             // Return empty list if no product ID is provided
             if (productID == null) return new List<PackagingLevelDto>();
+            #endregion
 
+            #region query execution
             var dtos = new List<PackagingLevelDto>();
             List<PackageIdentifierDto> packageIdentifierDtos = new List<PackageIdentifierDto>();
 
-            // Query packaging levels for the specified packaging hierarchy
+            // Query packaging levels for the specified product
             var items = await db.Set<Label.PackagingLevel>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
@@ -3954,10 +4016,16 @@ namespace MedRecPro.DataAccess
 
             if (items == null || !items.Any())
                 return new List<PackagingLevelDto>();
+            #endregion
 
-            // Build packaging hierarchy data for each packaging level
+            #region dto building
+
+            // Build packaging level DTOs with all associated data
             foreach (var item in items)
             {
+                #region nested collections
+
+                // Fetch package identifiers for this packaging level
                 var packageIdentifier = await db.Set<Label.PackageIdentifier>()
                     .AsNoTracking()
                     .Where(e => e.PackagingLevelID == item.PackagingLevelID)
@@ -3965,13 +4033,20 @@ namespace MedRecPro.DataAccess
 
                 packageIdentifierDtos = new List<PackageIdentifierDto>();
 
+                // Build packaging hierarchy, events, and marketing statuses
                 var pack = await buildPackagingHierarchyDtoAsync(db, item.PackagingLevelID, pkSecret, logger);
-
                 var events = await buildProductEventsAsync(db, item.PackagingLevelID, pkSecret, logger);
-
                 var marketingStatuses = await buildPackageMarketingStatusesAsync(db, item.PackagingLevelID, pkSecret, logger);
 
-                if (packageIdentifier != null && !packageIdentifier.Any())
+                // Build package-level characteristics for this packaging level
+                var characteristics = await buildCharacteristicsDtoAsync(db, null, pkSecret, logger, null, item.PackagingLevelID);  
+
+                #endregion
+
+                #region package identifiers
+                // Process package identifiers if present
+                if (packageIdentifier != null && packageIdentifier.Any())
+                {
                     foreach (var pk in packageIdentifier)
                     {
                         var itemPk = await buildPackageIdentifierDtoAsync(db, pk.PackageIdentifierID, pkSecret, logger);
@@ -3981,19 +4056,30 @@ namespace MedRecPro.DataAccess
 
                         packageIdentifierDtos.Add(itemPk);
                     }
+                }
 
+                #endregion
+
+                #region dto assembly
+
+                // Assemble complete packaging level DTO with all collections
                 dtos.Add(new PackagingLevelDto
                 {
                     PackagingLevel = item.ToEntityWithEncryptedId(pkSecret, logger),
                     PackagingHierarchy = pack,
                     ProductEvents = events,
                     MarketingStatuses = marketingStatuses,
-                    PackageIdentifiers = packageIdentifierDtos
+                    PackageIdentifiers = packageIdentifierDtos,
+                    Characteristics = characteristics 
                 });
-            }
 
-            // DTOs with encrypted IDs
+                #endregion
+            }
+            #endregion
+
+            // Return completed DTOs with encrypted IDs
             return dtos ?? new List<PackagingLevelDto>();
+
             #endregion
         }
 

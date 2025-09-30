@@ -142,13 +142,16 @@ namespace MedRecPro.Service.ParsingServices
         /// Handles both outermost and nested package levels. Recursively processes nested packaging
         /// structures to create a full packaging tree using PackagingHierarchy links.
         /// Extracts quantity, package codes, and form codes from the XML.
-        /// This version also integrates the parsing of package identifiers and marketing status information.
+        /// This version also integrates the parsing of package identifiers, marketing status information,
+        /// and packaging-level characteristics.
         /// </remarks>
         /// <seealso cref="PackagingLevel"/>
         /// <seealso cref="PackagingHierarchy"/>
         /// <seealso cref="PackageIdentifier"/>
         /// <seealso cref="Product"/>
         /// <seealso cref="MarketingStatusParser"/>
+        /// <seealso cref="ProductCharacteristicsParser"/>
+        /// <seealso cref="Characteristic"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
         private async Task<int> parseAndSavePackagingLevelsAsync(
@@ -207,6 +210,27 @@ namespace MedRecPro.Service.ParsingServices
                         context.Logger?.LogWarning(
                             "Failed to process marketing status for PackagingLevelID {PackagingLevelID}: {Errors}",
                             packagingLevel.PackagingLevelID, string.Join(", ", marketingStatusResult.Errors));
+                    }
+
+                    // Process characteristics for this packaging level using the dedicated parser
+                    // The context.CurrentPackagingLevel is set above, so characteristics will be
+                    // correctly associated with this PackagingLevelID
+                    var characteristicsParser = new ProductCharacteristicsParser();
+                    var characteristicsResult = await characteristicsParser.ParseAsync(asContentEl, context, null);
+
+                    // Add characteristics count to the overall packaging count
+                    if (characteristicsResult.Success)
+                    {
+                        count += characteristicsResult.ProductElementsCreated;
+                        context.Logger?.LogDebug(
+                            "Processed {CharacteristicsCount} characteristic records for PackagingLevelID {PackagingLevelID}",
+                            characteristicsResult.ProductElementsCreated, packagingLevel.PackagingLevelID);
+                    }
+                    else
+                    {
+                        context.Logger?.LogWarning(
+                            "Failed to process characteristics for PackagingLevelID {PackagingLevelID}: {Errors}",
+                            packagingLevel.PackagingLevelID, string.Join(", ", characteristicsResult.Errors));
                     }
                 }
                 finally

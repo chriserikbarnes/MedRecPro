@@ -124,6 +124,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </example>
         /// <seealso cref="Characteristic"/>
         /// <seealso cref="Product"/>
+        /// <seealso cref="PackagingLevel"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
         private async Task<int> parseAndSaveCharacteristicsAsync(
@@ -139,12 +140,26 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || repo == null || context.Logger == null)
                 return count;
 
-            // Parse characteristics directly under the parent element (product-level)
-            count += await parseCharacteristicsFromSubjectOfAsync(parentEl, product, context, packagingLevelId: null);
+            // Determine the packaging level ID from context if available
+            // This allows the method to work for both product-level and package-level characteristics
+            int? packagingLevelId = context.CurrentPackagingLevel?.PackagingLevelID;
 
-            // Recursively parse characteristics within asContent structures (package-level)
-            // NOTE: This method must be called AFTER packaging has been parsed and PackagingLevel entities exist
-            count += await parseCharacteristicsFromAsContentAsync(parentEl, product, context);
+            // Parse characteristics directly under the parent element
+            // If context.CurrentPackagingLevel is set, these will be package-level characteristics
+            // Otherwise, they will be product-level characteristics (PackagingLevelID = null)
+            count += await parseCharacteristicsFromSubjectOfAsync(parentEl, product, context, packagingLevelId);
+
+            // 09/30/2024 Removed to test without recursion
+
+            //// Only recursively parse nested asContent structures if we're NOT already at a packaging level
+            //// This prevents duplicate parsing when called from PackagingParser
+            //if (packagingLevelId == null)
+            //{
+            //    // Recursively parse characteristics within asContent structures (package-level)
+            //    // NOTE: This method is only called when parsing from ManufacturedProductParser
+            //    // When called from PackagingParser, the packaging level is already set in context
+            //    count += await parseCharacteristicsFromAsContentAsync(parentEl, product, context);
+            //}
 
             return count;
             #endregion

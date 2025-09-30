@@ -3335,6 +3335,14 @@ namespace MedRecPro.Models
         public List<PackageIdentifierDto> PackageIdentifiers { get; set; } = new();
 
         /// <summary>
+        /// Package-level characteristics such as container type, labeling information,
+        /// or other properties specific to this packaging level.
+        /// </summary>
+        /// <seealso cref="Label.Characteristic"/>
+        /// <seealso cref="CharacteristicDto"/>
+        public List<CharacteristicDto> Characteristics { get; set; } = new();
+
+        /// <summary>
         /// Primary key for the PackagingLevel table.
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]

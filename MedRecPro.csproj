@@ -67,6 +67,7 @@
 
 	<ItemGroup>
 	  <Content Remove="Views\SplTemplates\_AuthorHierarchical.cshtml" />
+	  <Content Remove="Views\SplTemplates\_CharacteristicDetail.cshtml" />
 	  <Content Remove="Views\SplTemplates\_MarketingStatus.cshtml" />
 	</ItemGroup>
 
