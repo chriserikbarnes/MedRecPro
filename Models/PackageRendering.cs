@@ -28,6 +28,30 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
+        /// Pre-computed and ordered marketing statuses (marketing acts) for this specific package level.
+        /// Contains MarketingStatusDto objects filtered to this package's PackagingLevelID.
+        /// Null if no package-level marketing acts exist for this package.
+        /// </summary>
+        /// <seealso cref="MarketingStatusDto"/>
+        /// <seealso cref="PackagingLevelDto.PackagingLevelID"/>
+        /// <seealso cref="Label"/>
+        /// <remarks>
+        /// These are package-specific marketing acts that appear within the asContent section
+        /// of SPL XML, distinct from product-level marketing acts which appear at the product level.
+        /// </remarks>
+        public List<MarketingStatusDto>? OrderedMarketingStatuses { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this package has marketing acts to render.
+        /// Used for efficient template conditional logic.
+        /// </summary>
+        /// <seealso cref="OrderedMarketingStatuses"/>
+        /// <seealso cref="Label"/>
+        public bool HasMarketingAct { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Pre-computed display attributes for HTML rendering.
         /// Generated from packaging level properties with proper formatting.
         /// </summary>

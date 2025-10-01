@@ -89,6 +89,19 @@ namespace MedRecPro.Service
         /// <seealso cref="Label"/>
         List<CharacteristicDto>? GetOrderedCharacteristicsForPackaging(ProductDto product, int? packagingLevelId);
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets marketing statuses (marketing acts) ordered by business rules for a specific package.
+        /// Filters to package-level marketing statuses matching the provided PackagingLevelID.
+        /// </summary>
+        /// <param name="parentProduct">The parent product containing marketing statuses</param>
+        /// <param name="packagingLevelId">The packaging level ID to filter marketing acts for</param>
+        /// <returns>Ordered list of marketing statuses for this package or null if none exists</returns>
+        /// <seealso cref="MarketingStatusDto"/>
+        /// <seealso cref="ProductDto"/>
+        /// <seealso cref="Label"/>
+        List<MarketingStatusDto>? GetOrderedMarketingStatusesForPackage(ProductDto parentProduct, int? packagingLevelId);
+
         #endregion
     }
 
@@ -213,6 +226,10 @@ namespace MedRecPro.Service
                 NumeratorCodeSystem = packagingLevel.NumeratorTranslationCodeSystem ?? parentProduct.FormCodeSystem ?? Constant.FDA_SPL_CODE_SYSTEM,
                 NumeratorDisplayName = packagingLevel.NumeratorTranslationDisplayName,
 
+                //  Pre-compute marketing act properties
+                OrderedMarketingStatuses = GetOrderedMarketingStatusesForPackage(parentProduct, packagingLevel.PackagingLevelID),
+                HasMarketingAct = GetOrderedMarketingStatusesForPackage(parentProduct, packagingLevel.PackagingLevelID)?.Any() == true,
+
                 // Explicitly set denominator properties to null to prevent unwanted XML attributes
                 DenominatorTranslationCode = null,
                 DenominatorCodeSystem = null,
@@ -232,6 +249,55 @@ namespace MedRecPro.Service
             }
 
             return packageRendering;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets marketing statuses (marketing acts) ordered by business rules for a specific package.
+        /// Filters marketing acts to only those associated with the specified PackagingLevelID.
+        /// </summary>
+        /// <param name="parentProduct">The parent product containing all marketing statuses</param>
+        /// <param name="packagingLevelId">The packaging level ID to filter for</param>
+        /// <returns>Ordered list of package-level marketing statuses or null if none exists</returns>
+        /// <seealso cref="MarketingStatusDto"/>
+        /// <seealso cref="ProductDto.MarketingStatuses"/>
+        /// <seealso cref="PackagingLevelDto.PackagingLevelID"/>
+        /// <seealso cref="Label"/>
+        /// <example>
+        /// <code>
+        /// var packageMarketingActs = service.GetOrderedMarketingStatusesForPackage(product, packagingLevel.PackagingLevelID);
+        /// if (packageMarketingActs != null)
+        /// {
+        ///     // Render marketing acts for this package
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method filters the product's MarketingStatuses collection to find only those
+        /// with a matching PackagingLevelID. Package-level marketing acts are rendered within
+        /// the asContent section of SPL XML, distinct from product-level marketing acts.
+        /// </remarks>
+        public List<MarketingStatusDto>? GetOrderedMarketingStatusesForPackage(ProductDto parentProduct, int? packagingLevelId)
+        {
+            #region implementation
+
+            if (parentProduct?.MarketingStatuses == null || !parentProduct.MarketingStatuses.Any())
+                return null;
+
+            // If packagingLevelId is null, we can't match package-level marketing acts
+            if (!packagingLevelId.HasValue)
+                return null;
+
+            // Filter to marketing statuses for this specific package level
+            var packageMarketingStatuses = parentProduct.MarketingStatuses
+                .Where(ms => ms.PackagingLevelID.HasValue &&
+                             ms.PackagingLevelID.Value == packagingLevelId.Value)
+                .OrderBy(ms => ms.MarketingStatusID)
+                .ToList();
+
+            return packageMarketingStatuses.Any() ? packageMarketingStatuses : null;
+
             #endregion
         }
 

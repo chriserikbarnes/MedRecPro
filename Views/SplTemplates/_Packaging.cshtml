@@ -14,20 +14,17 @@
         @if (Model.HasQuantity)
         {
             <quantity>
-                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator)
-                           @SplTemplateHelpers.Attribute("unit", Model.NumeratorUnit) />
+                <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator) @SplTemplateHelpers.Attribute("unit", Model.NumeratorUnit) />
                 <denominator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator) />
             </quantity>
         }
-
         <containerPackagedProduct>
             @* NDCs for this packaging level *@
             @if (Model.HasPackageIdentifiers && Model.OrderedPackageIdentifiers != null)
             {
                 foreach (var identifier in Model.OrderedPackageIdentifiers)
                 {
-                    <code @SplTemplateHelpers.Attribute("code", identifier.IdentifierValue)
-                          @SplTemplateHelpers.Attribute("codeSystem", identifier.IdentifierSystemOID) />
+                    <code @SplTemplateHelpers.Attribute("code", identifier.IdentifierValue) @SplTemplateHelpers.Attribute("codeSystem", identifier.IdentifierSystemOID) />
                 }
             }
             else
@@ -38,9 +35,7 @@
             @* Form code *@
             @if (Model.HasFormCode)
             {
-                <formCode @SplTemplateHelpers.Attribute("code", Model.PackageFormCode)
-                          @SplTemplateHelpers.Attribute("codeSystem", Model.PackageFormCodeSystem)
-                          @SplTemplateHelpers.Attribute("displayName", Model.PackageFormDisplayName) />
+                <formCode @SplTemplateHelpers.Attribute("code", Model.PackageFormCode) @SplTemplateHelpers.Attribute("codeSystem", Model.PackageFormCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.PackageFormDisplayName) />
             }
 
             @* Nested child packaging *@
@@ -74,14 +69,13 @@
         }
 
         @* Marketing acts for this package level *@
-        @if (Model.HasMarketing && packagingModel != null && packagingModel.MarketingStatuses != null)
+        @if (Model.HasMarketingAct && Model.OrderedMarketingStatuses != null)
         {
-            foreach (var marketing in packagingModel.MarketingStatuses)
+            foreach (var marketing in Model.OrderedMarketingStatuses)
             {
                 <subjectOf>
                     <marketingAct>
-                        <code @SplTemplateHelpers.Attribute("code", marketing.MarketingActCode)
-                              @SplTemplateHelpers.Attribute("codeSystem", marketing.MarketingActCodeSystem) />
+                        <code @SplTemplateHelpers.Attribute("code", marketing.MarketingActCode) @SplTemplateHelpers.Attribute("codeSystem", marketing.MarketingActCodeSystem) />
                         <statusCode @SplTemplateHelpers.Attribute("code", marketing.StatusCode) />
                         <effectiveTime>
                             @if (marketing.EffectiveStartDate.HasValue)

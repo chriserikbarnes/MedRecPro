@@ -149,18 +149,6 @@ namespace MedRecPro.Service.ParsingServices
             // Otherwise, they will be product-level characteristics (PackagingLevelID = null)
             count += await parseCharacteristicsFromSubjectOfAsync(parentEl, product, context, packagingLevelId);
 
-            // 09/30/2024 Removed to test without recursion
-
-            //// Only recursively parse nested asContent structures if we're NOT already at a packaging level
-            //// This prevents duplicate parsing when called from PackagingParser
-            //if (packagingLevelId == null)
-            //{
-            //    // Recursively parse characteristics within asContent structures (package-level)
-            //    // NOTE: This method is only called when parsing from ManufacturedProductParser
-            //    // When called from PackagingParser, the packaging level is already set in context
-            //    count += await parseCharacteristicsFromAsContentAsync(parentEl, product, context);
-            //}
-
             return count;
             #endregion
         }
