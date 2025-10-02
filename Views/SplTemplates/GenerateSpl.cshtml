@@ -21,7 +21,7 @@
     
     @if (Model.HasDocumentTitle)
     {
-        <title mediaType="text/x-hl7-title+xml">@Raw(Model.DocumentTitle)</title>
+        <title>@Raw(Model.DocumentTitle)</title>
     }
     
     @if (Model.HasEffectiveTime)

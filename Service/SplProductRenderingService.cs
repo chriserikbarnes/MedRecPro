@@ -304,6 +304,10 @@ namespace MedRecPro.Service
                 processCharacteristics(productRendering, _characteristicRenderingService, additionalParams);
             }
 
+#if DEBUG
+            //string json = JsonConvert.SerializeObject(productRendering, Formatting.Indented);
+#endif
+
             return productRendering;
 
             #endregion
@@ -772,6 +776,13 @@ namespace MedRecPro.Service
                 .Where(ms => ms.PackagingLevelID == null)
                 .OrderBy(ms => ms.MarketingStatusID)
                 .ToList();
+
+
+#if DEBUG
+            //string json = productLevelStatuses.Any() 
+            //    ? JsonConvert.SerializeObject(productLevelStatuses, Formatting.Indented)
+            //    : string.Empty;
+#endif
 
             return productLevelStatuses.Any() ? productLevelStatuses : null;
         }

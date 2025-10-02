@@ -2,6 +2,7 @@
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Newtonsoft.Json;
 using static MedRecPro.Models.Label;
 
 namespace MedRecPro.Service
@@ -247,6 +248,11 @@ namespace MedRecPro.Service
             {
                 processPackagingCharacteristics(parentProduct, packageRendering, _characteristicRenderingService, additionalParams);
             }
+
+#if DEBUG
+
+            //string json = JsonConvert.SerializeObject(packageRendering, Formatting.Indented);
+#endif
 
             return packageRendering;
             #endregion
