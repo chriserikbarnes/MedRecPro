@@ -1144,7 +1144,8 @@ namespace MedRecPro.Service.ParsingServices
         /**************************************************************/
         /// <summary>
         /// Finds or creates SectionExcerptHighlight records for all highlight text nodes
-        /// within excerpt elements of a section, capturing highlighted content for database storage.
+        /// within excerpt elements of a section, capturing the complete inner XML content
+        /// including tables, lists, and paragraphs for database storage.
         /// </summary>
         /// <param name="excerptEl">The XElement to search for excerpt/highlight/text patterns.</param>
         /// <param name="sectionId">The SectionID owning this highlight content.</param>
@@ -1156,6 +1157,11 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
+        /// <remarks>
+        /// This method must capture the complete inner XML of the text element,
+        /// including complex nested structures like tables. The content is stored as raw XML
+        /// in the database for later rendering.
+        /// </remarks>
         public async Task<List<SectionExcerptHighlight>> GetOrCreateSectionExcerptHighlightsAsync(
             XElement excerptEl,
             int sectionId,
@@ -1177,40 +1183,77 @@ namespace MedRecPro.Service.ParsingServices
             var repo = context.GetRepository<SectionExcerptHighlight>();
             var dbSet = dbContext.Set<SectionExcerptHighlight>();
 
-            // Find all excerpt/highlight/text nodes for this section
-            // Navigate the XML hierarchy to locate text nodes within highlight elements inside excerpts
-            foreach (var highlightTextEl in excerptEl
-                 .Descendants(ns + sc.E.Text) // More direct search
-                 .Where(x => x.Parent?.Name.LocalName == sc.E.Highlight))
-            {
-                // Extract the highlighted text content from the XML element
-                var txt = XElementExtensions.GetHighlightXml(highlightTextEl);
+            // Find all highlight elements directly under this excerpt
+            // Use Elements (not Descendants) to avoid finding nested highlights in child structures
+            var highlightElements = excerptEl.Elements(ns + sc.E.Highlight);
 
-                if (string.IsNullOrWhiteSpace(txt)) continue;
+            foreach (var highlightEl in highlightElements)
+            {
+                // Get the text element within this specific highlight
+                var textEl = highlightEl.Element(ns + sc.E.Text);
+
+                if (textEl == null)
+                {
+                    // No text element - this shouldn't happen in valid SPL but handle gracefully
+                    context.Logger?.LogWarning($"Highlight element without text child in SectionID {sectionId}");
+                    continue;
+                }
+
+                // Extract the complete inner XML from the text element
+                // This preserves tables, lists, paragraphs, and all nested structures
+                string? txt = null;
+
+                try
+                {
+                    // Get all child nodes of the text element and serialize them
+                    var innerNodes = textEl.Nodes();
+
+                    if (innerNodes != null && innerNodes.Any())
+                    {
+                        // Concatenate all inner XML preserving structure
+                        txt = string.Concat(innerNodes.Select(n => n.ToString())).Trim();
+                    }
+                    else
+                    {
+                        // Text element exists but has no children - check for direct text content
+                        txt = textEl.Value?.Trim();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    context.Logger?.LogError(ex, $"Error extracting highlight XML for SectionID {sectionId}");
+                    continue;
+                }
+
+                // Skip if no actual content was extracted
+                if (string.IsNullOrWhiteSpace(txt))
+                {
+                    context.Logger?.LogWarning($"Empty highlight text extracted for SectionID {sectionId}");
+                    continue;
+                }
 
                 // Dedupe: SectionID + HighlightText
-                // Search for existing highlight with matching section and text content
-                var existing = await dbSet.FirstOrDefaultAsync(eh =>
-                    eh.SectionID == sectionId &&
-                    eh.HighlightText == txt);
+                var existing = await dbSet
+                    .Where(eh => eh.SectionID == sectionId && eh.HighlightText == txt)
+                    .FirstOrDefaultAsync();
 
-                // Return existing highlight if found to avoid duplicates
                 if (existing != null)
                 {
                     highlights.Add(existing);
                     continue;
                 }
 
-                // Create new section excerpt highlight with extracted text
+                // Create new section excerpt highlight with the complete XML content
                 var newHighlight = new SectionExcerptHighlight
                 {
                     SectionID = sectionId,
                     HighlightText = txt
                 };
 
-                // Persist new highlight to database
                 await repo.CreateAsync(newHighlight);
                 highlights.Add(newHighlight);
+
+                context.Logger?.LogInformation($"Created SectionExcerptHighlight for SectionID {sectionId} with {txt.Length} characters");
             }
 
             return highlights;

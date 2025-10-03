@@ -80,6 +80,14 @@ namespace MedRecPro.Service
         /// <param name="section">The section to get code system name for</param>
         /// <returns>Section code system name or "LOINC" as default</returns>
         string GetSectionCodeSystemName(SectionDto section);
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets section excerpt highlights ordered by highlight ID.
+        /// </summary>
+        /// <param name="section">The section containing excerpt highlights</param>
+        /// <returns>Ordered enumerable of excerpt highlights or null if none exists</returns>
+        IEnumerable<SectionExcerptHighlightDto>? GetOrderedExcerptHighlights(SectionDto section);
     }
 
 
@@ -151,6 +159,7 @@ namespace MedRecPro.Service
             // Get ordered text content and observation media for reference resolution
             var orderedTextContent = GetOrderedTextContent(section);
             var orderedMedia = GetOrderedMedia(section);
+            var orderedExcerptHighlights = GetOrderedExcerptHighlights(section);
 
             // Process text content with media context for multimedia reference resolution
             List<TextContentRendering>? renderedTextContent = null;
@@ -180,6 +189,8 @@ namespace MedRecPro.Service
                 HasRenderedTextContent = hasRenderedTextContent,
                 OrderedProducts = GetOrderedProducts(section),
                 OrderedMedia = orderedMedia,
+                OrderedExcerptHighlights = orderedExcerptHighlights,
+                HasExcerptHighlights = orderedExcerptHighlights?.Any() == true,
 
                 // Pre-compute availability flags
                 HasTextContent = orderedTextContent?.Any() == true,
@@ -192,7 +203,79 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// FIXED: Generates the appropriate ID attribute for a section with conditional logic.
+        /// Gets section excerpt highlights ordered by highlight ID with cleaned content.
+        /// Removes redundant namespace declarations that interfere with rendering.
+        /// Returns null if no highlights exist.
+        /// </summary>
+        /// <param name="section">The section containing excerpt highlights</param>
+        /// <returns>Ordered enumerable of excerpt highlights with cleaned content or null if none exists</returns>
+        /// <seealso cref="SectionExcerptHighlightDto"/>
+        /// <remarks>
+        /// The cleaning process removes xmlns declarations that are redundant because they're
+        /// already declared on the document root element. This prevents namespace conflicts
+        /// during rendering.
+        /// </remarks>
+        public IEnumerable<SectionExcerptHighlightDto>? GetOrderedExcerptHighlights(SectionDto section)
+        {
+            #region implementation
+
+            if (section?.ExcerptHighlights?.Any() != true)
+                return null;
+
+            // Order and clean the highlights
+            var orderedHighlights = section.ExcerptHighlights
+                .OrderBy(eh => eh.SectionExcerptHighlightID ?? 0)
+                .ToList();
+
+            // Clean namespace declarations from each highlight
+            foreach (var highlight in orderedHighlights)
+            {
+                if (!string.IsNullOrWhiteSpace(highlight.HighlightText))
+                {
+                    // Create a cleaned copy by removing redundant namespace declarations
+                    var cleanedDict = new Dictionary<string, object?>(highlight.SectionExcerptHighlight);
+                    cleanedDict["HighlightText"] = CleanHighlightXml(highlight.HighlightText);
+
+                    // Update the DTO with cleaned content
+                    highlight.SectionExcerptHighlight.Clear();
+                    foreach (var kvp in cleanedDict)
+                    {
+                        highlight.SectionExcerptHighlight[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            return orderedHighlights;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Cleans XML content by removing redundant namespace declarations.
+        /// </summary>
+        /// <param name="xmlContent">The XML content to clean</param>
+        /// <returns>Cleaned XML content</returns>
+        /// <remarks>
+        /// Removes xmlns="urn:hl7-org:v3" declarations since they're redundant when the
+        /// document root already declares this namespace.
+        /// </remarks>
+        private static string CleanHighlightXml(string xmlContent)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(xmlContent))
+                return xmlContent;
+
+            // Remove the redundant namespace declaration
+            return xmlContent.Replace(" xmlns=\"urn:hl7-org:v3\"", string.Empty);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates the appropriate ID attribute for a section with conditional logic.
         /// Now conditionally omits ID for specific section types based on business rules.
         /// </summary>
         /// <param name="section">The section to generate ID for</param>

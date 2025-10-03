@@ -26,6 +26,24 @@
             <effectiveTime @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(Model.Section.EffectiveTime)) />
         }
 
+        @* Render excerpt highlights if available *@
+        @if (Model.HasExcerptHighlights && Model.OrderedExcerptHighlights != null)
+        {
+            <excerpt>
+                @foreach (var highlight in Model.OrderedExcerptHighlights)
+                {
+                    if (!string.IsNullOrWhiteSpace(highlight.HighlightText))
+                    {
+                        <highlight>
+                            <text>
+                                @Raw(highlight.HighlightText)
+                            </text>
+                        </highlight>
+                    }
+                }
+            </excerpt>
+        }
+
         @* Render text content if available *@
         @if (Model.HasTextContent && Model.RenderedTextContent != null)
         {

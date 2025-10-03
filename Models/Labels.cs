@@ -51,6 +51,8 @@ namespace MedRecPro.Models
         private static List<string> preserveFormatTags = new List<string>
             { "b", "br", "caption", "cite", "content", "em", "i", "linkHtml", "p", "span", "strong", "sub", "sup" };
 
+        private static List<string> preserveHighlightTags = new List<string> { "paragraph", "list", "item", "caption", "linkHtml", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "col",  "colgroup", "content" };
+
         #region Properties
 
         /*******************************************************************************/
@@ -1159,8 +1161,7 @@ namespace MedRecPro.Models
             public string? HighlightText
             {
                 get => _highlightText;
-                set => _highlightText = value?.RemoveUnwantedTagsRegEx(preserveTags: new List<string>
-                { "paragraph", "list", "item", "caption", "linkHtml" });
+                set => _highlightText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveHighlightTags);
             }
             #endregion properties
         }
@@ -2427,7 +2428,8 @@ namespace MedRecPro.Models
             /// <summary>
             /// Optional original color description or flavor text
             /// </summary>
-            public string? OriginalText {
+            public string? OriginalText
+            {
                 get => originalText;
                 set => originalText = value?.RemoveHtmlXss();
             }

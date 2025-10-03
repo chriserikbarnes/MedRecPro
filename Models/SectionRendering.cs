@@ -30,6 +30,17 @@ namespace MedRecPro.Models
         public List<SectionRendering> HierarchicalChildren { get; set; } = new List<SectionRendering>(); // N-level hierarchy
 
         /// <summary>
+        /// Pre-computed and ordered excerpt highlights for efficient rendering.
+        /// Null if no highlights exist.
+        /// </summary>
+        public IEnumerable<SectionExcerptHighlightDto>? OrderedExcerptHighlights { get; set; }
+
+        /// <summary>
+        /// Pre-computed flag indicating whether this section has excerpt highlights to render.
+        /// </summary>
+        public bool HasExcerptHighlights { get; set; }
+
+        /// <summary>
         /// Indicates whether this section is standalone (not part of any hierarchy).
         /// Used for rendering optimization and structure validation.
         /// </summary>
