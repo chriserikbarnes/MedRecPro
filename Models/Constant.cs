@@ -381,6 +381,8 @@ namespace MedRecPro.Models
             public const string Reference = "reference";
             public const string Excerpt = "excerpt";
             public const string Highlight = "highlight";
+            public const string Col = "col";
+            public const string Colgroup = "colgroup";
             #endregion
 
             #region Product & Data Elements

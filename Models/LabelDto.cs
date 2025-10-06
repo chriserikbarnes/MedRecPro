@@ -5816,53 +5816,206 @@ namespace MedRecPro.Models
     /// <seealso cref="Label.TextTable"/>
     public class TextTableDto
     {
+        #region properties
+
         public required Dictionary<string, object?> TextTable { get; set; }
+        public List<TextTableColumnDto> TextTableColumns { get; set; } = new();
         public List<TextTableRowDto> TextTableRows { get; set; } = new();
 
+        /**************************************************************/
         /// <summary>
         /// Primary key for the TextTable table.
         /// </summary>
+        /// <seealso cref="Label"/>
         [Newtonsoft.Json.JsonIgnore]
         public int? TextTableID =>
+        #region implementation
             TextTable.TryGetValue("EncryptedTextTableID", out var value)
                 ? Util.DecryptAndParseInt(value)
                 : null;
+        #endregion
 
+        /**************************************************************/
         /// <summary>
         /// Foreign key to SectionTextContent (where ContentType='Table').
         /// </summary>
+        /// <seealso cref="Label"/>
         [Newtonsoft.Json.JsonIgnore]
         public int? SectionTextContentID =>
+        #region implementation
             TextTable.TryGetValue("EncryptedSectionTextContentID", out var value)
                 ? Util.DecryptAndParseInt(value)
                 : null;
+        #endregion
 
+        /**************************************************************/
+        /// <summary>
+        /// Optional ID attribute on the [table] element.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SectionTableLink =>
+        #region implementation
+            TextTable.TryGetValue(nameof(SectionTableLink), out var value)
+                ? value as string
+                : null;
+        #endregion
+
+        /**************************************************************/
         /// <summary>
         /// Optional width attribute specified on the [table] element.
         /// </summary>
+        /// <seealso cref="Label"/>
         [Newtonsoft.Json.JsonIgnore]
         public string? Width =>
+        #region implementation
             TextTable.TryGetValue(nameof(Width), out var value)
                 ? value as string
                 : null;
+        #endregion
 
+        /**************************************************************/
+        /// <summary>
+        /// Optional caption text for the table.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? Caption =>
+        #region implementation
+            TextTable.TryGetValue(nameof(Caption), out var value)
+                ? value as string
+                : null;
+        #endregion
+
+        /**************************************************************/
         /// <summary>
         /// Indicates if the table included a [thead] element.
         /// </summary>
+        /// <seealso cref="Label"/>
         [Newtonsoft.Json.JsonIgnore]
         public bool? HasHeader =>
+        #region implementation
             TextTable.TryGetValue(nameof(HasHeader), out var value)
                 ? value as bool?
                 : null;
+        #endregion
 
+        /**************************************************************/
         /// <summary>
         /// Indicates if the table included a [tfoot] element.
         /// </summary>
+        /// <seealso cref="Label"/>
         [Newtonsoft.Json.JsonIgnore]
         public bool? HasFooter =>
+        #region implementation
             TextTable.TryGetValue(nameof(HasFooter), out var value)
                 ? value as bool?
                 : null;
+        #endregion
+
+        #endregion properties
+    }
+
+    /**************************************************************/
+    /// <seealso cref="Label.TextTableColumn"/>
+    public class TextTableColumnDto
+    {
+        #region properties
+
+        public required Dictionary<string, object?> TextTableColumn { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Primary key for the TextTableColumn table.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? TextTableColumnID =>
+        #region implementation
+            TextTableColumn.TryGetValue("EncryptedTextTableColumnID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Foreign key to TextTable.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? TextTableID =>
+        #region implementation
+            TextTableColumn.TryGetValue("EncryptedTextTableID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Order of the column within the table.
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? SequenceNumber =>
+        #region implementation
+            TextTableColumn.TryGetValue(nameof(SequenceNumber), out var value)
+                ? value as int?
+                : null;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional width attribute on [col].
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? Width =>
+        #region implementation
+            TextTableColumn.TryGetValue(nameof(Width), out var value)
+                ? value as string
+                : null;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional align attribute on [col].
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? Align =>
+        #region implementation
+            TextTableColumn.TryGetValue(nameof(Align), out var value)
+                ? value as string
+                : null;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional valign attribute on [col].
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? VAlign =>
+        #region implementation
+            TextTableColumn.TryGetValue(nameof(VAlign), out var value)
+                ? value as string
+                : null;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional styleCode attribute on [col].
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? StyleCode =>
+        #region implementation
+            TextTableColumn.TryGetValue(nameof(StyleCode), out var value)
+                ? value as string
+                : null;
+        #endregion
+
+        #endregion properties
     }
 
     /**************************************************************/

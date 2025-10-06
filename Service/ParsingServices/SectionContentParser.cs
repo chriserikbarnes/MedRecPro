@@ -483,7 +483,7 @@ namespace MedRecPro.Service.ParsingServices
             else if (contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
             {
                 // Process table structure and create row/cell entities
-                grandchildEntitiesCount += await GetOrCreateTextTableAndChildrenAsync(block, stc.SectionTextContentID.Value, context);
+                grandchildEntitiesCount += await getOrCreateTextTableAndChildrenAsync(block, stc.SectionTextContentID.Value, context);
             }
             else if (contentType.Equals(sc.E.Excerpt, StringComparison.OrdinalIgnoreCase))
             {
@@ -880,20 +880,25 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses a [table] element, creating the main TextTable record and then
-        /// delegating the parsing of its header, body, and footer rows.
+        /// Parses a [table] element, creating the main TextTable record, column definitions,
+        /// and then delegating the parsing of its header, body, and footer rows.
         /// </summary>
         /// <param name="tableEl">The XElement representing the [table] element.</param>
-        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record.</param>
+        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record (where ContentType='Table'). Each table has its own SectionTextContent record, so this ID uniquely identifies this specific table.</param>
         /// <param name="context">The current parsing context.</param>
-        /// <returns>A task that resolves to the total number of table, row, and cell entities created.</returns>
+        /// <returns>A task that resolves to the total number of table, column, row, and cell entities created.</returns>
+        /// <remarks>
+        /// This method expects a one-to-one relationship between SectionTextContent (ContentType='Table') and TextTable.
+        /// Each table element in the SPL creates a separate SectionTextContent record, which then gets one TextTable record.
+        /// </remarks>
         /// <seealso cref="TextTable"/>
+        /// <seealso cref="TextTableColumn"/>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private async Task<int> GetOrCreateTextTableAndChildrenAsync(
+        private async Task<int> getOrCreateTextTableAndChildrenAsync(
             XElement tableEl,
             int sectionTextContentId,
             SplParseContext context)
@@ -912,18 +917,31 @@ namespace MedRecPro.Service.ParsingServices
             var tableRepo = context.GetRepository<TextTable>();
             var tableDbSet = dbContext.Set<TextTable>();
 
-            // 1. Find or Create the TextTable record
-            // Check for existing table associated with the section text content
+            // Find or Create the TextTable record
+            // Note: SectionTextContentID uniquely identifies this table because each table element
+            // creates its own SectionTextContent record with ContentType='Table'
             var textTable = await tableDbSet.FirstOrDefaultAsync(t => t.SectionTextContentID == sectionTextContentId);
+
             if (textTable == null)
             {
+                // Extract caption if present
+                var captionEl = tableEl.SplElement(sc.E.Caption);
+                string? captionText = null;
+                if (captionEl != null)
+                {
+                    // Get caption content preserving inner formatting
+                    captionText = captionEl.GetSplHtml(stripNamespaces: true);
+                }
+
                 // Create new table entity with metadata about structure and styling
                 textTable = new TextTable
                 {
                     SectionTextContentID = sectionTextContentId,
+                    SectionTableLink = tableEl.Attribute(sc.A.ID)?.Value,
                     Width = tableEl.Attribute(sc.A.Width)?.Value,
-                    HasHeader = tableEl.SplElement(sc.E.Thead) != null, // Check for header section
-                    HasFooter = tableEl.SplElement(sc.E.Tfoot) != null  // Check for footer section
+                    Caption = captionText,
+                    HasHeader = tableEl.SplElement(sc.E.Thead) != null,
+                    HasFooter = tableEl.SplElement(sc.E.Tfoot) != null
                 };
 
                 // Persist new table to database
@@ -938,12 +956,13 @@ namespace MedRecPro.Service.ParsingServices
                 return createdCount;
             }
 
-            // 2. Parse rows for each section of the table (header, body, footer)
+            // Parse column definitions before processing rows
+            createdCount += await parseAndCreateColumnsAsync(tableEl, textTable.TextTableID.Value, context);
+
             // Process table header section if present
             var theadEl = tableEl.SplElement(sc.E.Thead);
             if (theadEl != null)
             {
-                // Parse header rows and accumulate creation count
                 createdCount += await ParseAndCreateRowsAsync(theadEl, textTable.TextTableID.Value, "Header", context);
             }
 
@@ -951,7 +970,6 @@ namespace MedRecPro.Service.ParsingServices
             var tbodyEl = tableEl.SplElement(sc.E.Tbody);
             if (tbodyEl != null)
             {
-                // Parse body rows and accumulate creation count
                 createdCount += await ParseAndCreateRowsAsync(tbodyEl, textTable.TextTableID.Value, "Body", context);
             }
 
@@ -959,8 +977,92 @@ namespace MedRecPro.Service.ParsingServices
             var tfootEl = tableEl.SplElement(sc.E.Tfoot);
             if (tfootEl != null)
             {
-                // Parse footer rows and accumulate creation count
                 createdCount += await ParseAndCreateRowsAsync(tfootEl, textTable.TextTableID.Value, "Footer", context);
+            }
+
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all column definitions ([col] and [colgroup]/[col]) within a table,
+        /// creating TextTableColumn records with alignment and width specifications.
+        /// </summary>
+        /// <param name="tableEl">The XElement for the table.</param>
+        /// <param name="textTableId">The database ID of the parent TextTable.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A task that resolves to the number of TextTableColumn entities created.</returns>
+        /// <remarks>
+        /// Handles both standalone col elements and col elements within colgroup.
+        /// Maintains column sequence for proper alignment with table cells.
+        /// </remarks>
+        /// <seealso cref="TextTableColumn"/>
+        /// <seealso cref="TextTable"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndCreateColumnsAsync(
+            XElement tableEl,
+            int textTableId,
+            SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // Validate required context dependencies for database operations
+            if (context == null || context.ServiceProvider == null)
+                return 0;
+
+            // Get database context and repository for column operations
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var columnRepo = context.GetRepository<TextTableColumn>();
+            var columnDbSet = dbContext.Set<TextTableColumn>();
+
+            // Extract all col elements directly under table
+            var colElements = tableEl.Elements(ns + sc.E.Col).ToList();
+
+            // Also check for colgroup/col structure
+            var colgroupEl = tableEl.Element(ns + sc.E.Colgroup);
+            if (colgroupEl != null)
+            {
+                // Add col elements nested within colgroup
+                colElements.AddRange(colgroupEl.Elements(ns + sc.E.Col));
+            }
+
+            // Initialize sequence number for maintaining column order
+            int seqNum = 1;
+
+            // Process each column definition element
+            foreach (var colEl in colElements)
+            {
+                // Check for existing column to avoid duplicates based on table and sequence
+                var existingCol = await columnDbSet.FirstOrDefaultAsync(c =>
+                    c.TextTableID == textTableId &&
+                    c.SequenceNumber == seqNum);
+
+                // Create new column if none exists at this position
+                if (existingCol == null)
+                {
+                    // Build new column entity with all extracted attributes
+                    var newColumn = new TextTableColumn
+                    {
+                        TextTableID = textTableId,
+                        SequenceNumber = seqNum,
+                        Width = colEl.Attribute(sc.A.Width)?.Value,
+                        Align = colEl.Attribute(sc.A.Align)?.Value,
+                        VAlign = colEl.Attribute(sc.A.VAlign)?.Value,
+                        StyleCode = colEl.Attribute(sc.A.StyleCode)?.Value
+                    };
+
+                    // Persist new column to database
+                    await columnRepo.CreateAsync(newColumn);
+                    createdCount++;
+                }
+
+                // Increment sequence for next column
+                seqNum++;
             }
 
             return createdCount;

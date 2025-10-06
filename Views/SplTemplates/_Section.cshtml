@@ -13,12 +13,18 @@
 
         @if (Model.HasSectionCode)
         {
-            <code @SplTemplateHelpers.Attribute("code", sectionModel.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", sectionModel.SectionCodeSystem) @SplTemplateHelpers.Attribute("displayName", sectionModel.SectionDisplayName) />
+            <code @SplTemplateHelpers.Attribute("code", sectionModel.SectionCode) @SplTemplateHelpers.Attribute("codeSystem", sectionModel.SectionCodeSystem) @SplTemplateHelpers.AttributePreEncoded("displayName", sectionModel.SectionDisplayName) />
         }
 
         @if (!string.IsNullOrWhiteSpace(sectionModel.Title))
         {
             <title>@sectionModel.Title</title>
+        }
+
+        @* Render text content if available *@
+        @if (Model.HasTextContent && Model.RenderedTextContent != null)
+        {
+            await IncludeAsync("_TextContent", Model.RenderedTextContent);
         }
 
         @if (Model?.Section?.EffectiveTime != null)
@@ -42,12 +48,6 @@
                     }
                 }
             </excerpt>
-        }
-
-        @* Render text content if available *@
-        @if (Model.HasTextContent && Model.RenderedTextContent != null)
-        {
-            await IncludeAsync("_TextContent", Model.RenderedTextContent);
         }
 
         @* Render enhanced products if available using the corrected approach *@

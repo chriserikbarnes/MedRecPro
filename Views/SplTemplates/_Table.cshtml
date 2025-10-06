@@ -5,8 +5,25 @@
 @model TextTableDto;
 @if (Model != null)
 {
-    <table width="@Model.Width">
-        @if (Model.HasHeader == true && Model.TextTableRows.Any(r => r.RowGroupType == "Header"))
+    var hasHeader = Model.HasHeader == true && Model.TextTableRows.Any(r => r.RowGroupType == "Header");
+    var hasBody = Model.TextTableRows.Any(r => r.RowGroupType == "Body");
+    var hasFooter = Model.HasFooter == true && Model.TextTableRows.Any(r => r.RowGroupType == "Footer");
+
+    @* Opening table tag with conditional attributes *@
+    <table @SplTemplateHelpers.Attribute("width", Model.Width) @SplTemplateHelpers.Attribute("ID", Model.SectionTableLink)>
+        @if (!string.IsNullOrEmpty(Model.Caption))
+        {
+            <caption>@Raw(Model.Caption)</caption>
+        }
+        @if (Model.TextTableColumns != null && Model.TextTableColumns.Any())
+        {
+            @foreach (var col in Model.TextTableColumns.OrderBy(c => c.SequenceNumber))
+            {
+                @* Self-closing col element with conditional attributes *@
+                <col @SplTemplateHelpers.Attribute("width", col.Width)  @SplTemplateHelpers.Attribute("align", col.Align)  @SplTemplateHelpers.Attribute("valign", col.VAlign) @SplTemplateHelpers.Attribute("styleCode", col.StyleCode) />
+            }
+        }
+        @if (hasHeader)
         {
             <thead>
                 @foreach (var row in Model.TextTableRows.Where(r => r.RowGroupType == "Header")
@@ -16,7 +33,8 @@
                 }
             </thead>
         }
-        @if (Model.TextTableRows.Any(r => r.RowGroupType == "Body"))
+        @* HL7 v3 requires tbody to appear before tfoot. Render empty tbody if only footer exists. *@
+        @if (hasBody || hasFooter)
         {
             <tbody>
                 @foreach (var row in Model.TextTableRows.Where(r => r.RowGroupType == "Body")
@@ -26,7 +44,7 @@
                 }
             </tbody>
         }
-        @if (Model.HasFooter == true && Model.TextTableRows.Any(r => r.RowGroupType == "Footer"))
+        @if (hasFooter)
         {
             <tfoot>
                 @foreach (var row in Model.TextTableRows.Where(r => r.RowGroupType == "Footer")

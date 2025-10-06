@@ -863,42 +863,178 @@ namespace MedRecPro.Models
             #endregion properties
         }
 
-        /*******************************************************************************/
+        /**************************************************************/
         /// <summary>
         /// Stores details specific to [table] elements. Based on Section 2.2.2.5.
         /// </summary>
+        /// <seealso cref="Label"/>
         public class TextTable
         {
             #region properties
+
+            /**************************************************************/
             /// <summary>
             /// Primary key for the TextTable table.
             /// </summary>
-            public int? TextTableID { get; set; } // Made nullable
+            /// <seealso cref="Label"/>
+            public int? TextTableID { get; set; }
 
+            /**************************************************************/
             /// <summary>
             /// Foreign key to SectionTextContent (where ContentType='Table').
             /// </summary>
-            public int? SectionTextContentID { get; set; } // Made nullable
+            /// <seealso cref="SectionTextContent"/>
+            /// <seealso cref="Label"/>
+            public int? SectionTextContentID { get; set; }
+
+            private string? _sectionTableLink;
+            /**************************************************************/
+            /// <summary>
+            /// Optional ID attribute on the [table] element for cross-referencing.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public string? SectionTableLink
+            {
+                #region implementation
+                get => _sectionTableLink;
+                set => _sectionTableLink = value?.RemoveHtmlXss();
+                #endregion
+            }
 
             private string? _width;
+            /**************************************************************/
             /// <summary>
             /// Optional width attribute specified on the [table] element.
             /// </summary>
+            /// <seealso cref="Label"/>
             public string? Width
             {
+                #region implementation
                 get => _width;
                 set => _width = value?.RemoveHtmlXss();
+                #endregion
             }
 
+            private string? _caption;
+            /**************************************************************/
+            /// <summary>
+            /// Optional caption text for the table, may contain formatted content.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public string? Caption
+            {
+                #region implementation
+                get => _caption;
+                set => _caption = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
+                #endregion
+            }
+
+            /**************************************************************/
             /// <summary>
             /// Indicates if the table included a [thead] element.
             /// </summary>
-            public bool? HasHeader { get; set; } // Made nullable (Default is 0 (false) in SQL)
+            /// <seealso cref="Label"/>
+            public bool? HasHeader { get; set; }
 
+            /**************************************************************/
             /// <summary>
             /// Indicates if the table included a [tfoot] element.
             /// </summary>
-            public bool? HasFooter { get; set; } // Made nullable (Default is 0 (false) in SQL)
+            /// <seealso cref="Label"/>
+            public bool? HasFooter { get; set; }
+
+            #endregion properties
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stores individual [col] elements within a [table]. Based on Section 2.2.2.5.
+        /// Column definitions specify default formatting and alignment for table columns.
+        /// </summary>
+        /// <seealso cref="TextTable"/>
+        /// <seealso cref="Label"/>
+        public class TextTableColumn
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Primary key for the TextTableColumn table.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public int? TextTableColumnID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Foreign key to TextTable.
+            /// </summary>
+            /// <seealso cref="TextTable"/>
+            /// <seealso cref="Label"/>
+            public int? TextTableID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Order of the column within the table.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public int? SequenceNumber { get; set; }
+
+            private string? _width;
+            /**************************************************************/
+            /// <summary>
+            /// Optional width attribute on [col] element.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public string? Width
+            {
+                #region implementation
+                get => _width;
+                set => _width = value?.RemoveHtmlXss();
+                #endregion
+            }
+
+            private string? _align;
+            /**************************************************************/
+            /// <summary>
+            /// Optional align attribute on [col] for horizontal alignment.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public string? Align
+            {
+                #region implementation
+                get => _align;
+                set => _align = value?.RemoveHtmlXss();
+                #endregion
+            }
+
+            private string? _vAlign;
+            /**************************************************************/
+            /// <summary>
+            /// Optional valign attribute on [col] for vertical alignment.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public string? VAlign
+            {
+                #region implementation
+                get => _vAlign;
+                set => _vAlign = value?.RemoveHtmlXss();
+                #endregion
+            }
+
+            private string? _styleCode;
+            /**************************************************************/
+            /// <summary>
+            /// Optional styleCode attribute on [col] for formatting rules.
+            /// </summary>
+            /// <seealso cref="Label"/>
+            public string? StyleCode
+            {
+                #region implementation
+                get => _styleCode;
+                set => _styleCode = value?.RemoveHtmlXss();
+                #endregion
+            }
+
             #endregion properties
         }
 

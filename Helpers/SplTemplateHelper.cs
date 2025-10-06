@@ -36,6 +36,26 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Conditionally renders an XML attribute with a pre-encoded value.
+        /// Use this when the value is already XML-encoded (contains &amp;, &lt;, etc.)
+        /// Returns an HtmlString to prevent Razor from double-encoding.
+        /// </summary>
+        /// <param name="name">The name of the attribute.</param>
+        /// <param name="value">The pre-encoded value of the attribute.</param>
+        /// <returns>An HtmlString containing the formatted XML attribute or an empty string.</returns>
+        public static HtmlString AttributePreEncoded(string name, object? value)
+        {
+            if (value == null || string.IsNullOrWhiteSpace(value.ToString()))
+            {
+                return HtmlString.Empty;
+            }
+
+            // Don't escape - value is already properly encoded from the data source
+            return new HtmlString($"{name}=\"{value}\"");
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Safely gets a value from a dictionary with case-insensitive key lookup and returns it as a formatted XML attribute.
         /// First tries the exact key, then tries variations (camelCase, PascalCase).
         /// </summary>

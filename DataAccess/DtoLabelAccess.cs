@@ -746,13 +746,13 @@ namespace MedRecPro.DataAccess
         /**************************************************************/
         /// <summary>
         /// Stores details specific to table elements.
-        /// Builds text table DTOs with their associated rows for the specified section text content.
+        /// Builds text table DTOs with their associated columns and rows for the specified section text content.
         /// </summary>
         /// <param name="db">The database context.</param>
         /// <param name="sectionTextContentID">The section text content ID to find text tables for.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
-        /// <returns>List of text table DTOs with nested row data for the section text content.</returns>
+        /// <returns>List of text table DTOs with nested column and row data for the section text content.</returns>
         /// <seealso cref="Label.TextTable"/>
         /// <seealso cref="TextTableDto"/>
         /// <seealso cref="SectionTextContentDto"/>
@@ -775,21 +775,63 @@ namespace MedRecPro.DataAccess
             if (entity == null)
                 return new List<TextTableDto>();
 
-            // Build DTOs with nested row data for each text table
+            // Build DTOs with nested column and row data for each text table
             foreach (var e in entity)
             {
+                // Build all columns for this text table
+                var columns = await buildTextTableColumnsAsync(db, e.TextTableID, pkSecret, logger);
+
                 // Build all rows for this text table
                 var rows = await buildTextTableRowsAsync(db, e.TextTableID, pkSecret, logger);
 
                 dtos.Add(new TextTableDto
                 {
                     TextTable = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    TextTableColumns = columns,
                     TextTableRows = rows
                 });
             }
 
             // Return completed DTOs
             return dtos ?? new List<TextTableDto>();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stores details specific to individual col elements.
+        /// Builds text table column DTOs for the specified text table.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="textTableID">The text table ID to find columns for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of text table column DTOs for the text table.</returns>
+        /// <seealso cref="Label.TextTableColumn"/>
+        /// <seealso cref="TextTableColumnDto"/>
+        /// <seealso cref="TextTableDto"/>
+        private static async Task<List<TextTableColumnDto>> buildTextTableColumnsAsync(ApplicationDbContext db, int? textTableID, string pkSecret, ILogger logger)
+        {
+            #region implementation
+            // Return empty list if no text table ID is provided
+            if (textTableID == null)
+                return new List<TextTableColumnDto>();
+
+            // Query text table columns for the specified text table
+            var entity = await db.Set<Label.TextTableColumn>()
+                .AsNoTracking()
+                .Where(e => e.TextTableID == textTableID)
+                .ToListAsync();
+
+            // Return empty list if no entities found
+            if (entity == null)
+                return new List<TextTableColumnDto>();
+
+            // Transform entities to DTOs with encrypted IDs
+            return entity.Select(e => new TextTableColumnDto
+            {
+                TextTableColumn = e.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList() ?? new List<TextTableColumnDto>();
             #endregion
         }
 

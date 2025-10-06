@@ -1,4 +1,6 @@
 ﻿using MedRecPro.Models;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Newtonsoft.Json;
 
 namespace MedRecPro.Service
 {
@@ -173,7 +175,7 @@ namespace MedRecPro.Service
                 hasRenderedTextContent = renderedTextContent?.Any() == true;
             }
 
-            return new SectionRendering
+            SectionRendering ret = new SectionRendering
             {
                 Section = section,
                 Children = children ?? new List<SectionDto>(),
@@ -197,6 +199,11 @@ namespace MedRecPro.Service
                 HasProducts = GetOrderedProducts(section)?.Any() == true,
                 HasMedia = orderedMedia?.Any() == true
             };
+
+#if DEBUG
+            // string json = JsonConvert.SerializeObject(ret);
+#endif
+            return ret;
 
             #endregion
         }
@@ -234,10 +241,12 @@ namespace MedRecPro.Service
                 {
                     // Create a cleaned copy by removing redundant namespace declarations
                     var cleanedDict = new Dictionary<string, object?>(highlight.SectionExcerptHighlight);
-                    cleanedDict["HighlightText"] = CleanHighlightXml(highlight.HighlightText);
+
+                    cleanedDict[nameof(highlight.HighlightText)] = CleanHighlightXml(highlight.HighlightText);
 
                     // Update the DTO with cleaned content
                     highlight.SectionExcerptHighlight.Clear();
+
                     foreach (var kvp in cleanedDict)
                     {
                         highlight.SectionExcerptHighlight[kvp.Key] = kvp.Value;

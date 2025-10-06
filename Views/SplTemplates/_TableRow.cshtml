@@ -6,17 +6,22 @@
 
 @if (Model != null)
 {
-    <tr>
+    @* Opening tr tag with conditional styleCode attribute *@
+    <tr @SplTemplateHelpers.Attribute("styleCode", Model.StyleCode)>
         @foreach (var cell in Model.TextTableCells.OrderBy(c => c.SequenceNumber))
         {
             var cellType = cell.CellType ?? "td";
-            if (cellType.Equals("th", StringComparison.OrdinalIgnoreCase))
+            @if (cellType.Equals("th", StringComparison.OrdinalIgnoreCase))
             {
-                <th align="@cell.Align" valign="@cell.VAlign" colspan="@cell.ColSpan" rowspan="@cell.RowSpan">@Raw(cell.CellText ?? "")</th>
+                @* Table header cell with all conditional attributes *@
+                <th @SplTemplateHelpers.Attribute("styleCode", cell.StyleCode) @SplTemplateHelpers.Attribute("align", cell.Align)  @SplTemplateHelpers.Attribute("valign", cell.VAlign) @SplTemplateHelpers.Attribute("colspan", cell.ColSpan) @SplTemplateHelpers.Attribute("rowspan", cell.RowSpan)>@Raw(cell.CellText ?? "")</th>
             }
             else
             {
-                <td align="@cell.Align" valign="@cell.VAlign" colspan="@cell.ColSpan" rowspan="@cell.RowSpan"> @Raw(cell.CellText ?? "")</td>
+                @* Table data cell with all conditional attributes *@
+                <td @SplTemplateHelpers.Attribute("styleCode", cell.StyleCode) @SplTemplateHelpers.Attribute("align", cell.Align) @SplTemplateHelpers.Attribute("valign", cell.VAlign) @SplTemplateHelpers.Attribute("colspan", cell.ColSpan) @SplTemplateHelpers.Attribute("rowspan", cell.RowSpan)>
+                    @Raw(cell.CellText ?? "")
+                </td>
             }
         }
     </tr>

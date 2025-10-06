@@ -62,29 +62,6 @@
                     }
                 }
 
-                @* Render product-level marketing acts if available *@
-                @if (Model.HasMarketingAct && Model.OrderedMarketingStatuses != null)
-                {
-                    foreach (var marketingStatus in Model.OrderedMarketingStatuses)
-                    {
-                        <subjectOf>
-                            <marketingAct>
-                                <code @SplTemplateHelpers.Attribute("code", marketingStatus.MarketingActCode) @SplTemplateHelpers.Attribute("codeSystem", marketingStatus.MarketingActCodeSystem) />
-                                <statusCode @SplTemplateHelpers.Attribute("code", marketingStatus.StatusCode) />
-                                <effectiveTime>
-                                    @if (marketingStatus.EffectiveStartDate.HasValue)
-                                    {
-                                        <low @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveStartDate)) />
-                                    }
-                                    @if (marketingStatus.EffectiveEndDate.HasValue)
-                                    {
-                                        <high @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveEndDate)) />
-                                    }
-                                </effectiveTime>
-                            </marketingAct>
-                        </subjectOf>
-                    }
-                }
             </manufacturedProduct>
 
             @* Render marketing status if available *@
@@ -107,6 +84,30 @@
                         await IncludeAsync("_MarketingStatus", Model.PrimaryMarketingCategory);
                     }
                 </subjectOf>
+            }
+
+            @* Render product-level marketing acts if available *@
+            @if (Model.HasMarketingAct && Model.OrderedMarketingStatuses != null)
+            {
+                foreach (var marketingStatus in Model.OrderedMarketingStatuses)
+                {
+                    <subjectOf>
+                        <marketingAct>
+                            <code @SplTemplateHelpers.Attribute("code", marketingStatus.MarketingActCode) @SplTemplateHelpers.Attribute("codeSystem", marketingStatus.MarketingActCodeSystem) />
+                            <statusCode @SplTemplateHelpers.Attribute("code", marketingStatus.StatusCode) />
+                            <effectiveTime>
+                                @if (marketingStatus.EffectiveStartDate.HasValue)
+                                {
+                                    <low @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveStartDate)) />
+                                }
+                                @if (marketingStatus.EffectiveEndDate.HasValue)
+                                {
+                                    <high @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveEndDate)) />
+                                }
+                            </effectiveTime>
+                        </marketingAct>
+                    </subjectOf>
+                }
             }
 
             @* Render characteristics with proper fallback logic *@
