@@ -31,7 +31,7 @@ namespace MedRecPro.Helpers
             }
 
             // SecurityElement.Escape handles XML-invalid characters like '&', '<', '>'
-            return new HtmlString($"{name}=\"{SecurityElement.Escape(value.ToString())}\"");
+            return new HtmlString($"{name}=\"{SecurityElement.Escape(value?.ToString()?.Trim())}\"");
         }
 
         /**************************************************************/
@@ -51,7 +51,7 @@ namespace MedRecPro.Helpers
             }
 
             // Don't escape - value is already properly encoded from the data source
-            return new HtmlString($"{name}=\"{value}\"");
+            return new HtmlString($"{name}=\"{value?.ToString()?.Trim()}\"");
         }
 
         /**************************************************************/
@@ -72,7 +72,7 @@ namespace MedRecPro.Helpers
             var value = SafeGet(dictionary, key);
             if (value != null && !string.IsNullOrWhiteSpace(value.ToString()))
             {
-                return new HtmlString($"{name}=\"{SecurityElement.Escape(value.ToString())}\"");
+                return new HtmlString($"{name}=\"{SecurityElement.Escape(value?.ToString()?.Trim())}\"");
             }
 
             return HtmlString.Empty;
@@ -95,7 +95,7 @@ namespace MedRecPro.Helpers
             var value = GetNestedPropertyValue(sourceObject, propertyPath);
             if (value != null && !string.IsNullOrWhiteSpace(value.ToString()))
             {
-                return new HtmlString($"{name}=\"{SecurityElement.Escape(value.ToString())}\"");
+                return new HtmlString($"{name}=\"{SecurityElement.Escape(value?.ToString()?.Trim())}\"");
             }
 
             return HtmlString.Empty;

@@ -12,6 +12,8 @@ using MedRecPro.Helpers;
 using MedRecPro.Data;
 using MedRecPro.Models;
 
+// 10/07/2025 TODO: Evaluate/Troubleshoot Line 289 for getOrCreateReferenceSubstanceAsync.
+// Reference was omitted despite being found in the original xml id root="37fb8ed8-7b03-4ce5-e063-6394a90a99cc"
 
 namespace MedRecPro.Service.ParsingServices
 {

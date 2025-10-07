@@ -917,6 +917,7 @@ namespace MedRecPro.Helpers
         /// // content will be "&lt;strong&gt;Bold Text&lt;/strong&gt;"
         /// </code>
         /// </example>
+        /// <remarks>This will add the namespace to the elements</remarks>
         /// <seealso cref="TextTableCell"/>
         /// <seealso cref="Label"/>
         public static string? GetCellXml(XElement? cellElement)
@@ -936,7 +937,7 @@ namespace MedRecPro.Helpers
         /**************************************************************/
         /// <summary>
         /// Extracts the inner XML of a list [item] element, preserving all markup,
-        /// but excluding the [caption] element itself.
+        /// but excluding the [caption] element itself. 
         /// </summary>
         /// <param name="itemElement">The [item] XElement to process.</param>
         /// <returns>The inner XML as a string, or null if the input is null.</returns>
@@ -947,6 +948,7 @@ namespace MedRecPro.Helpers
         /// // content will be "&lt;em&gt;Content&lt;/em&gt;" (caption excluded)
         /// </code>
         /// </example>
+        /// <remarks>This will add the namespace to the elements</remarks>
         /// <seealso cref="TextListItem"/>
         /// <seealso cref="Label"/>
         public static string? GetItemXml(XElement? itemElement)
@@ -967,7 +969,8 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
-        /// Extracts the inner HTML of a an element, preserving all markup.
+        /// Extracts the inner HTML of a an element, preserving all markup 
+        /// without introducing line breaks.
         /// </summary>
         /// <param name="itemElement">The [item] XElement to process.</param>
         /// <param name="stripNamespaces">If true, removes namespace declarations and converts 
@@ -993,13 +996,21 @@ namespace MedRecPro.Helpers
             if (stripNamespaces)
             {
                 // Process each node to strip namespaces
-                var processedNodes = clone.Nodes().Select(n => stripNamespacesFromNode(n));
-                return string.Concat(processedNodes.Select(n => n.ToString())).Trim();
+                var processedNodes = clone.Nodes()
+                    .Select(n => stripNamespacesFromNode(n));
+
+                // return string with no line breaks
+                return string.Concat(processedNodes
+                    .Select(n => n.ToString(SaveOptions.DisableFormatting)))
+                    .Trim();
             }
             else
             {
                 // Concatenate the remaining nodes (including text and other elements/tags) into a single string.
-                return string.Concat(clone.Nodes().Select(n => n.ToString())).Trim();
+                // returns without line breaks
+                return string.Concat(clone.Nodes()
+                    .Select(n => n.ToString(SaveOptions.DisableFormatting)))
+                    .Trim();
             }
             #endregion
         }

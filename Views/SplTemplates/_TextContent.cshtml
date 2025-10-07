@@ -16,11 +16,20 @@
                     break;
 
                 case TextContentRenderingAction.RenderMultiMedia:
-                    if (!string.IsNullOrEmpty(renderedContent.ReferencedObjectId))
+                    @* Render all multimedia references from resolved MediaID values *@
+                    @if (renderedContent.ResolvedMediaIds != null)
+                    {
+                        foreach (var mediaId in renderedContent.ResolvedMediaIds)
+                        {
+                            <renderMultiMedia @SplTemplateHelpers.Attribute("referencedObject", mediaId) />
+                        }
+                    }
+                    @* Fallback: render with single referenced object if available *@
+                    else if (!string.IsNullOrEmpty(renderedContent.ReferencedObjectId))
                     {
                         <renderMultiMedia @SplTemplateHelpers.Attribute("referencedObject", renderedContent.ReferencedObjectId)>@Raw(renderedContent.ProcessedContentText)</renderMultiMedia>
                     }
-                    else
+                    else if (renderedContent.HasContentText)
                     {
                         <renderMultiMedia>@Raw(renderedContent.ProcessedContentText)</renderMultiMedia>
                     }

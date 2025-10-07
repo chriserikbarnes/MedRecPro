@@ -20,7 +20,7 @@
             @foreach (var col in Model.TextTableColumns.OrderBy(c => c.SequenceNumber))
             {
                 @* Self-closing col element with conditional attributes *@
-                <col @SplTemplateHelpers.Attribute("width", col.Width)  @SplTemplateHelpers.Attribute("align", col.Align)  @SplTemplateHelpers.Attribute("valign", col.VAlign) @SplTemplateHelpers.Attribute("styleCode", col.StyleCode) />
+                <col @SplTemplateHelpers.Attribute("width", col.Width) @SplTemplateHelpers.Attribute("align", col.Align) @SplTemplateHelpers.Attribute("valign", col.VAlign) @SplTemplateHelpers.Attribute("styleCode", col.StyleCode) />
             }
         }
         @if (hasHeader)
@@ -32,18 +32,7 @@
                     await IncludeAsync("_TableRow", row);
                 }
             </thead>
-        }
-        @* HL7 v3 requires tbody to appear before tfoot. Render empty tbody if only footer exists. *@
-        @if (hasBody || hasFooter)
-        {
-            <tbody>
-                @foreach (var row in Model.TextTableRows.Where(r => r.RowGroupType == "Body")
-                        .OrderBy(r => r.SequenceNumber))
-                {
-                    await IncludeAsync("_TableRow", row);
-                }
-            </tbody>
-        }
+        }    
         @if (hasFooter)
         {
             <tfoot>
@@ -53,6 +42,19 @@
                     await IncludeAsync("_TableRow", row);
                 }
             </tfoot>
+        }
+        @* HL7 v3 requires tbody to appear after tfoot. Render empty tbody if only footer exists. 
+            https://stackoverflow.com/questions/5574057/why-do-internal-table-sections-have-to-go-thead-tfoot-tbody-to-validate
+        *@
+        @if (hasBody || hasFooter)
+        {
+            <tbody>
+                @foreach (var row in Model.TextTableRows.Where(r => r.RowGroupType == "Body")
+                        .OrderBy(r => r.SequenceNumber))
+                {
+                    await IncludeAsync("_TableRow", row);
+                }
+            </tbody>
         }
     </table>
 }

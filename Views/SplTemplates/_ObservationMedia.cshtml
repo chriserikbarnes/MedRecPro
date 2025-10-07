@@ -5,9 +5,21 @@
 
 @if (Model != null)
 {
-    <observationMedia @SplTemplateHelpers.Attribute("ID", Model.MediaID)>
-        <value @SplTemplateHelpers.Attribute("mediaType", Model.MediaType) @SplTemplateHelpers.Attribute("xsi:type", Model.XsiType)>
-            <reference @SplTemplateHelpers.Attribute("value", Model.FileName) />
-        </value>
-    </observationMedia>
+    if (string.IsNullOrWhiteSpace(Model.DescriptionText))
+    {
+        <observationMedia @SplTemplateHelpers.Attribute("ID", Model.MediaID)>
+            <value @SplTemplateHelpers.Attribute("mediaType", Model.MediaType) @SplTemplateHelpers.Attribute("xsi:type", Model.XsiType)>
+                <reference @SplTemplateHelpers.Attribute("value", Model.FileName) />
+            </value>
+        </observationMedia>
+    }
+    else
+    {
+        <observationMedia @SplTemplateHelpers.Attribute("ID", Model.MediaID)>
+            <text>@Model.DescriptionText?.Trim()</text>
+            <value @SplTemplateHelpers.Attribute("mediaType", Model.MediaType) @SplTemplateHelpers.Attribute("xsi:type", Model.XsiType)>
+                <reference @SplTemplateHelpers.Attribute("value", Model.FileName) />
+            </value>
+        </observationMedia>
+    }
 }

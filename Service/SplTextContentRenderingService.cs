@@ -1,4 +1,5 @@
 ﻿using MedRecPro.Models;
+using System.Diagnostics;
 
 namespace MedRecPro.Service
 {
@@ -189,20 +190,65 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            if (textContents?.Any() != true)
+#if DEBUG
+            Debug.WriteLine($"=== PrepareTextContentForRendering ===");
+            Debug.WriteLine($"TextContents count: {textContents?.Count() ?? 0}");
+            Debug.WriteLine($"ObservationMedia count: {observationMedia?.Count() ?? 0}");
+
+            if (observationMedia?.Any() == true)
+            {
+                foreach (var om in observationMedia)
+                {
+                    Debug.WriteLine($"  ObservationMedia: ID={om.ObservationMediaID}, MediaID={om.MediaID}");
+                }
+            } 
+#endif
+            if (textContents?.Any() != true && observationMedia?.Any() != true)
                 return new List<TextContentRendering>();
 
-            // Order content by sequence number for consistent display order
-            var orderedContent = textContents.OrderBy(c => c.SequenceNumber ?? 0);
             var renderedContents = new List<TextContentRendering>();
 
-            // Process each content item with media context for reference resolution
-            foreach (var content in orderedContent)
+            if (textContents?.Any() == true)
             {
-                var renderedContent = prepareTextContentItemForRendering(content, observationMedia);
-                renderedContents.Add(renderedContent);
+                var orderedContent = textContents.OrderBy(c => c.SequenceNumber ?? 0);
+
+                foreach (var content in orderedContent)
+                {
+#if DEBUG
+                    Debug.WriteLine($"\nProcessing TextContent ID={content.SectionTextContentID}");
+                    Debug.WriteLine($"  ContentType: {content.ContentType}");
+                    Debug.WriteLine($"  SequenceNumber: {content.SequenceNumber}");
+                    Debug.WriteLine($"  RenderedMedias count: {content.RenderedMedias?.Count ?? 0}");
+
+                    if (content.RenderedMedias?.Any() == true)
+                    {
+                        foreach (var rm in content.RenderedMedias)
+                        {
+                            Debug.WriteLine($"    RenderedMedia: ID={rm.RenderedMediaID}, ObsMediaID={rm.ObservationMediaID}");
+                        }
+                    } 
+#endif
+                    var renderedContent = prepareTextContentItemForRendering(content, observationMedia);
+#if DEBUG
+                    Debug.WriteLine($"  Result:");
+                    Debug.WriteLine($"    RenderingAction: {renderedContent.RenderingAction}");
+                    Debug.WriteLine($"    HasRenderedMedia: {renderedContent.HasRenderedMedia}");
+                    Debug.WriteLine($"    ReferencedObjectId: {renderedContent.ReferencedObjectId ?? "NULL"}");
+                    Debug.WriteLine($"    ResolvedMediaIds count: {renderedContent.ResolvedMediaIds?.Count() ?? 0}");
+
+                    if (renderedContent.ResolvedMediaIds?.Any() == true)
+                    {
+                        foreach (var mediaId in renderedContent.ResolvedMediaIds)
+                        {
+                            Debug.WriteLine($"      Resolved MediaID: {mediaId}");
+                        }
+                    } 
+#endif
+                    renderedContents.Add(renderedContent);
+                }
             }
 
+            Debug.WriteLine($"=== End PrepareTextContentForRendering ===\n");
             return renderedContents;
 
             #endregion
@@ -409,19 +455,19 @@ namespace MedRecPro.Service
         /**************************************************************/
         /// <summary>
         /// Internal implementation for analyzing content characteristics with optional media context.
-        /// Performs comprehensive content analysis including multimedia reference resolution
-        /// when observation media context is available.
+        /// Performs comprehensive content analysis including rendered media reference resolution
+        /// by looking up observation media IDs to retrieve the actual MediaID values.
         /// </summary>
         /// <param name="textContent">The text content item to analyze</param>
-        /// <param name="observationMedia">Optional observation media for resolving multimedia references</param>
-        /// <returns>Content characteristics object with detailed analysis including resolved references</returns>
+        /// <param name="observationMedia">Optional observation media collection for resolving media ID references</param>
+        /// <returns>Content characteristics object with detailed analysis including resolved media references</returns>
         /// <seealso cref="ContentCharacteristics"/>
         /// <seealso cref="SectionTextContentDto"/>
         /// <seealso cref="ObservationMediaDto"/>
+        /// <seealso cref="RenderedMediaDto"/>
         /// <remarks>
-        /// This private method implements the core logic for content analysis with multimedia
-        /// reference resolution. For multimedia content types, it attempts to resolve the
-        /// referenced object identifier from the provided observation media collection.
+        /// Resolution process: RenderedMedia.ObservationMediaID → ObservationMedia.ObservationMediaID → ObservationMedia.MediaID.
+        /// The MediaID property contains the actual ID attribute value (e.g., "MM8") used in the referencedObject attribute.
         /// </remarks>
         private ContentCharacteristics analyzeContentCharacteristics(
             SectionTextContentDto textContent,
@@ -438,23 +484,47 @@ namespace MedRecPro.Service
             // Initialize reference resolution variables
             string? referencedObjectId = null;
             bool hasReferencedObject = false;
+            bool hasRenderedMedia = textContent.RenderedMedias?.Any() == true;
 
-            // Attempt to resolve multimedia references when media context is available
-            if (!string.IsNullOrWhiteSpace(contentText) &&
-                normalizedContentType == CONTENT_TYPE_MULTIMEDIA &&
+            // Primary resolution: Use RenderedMedia collection to lookup MediaID from ObservationMedia
+            if (hasRenderedMedia &&
+                textContent.RenderedMedias != null &&
                 observationMedia?.Any() == true)
             {
-                // For multimedia content, use the first available MediaID as the referenced object
-                // This assumes one media per multimedia text content (typical SPL pattern)
+                // Get the first rendered media reference
+                var firstRenderedMedia = textContent.RenderedMedias
+                    .OrderBy(rm => rm.SequenceInContent ?? 0)
+                    .FirstOrDefault();
+
+                if (firstRenderedMedia?.ObservationMediaID != null)
+                {
+                    // Lookup the corresponding ObservationMedia by matching ObservationMediaID
+                    var matchingObservationMedia = observationMedia.FirstOrDefault(
+                        om => om.ObservationMediaID == firstRenderedMedia.ObservationMediaID
+                    );
+
+                    // Extract the MediaID (e.g., "MM8") which is the actual referencedObject value
+                    if (!string.IsNullOrWhiteSpace(matchingObservationMedia?.MediaID))
+                    {
+                        referencedObjectId = matchingObservationMedia.MediaID;
+                        hasReferencedObject = true;
+                    }
+                }
+            }
+            // Secondary fallback: For multimedia content without RenderedMedia, use first available MediaID
+            else if (!string.IsNullOrWhiteSpace(contentText) &&
+                     normalizedContentType == CONTENT_TYPE_MULTIMEDIA &&
+                     observationMedia?.Any() == true)
+            {
                 var firstMedia = observationMedia.FirstOrDefault();
-                if (firstMedia?.MediaID != null)
+                if (!string.IsNullOrWhiteSpace(firstMedia?.MediaID))
                 {
                     referencedObjectId = firstMedia.MediaID;
                     hasReferencedObject = true;
                 }
             }
 
-            // Fallback to original string-based detection if no media context available
+            // Tertiary fallback: String-based detection for legacy content
             if (!hasReferencedObject)
             {
                 hasReferencedObject = contentText.Contains(REFERENCED_OBJECT);
@@ -465,6 +535,7 @@ namespace MedRecPro.Service
                 HasContentText = !string.IsNullOrWhiteSpace(contentText),
                 HasLists = textContent.TextLists?.Any() == true,
                 HasTables = textContent.TextTables?.Any() == true,
+                HasRenderedMedia = hasRenderedMedia,
                 HasReferencedObject = hasReferencedObject,
                 ProcessedContentText = contentText,
                 NormalizedContentType = normalizedContentType,
@@ -476,19 +547,106 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Resolves all rendered media references to their corresponding MediaID values.
+        /// Performs lookup from RenderedMedia.ObservationMediaID to ObservationMedia.MediaID.
+        /// </summary>
+        /// <param name="renderedMedias">Collection of rendered media references to resolve</param>
+        /// <param name="observationMedia">Collection of observation media containing MediaID values</param>
+        /// <returns>List of resolved MediaID values (e.g., "MM8", "MM9") in sequence order</returns>
+        /// <seealso cref="RenderedMediaDto"/>
+        /// <seealso cref="ObservationMediaDto"/>
+        /// <remarks>
+        /// This method enables proper rendering of multiple multimedia references within a single
+        /// text content block by resolving the junction table relationships to actual MediaID values.
+        /// </remarks>
+        private static List<string> resolveRenderedMediaReferences(
+            IEnumerable<RenderedMediaDto>? renderedMedias,
+            IEnumerable<ObservationMediaDto>? observationMedia)
+        {
+            #region implementation
+
+#if DEBUG
+            Debug.WriteLine($"  === resolveRenderedMediaReferences ===");
+            Debug.WriteLine($"    RenderedMedias count: {renderedMedias?.Count() ?? 0}");
+            Debug.WriteLine($"    ObservationMedia count: {observationMedia?.Count() ?? 0}"); 
+#endif
+            var resolvedMediaIds = new List<string>();
+
+            if (renderedMedias?.Any() != true || observationMedia?.Any() != true)
+            {
+#if DEBUG
+                Debug.WriteLine($"    Early return: Missing data");
+                Debug.WriteLine($"  === End resolveRenderedMediaReferences ==="); 
+#endif
+                return resolvedMediaIds;
+            }
+
+            var orderedRenderedMedia = renderedMedias.OrderBy(rm => rm.SequenceInContent ?? 0);
+
+            foreach (var renderedMedia in orderedRenderedMedia)
+            {
+#if DEBUG
+                Debug.WriteLine($"    Processing RenderedMedia ID={renderedMedia.RenderedMediaID}");
+                Debug.WriteLine($"      ObservationMediaID: {renderedMedia.ObservationMediaID}"); 
+#endif
+                if (renderedMedia.ObservationMediaID == null)
+                {
+#if DEBUG
+                    Debug.WriteLine($"      Skipping: ObservationMediaID is null"); 
+#endif
+                    continue;
+                }
+
+                var matchingObservationMedia = observationMedia.FirstOrDefault(
+                    om => om.ObservationMediaID == renderedMedia.ObservationMediaID
+                );
+
+#if DEBUG
+                Debug.WriteLine($"      Matching ObservationMedia found: {matchingObservationMedia != null}"); 
+
+                if (matchingObservationMedia != null)
+                {
+                    Debug.WriteLine($"        ObservationMedia.MediaID: {matchingObservationMedia.MediaID ?? "NULL"}");
+                }
+#endif
+                if (!string.IsNullOrWhiteSpace(matchingObservationMedia?.MediaID))
+                {
+                    resolvedMediaIds.Add(matchingObservationMedia.MediaID);
+#if DEBUG
+                    Debug.WriteLine($"      Added MediaID: {matchingObservationMedia.MediaID}"); 
+#endif
+                }
+                else
+                {
+#if DEBUG
+                    Debug.WriteLine($"      Skipping: MediaID is null or whitespace"); 
+#endif
+                }
+            }
+#if DEBUG
+            Debug.WriteLine($"    Total resolved: {resolvedMediaIds.Count}");
+            Debug.WriteLine($"  === End resolveRenderedMediaReferences ==="); 
+#endif
+
+            return resolvedMediaIds;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Prepares a single text content item for rendering with optional media context.
-        /// Private implementation method that handles the core logic for text content preparation
-        /// including multimedia reference resolution.
+        /// Analyzes content characteristics and resolves rendered media references to MediaID values.
         /// </summary>
         /// <param name="textContent">The text content item to prepare</param>
         /// <param name="observationMedia">Optional observation media for resolving multimedia references</param>
-        /// <returns>A prepared text content rendering object with computed properties</returns>
+        /// <returns>A prepared text content rendering object with computed properties and resolved media IDs</returns>
         /// <seealso cref="TextContentRendering"/>
         /// <seealso cref="SectionTextContentDto"/>
         /// <seealso cref="ObservationMediaDto"/>
         /// <remarks>
-        /// This private method implements the core text content preparation logic with support
-        /// for multimedia reference resolution when observation media context is provided.
+        /// This method performs the critical lookup from RenderedMedia junction table to ObservationMedia
+        /// to resolve the actual MediaID values needed for renderMultiMedia referencedObject attributes.
         /// </remarks>
         private TextContentRendering prepareTextContentItemForRendering(
             SectionTextContentDto textContent,
@@ -505,6 +663,12 @@ namespace MedRecPro.Service
             // Determine appropriate rendering action based on content type and characteristics
             var renderingAction = determineRenderingAction(characteristics);
 
+            // Resolve all rendered media references to their MediaID values
+            var resolvedMediaIds = resolveRenderedMediaReferences(
+                textContent.RenderedMedias,
+                observationMedia
+            );
+
             return new TextContentRendering
             {
                 TextContent = textContent,
@@ -513,11 +677,13 @@ namespace MedRecPro.Service
                 HasContentText = characteristics.HasContentText,
                 HasLists = characteristics.HasLists,
                 HasTables = characteristics.HasTables,
+                HasRenderedMedia = characteristics.HasRenderedMedia,
                 HasReferencedObject = characteristics.HasReferencedObject,
                 HasStructuredContent = characteristics.HasStructuredContent,
                 RenderingAction = renderingAction,
                 OrderedTextLists = getOrderedTextLists(textContent),
                 OrderedTextTables = getOrderedTextTables(textContent),
+                ResolvedMediaIds = resolvedMediaIds.Any() ? resolvedMediaIds : null,
                 ReferencedObjectId = characteristics.ReferencedObjectId
             };
 
@@ -556,9 +722,11 @@ namespace MedRecPro.Service
                             : TextContentRenderingAction.SkipRendering;
 
                     case CONTENT_TYPE_MULTIMEDIA:
-                        return characteristics.HasContentText
-                            ? TextContentRenderingAction.RenderMultiMedia
-                            : TextContentRenderingAction.SkipRendering;
+                        return characteristics.HasContentText ||
+                           characteristics.HasReferencedObject ||
+                           characteristics.HasRenderedMedia
+                                ? TextContentRenderingAction.RenderMultiMedia
+                                : TextContentRenderingAction.SkipRendering;
 
                     case CONTENT_TYPE_LIST:
                         return characteristics.HasLists

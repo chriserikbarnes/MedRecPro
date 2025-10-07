@@ -47,6 +47,11 @@ namespace MedRecPro.Models
         public bool HasTables { get; set; }
 
         /// <summary>
+        /// Pre-computed flag indicating whether the content has rendered media references.
+        /// </summary>
+        public bool HasRenderedMedia { get; set; }
+
+        /// <summary>
         /// Pre-computed flag indicating whether the content contains referenced objects.
         /// </summary>
         public bool HasReferencedObject { get; set; }
@@ -86,6 +91,20 @@ namespace MedRecPro.Models
         /// Null if no tables exist.
         /// </summary>
         public IEnumerable<TextTableDto>? OrderedTextTables { get; set; }
+
+        /// <summary>
+        /// Pre-computed and resolved MediaID values for multimedia rendering.
+        /// Contains the actual ID attribute values (e.g., "MM8", "MM9") that should be used
+        /// in referencedObject attributes of renderMultiMedia elements.
+        /// Null if no rendered media references exist.
+        /// </summary>
+        /// <seealso cref="RenderedMediaDto"/>
+        /// <seealso cref="ObservationMediaDto.MediaID"/>
+        /// <remarks>
+        /// These are resolved from RenderedMedia.ObservationMediaID → ObservationMedia.MediaID
+        /// and stored as strings for efficient template rendering.
+        /// </remarks>
+        public IEnumerable<string>? ResolvedMediaIds { get; set; }
 
         #endregion
     }
@@ -169,6 +188,11 @@ namespace MedRecPro.Models
         /// Whether the content has table data.
         /// </summary>
         public bool HasTables { get; set; }
+
+        /// <summary>
+        /// Whether the content has rendered media references.
+        /// </summary>
+        public bool HasRenderedMedia { get; set; }
 
         /// <summary>
         /// Whether the content contains referenced objects.

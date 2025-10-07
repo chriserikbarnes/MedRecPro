@@ -817,7 +817,7 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             // Extract the content of the item
-            var itemText = XElementExtensions.GetItemXml(itemEl);
+            var itemText = itemEl?.GetSplHtml(stripNamespaces: true);
 
             // Skip items with empty content to prevent creating empty records
             if (string.IsNullOrWhiteSpace(itemText))
@@ -831,7 +831,7 @@ namespace MedRecPro.Service.ParsingServices
                 i.SequenceNumber == seqNum);
 
             // Create new item if it doesn't exist
-            if (existingItem == null)
+            if (existingItem == null && itemEl != null)
             {
                 var newItem = CreateTextListItemEntity(itemEl, textList, seqNum, itemText);
                 await textListItemRepo.CreateAsync(newItem);
@@ -869,7 +869,7 @@ namespace MedRecPro.Service.ParsingServices
                 TextListID = textList.TextListID,
                 SequenceNumber = seqNum,
                 ItemCaption = itemEl.SplElement(sc.E.Caption)?.Value?.Trim(),
-                ItemText = itemText
+                ItemText = itemText?.Trim()
             };
             #endregion
         }
@@ -1219,7 +1219,7 @@ namespace MedRecPro.Service.ParsingServices
                         TextTableRowID = textTableRowId,
                         CellType = cellEl.Name.LocalName, // "th" or "td"
                         SequenceNumber = seqNum,
-                        CellText = XElementExtensions.GetCellXml(cellEl),
+                        CellText = cellEl.GetSplHtml(stripNamespaces:true),
                         RowSpan = rs > 0 ? rs : null, // Only store valid span values
                         ColSpan = cs > 0 ? cs : null, // Only store valid span values
                         StyleCode = cellEl.Attribute(sc.A.StyleCode)?.Value,

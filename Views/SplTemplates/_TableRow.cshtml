@@ -14,13 +14,13 @@
             @if (cellType.Equals("th", StringComparison.OrdinalIgnoreCase))
             {
                 @* Table header cell with all conditional attributes *@
-                <th @SplTemplateHelpers.Attribute("styleCode", cell.StyleCode) @SplTemplateHelpers.Attribute("align", cell.Align)  @SplTemplateHelpers.Attribute("valign", cell.VAlign) @SplTemplateHelpers.Attribute("colspan", cell.ColSpan) @SplTemplateHelpers.Attribute("rowspan", cell.RowSpan)>@Raw(cell.CellText ?? "")</th>
+                <th @SplTemplateHelpers.Attribute("styleCode", cell.StyleCode) @SplTemplateHelpers.Attribute("align", cell.Align) @SplTemplateHelpers.Attribute("valign", cell.VAlign) @SplTemplateHelpers.Attribute("colspan", cell.ColSpan) @SplTemplateHelpers.Attribute("rowspan", cell.RowSpan)>@Raw(cell.CellText?.Trim() ?? "")</th>
             }
             else
             {
                 @* Table data cell with all conditional attributes *@
                 <td @SplTemplateHelpers.Attribute("styleCode", cell.StyleCode) @SplTemplateHelpers.Attribute("align", cell.Align) @SplTemplateHelpers.Attribute("valign", cell.VAlign) @SplTemplateHelpers.Attribute("colspan", cell.ColSpan) @SplTemplateHelpers.Attribute("rowspan", cell.RowSpan)>
-                    @Raw(cell.CellText ?? "")
+                    @Raw(cell.CellText?.Trim() ?? "")
                 </td>
             }
         }

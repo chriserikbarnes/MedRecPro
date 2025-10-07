@@ -1,6 +1,4 @@
-﻿
-
-using MedRecPro.Helpers;
+﻿using MedRecPro.Helpers;
 using MedRecPro.Models.Validation;
 using MedRecPro.Service.ParsingServices;
 using Microsoft.OpenApi.Attributes;
