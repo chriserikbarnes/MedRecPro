@@ -138,6 +138,16 @@ namespace MedRecPro.Service
         /// <returns>Ordered list of marketing statuses or null if none exists</returns>
         List<MarketingStatusDto>? GetOrderedMarketingStatuses(ProductDto product);
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets equivalent entities ordered by business rules.
+        /// </summary>
+        /// <param name="product">The product containing equivalent entities</param>
+        /// <returns>Ordered list of equivalent entities or null if none exists</returns>
+        /// <seealso cref="EquivalentEntityDto"/>
+        /// <seealso cref="Label"/>
+        List<EquivalentEntityDto>? GetOrderedEquivalentEntities(ProductDto product);
+
         #endregion
     }
 
@@ -268,6 +278,7 @@ namespace MedRecPro.Service
                 OrderedCharacteristics = GetOrderedCharacteristics(product),
                 OrderedTopLevelPackaging = GetOrderedTopLevelPackaging(product),
                 OrderedRoutes = GetOrderedRoutes(product),
+                OrderedEquivalentEntities = GetOrderedEquivalentEntities(product),
 
                 // Pre-compute marketing status properties
                 OrderedMarketingCategories = GetOrderedMarketingCategories(product),
@@ -282,6 +293,7 @@ namespace MedRecPro.Service
                 HasCharacteristics = GetOrderedCharacteristics(product)?.Any() == true,
                 HasTopLevelPackaging = GetOrderedTopLevelPackaging(product)?.Any() == true,
                 HasRoutes = GetOrderedRoutes(product)?.Any() == true,
+                HasEquivalentEntities = GetOrderedEquivalentEntities(product)?.Any() == true,
                 HasGenericMedicines = product.GenericMedicines?.Any() == true,
                 HasMarketingStatus = GetOrderedMarketingCategories(product)?.Any() == true,
                 HasPrimaryMarketingCategory = GetPrimaryMarketingCategory(product) != null
@@ -309,6 +321,66 @@ namespace MedRecPro.Service
 #endif
 
             return productRendering;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets equivalent entities ordered by business rules.
+        /// Filters and orders equivalent entities based on SPL specifications for proper rendering.
+        /// </summary>
+        /// <param name="product">The product containing equivalent entities</param>
+        /// <returns>Ordered list of equivalent entities or null if none exists</returns>
+        /// <seealso cref="EquivalentEntityDto"/>
+        /// <seealso cref="ProductDto"/>
+        /// <seealso cref="Label"/>
+        /// <example>
+        /// <code>
+        /// var equivalentEntities = service.GetOrderedEquivalentEntities(product);
+        /// if (equivalentEntities != null)
+        /// {
+        ///     foreach (var entity in equivalentEntities)
+        ///     {
+        ///         // Process equivalent entity for rendering
+        ///     }
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method applies SPL business rules for equivalent entities:
+        /// - Filters out invalid or incomplete equivalent entities
+        /// - Orders by EquivalentEntityID for consistent rendering
+        /// - Validates required fields according to SPL specifications
+        /// </remarks>
+        public List<EquivalentEntityDto>? GetOrderedEquivalentEntities(ProductDto product)
+        {
+            #region implementation
+
+            if (product?.EquivalentEntities == null || !product.EquivalentEntities.Any())
+                return null;
+
+            var validEquivalentEntities = new List<EquivalentEntityDto>();
+
+            // Filter and validate equivalent entities based on SPL requirements
+            foreach (var equivalentEntity in product.EquivalentEntities)
+            {
+                // Validate required fields for equivalent entity rendering
+                if (isValidEquivalentEntity(equivalentEntity))
+                {
+                    validEquivalentEntities.Add(equivalentEntity);
+                }
+            }
+
+            // Return null if no valid equivalent entities found, otherwise sort and return
+            if (validEquivalentEntities.Count == 0)
+                return null;
+
+            // Order by EquivalentEntityID for consistent rendering
+            validEquivalentEntities.Sort((x, y) =>
+                (x.EquivalentEntityID ?? 0).CompareTo(y.EquivalentEntityID ?? 0));
+
+            return validEquivalentEntities;
 
             #endregion
         }
@@ -761,35 +833,103 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Gets marketing statuses (marketing acts) ordered by business rules.
-        /// Filters to product-level marketing statuses (PackagingLevelID = null).
+        /// Gets product-level marketing statuses, excluding those already represented at package level.
+        /// Prevents duplication of marketing acts that appear on packages per SPL specification 3.1.8.2.
         /// </summary>
         /// <param name="product">The product containing marketing statuses</param>
-        /// <returns>Ordered list of marketing statuses or null if none exists</returns>
+        /// <returns>Ordered list of product-level marketing statuses not duplicated at package level, or null if none exists</returns>
+        /// <seealso cref="MarketingStatusDto"/>
+        /// <seealso cref="PackagingLevelDto"/>
+        /// <seealso cref="Label"/>
+        /// <remarks>
+        /// This method implements the SPL rule that marketing acts on packages should not be duplicated
+        /// at the product level. It compares product-level marketing statuses against all package-level
+        /// marketing statuses and excludes any that match based on:
+        /// - Marketing act code
+        /// - Status code  
+        /// - Effective start date
+        /// - Effective end date
+        /// 
+        /// Per SPL specifications 3.1.8.13 and 3.1.8.20, packages can have their own marketing status
+        /// which takes precedence over product-level status for that package.
+        /// </remarks>
         public List<MarketingStatusDto>? GetOrderedMarketingStatuses(ProductDto product)
         {
+            #region implementation
+
             if (product?.MarketingStatuses == null || !product.MarketingStatuses.Any())
                 return null;
 
-            // Filter to product-level marketing statuses only (PackagingLevelID = null)
+            // Get all product-level marketing statuses (PackagingLevelID = null)
             var productLevelStatuses = product.MarketingStatuses
                 .Where(ms => ms.PackagingLevelID == null)
+                .ToList();
+
+            if (!productLevelStatuses.Any())
+                return null;
+
+            // Get all package-level marketing statuses to check for duplicates
+            var packageLevelStatuses = product.MarketingStatuses
+                .Where(ms => ms.PackagingLevelID != null)
+                .ToList();
+
+            // If there are no package-level marketing statuses, return all product-level ones
+            if (!packageLevelStatuses.Any())
+            {
+                return productLevelStatuses
+                    .OrderBy(ms => ms.MarketingStatusID)
+                    .ToList();
+            }
+
+            // Filter out product-level marketing statuses that duplicate package-level ones
+            var uniqueProductStatuses = productLevelStatuses
+                .Where(productStatus => !isMarketingStatusDuplicatedAtPackageLevel(productStatus, packageLevelStatuses))
                 .OrderBy(ms => ms.MarketingStatusID)
                 .ToList();
 
+            return uniqueProductStatuses.Any() ? uniqueProductStatuses : null;
 
-#if DEBUG
-            //string json = productLevelStatuses.Any() 
-            //    ? JsonConvert.SerializeObject(productLevelStatuses, Formatting.Indented)
-            //    : string.Empty;
-#endif
-
-            return productLevelStatuses.Any() ? productLevelStatuses : null;
+            #endregion
         }
 
         #endregion
 
         #region private methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates if an equivalent entity contains the required fields for rendering.
+        /// Checks against SPL specification requirements for equivalent entity elements.
+        /// </summary>
+        /// <param name="equivalentEntity">The equivalent entity to validate</param>
+        /// <returns>True if the equivalent entity is valid for rendering</returns>
+        /// <seealso cref="EquivalentEntityDto"/>
+        /// <seealso cref="Label"/>
+        /// <remarks>
+        /// This method validates SPL requirements including:
+        /// - Required equivalence code
+        /// - Valid defining material kind code
+        /// Additional validation rules can be added based on document type and business requirements.
+        /// </remarks>
+        private bool isValidEquivalentEntity(EquivalentEntityDto equivalentEntity)
+        {
+            #region implementation
+
+            if (equivalentEntity == null)
+                return false;
+
+            // Validate required fields according to SPL specifications
+            if (string.IsNullOrWhiteSpace(equivalentEntity.EquivalenceCode))
+                return false;
+
+            // DefiningMaterialKindCode is required for proper identification
+            if (string.IsNullOrWhiteSpace(equivalentEntity.DefiningMaterialKindCode))
+                return false;
+
+            return true;
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -1163,6 +1303,50 @@ namespace MedRecPro.Service
                 productRendering.CharacteristicRendering = null;
                 productRendering.HasCharacteristicRendering = false;
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if a product-level marketing status is duplicated at the package level.
+        /// Compares key attributes to identify functional duplicates.
+        /// </summary>
+        /// <param name="productStatus">The product-level marketing status to check</param>
+        /// <param name="packageStatuses">List of all package-level marketing statuses</param>
+        /// <returns>True if the product status is duplicated at package level</returns>
+        /// <seealso cref="MarketingStatusDto"/>
+        /// <seealso cref="Constant.FDA_SPL_CODE_SYSTEM"/>
+        /// <seealso cref="Constant.MARKETING_ACT_CODE"/>
+        /// <seealso cref="Constant.DRUG_SAMPLE_ACT_CODE"/>
+        /// <seealso cref="Label"/>
+        /// <remarks>
+        /// A marketing status is considered duplicated if all of the following match:
+        /// - Marketing act code (e.g., C53292 for marketing, C96974 for drug sample)
+        /// - Code system (FDA SPL code system: 2.16.840.1.113883.3.26.1.1)
+        /// - Status code (active, completed, new, cancelled)
+        /// - Effective start date
+        /// - Effective end date (including null values)
+        /// 
+        /// This ensures we don't render redundant marketing information at both product and package levels
+        /// per SPL specification 3.1.8.2.
+        /// </remarks>
+        private static bool isMarketingStatusDuplicatedAtPackageLevel(
+            MarketingStatusDto productStatus,
+            List<MarketingStatusDto> packageStatuses)
+        {
+            #region implementation
+
+            if (productStatus == null || packageStatuses == null || !packageStatuses.Any())
+                return false;
+
+            // Check if any package-level status matches all key attributes
+            return packageStatuses.Any(packageStatus =>
+                string.Equals(productStatus.MarketingActCode, packageStatus.MarketingActCode, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(productStatus.MarketingActCodeSystem, packageStatus.MarketingActCodeSystem, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(productStatus.StatusCode, packageStatus.StatusCode, StringComparison.OrdinalIgnoreCase) &&
+                productStatus.EffectiveStartDate == packageStatus.EffectiveStartDate &&
+                productStatus.EffectiveEndDate == packageStatus.EffectiveEndDate);
 
             #endregion
         }

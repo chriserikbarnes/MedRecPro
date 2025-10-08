@@ -108,6 +108,25 @@ namespace MedRecPro.Service
         /// <seealso cref="Label.Ingredient"/>
         bool HasDenominatorTranslation(IngredientDto? ingredient);
 
+        /**************************************************************/
+        /// <summary>
+        /// Determines if ingredient requires reference substance rendering based on class code.
+        /// </summary>
+        /// <param name="ingredient">The ingredient to check</param>
+        /// <returns>True if ingredient is ACTIR and has reference substances</returns>
+        /// <seealso cref="Label.Ingredient"/>
+        /// <seealso cref="Label.ReferenceSubstance"/>
+        bool RequiresReferenceSubstance(IngredientDto? ingredient);
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the primary reference substance for ACTIR ingredients.
+        /// </summary>
+        /// <param name="ingredient">The ingredient containing reference substances</param>
+        /// <returns>Primary reference substance or null if none exists</returns>
+        /// <seealso cref="Label.ReferenceSubstance"/>
+        ReferenceSubstanceDto? GetPrimaryReferenceSubstance(IngredientDto? ingredient);
+
         #endregion
     }
 
@@ -139,6 +158,12 @@ namespace MedRecPro.Service
         /// Numeric formatting string for quantity values.
         /// </summary>
         private const string QUANTITY_FORMAT = "G29";
+
+        /**************************************************************/
+        /// <summary>
+        /// Code system for FDA UNII reference substances.
+        /// </summary>
+        private const string FDA_UNII_CODE_SYSTEM = Constant.FDA_UNII_CODE_SYSTEM;
 
         #endregion
 
@@ -197,7 +222,11 @@ namespace MedRecPro.Service
 
                 // Pre-compute formatted quantity values with translation codes
                 FormattedQuantityNumerator = formatQuantityWithTranslation(ingredient?.QuantityNumerator, ingredient, productContext),
-                FormattedQuantityDenominator = formatQuantityWithTranslation(ingredient?.QuantityDenominator, ingredient, productContext)
+                FormattedQuantityDenominator = formatQuantityWithTranslation(ingredient?.QuantityDenominator, ingredient, productContext),
+
+                // Pre-compute reference substance requirements
+                RequiresReferenceSubstance = RequiresReferenceSubstance(ingredient),
+                PrimaryReferenceSubstance = GetPrimaryReferenceSubstance(ingredient)
             };
 
 
@@ -453,6 +482,78 @@ namespace MedRecPro.Service
             #region implementation
 
             return !string.IsNullOrEmpty(ingredient?.DenominatorTranslationCode);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if ingredient requires reference substance rendering based on class code.
+        /// Reference substances are required when ClassCode is ACTIR and reference substances exist.
+        /// </summary>
+        /// <param name="ingredient">The ingredient to check</param>
+        /// <returns>True if ingredient is ACTIR and has reference substances</returns>
+        /// <seealso cref="Label.Ingredient"/>
+        /// <seealso cref="Label.ReferenceSubstance"/>
+        /// <example>
+        /// <code>
+        /// bool requiresRef = service.RequiresReferenceSubstance(ingredient);
+        /// if (requiresRef)
+        /// {
+        ///     // Render asEquivalentSubstance element
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// Per SPL specification 3.2.5.1: If class code is ACTIR, there must be an 
+        /// asEquivalentSubstance element with defining substance.
+        /// </remarks>
+        public bool RequiresReferenceSubstance(IngredientDto? ingredient)
+        {
+            #region implementation
+
+            return ingredient != null
+                && ingredient.ClassCode == Constant.ACTIVE_INGREDIENT_REFERENCE_BASIS_CODE
+                && ingredient.ReferenceSubstances?.Any() == true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the primary reference substance for ACTIR ingredients.
+        /// Returns the first reference substance ordered by ReferenceSubstanceID.
+        /// </summary>
+        /// <param name="ingredient">The ingredient containing reference substances</param>
+        /// <returns>Primary reference substance or null if none exists</returns>
+        /// <seealso cref="Label.ReferenceSubstance"/>
+        /// <example>
+        /// <code>
+        /// var refSubstance = service.GetPrimaryReferenceSubstance(ingredient);
+        /// if (refSubstance != null)
+        /// {
+        ///     // Use reference substance UNII and name
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// Reference substances are ordered by ReferenceSubstanceID for consistency.
+        /// Only returns a value when ClassCode is ACTIR.
+        /// </remarks>
+        public ReferenceSubstanceDto? GetPrimaryReferenceSubstance(IngredientDto? ingredient)
+        {
+            #region implementation
+
+            if (ingredient == null
+                || ingredient.ClassCode != Constant.ACTIVE_INGREDIENT_REFERENCE_BASIS_CODE
+                || ingredient.ReferenceSubstances?.Any() != true)
+            {
+                return null;
+            }
+
+            return ingredient.ReferenceSubstances
+                .OrderBy(r => r.ReferenceSubstanceID ?? 0)
+                .FirstOrDefault();
 
             #endregion
         }

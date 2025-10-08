@@ -12,9 +12,6 @@ using MedRecPro.Helpers;
 using MedRecPro.Data;
 using MedRecPro.Models;
 
-// 10/07/2025 TODO: Evaluate/Troubleshoot Line 289 for getOrCreateReferenceSubstanceAsync.
-// Reference was omitted despite being found in the original xml id root="37fb8ed8-7b03-4ce5-e063-6394a90a99cc"
-
 namespace MedRecPro.Service.ParsingServices
 {
     /**************************************************************/
@@ -286,8 +283,8 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             // Navigate to the element containing the reference substance details
-            // Path: ingredientSubstance -> asEquivalentEntity -> definingSubstance
-            var definingSubstanceEl = substanceEl.SplElement(sc.E.AsEquivalentEntity, sc.E.DefiningSubstance);
+            // Path: ingredientSubstance -> asEquivalentSubstance -> definingSubstance
+            var definingSubstanceEl = substanceEl.SplElement(sc.E.AsEquivalentSubstance, sc.E.DefiningSubstance);
             if (definingSubstanceEl == null
                 || context?.ServiceProvider == null
                 || context?.Logger == null)
@@ -781,7 +778,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 // If the ingredient is a reference ingredient for strength, create the link
                 if (!string.IsNullOrWhiteSpace(ingredientClassCode) 
-                    && ingredientClassCode.Equals("ACTIR", StringComparison.OrdinalIgnoreCase))
+                    && ingredientClassCode.Equals(c.ACTIVE_INGREDIENT_REFERENCE_BASIS_CODE, StringComparison.OrdinalIgnoreCase))
                 {
                     await getOrCreateReferenceSubstanceAsync(substanceEl, newSubstance.IngredientSubstanceID.Value, context);
                 }

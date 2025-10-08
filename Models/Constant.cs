@@ -6,8 +6,7 @@ namespace MedRecPro.Models
     {
         public static string XML_NAMESPACE = "urn:hl7-org:v3";
 
-        public static readonly string[] ACTIVE_INGREDIENT_CLASS_CODES = { "ACTIB", "ACTIM", "ACTIR" };
-        public const string INACTIVE_INGREDIENT_CLASS_CODE = "IACT";
+       
 
         public const string BLANKET_NO_CHANGES_CERTIFICATION_CODE = "BNCC";
         public const string CERTIFICATION_RELATIONSHIP_TYPE = "Certification";
@@ -103,15 +102,23 @@ namespace MedRecPro.Models
         public const string THIRD_PARTY_LOGISTICS_PROVIDER_CODE = "C118412";
         public const string HUMAN_DRUG_COMPOUNDING_OUTSOURCING_FACILITY_CODE = "C112113";
         public const string DISTRIBUTE_CODE = "C201565";
-        public const string PACK_CODE = "C84731"; 
+        public const string PACK_CODE = "C84731";
+        #endregion
+
+        #region marketing act codes
+        // Marketing Act Codes (Section 3.1.8)
+        // Code system: Use FDA_SPL_CODE_SYSTEM (2.16.840.1.113883.3.26.1.1)
+        public const string MARKETING_ACT_CODE = "C53292"; // Standard marketing act
+        public const string DRUG_SAMPLE_ACT_CODE = "C96974"; // Drug sample marketing act
         #endregion
 
         #region ingredient form codes
         // Ingredient and Product Form Codes
+        public static readonly string[] ACTIVE_INGREDIENT_CLASS_CODES = { "ACTIB", "ACTIM", "ACTIR" };
+        public const string INACTIVE_INGREDIENT_CLASS_CODE = "IACT";
         public const string ACTIVE_INGREDIENT_BASIS_OF_STRENGTH_CODE = "ACTIB";
         public const string ACTIVE_INGREDIENT_MOIETY_BASIS_CODE = "ACTIM";
         public const string ACTIVE_INGREDIENT_REFERENCE_BASIS_CODE = "ACTIR";
-        public const string INACTIVE_INGREDIENT_CODE = "IACT";
         public const string MAY_CONTAIN_CODE = "CNTM";
         public const string KIT_FORM_CODE = "C47916"; 
         #endregion

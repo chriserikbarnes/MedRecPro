@@ -47,18 +47,29 @@
 
                 @if (Model.HasActiveMoieties && Model.OrderedActiveMoieties != null)
                 {
-                      <activeMoiety>
-                    @foreach (var moiety in Model.OrderedActiveMoieties)
-                    {
-                        <activeMoiety>
-                            @if (!string.IsNullOrEmpty(moiety.MoietyUNII))
-                            {
-                                <code @SplTemplateHelpers.Attribute("code", moiety.MoietyUNII) @SplTemplateHelpers.Attribute("codeSystem", Model.FdaSrsCodeSystem) />
-                            }
-                            <name>@(moiety.MoietyName ?? "")</name>
-                        </activeMoiety>
-                    }
+                    <activeMoiety>
+                        @foreach (var moiety in Model.OrderedActiveMoieties)
+                        {
+                            <activeMoiety>
+                                @if (!string.IsNullOrEmpty(moiety.MoietyUNII))
+                                {
+                                    <code @SplTemplateHelpers.Attribute("code", moiety.MoietyUNII) @SplTemplateHelpers.Attribute("codeSystem", Model.FdaSrsCodeSystem) />
+                                }
+                                <name>@(moiety.MoietyName ?? "")</name>
+                            </activeMoiety>
+                        }
                     </activeMoiety>
+                }
+
+                @* Render asEquivalentSubstance for ACTIR ingredients *@
+                @if (Model.RequiresReferenceSubstance && Model.PrimaryReferenceSubstance != null)
+                {
+                    <asEquivalentSubstance>
+                        <definingSubstance>
+                            <code @SplTemplateHelpers.Attribute("code", Model.PrimaryReferenceSubstance.RefSubstanceUNII) @SplTemplateHelpers.Attribute("codeSystem", Model.FdaSrsCodeSystem) />
+                            <name>@(Model.PrimaryReferenceSubstance.RefSubstanceName ?? "")</name>
+                        </definingSubstance>
+                    </asEquivalentSubstance>
                 }
             </ingredientSubstance>
         </ingredient>

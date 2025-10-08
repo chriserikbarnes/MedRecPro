@@ -159,6 +159,28 @@
 
         #endregion
 
+        #region equivalent entity properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and ordered equivalent entities for efficient rendering.
+        /// Contains EquivalentEntityDto objects representing product equivalencies.
+        /// Null if no equivalent entities exist.
+        /// </summary>
+        /// <seealso cref="EquivalentEntityDto"/>
+        /// <seealso cref="Label"/>
+        public List<EquivalentEntityDto>? OrderedEquivalentEntities { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this product has equivalent entities to render.
+        /// </summary>
+        /// <seealso cref="EquivalentEntityDto"/>
+        /// <seealso cref="Label"/>
+        public bool HasEquivalentEntities { get; set; }
+
+        #endregion
+
         #region marketing status properties
 
         /**************************************************************/

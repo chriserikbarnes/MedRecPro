@@ -969,8 +969,9 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
-        /// Extracts the inner HTML of a an element, preserving all markup 
-        /// without introducing line breaks.
+        /// Extracts the inner HTML of an element, preserving all markup 
+        /// without introducing line breaks. Removes insignificant whitespace
+        /// while maintaining spaces between words.
         /// </summary>
         /// <param name="itemElement">The [item] XElement to process.</param>
         /// <param name="stripNamespaces">If true, removes namespace declarations and converts 
@@ -988,10 +989,14 @@ namespace MedRecPro.Helpers
         public static string? GetSplHtml(this XElement itemElement, bool stripNamespaces)
         {
             #region implementation
+
             if (itemElement == null) return null;
 
             // Create a temporary clone to manipulate without affecting the original XDocument tree.
             var clone = new XElement(itemElement);
+
+            // Normalize all text nodes to remove insignificant whitespace
+            normalizeWhitespace(clone);
 
             if (stripNamespaces)
             {
@@ -1012,6 +1017,67 @@ namespace MedRecPro.Helpers
                     .Select(n => n.ToString(SaveOptions.DisableFormatting)))
                     .Trim();
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recursively normalizes whitespace in an XElement tree, removing
+        /// insignificant whitespace while preserving spaces between words.
+        /// </summary>
+        /// <param name="element">The element to normalize.</param>
+        /// <remarks>
+        /// This method modifies the element in place by:
+        /// - Removing whitespace-only text nodes between elements
+        /// - Trimming leading/trailing whitespace from text nodes
+        /// - Collapsing multiple consecutive spaces into a single space
+        /// </remarks>
+        /// <seealso cref="GetSplHtml"/>
+        private static void normalizeWhitespace(XElement element)
+        {
+            #region implementation
+
+            // Process child nodes
+            var nodes = element.Nodes().ToList();
+
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                if (nodes[i] is XText textNode)
+                {
+                    string normalized = System.Text.RegularExpressions.Regex.Replace(
+                        textNode.Value,
+                        @"\s+",
+                        " "); // Collapse all whitespace to single space
+
+                    // Check if this text node is between elements (structural whitespace)
+                    bool isBetweenElements =
+                        (i == 0 || nodes[i - 1] is XElement) &&
+                        (i == nodes.Count - 1 || nodes[i + 1] is XElement);
+
+                    if (isBetweenElements && string.IsNullOrWhiteSpace(normalized))
+                    {
+                        // Remove whitespace-only nodes between elements
+                        textNode.Remove();
+                    }
+                    else
+                    {
+                        // Trim edges but keep internal spaces
+                        if (i == 0)
+                            normalized = normalized.TrimStart();
+                        if (i == nodes.Count - 1)
+                            normalized = normalized.TrimEnd();
+
+                        textNode.Value = normalized;
+                    }
+                }
+                else if (nodes[i] is XElement childElement)
+                {
+                    // Recursively process child elements
+                    normalizeWhitespace(childElement);
+                }
+            }
+
             #endregion
         }
 
@@ -1023,6 +1089,7 @@ namespace MedRecPro.Helpers
         /// <returns>A new node with namespaces removed.</returns>
         private static XNode stripNamespacesFromNode(XNode node)
         {
+            #region implementation
             if (node is XElement element)
             {
                 // Create a new element with just the local name (no namespace)
@@ -1054,7 +1121,9 @@ namespace MedRecPro.Helpers
             {
                 // For other node types (comments, processing instructions, etc.), return as-is
                 return node;
-            }
+            } 
+
+            #endregion
         }
 
         /**************************************************************/

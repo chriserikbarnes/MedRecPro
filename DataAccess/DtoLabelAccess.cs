@@ -2872,6 +2872,12 @@ namespace MedRecPro.DataAccess
                     pkSecret,
                     logger);
 
+                // Set ReferenceSubstanceID on ingredient if reference substances exist
+                if (refSubstance != null && refSubstance.Any())
+                {
+                    ingredient.ReferenceSubstanceID = refSubstance.FirstOrDefault()?.ReferenceSubstanceID;
+                }
+
                 // Assemble ingredient DTO with substance data and instances
                 ingredientDtos.Add(new IngredientDto
                 {
@@ -2879,7 +2885,7 @@ namespace MedRecPro.DataAccess
                     IngredientInstances = ingredientInstances,
                     IngredientSubstance = ingredientSubstance,
                     IngredientSourceProducts = sourceProducts,
-                    ReferenceSubstances = refSubstance,
+                    ReferenceSubstances = refSubstance ?? new List<ReferenceSubstanceDto>(),
                     SpecifiedSubstances = specifiedSubstances
                 });
             }

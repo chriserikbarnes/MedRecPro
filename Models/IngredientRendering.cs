@@ -119,6 +119,23 @@
         /// <seealso cref="Label.Ingredient"/>
         public string? FormattedQuantityDenominator { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this ingredient requires reference substance rendering.
+        /// True when ClassCode is ACTIR and reference substances exist.
+        /// </summary>
+        /// <seealso cref="Label.Ingredient"/>
+        /// <seealso cref="Label.ReferenceSubstance"/>
+        public bool RequiresReferenceSubstance { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed primary reference substance for ACTIR ingredients.
+        /// Null if no reference substance exists or ClassCode is not ACTIR.
+        /// </summary>
+        /// <seealso cref="Label.ReferenceSubstance"/>
+        public ReferenceSubstanceDto? PrimaryReferenceSubstance { get; set; }
+
         #endregion
 
         #region legacy properties (for backward compatibility)

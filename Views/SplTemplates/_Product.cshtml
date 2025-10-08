@@ -35,6 +35,26 @@
                     }
                 }
 
+                @* Render equivalent entities if available *@
+                @if (Model.HasEquivalentEntities && Model.OrderedEquivalentEntities != null)
+                {
+                    foreach (var equivalentEntity in Model.OrderedEquivalentEntities)
+                    {
+                        <asEquivalentEntity @SplTemplateHelpers.Attribute("classCode", Constant.EQUIVALENCE_CLASS_CODE)>
+                            @if (!string.IsNullOrWhiteSpace(equivalentEntity.EquivalenceCode))
+                            {
+                                <code @SplTemplateHelpers.Attribute("code", equivalentEntity.EquivalenceCode) @SplTemplateHelpers.Attribute("codeSystem", equivalentEntity.EquivalenceCodeSystem) />
+                            }
+                            @if (!string.IsNullOrWhiteSpace(equivalentEntity.DefiningMaterialKindCode))
+                            {
+                                <definingMaterialKind>
+                                    <code @SplTemplateHelpers.Attribute("code", equivalentEntity.DefiningMaterialKindCode) @SplTemplateHelpers.Attribute("codeSystem", equivalentEntity.DefiningMaterialKindSystem) />
+                                </definingMaterialKind>
+                            }
+                        </asEquivalentEntity>
+                    }
+                }
+
                 @* Render active ingredients if available *@
                 @if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
                 {
@@ -64,7 +84,7 @@
 
             </manufacturedProduct>
 
-            @* Render marketing status if available *@
+            @* Render marketing status if available. This is for the aprroval information *@
             @if (Model.HasMarketingStatus && Model.OrderedMarketingCategories != null)
             {
                 foreach (var marketingCategory in Model.OrderedMarketingCategories)
@@ -86,28 +106,26 @@
                 </subjectOf>
             }
 
-            @* Render product-level marketing acts if available *@
-            @if (Model.HasMarketingAct && Model.OrderedMarketingStatuses != null)
+            @* Render product-level marketing act if available - ONLY ONE per specification 3.1.8.2 *@
+            @if (Model.HasMarketingAct && Model.OrderedMarketingStatuses != null && Model.OrderedMarketingStatuses.Count == 1)
             {
-                foreach (var marketingStatus in Model.OrderedMarketingStatuses)
-                {
-                    <subjectOf>
-                        <marketingAct>
-                            <code @SplTemplateHelpers.Attribute("code", marketingStatus.MarketingActCode) @SplTemplateHelpers.Attribute("codeSystem", marketingStatus.MarketingActCodeSystem) />
-                            <statusCode @SplTemplateHelpers.Attribute("code", marketingStatus.StatusCode) />
-                            <effectiveTime>
-                                @if (marketingStatus.EffectiveStartDate.HasValue)
-                                {
-                                    <low @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveStartDate)) />
-                                }
-                                @if (marketingStatus.EffectiveEndDate.HasValue)
-                                {
-                                    <high @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveEndDate)) />
-                                }
-                            </effectiveTime>
-                        </marketingAct>
-                    </subjectOf>
-                }
+                var marketingStatus = Model.OrderedMarketingStatuses.First();
+                <subjectOf>
+                    <marketingAct>
+                        <code @SplTemplateHelpers.Attribute("code", marketingStatus.MarketingActCode) @SplTemplateHelpers.Attribute("codeSystem", marketingStatus.MarketingActCodeSystem) />
+                        <statusCode @SplTemplateHelpers.Attribute("code", marketingStatus.StatusCode) />
+                        <effectiveTime>
+                            @if (marketingStatus.EffectiveStartDate.HasValue)
+                            {
+                                <low @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveStartDate)) />
+                            }
+                            @if (marketingStatus.EffectiveEndDate.HasValue)
+                            {
+                                <high @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveEndDate)) />
+                            }
+                        </effectiveTime>
+                    </marketingAct>
+                </subjectOf>
             }
 
             @* Render characteristics with proper fallback logic *@
