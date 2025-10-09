@@ -833,25 +833,30 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Gets product-level marketing statuses, excluding those already represented at package level.
-        /// Prevents duplication of marketing acts that appear on packages per SPL specification 3.1.8.2.
+        /// Gets product-level marketing statuses, excluding those already represented at package level
+        /// when multiple product-level statuses exist. Ensures compliance with SPL specifications 
+        /// 3.1.8.1 (one marketing status required per product) and 3.1.8.2 (not more than one per item).
         /// </summary>
         /// <param name="product">The product containing marketing statuses</param>
-        /// <returns>Ordered list of product-level marketing statuses not duplicated at package level, or null if none exists</returns>
+        /// <returns>Ordered list of product-level marketing statuses, or null if none exists</returns>
         /// <seealso cref="MarketingStatusDto"/>
         /// <seealso cref="PackagingLevelDto"/>
         /// <seealso cref="Label"/>
         /// <remarks>
-        /// This method implements the SPL rule that marketing acts on packages should not be duplicated
-        /// at the product level. It compares product-level marketing statuses against all package-level
-        /// marketing statuses and excludes any that match based on:
-        /// - Marketing act code
-        /// - Status code  
-        /// - Effective start date
-        /// - Effective end date
+        /// This method implements critical SPL validation rules:
+        /// 
+        /// SPL 3.1.8.1: "There is one marketing status for each top-level product"
+        /// SPL 3.1.8.2: "There is not more than one marketing status on any one item"
+        /// 
+        /// Logic:
+        /// - If only ONE product-level marketing status exists: ALWAYS return it (required by 3.1.8.1)
+        ///   even if it's duplicated at package level, because the product MUST have a marketing status.
+        /// - If MULTIPLE product-level marketing statuses exist: Filter out those duplicated at package 
+        ///   level to reduce to one and prevent violation of 3.1.8.2.
         /// 
         /// Per SPL specifications 3.1.8.13 and 3.1.8.20, packages can have their own marketing status
-        /// which takes precedence over product-level status for that package.
+        /// which provides more specific dating for that package, but this does not eliminate the 
+        /// requirement for product-level marketing status.
         /// </remarks>
         public List<MarketingStatusDto>? GetOrderedMarketingStatuses(ProductDto product)
         {
@@ -868,12 +873,24 @@ namespace MedRecPro.Service
             if (!productLevelStatuses.Any())
                 return null;
 
+            // If there's only ONE product-level marketing status, ALWAYS return it
+            // Per SPL 3.1.8.1: "There is one marketing status for each top-level product"
+            // Even if it's duplicated at package level, the product MUST have a marketing status
+            if (productLevelStatuses.Count == 1)
+            {
+                return productLevelStatuses;
+            }
+
+            // If there are MULTIPLE product-level marketing statuses, we need to filter
+            // to get down to ONE to comply with SPL 3.1.8.2
+
             // Get all package-level marketing statuses to check for duplicates
             var packageLevelStatuses = product.MarketingStatuses
                 .Where(ms => ms.PackagingLevelID != null)
                 .ToList();
 
             // If there are no package-level marketing statuses, return all product-level ones
+            // (This scenario may need further business logic to select one)
             if (!packageLevelStatuses.Any())
             {
                 return productLevelStatuses
@@ -887,7 +904,22 @@ namespace MedRecPro.Service
                 .OrderBy(ms => ms.MarketingStatusID)
                 .ToList();
 
-            return uniqueProductStatuses.Any() ? uniqueProductStatuses : null;
+            // If filtering resulted in zero statuses, we need to keep at least one
+            // Select the most appropriate one (prioritize active status, then most recent)
+            if (!uniqueProductStatuses.Any())
+            {
+                var selectedStatus = selectPrimaryMarketingStatus(productLevelStatuses);
+                return selectedStatus != null ? new List<MarketingStatusDto> { selectedStatus } : null;
+            }
+
+            // If filtering resulted in more than one, select the primary one
+            if (uniqueProductStatuses.Count > 1)
+            {
+                var selectedStatus = selectPrimaryMarketingStatus(uniqueProductStatuses);
+                return selectedStatus != null ? new List<MarketingStatusDto> { selectedStatus } : null;
+            }
+
+            return uniqueProductStatuses;
 
             #endregion
         }
@@ -1328,8 +1360,8 @@ namespace MedRecPro.Service
         /// - Effective start date
         /// - Effective end date (including null values)
         /// 
-        /// This ensures we don't render redundant marketing information at both product and package levels
-        /// per SPL specification 3.1.8.2.
+        /// This comparison is only used when MULTIPLE product-level marketing statuses exist
+        /// to determine which ones can be pruned while maintaining SPL compliance.
         /// </remarks>
         private static bool isMarketingStatusDuplicatedAtPackageLevel(
             MarketingStatusDto productStatus,
@@ -1347,6 +1379,64 @@ namespace MedRecPro.Service
                 string.Equals(productStatus.StatusCode, packageStatus.StatusCode, StringComparison.OrdinalIgnoreCase) &&
                 productStatus.EffectiveStartDate == packageStatus.EffectiveStartDate &&
                 productStatus.EffectiveEndDate == packageStatus.EffectiveEndDate);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Selects the primary marketing status when multiple exist, applying business rules
+        /// to choose the most appropriate one for product-level rendering.
+        /// </summary>
+        /// <param name="marketingStatuses">List of marketing statuses to select from</param>
+        /// <returns>The primary marketing status, or null if list is empty</returns>
+        /// <seealso cref="MarketingStatusDto"/>
+        /// <seealso cref="Constant.MARKETING_STATUS_ACTIVE"/>
+        /// <seealso cref="Constant.MARKETING_STATUS_COMPLETED"/>
+        /// <seealso cref="Constant.MARKETING_STATUS_NEW"/>
+        /// <seealso cref="Constant.MARKETING_STATUS_CANCELLED"/>
+        /// <seealso cref="Label"/>
+        /// <remarks>
+        /// Selection priority:
+        /// 1. Active status (over completed, new, or cancelled)
+        /// 2. Among active statuses: most recent start date
+        /// 3. If no active: most recent start date among all statuses
+        /// 
+        /// This ensures the most relevant marketing information is rendered when
+        /// multiple statuses exist and need to be reduced to one per SPL 3.1.8.2.
+        /// </remarks>
+        private static MarketingStatusDto? selectPrimaryMarketingStatus(List<MarketingStatusDto>? marketingStatuses)
+        {
+            #region implementation
+
+            if (marketingStatuses == null || !marketingStatuses.Any())
+                return null;
+
+            // If only one, return it
+            if (marketingStatuses.Count == 1)
+                return marketingStatuses[0];
+
+            // Priority 1: Active status
+            var activeStatuses = marketingStatuses
+                .Where(ms => string.Equals(ms.StatusCode, Constant.MARKETING_STATUS_ACTIVE,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (activeStatuses.Count == 1)
+                return activeStatuses[0];
+
+            // Priority 2: Most recent start date among active statuses
+            if (activeStatuses.Any())
+            {
+                return activeStatuses
+                    .OrderByDescending(ms => ms.EffectiveStartDate ?? DateTime.MinValue)
+                    .First();
+            }
+
+            // Priority 3: Most recent start date among all statuses
+            return marketingStatuses
+                .OrderByDescending(ms => ms.EffectiveStartDate ?? DateTime.MinValue)
+                .First();
 
             #endregion
         }

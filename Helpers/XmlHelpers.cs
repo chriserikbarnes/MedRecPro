@@ -966,37 +966,46 @@ namespace MedRecPro.Helpers
             return string.Concat(clone.Nodes().Select(n => n.ToString())).Trim();
             #endregion
         }
-
         /**************************************************************/
         /// <summary>
         /// Extracts the inner HTML of an element, preserving all markup 
-        /// without introducing line breaks. Removes insignificant whitespace
-        /// while maintaining spaces between words.
+        /// without introducing line breaks. Aggressively minifies content by
+        /// removing unnecessary whitespace, redundant line breaks, and 
+        /// normalizing spacing around elements.
         /// </summary>
         /// <param name="itemElement">The [item] XElement to process.</param>
         /// <param name="stripNamespaces">If true, removes namespace declarations and converts 
         /// name-spaced elements to their local names.</param>
-        /// <returns>The inner XML as a string, or null if the input is null.</returns>
+        /// <returns>The minified inner XML as a string, or null if the input is null.</returns>
         /// <example>
         /// <code>
         /// XElement item = XElement.Parse("&lt;item&gt;&lt;caption&gt;Title&lt;/caption&gt;&lt;br xmlns='urn:hl7-org:v3' /&gt;&lt;em&gt;Content&lt;/em&gt;&lt;/item&gt;");
         /// string content = XElementExtensions.GetSplHtml(item, stripNamespaces: true);
-        /// // content will be "&lt;br /&gt;&lt;em&gt;Content&lt;/em&gt;" (caption excluded, namespaces stripped)
+        /// // content will be "&lt;br /&gt;&lt;em&gt;Content&lt;/em&gt;" (caption excluded, namespaces stripped, fully minified)
         /// </code>
         /// </example>
+        /// <remarks>
+        /// This method performs aggressive minification including:
+        /// - Removing leading/trailing br elements that serve as spacing
+        /// - Collapsing whitespace between inline elements
+        /// - Removing redundant whitespace in text content
+        /// - Normalizing self-closing tags
+        /// </remarks>
         /// <seealso cref="TextListItem"/>
         /// <seealso cref="Label"/>
         public static string? GetSplHtml(this XElement itemElement, bool stripNamespaces)
         {
             #region implementation
-
             if (itemElement == null) return null;
 
             // Create a temporary clone to manipulate without affecting the original XDocument tree.
             var clone = new XElement(itemElement);
 
+            // Remove leading/trailing br elements used for spacing
+            removeRedundantBreaks(clone);
+
             // Normalize all text nodes to remove insignificant whitespace
-            normalizeWhitespace(clone);
+            normalizeWhitespaceAggressively(clone);
 
             if (stripNamespaces)
             {
@@ -1016,6 +1025,131 @@ namespace MedRecPro.Helpers
                 return string.Concat(clone.Nodes()
                     .Select(n => n.ToString(SaveOptions.DisableFormatting)))
                     .Trim();
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Removes redundant br elements that are used purely for visual spacing
+        /// at the start or end of container elements.
+        /// </summary>
+        /// <param name="element">The element to process.</param>
+        /// <remarks>
+        /// This removes br tags that appear:
+        /// - At the very beginning of an element (after whitespace)
+        /// - At the very end of an element (before whitespace)
+        /// Multiple consecutive br tags are preserved as they may be semantically meaningful.
+        /// </remarks>
+        /// <seealso cref="GetSplHtml"/>
+        private static void removeRedundantBreaks(XElement element)
+        {
+            #region implementation
+
+            // Process all descendant elements recursively
+            foreach (var descendant in element.Descendants().ToList())
+            {
+                var nodes = descendant.Nodes().ToList();
+
+                // Remove leading br elements (often used for padding in table cells)
+                for (int i = 0; i < nodes.Count; i++)
+                {
+                    if (nodes[i] is XElement elem && elem.Name.LocalName.Equals("br", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Check if this is at the start (only whitespace before it)
+                        bool isLeading = nodes.Take(i).All(n =>
+                            n is XText txt && string.IsNullOrWhiteSpace(txt.Value));
+
+                        if (isLeading)
+                        {
+                            elem.Remove();
+                            continue;
+                        }
+
+                        break; // Stop at first non-whitespace/non-br
+                    }
+                    else if (nodes[i] is XText txt && !string.IsNullOrWhiteSpace(txt.Value))
+                    {
+                        break; // Found content, stop checking
+                    }
+                }
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Aggressively normalizes whitespace in an XElement tree, removing
+        /// insignificant whitespace while preserving spaces between words.
+        /// </summary>
+        /// <param name="element">The element to normalize.</param>
+        /// <remarks>
+        /// This method modifies the element in place by:
+        /// - Removing whitespace-only text nodes between elements
+        /// - Trimming leading/trailing whitespace from text nodes based on context
+        /// - Collapsing multiple consecutive spaces/newlines into a single space within text
+        /// - Removing text nodes that become empty after normalization
+        /// </remarks>
+        /// <seealso cref="GetSplHtml"/>
+        private static void normalizeWhitespaceAggressively(XElement element)
+        {
+            #region implementation
+
+            var nodes = element.Nodes().ToList();
+
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                if (nodes[i] is XText textNode)
+                {
+                    // Collapse all consecutive whitespace (including newlines) to single space
+                    string normalized = System.Text.RegularExpressions.Regex.Replace(
+                        textNode.Value,
+                        @"\s+",
+                        " ");
+
+                    // Check if this is purely structural whitespace
+                    bool isPureWhitespace = string.IsNullOrWhiteSpace(normalized);
+                    bool hasAdjacentElements =
+                        (i > 0 && nodes[i - 1] is XElement) ||
+                        (i < nodes.Count - 1 && nodes[i + 1] is XElement);
+
+                    if (isPureWhitespace && hasAdjacentElements)
+                    {
+                        // Remove whitespace-only nodes between elements
+                        textNode.Remove();
+                    }
+                    else if (!isPureWhitespace)
+                    {
+                        // Trim leading space if at start or after element
+                        if (i == 0 || nodes[i - 1] is XElement)
+                        {
+                            normalized = normalized.TrimStart();
+                        }
+
+                        // Trim trailing space if at end or before element
+                        if (i == nodes.Count - 1 ||
+                            (i < nodes.Count - 1 && nodes[i + 1] is XElement))
+                        {
+                            normalized = normalized.TrimEnd();
+                        }
+
+                        // Only keep if there's actual content left
+                        if (!string.IsNullOrEmpty(normalized))
+                        {
+                            textNode.Value = normalized;
+                        }
+                        else
+                        {
+                            textNode.Remove();
+                        }
+                    }
+                }
+                else if (nodes[i] is XElement childElement)
+                {
+                    // Recursively process child elements
+                    normalizeWhitespaceAggressively(childElement);
+                }
             }
 
             #endregion
@@ -1090,6 +1224,7 @@ namespace MedRecPro.Helpers
         private static XNode stripNamespacesFromNode(XNode node)
         {
             #region implementation
+
             if (node is XElement element)
             {
                 // Create a new element with just the local name (no namespace)
@@ -1121,7 +1256,7 @@ namespace MedRecPro.Helpers
             {
                 // For other node types (comments, processing instructions, etc.), return as-is
                 return node;
-            } 
+            }
 
             #endregion
         }

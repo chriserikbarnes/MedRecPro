@@ -44,12 +44,12 @@ namespace MedRecPro.Models
     public class Label
     {
         private static List<string> preserveTags = new List<string>
-            { "br", "caption", "content", "item", "linkHtml", "list", "p", "paragraph", "sub", "sup" };
+            { "br", "caption", "content", "item", "linkHtml", "list", "p", "paragraph", "sub", "sup", "renderMultiMedia" };
 
         private static List<string> preserveFormatTags = new List<string>
-            { "b", "br", "caption", "cite", "content", "em", "i", "linkHtml", "p", "span", "strong", "sub", "sup" };
+            { "b", "br", "caption", "cite", "content", "em", "i", "linkHtml", "p", "span", "strong", "sub", "sup", "renderMultiMedia" };
 
-        private static List<string> preserveHighlightTags = new List<string> { "paragraph", "list", "item", "caption", "linkHtml", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "col",  "colgroup", "content" };
+        private static List<string> preserveHighlightTags = new List<string> { "paragraph", "list", "item", "caption", "linkHtml", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "col",  "colgroup", "content", "renderMultiMedia" };
 
         #region Properties
 
