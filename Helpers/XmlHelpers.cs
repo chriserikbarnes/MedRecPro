@@ -966,6 +966,7 @@ namespace MedRecPro.Helpers
             return string.Concat(clone.Nodes().Select(n => n.ToString())).Trim();
             #endregion
         }
+
         /**************************************************************/
         /// <summary>
         /// Extracts the inner HTML of an element, preserving all markup 
@@ -1016,7 +1017,7 @@ namespace MedRecPro.Helpers
                 // return string with no line breaks
                 return string.Concat(processedNodes
                     .Select(n => n.ToString(SaveOptions.DisableFormatting)))
-                    .Trim();
+                    .NormalizeXmlWhitespace();
             }
             else
             {
@@ -1024,7 +1025,7 @@ namespace MedRecPro.Helpers
                 // returns without line breaks
                 return string.Concat(clone.Nodes()
                     .Select(n => n.ToString(SaveOptions.DisableFormatting)))
-                    .Trim();
+                    .NormalizeXmlWhitespace();
             }
             #endregion
         }

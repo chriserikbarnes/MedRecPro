@@ -1313,7 +1313,9 @@ namespace MedRecPro.Service.ParsingServices
                     if (innerNodes != null && innerNodes.Any())
                     {
                         // Concatenate all inner XML preserving structure
-                        txt = string.Concat(innerNodes.Select(n => n.ToString())).Trim();
+                        txt = string
+                            .Concat(innerNodes.Select(n => n.ToString()))
+                            ?.NormalizeXmlWhitespace();
                     }
                     else
                     {

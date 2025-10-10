@@ -117,7 +117,9 @@ namespace MedRecPro.Models
             public string? Title
             {
                 get => _title;
-                set => _title = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
+                set => _title = value
+                    ?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags)
+                    ?.NormalizeXmlWhitespace();
             }
 
             /// <summary>
@@ -773,7 +775,9 @@ namespace MedRecPro.Models
             public string? ContentText
             {
                 get => _contentText;
-                set => _contentText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveFormatTags);
+                set => _contentText = value
+                    ?.RemoveUnwantedTagsRegEx(preserveTags: preserveFormatTags)
+                    ?.NormalizeXmlWhitespace();
             }
             #endregion properties
         }
@@ -856,7 +860,9 @@ namespace MedRecPro.Models
             public string? ItemText
             {
                 get => _itemText;
-                set => _itemText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
+                set => _itemText = value
+                    ?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags)
+                    ?.NormalizeXmlWhitespace();
             }
             #endregion properties
         }
@@ -923,7 +929,9 @@ namespace MedRecPro.Models
             {
                 #region implementation
                 get => _caption;
-                set => _caption = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
+                set => _caption = value
+                    ?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags)
+                    ?.NormalizeXmlWhitespace();
                 #endregion
             }
 
@@ -1119,7 +1127,9 @@ namespace MedRecPro.Models
             public string? CellText
             {
                 get => _cellText;
-                set => _cellText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
+                set => _cellText = value
+                    ?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags)
+                    ?.NormalizeXmlWhitespace();
             }
 
             /// <summary>
@@ -1198,7 +1208,9 @@ namespace MedRecPro.Models
             public string? DescriptionText
             {
                 get => _descriptionText;
-                set => _descriptionText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags);
+                set => _descriptionText = value
+                    ?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags)
+                    ?.NormalizeXmlWhitespace();
             }
 
             private string? _mediaType;
@@ -1295,7 +1307,9 @@ namespace MedRecPro.Models
             public string? HighlightText
             {
                 get => _highlightText;
-                set => _highlightText = value?.RemoveUnwantedTagsRegEx(preserveTags: preserveHighlightTags);
+                set => _highlightText = value
+                    ?.RemoveUnwantedTagsRegEx(preserveTags: preserveHighlightTags)
+                    ?.NormalizeXmlWhitespace();
             }
             #endregion properties
         }

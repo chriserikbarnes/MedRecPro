@@ -571,6 +571,108 @@ namespace MedRecPro.Helpers
         #endregion
 
         /******************************************************/
+        /// <summary>
+        /// Aggressively normalizes whitespace in XML/HTML content to create compact
+        /// representation while ensuring proper spacing between text and tags for readability.
+        /// Special handling for inline formatting tags (sup, sub, em, strong, etc.) to avoid
+        /// unwanted spaces.
+        /// </summary>
+        /// <param name="text">The XML/HTML text content to normalize</param>
+        /// <returns>Compact text with proper spacing preserved</returns>
+        /// <example>
+        /// <code>
+        /// var input = "area (mg/m\n&lt;sup&gt;2 &lt;/sup&gt;\n). In";
+        /// var result = input.NormalizeXmlWhitespace();
+        /// // Result: "area (mg/m&lt;sup&gt;2&lt;/sup&gt;). In"
+        /// 
+        /// var input2 = "tablets&lt;content styleCode=\"italics\"&gt;[see&lt;linkHtml";
+        /// var result2 = input2.NormalizeXmlWhitespace();
+        /// // Result: "tablets &lt;content styleCode=\"italics\"&gt;[see &lt;linkHtml"
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method ensures:
+        /// - NO space before/after/inside inline formatting tags (sup, sub, em, strong, i, b, u, span)
+        /// - Space after text/punctuation when followed by block-level opening tags (for readability)
+        /// - NO space before &lt;br /&gt; tags (they provide their own spacing)
+        /// - NO space between consecutive tags
+        /// - Minimal whitespace while maintaining readable output
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        public static string? NormalizeXmlWhitespace(this string? text)
+        {
+            #region implementation
+            if (string.IsNullOrEmpty(text)) return text;
+
+            // Step 1: Collapse all consecutive whitespace (spaces, tabs, newlines) to single space
+            var normalized = System.Text.RegularExpressions.Regex.Replace(
+                text,
+                @"\s+",
+                " ");
+
+            // Step 2: Remove ALL whitespace between consecutive tags
+            // Handles: "</tag> <tag>" → "</tag><tag>", "> <" → "><"
+            normalized = System.Text.RegularExpressions.Regex.Replace(
+                normalized,
+                @">\s+<",
+                "><");
+
+            // Step 3: Remove whitespace immediately after opening tags (before text/content)
+            // Handles: "<tag> text" → "<tag>text"
+            normalized = System.Text.RegularExpressions.Regex.Replace(
+                normalized,
+                @">\s+([^<])",
+                ">$1");
+
+            // Step 4: Remove whitespace immediately before closing tags (after text/content)
+            // Handles: "text </tag>" → "text</tag>"
+            normalized = System.Text.RegularExpressions.Regex.Replace(
+                normalized,
+                @"([^>])\s+</",
+                "$1</");
+
+            // Step 5: Remove whitespace specifically before inline formatting tags
+            // These tags should be tight against surrounding text: m<sup>2</sup> not m <sup>2</sup>
+            // Inline tags: sup, sub, em, strong, i, b, u, span, italics
+            normalized = System.Text.RegularExpressions.Regex.Replace(
+                normalized,
+                @"\s+(<(?:sup|sub|em|strong|i|b|u|span|italics)[\s>])",
+                "$1",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // Step 6: Remove whitespace after closing inline formatting tags when followed by punctuation
+            // Handles: "</sup> )" → "</sup>)" and "</em> ." → "</em>."
+            normalized = System.Text.RegularExpressions.Regex.Replace(
+                normalized,
+                @"(<\/(?:sup|sub|em|strong|i|b|u|span|italics)>)\s+([.,;:!?\)\]\}])",
+                "$1$2",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // Step 7: Ensure single space between text/punctuation and following block-level opening tags
+            // This prevents "word<tag>" from rendering as "wordcontent" on screen
+            // Exclude: br tags and inline formatting tags
+            // Pattern explanation:
+            // ([\w\).,;:!?\]"'\-])                    - Match word char or common punctuation
+            // (<(?!br[\s/>]|sup|sub|em|strong|i|b|u|span|italics))  - Opening tag that's NOT br or inline
+            normalized = System.Text.RegularExpressions.Regex.Replace(
+                normalized,
+                @"([\w\).,;:!?\]""'\-])(<(?!br[\s/>]|/?(?:sup|sub|em|strong|i|b|u|span|italics)[\s>]))",
+                "$1 $2",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // Step 8: Remove any space before <br> tags specifically
+            // br tags provide their own spacing, so "text. <br />" should be "text.<br />"
+            normalized = System.Text.RegularExpressions.Regex.Replace(
+                normalized,
+                @"\s+(<br[\s/>])",
+                "$1",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            return normalized.Trim();
+            #endregion
+        }
+
+        /******************************************************/
         public static string SanitizeXML(string text)
         {
             #region implementation
