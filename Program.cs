@@ -425,6 +425,40 @@ else
     app.UseHsts();
 }
 
+// Configure static files with CORS for XSL files
+// Configure static files with proper CORS and content types
+// Serve stylesheets from Views/Stylesheets at /stylesheets URL path
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(app.Environment.ContentRootPath, "Views", "Stylesheets")),
+    RequestPath = "/stylesheets",
+    OnPrepareResponse = ctx =>
+    {
+        var path = ctx.File.Name.ToLowerInvariant();
+
+        // Handle XSL files
+        if (path.EndsWith(".xsl"))
+        {
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET");
+            ctx.Context.Response.Headers.Append("Content-Type", "application/xslt+xml; charset=utf-8");
+        }
+        // Handle XML files
+        else if (path.EndsWith(".xml"))
+        {
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+            ctx.Context.Response.Headers.Append("Content-Type", "application/xml; charset=utf-8");
+        }
+        // Handle CSS files
+        else if (path.EndsWith(".css"))
+        {
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+            ctx.Context.Response.Headers.Append("Content-Type", "text/css; charset=utf-8");
+        }
+    }
+});
+
 app.UseHttpsRedirection();
 app.UseRouting();
 

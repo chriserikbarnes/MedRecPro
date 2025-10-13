@@ -570,6 +570,62 @@ namespace MedRecPro.Helpers
 
         #endregion
 
+
+        /**************************************************************/
+        /// <summary>
+        /// Minifies XML by removing unnecessary whitespace and formatting while preserving the XML structure and content.
+        /// Returns the original XML string if it is null, empty, or if parsing fails.
+        /// </summary>
+        /// <param name="xml">The XML string to minify. Can be null or whitespace.</param>
+        /// <returns>
+        /// A minified XML string with whitespace removed, or the original input if null, empty, or invalid XML.
+        /// </returns>
+        /// <remarks>
+        /// This method uses XDocument to parse and reformat the XML with SaveOptions.DisableFormatting.
+        /// If an exception occurs during parsing or minification, the original XML is returned and an error is logged.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// string xml = @"&lt;root&gt;
+        ///     &lt;item&gt;Value&lt;/item&gt;
+        /// &lt;/root&gt;";
+        /// string minified = xml.MinifyXml();
+        /// // Result: "&lt;root&gt;&lt;item&gt;Value&lt;/item&gt;&lt;/root&gt;"
+        /// </code>
+        /// </example>
+        /// <seealso cref="System.Xml.Linq.XDocument"/>
+        /// <seealso cref="System.Xml.Linq.SaveOptions"/>
+        public static string? MinifyXml(this string? xml)
+        {
+            #region implementation
+            // Return early if input is null or whitespace
+            if (string.IsNullOrWhiteSpace(xml)) return xml;
+
+            try
+            {
+                // Trim leading/trailing whitespace to avoid XML declaration errors
+                var trimmedXml = xml.Trim();
+
+                // Parse the XML string into an XDocument
+                var doc = XDocument.Parse(trimmedXml);
+
+                // Write the document to a string with formatting disabled
+                using (var stringWriter = new StringWriter())
+                {
+                    doc.Save(stringWriter, SaveOptions.DisableFormatting);
+                    string compactedXml = stringWriter.ToString();
+                    return compactedXml;
+                }
+            }
+            catch (Exception e)
+            {
+                // Log the error and return the original XML to prevent data loss
+                ErrorHelper.AddErrorMsg("TextUtil.MinifyXml: " + e);
+                return xml; // Return original XML on error
+            }
+            #endregion
+        }
+
         /******************************************************/
         /// <summary>
         /// Aggressively normalizes whitespace in XML/HTML content to create compact

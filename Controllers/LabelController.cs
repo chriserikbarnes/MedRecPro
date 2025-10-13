@@ -131,6 +131,110 @@ namespace MedRecPro.Api.Controllers
         }
 
         #region Private Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if the request is from a browser attempting to view the XML directly.
+        /// </summary>
+        /// <param name="request">The HTTP request to analyze.</param>
+        /// <returns>True if request is from a browser for direct viewing, false otherwise.</returns>
+        /// <remarks>
+        /// Checks Accept header for text/html preference, indicating browser navigation.
+        /// Download requests and API calls typically use application/xml or */*.
+        /// </remarks>
+        /// <seealso cref="GenerateXmlDocument"/>
+        private bool isBrowserViewRequest(HttpRequest request)
+        {
+            #region implementation
+
+            // Check if Accept header prefers HTML (browser navigation)
+            var acceptHeader = request.Headers["Accept"].ToString();
+
+            // Browser direct navigation typically includes text/html in Accept header
+            // Swagger downloads and validation tools use application/xml or */*
+            if (acceptHeader.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // Additional check: query string parameter for explicit control
+            if (request.Query.ContainsKey("view") &&
+                request.Query["view"].ToString().Equals("browser", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Ensures the XML declaration specifies UTF-8 encoding as required by FDA specification.
+        /// </summary>
+        /// <param name="xmlContent">The XML content to process.</param>
+        /// <returns>XML content with corrected encoding declaration.</returns>
+        /// <remarks>
+        /// FDA SPL specification 2.1.2.1 requires UTF-8 encoding.
+        /// Replaces any other encoding declarations (e.g., UTF-16) with UTF-8.
+        /// </remarks>
+        /// <seealso cref="GenerateXmlDocument"/>
+        private string ensureUtf8Encoding(string xmlContent)
+        {
+            #region implementation
+
+            // Replace any encoding declaration with UTF-8
+            if (xmlContent.Contains("encoding=\"UTF-16\"", StringComparison.OrdinalIgnoreCase))
+            {
+                xmlContent = xmlContent.Replace(
+                    "encoding=\"UTF-16\"",
+                    "encoding=\"UTF-8\"",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            else if (xmlContent.Contains("encoding=\"utf-16\"", StringComparison.OrdinalIgnoreCase))
+            {
+                xmlContent = xmlContent.Replace(
+                    "encoding=\"utf-16\"",
+                    "encoding=\"UTF-8\"",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            return xmlContent;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts FDA resource URLs to local server URLs for browser viewing.
+        /// </summary>
+        /// <param name="xmlContent">The XML content with FDA URLs.</param>
+        /// <returns>XML content with local resource URLs.</returns>
+        /// <remarks>
+        /// Replaces FDA stylesheet URL with local path to avoid CORS issues.
+        /// Schema location remains unchanged as browsers don't fetch it.
+        /// Only modifies the xml-stylesheet processing instruction.
+        /// </remarks>
+        /// <seealso cref="GenerateXmlDocument"/>
+        /// <seealso cref="isBrowserViewRequest"/>
+        private string convertToLocalResources(string xmlContent)
+        {
+            #region implementation
+
+            // Replace FDA stylesheet URL with local path
+            xmlContent = xmlContent.Replace(
+                "href=\"https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl\"",
+                "href=\"/stylesheets/spl.xsl\"");
+
+            // Note: Schema location is NOT replaced - browsers don't fetch XSD files
+            // The xsi:schemaLocation remains as FDA URL for validation purposes
+
+            return xmlContent;
+
+            #endregion
+        }
+
         /**************************************************************/
         /// <summary>
         /// Resolves the entity type based on the menu selection parameter using reflection.
@@ -558,7 +662,7 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
-        #endregion
+        #endregion Private Methods
 
         /**************************************************************/
         /// <summary>
@@ -1737,36 +1841,56 @@ namespace MedRecPro.Api.Controllers
         /**************************************************************/
         /// <summary>
         /// Generates a populated XML document for the specified Label document GUID.
-        /// Processes the XML template with flow control and returns the populated result.
+        /// Intelligently serves browser-friendly or FDA-compliant XML based on request context.
         /// </summary>
         /// <param name="documentGuid">The unique identifier for the document to process.</param>
+        /// <param name="minify">(OPTIONAL default:false) Compacts XML output in post processing (might be slower)</param>
         /// <returns>HTTP response containing the populated XML document.</returns>
         /// <example>
         /// GET /api/xmldocument/generate/12345678-1234-1234-1234-123456789012
+        /// GET /api/xmldocument/generate/12345678-1234-1234-1234-123456789012/true
         /// </example>
         /// <remarks>
-        /// Returns the populated XML as text/xml content type.
+        /// Returns XML with FDA URLs for downloads/validation, or local URLs for browser viewing.
+        /// Automatically detects request type based on Accept headers.
         /// Logs processing time and any errors encountered during generation.
         /// </remarks>
-        [HttpGet("generate/{documentGuid:guid}")]
+        /// <seealso cref="SplExportService"/>
+        [HttpGet("generate/{documentGuid:guid}/{minify:bool}")]
         [ProducesResponseType(typeof(string), 200, "text/xml")]
         [ProducesResponseType(404)]
         [ProducesResponseType(500)]
-        public async Task<IActionResult> GenerateXmlDocument(Guid documentGuid)
+        public async Task<IActionResult> GenerateXmlDocument(Guid documentGuid, bool minify = false)
         {
             #region implementation
             try
             {
                 _logger.LogInformation("Generating XML document for GUID: {DocumentGuid}", documentGuid);
-
                 var startTime = DateTime.UtcNow;
-                var xmlContent = await _splExportService.ExportDocumentToSplAsync(documentGuid);
+
+                // Generate XML with FDA-compliant URLs
+                var xmlContent = await _splExportService.ExportDocumentToSplAsync(documentGuid, minify);
+
+                // Fix encoding to UTF-8 as required by FDA specification
+                xmlContent = ensureUtf8Encoding(xmlContent);
+
+                // Detect if request is from browser for direct viewing
+                var isBrowserView = isBrowserViewRequest(Request);
+
+                if (isBrowserView)
+                {
+                    // Modify URLs to local resources for browser rendering
+                    xmlContent = convertToLocalResources(xmlContent);
+                    _logger.LogInformation("Converted to browser-friendly format for GUID: {DocumentGuid}", documentGuid);
+                }
+
                 var processingTime = DateTime.UtcNow - startTime;
+                _logger.LogInformation(
+                    "Successfully generated XML document for GUID: {DocumentGuid} in {ProcessingTime}ms (Browser: {IsBrowserView})",
+                    documentGuid, processingTime.TotalMilliseconds, isBrowserView);
 
-                _logger.LogInformation("Successfully generated XML document for GUID: {DocumentGuid} in {ProcessingTime}ms",
-                    documentGuid, processingTime.TotalMilliseconds);
-
-                return Content(xmlContent, "text/xml");
+                // Set proper content type with UTF-8 charset
+                return Content(xmlContent, "application/xml; charset=utf-8");
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("No document found"))
             {

@@ -1,5 +1,6 @@
 ﻿using MedRecPro.Data;
 using MedRecPro.DataAccess;
+using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Newtonsoft.Json;
@@ -107,6 +108,7 @@ namespace MedRecPro.Service
         /// to generate compliant SPL XML output for regulatory and interchange purposes.
         /// </summary>
         /// <param name="documentGuid">The unique identifier of the document to export</param>
+        /// <param name="minify">(OPTIONAL default:false) Compacts XML output in post processing (might be slower)</param>
         /// <returns>The complete SPL XML content as a string</returns>
         /// <seealso cref="IDocumentDataService.GetDocumentAsync"/>
         /// <seealso cref="ITemplateRenderingService.RenderAsync"/>
@@ -125,7 +127,7 @@ namespace MedRecPro.Service
         /// This method handles the complete export workflow including error handling.
         /// Throws InvalidOperationException if the document is not found.
         /// </remarks>
-        Task<string> ExportDocumentToSplAsync(Guid documentGuid);
+        Task<string> ExportDocumentToSplAsync(Guid documentGuid, bool minify);
     }
 
     // ========== IMPLEMENTATIONS ==========
@@ -658,6 +660,7 @@ namespace MedRecPro.Service
         /// including author rendering, structured body processing, section enhancement, and optimized content rendering collections.
         /// </summary>
         /// <param name="documentGuid">Unique identifier for the document to export to SPL format</param>
+        /// <param name="minify">(OPTIONAL default:false) Compacts XML output in post processing (might be slower)</param>
         /// <returns>Complete SPL XML content as a string ready for output or further processing</returns>
         /// <exception cref="InvalidOperationException">Thrown when the document is not found or inaccessible</exception>
         /// <exception cref="ArgumentException">Thrown when documentGuid is empty or invalid</exception>
@@ -688,7 +691,7 @@ namespace MedRecPro.Service
         /// Console.WriteLine($"Generated SPL XML: {splXml.Length} characters");
         /// </code>
         /// </example>
-        public async Task<string> ExportDocumentToSplAsync(Guid documentGuid)
+        public async Task<string> ExportDocumentToSplAsync(Guid documentGuid, bool minify = false)
         {
             #region implementation
 
@@ -730,6 +733,12 @@ namespace MedRecPro.Service
                 // Step 5: Render the SPL template with the enhanced document rendering context including prepared authors
                 // The "GenerateSpl" template uses the fully prepared document rendering context with enhanced authors and products
                 var xmlContent = await _templateRenderingService.RenderAsync("GenerateSpl", documentRendering);
+
+                // Optional: Minify the XML output if requested to reduce size for transmission/storage
+                if(minify)
+                {
+                    xmlContent = xmlContent.MinifyXml() ?? string.Empty;
+                }
 
                 // Log successful completion with basic metrics for performance monitoring
                 _logger.LogInformation("Successfully exported document {DocumentGuid} to SPL XML", documentGuid);
