@@ -214,7 +214,7 @@ namespace MedRecPro.Service.ParsingServices
             var textEl = xEl.SplElement(sc.E.Text);
             if (textEl != null)
             {
-                var (textContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(textEl, sectionId, context, ParseAndSaveSectionAsync);
+                var (textContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(textEl, sectionId, context, parseAndSaveSectionAsync);
                 result.SectionAttributesCreated += textContents.Count;
                 result.SectionAttributesCreated += listEntityCount;
             }
@@ -223,16 +223,16 @@ namespace MedRecPro.Service.ParsingServices
             var excerptEl = xEl.SplElement(sc.E.Excerpt);
             if (excerptEl != null)
             {
-                var (excerptTextContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(excerptEl, sectionId, context, ParseAndSaveSectionAsync);
+                var (excerptTextContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(excerptEl, sectionId, context, parseAndSaveSectionAsync);
                 result.SectionAttributesCreated += excerptTextContents.Count;
 
                 // Extract highlighted text within excerpts for specialized processing
-                var eHighlights = await GetOrCreateSectionExcerptHighlightsAsync(excerptEl, sectionId, context);
+                var eHighlights = await getOrCreateSectionExcerptHighlightsAsync(excerptEl, sectionId, context);
                 result.SectionAttributesCreated += eHighlights.Count;
             }
 
             // Process direct highlights not contained within excerpts
-            var directHighlights = await GetOrCreateSectionExcerptHighlightsAsync(xEl, sectionId, context);
+            var directHighlights = await getOrCreateSectionExcerptHighlightsAsync(xEl, sectionId, context);
             result.SectionAttributesCreated += directHighlights.Count;
 
             return result;
@@ -363,7 +363,7 @@ namespace MedRecPro.Service.ParsingServices
                 !contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
             {
                 // Process nested content blocks within the current block
-                var childResult = await ProcessChildContentBlocksAsync(block, stc, context, parseAndSaveSectionAsync);
+                var childResult = await processChildContentBlocksAsync(block, stc, context, parseAndSaveSectionAsync);
                 result.NestedContent.AddRange(childResult.Item1);
                 result.GrandchildEntityCount += childResult.Item2;
             }
@@ -478,7 +478,7 @@ namespace MedRecPro.Service.ParsingServices
             if (contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase))
             {
                 // Process list structure and create list item entities
-                grandchildEntitiesCount += await GetOrCreateTextListAndItemsAsync(block, stc.SectionTextContentID.Value, context);
+                grandchildEntitiesCount += await getOrCreateTextListAndItemsAsync(block, stc.SectionTextContentID.Value, context);
             }
             else if (contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
             {
@@ -490,7 +490,7 @@ namespace MedRecPro.Service.ParsingServices
                 // This method doesn't return a count, but we call it for its side effect.
                 // Process excerpt highlights for specialized content extraction
                 if (stc.SectionID > 0)
-                    await GetOrCreateSectionExcerptHighlightsAsync(block, (int)stc.SectionID, context);
+                    await getOrCreateSectionExcerptHighlightsAsync(block, (int)stc.SectionID, context);
             }
             else if (contentType.Equals(sc.E.RenderMultimedia, StringComparison.OrdinalIgnoreCase))
             {
@@ -527,7 +527,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private async Task<Tuple<List<SectionTextContent>, int>> ProcessChildContentBlocksAsync(
+        private async Task<Tuple<List<SectionTextContent>, int>> processChildContentBlocksAsync(
             XElement parentBlock,
             SectionTextContent parentStc,
             SplParseContext context,
@@ -578,7 +578,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private async Task<int> GetOrCreateTextListAndItemsAsync(
+        private async Task<int> getOrCreateTextListAndItemsAsync(
             XElement listEl,
             int sectionTextContentId,
             SplParseContext context)
@@ -587,13 +587,13 @@ namespace MedRecPro.Service.ParsingServices
             int createdCount = 0;
 
             // Validate inputs using existing validation pattern
-            if (!ValidateTextListInputs(listEl, sectionTextContentId, context))
+            if (!validateTextListInputs(listEl, sectionTextContentId, context))
             {
                 return 0;
             }
 
             // Get database context and repositories
-            var repositories = GetTextListRepositories(context);
+            var repositories = getTextListRepositories(context);
 
             if (repositories != null
                 && repositories.TextListRepo != null
@@ -604,7 +604,7 @@ namespace MedRecPro.Service.ParsingServices
                 // Find or create the main TextList record
                 if (dbContext != null)
                 {
-                    var textList = await GetOrCreateTextListAsync(dbContext, repositories.TextListRepo, listEl, sectionTextContentId);
+                    var textList = await getOrCreateTextListAsync(dbContext, repositories.TextListRepo, listEl, sectionTextContentId);
                     if (textList?.TextListID == null)
                     {
                         context.Logger?.LogError("Failed to create or retrieve TextList for SectionTextContentID {id}", sectionTextContentId);
@@ -618,7 +618,7 @@ namespace MedRecPro.Service.ParsingServices
                     }
 
                     // Process all list items
-                    createdCount += await ProcessTextListItems(dbContext, repositories.TextListItemRepo, listEl, textList, context);
+                    createdCount += await processTextListItems(dbContext, repositories.TextListItemRepo, listEl, textList, context);
                 }
             }
 
@@ -637,7 +637,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElement"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private static bool ValidateTextListInputs(XElement listEl, int sectionTextContentId, SplParseContext context)
+        private static bool validateTextListInputs(XElement listEl, int sectionTextContentId, SplParseContext context)
         {
             #region implementation
             // Check for null or invalid parameters
@@ -658,7 +658,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="TextList"/>
         /// <seealso cref="TextListItem"/>
         /// <seealso cref="Label"/>
-        private static TextListRepositories? GetTextListRepositories(SplParseContext context)
+        private static TextListRepositories? getTextListRepositories(SplParseContext context)
         {
             #region implementation
             // Validate context and service provider
@@ -695,7 +695,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElement"/>
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
-        private static async Task<TextList> GetOrCreateTextListAsync(
+        private static async Task<TextList> getOrCreateTextListAsync(
             ApplicationDbContext dbContext,
             Repository<TextList> textListRepo,
             XElement listEl,
@@ -709,7 +709,7 @@ namespace MedRecPro.Service.ParsingServices
             // Create new TextList if it doesn't exist
             if (textList == null)
             {
-                textList = CreateTextListEntity(listEl, sectionTextContentId);
+                textList = createTextListEntity(listEl, sectionTextContentId);
                 await textListRepo.CreateAsync(textList);
             }
 
@@ -728,7 +728,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElement"/>
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
-        private static TextList CreateTextListEntity(XElement listEl, int sectionTextContentId)
+        private static TextList createTextListEntity(XElement listEl, int sectionTextContentId)
         {
             #region implementation
             // Extract list attributes and create new entity
@@ -757,7 +757,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElement"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private static async Task<int> ProcessTextListItems(
+        private static async Task<int> processTextListItems(
             ApplicationDbContext dbContext,
             Repository<TextListItem> textListItemRepo,
             XElement listEl,
@@ -775,7 +775,7 @@ namespace MedRecPro.Service.ParsingServices
             // Process each item element
             foreach (var itemEl in itemElements)
             {
-                var itemProcessResult = await ProcessTextListItem(
+                var itemProcessResult = await processTextListItem(
                     textListItemDbSet, textListItemRepo, itemEl, textList, seqNum);
 
                 // Only increment sequence if item was processed (had content)
@@ -808,7 +808,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElement"/>
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
-        private static async Task<TextListItemProcessResult> ProcessTextListItem(
+        private static async Task<TextListItemProcessResult> processTextListItem(
             DbSet<TextListItem> textListItemDbSet,
             Repository<TextListItem> textListItemRepo,
             XElement itemEl,
@@ -833,7 +833,7 @@ namespace MedRecPro.Service.ParsingServices
             // Create new item if it doesn't exist
             if (existingItem == null && itemEl != null)
             {
-                var newItem = CreateTextListItemEntity(itemEl, textList, seqNum, itemText);
+                var newItem = createTextListItemEntity(itemEl, textList, seqNum, itemText);
                 await textListItemRepo.CreateAsync(newItem);
                 return new TextListItemProcessResult { WasProcessed = true, WasCreated = true };
             }
@@ -856,7 +856,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElement"/>
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
-        private static TextListItem CreateTextListItemEntity(
+        private static TextListItem createTextListItemEntity(
             XElement itemEl,
             TextList textList,
             int seqNum,
@@ -963,21 +963,21 @@ namespace MedRecPro.Service.ParsingServices
             var theadEl = tableEl.SplElement(sc.E.Thead);
             if (theadEl != null)
             {
-                createdCount += await ParseAndCreateRowsAsync(theadEl, textTable.TextTableID.Value, "Header", context);
+                createdCount += await parseAndCreateRowsAsync(theadEl, textTable.TextTableID.Value, "Header", context);
             }
 
             // Process table body section if present
             var tbodyEl = tableEl.SplElement(sc.E.Tbody);
             if (tbodyEl != null)
             {
-                createdCount += await ParseAndCreateRowsAsync(tbodyEl, textTable.TextTableID.Value, "Body", context);
+                createdCount += await parseAndCreateRowsAsync(tbodyEl, textTable.TextTableID.Value, "Body", context);
             }
 
             // Process table footer section if present
             var tfootEl = tableEl.SplElement(sc.E.Tfoot);
             if (tfootEl != null)
             {
-                createdCount += await ParseAndCreateRowsAsync(tfootEl, textTable.TextTableID.Value, "Footer", context);
+                createdCount += await parseAndCreateRowsAsync(tfootEl, textTable.TextTableID.Value, "Footer", context);
             }
 
             return createdCount;
@@ -1085,7 +1085,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private async Task<int> ParseAndCreateRowsAsync(
+        private async Task<int> parseAndCreateRowsAsync(
             XElement rowGroupEl,
             int textTableId,
             string rowGroupType,
@@ -1145,7 +1145,7 @@ namespace MedRecPro.Service.ParsingServices
                 if (textTableRow.TextTableRowID.HasValue)
                 {
                     // Delegate cell parsing and accumulate created cell count
-                    createdCount += await ParseAndCreateCellsAsync(rowEl, textTableRow.TextTableRowID.Value, context);
+                    createdCount += await parseAndCreateCellsAsync(rowEl, textTableRow.TextTableRowID.Value, context);
                 }
 
                 // Increment sequence for next row in group
@@ -1170,7 +1170,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private async Task<int> ParseAndCreateCellsAsync(
+        private async Task<int> parseAndCreateCellsAsync(
             XElement rowEl,
             int textTableRowId,
             SplParseContext context)
@@ -1264,7 +1264,7 @@ namespace MedRecPro.Service.ParsingServices
         /// including complex nested structures like tables. The content is stored as raw XML
         /// in the database for later rendering.
         /// </remarks>
-        public async Task<List<SectionExcerptHighlight>> GetOrCreateSectionExcerptHighlightsAsync(
+        public async Task<List<SectionExcerptHighlight>> getOrCreateSectionExcerptHighlightsAsync(
             XElement excerptEl,
             int sectionId,
             SplParseContext context)
@@ -1382,7 +1382,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private static async Task<Section> ParseAndSaveSectionAsync(XElement sectionEl, SplParseContext context)
+        private static async Task<Section> parseAndSaveSectionAsync(XElement sectionEl, SplParseContext context)
         {
             #region implementation
             // Validate required input parameters

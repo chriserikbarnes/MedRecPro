@@ -154,7 +154,7 @@ namespace MedRecPro.Service.ParsingServices
             try
             {
                 // --- PARSE ORGANIZATION ---
-                var (organization, orgCreated) = await getOrCreateOrganizationAsync(authorOrgElement, context);
+                var (organization, orgCreated) = await GetOrCreateOrganizationByIdentifierAsync(authorOrgElement, context);
 
                 // Validate that we successfully obtained an organization
                 if (organization?.OrganizationID == null)
@@ -526,6 +526,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Enhanced organizational hierarchy parsing that captures business operations
         /// during author processing to address order-of-operations issues.
+        /// Also captures identifiers at the author/parent level for contextual rendering.
         /// </summary>
         /// <param name="authorEl">The author XML element containing organization hierarchy information.</param>
         /// <param name="context">The parsing context providing database access and logging services.</param>
@@ -535,12 +536,13 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>A tuple containing counts of organizations and business operations created.</returns>
         /// <remarks>
         /// This enhanced method processes the organizational hierarchy while simultaneously
-        /// capturing business operations from performance elements. This ensures business
-        /// operations are available during author processing, solving the issue where
-        /// business operations were missed due to parser execution order.
+        /// capturing business operations from performance elements. It also ensures that
+        /// identifiers are captured at both the author/parent level and child levels for
+        /// accurate hierarchical rendering.
         /// </remarks>
         /// <seealso cref="DocumentRelationship"/>
         /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="DocumentRelationshipIdentifier"/>
         /// <seealso cref="Label"/>
         private async Task<(int OrganizationsCreated, int BusinessOperationsCreated)> parseOrganizationalHierarchyWithBusinessOperationsAsync(
             XElement authorEl, SplParseContext context, int documentId, int labelerId, string authorType)
@@ -552,13 +554,38 @@ namespace MedRecPro.Service.ParsingServices
             if (context?.ServiceProvider == null || context.Logger == null)
                 return (orgCount, bizOpCount);
 
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
             var labelerEntityEl = authorEl.GetSplElement(sc.E.AssignedEntity);
             if (labelerEntityEl == null) return (orgCount, bizOpCount);
 
             var representedOrgEl = labelerEntityEl.GetSplElement(sc.E.RepresentedOrganization);
             if (representedOrgEl == null) return (orgCount, bizOpCount);
 
-            // Start recursive parsing from the represented organization
+            // Create/find a relationship for the author/labeler organization itself
+            // This represents the top-level (Document -> Author Organization) relationship
+            var authorRelationship = await saveOrGetDocumentRelationshipAsync(
+                dbContext,
+                documentId,
+                null, // No parent organization - this is the top level
+                labelerId, // The author org is the "child" in this document relationship
+                $"{authorType}ToDocument", // e.g., "LabelerToDocument"
+                0); // Level 0 for author level
+
+            // Link author-level identifiers to this relationship
+            // This captures which identifiers appeared at the author/labeler level
+            await linkIdentifiersToRelationshipAsync(
+                representedOrgEl,
+                authorRelationship.DocumentRelationshipID,
+                labelerId,
+                context);
+
+            context.Logger?.LogInformation(
+                "Created/found author-level relationship {RelationshipId} and linked identifiers for labeler {LabelerId}",
+                authorRelationship.DocumentRelationshipID, labelerId);
+
+            // Start recursive parsing from the represented organization for child relationships
+            // Now labelerId becomes the PARENT for child relationships
             var result = await parseHierarchyLevelWithBusinessOperationsAsync(
                 representedOrgEl, context, documentId, labelerId, authorType, 1);
 
@@ -674,28 +701,105 @@ namespace MedRecPro.Service.ParsingServices
             int orgCount = 0;
             int bizOpCount = 0;
 
-            if (entityEl == null || context?.ServiceProvider == null) return (orgCount, bizOpCount);
+            if (entityEl == null || context?.ServiceProvider == null)
+                return (orgCount, bizOpCount);
 
             // Try to get organization from this entity
             var (childOrg, childOrgEl) = await getOrgFromEntityAsync(entityEl, context);
 
+            // Handle case where no organization was found
             if (childOrg?.OrganizationID == null)
             {
-                // No organization found - check if this entity has assignedOrganization with nested structure
-                var assignedOrgEl = entityEl.GetSplElement(sc.E.AssignedOrganization);
-                if (assignedOrgEl != null)
-                {
-                    // This is an intermediate level - recurse deeper
-                    var result = await parseHierarchyLevelWithBusinessOperationsAsync(
-                        assignedOrgEl, context, documentId, parentOrgId,
-                        relationshipPrefix, currentLevel + 1);
-                    return (result.OrganizationsCreated, result.BusinessOperationsCreated);
-                }
-                return (orgCount, bizOpCount);
+                return await handleMissingOrganizationAsync(
+                    entityEl, context, documentId, parentOrgId, relationshipPrefix, currentLevel);
             }
 
-            // We have a valid organization - create relationship
+            // Handle self-referential organizations (same org as parent)
+            if (childOrg.OrganizationID == parentOrgId)
+            {
+                var selfRefBizOps = await handleSelfReferentialOrganizationAsync(
+                    entityEl, context, parentOrgId, currentLevel);
+                return (orgCount, selfRefBizOps);
+            }
+
+            // Process valid child organization that differs from parent
+            var (newOrgCount, newBizOpCount) = await processValidChildOrganizationAsync(
+                entityEl, childOrg, childOrgEl, context, documentId,
+                parentOrgId, relationshipPrefix, currentLevel);
+
+            return (newOrgCount, newBizOpCount);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Handles the case where no organization is found in the entity element.
+        /// Checks for nested structure and recurses if found.
+        /// </summary>
+        private async Task<(int OrganizationsCreated, int BusinessOperationsCreated)> handleMissingOrganizationAsync(
+            XElement entityEl, SplParseContext context, int documentId,
+            int parentOrgId, string relationshipPrefix, int currentLevel)
+        {
+            #region implementation
+            // Check if this entity has assignedOrganization with nested structure
+            var assignedOrgEl = entityEl.GetSplElement(sc.E.AssignedOrganization);
+            if (assignedOrgEl != null)
+            {
+                // This is an intermediate level - recurse deeper
+                return await parseHierarchyLevelWithBusinessOperationsAsync(
+                    assignedOrgEl, context, documentId, parentOrgId,
+                    relationshipPrefix, currentLevel + 1);
+            }
+
+            return (0, 0);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Handles self-referential organizations (where child org is the same as parent org).
+        /// Processes business operations without creating a circular relationship.
+        /// </summary>
+        private async Task<int> handleSelfReferentialOrganizationAsync(
+            XElement entityEl, SplParseContext context, int organizationId, int currentLevel)
+        {
+            #region implementation
+            context.Logger?.LogInformation(
+                "Skipping self-referential relationship for organization {OrgId} at level {Level}",
+                organizationId, currentLevel);
+
+            // Still process business operations even though we skip the relationship
+            if (!entityEl.SplElements(sc.E.Performance).Any())
+                return 0;
+
+            var businessOpsCreated = await parseBusinessOperationsFromPerformanceElementsAsync(
+                entityEl, context,
+                context.CurrentDocumentRelationship?.DocumentRelationshipID,
+                organizationId);
+
+            return businessOpsCreated;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes a valid child organization that differs from its parent.
+        /// Creates relationship, processes attributes, business operations, and recurses for children.
+        /// </summary>
+        private async Task<(int OrganizationsCreated, int BusinessOperationsCreated)> processValidChildOrganizationAsync(
+            XElement entityEl, Organization childOrg, XElement? childOrgEl,
+            SplParseContext context, int documentId, int parentOrgId,
+            string relationshipPrefix, int currentLevel)
+        {
+            #region implementation
+            int orgCount = 0;
+            int bizOpCount = 0;
+
+            if (context == null || context.ServiceProvider == null) return (0, 0);
+
+            // Create the relationship
             var relationshipType = determineRelationshipType(relationshipPrefix, currentLevel);
+
             var relationship = await saveOrGetDocumentRelationshipAsync(
                 context.ServiceProvider.GetRequiredService<ApplicationDbContext>(),
                 documentId, parentOrgId, childOrg.OrganizationID,
@@ -703,55 +807,154 @@ namespace MedRecPro.Service.ParsingServices
 
             orgCount++;
 
-            // Process organization attributes
-            if (childOrgEl != null)
-                await processOrganizationAttributesAsync(childOrgEl, childOrg.OrganizationID.Value, context);
-
-            // --- ENHANCED: PROCESS BUSINESS OPERATIONS FROM PERFORMANCE ELEMENTS ---
-            if (entityEl.SplElements(sc.E.Performance).Any())
+            if (childOrg.OrganizationID >= 0)
             {
-                // Set document relationship context for business operation processing
-                var oldDocRel = context.CurrentDocumentRelationship;
-                context.CurrentDocumentRelationship = relationship;
-
-                try
+                // Process organization attributes and identifiers
+                if (childOrgEl != null)
                 {
-                    // Process both facility-product links and business operations
-                    var facilityLinksCreated = await parseAndSaveFacilityProductLinksAsync(
-                        entityEl, relationship.DocumentRelationshipID, context);
+                    await processOrganizationAttributesAsync(
+                        childOrgEl, childOrg.OrganizationID.Value, context);
 
-                    // NEW: Process business operations using the BusinessOperationParser methods
-                    var businessOpsCreated = await parseBusinessOperationsFromPerformanceElementsAsync(
-                        entityEl, context, relationship.DocumentRelationshipID, childOrg.OrganizationID.Value);
-
-                    bizOpCount += businessOpsCreated;
-
-                    context.Logger?.LogInformation(
-                        "Processed performance elements for organization {OrgId}: {FacilityLinks} facility links, {BusinessOps} business operations",
-                        childOrg.OrganizationID, facilityLinksCreated, businessOpsCreated);
+                    await linkIdentifiersToRelationshipAsync(
+                        childOrgEl, relationship.DocumentRelationshipID,
+                        childOrg.OrganizationID.Value, context);
                 }
-                finally
-                {
-                    // Restore previous document relationship context
-                    context.CurrentDocumentRelationship = oldDocRel;
-                }
-            }
 
-            // Check for further hierarchy levels
-            var assignedOrgElement = entityEl.GetSplElement(sc.E.AssignedOrganization);
-            if (assignedOrgElement != null)
-            {
-                // This organization has children - recurse deeper
-                var result = await parseHierarchyLevelWithBusinessOperationsAsync(
-                    assignedOrgElement, context, documentId, childOrg.OrganizationID.Value,
-                    getNextRelationshipPrefix(relationshipPrefix, currentLevel), currentLevel + 1);
+                // Process business operations
+                var businessOpsCreated = await processEntityBusinessOperationsAsync(
+                    entityEl, relationship, childOrg.OrganizationID.Value, context);
+                bizOpCount += businessOpsCreated;
 
-                orgCount += result.OrganizationsCreated;
-                bizOpCount += result.BusinessOperationsCreated;
+                // Recurse for any child organizations
+                var (childOrgCount, childBizOpCount) = await processChildOrganizationsAsync(
+                    entityEl, context, documentId, childOrg.OrganizationID.Value,
+                    relationshipPrefix, currentLevel);
+
+
+                orgCount += childOrgCount;
+                bizOpCount += childBizOpCount;
             }
 
             return (orgCount, bizOpCount);
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes business operations (facility links and business ops) for an entity.
+        /// Sets the document relationship context before processing.
+        /// </summary>
+        private async Task<int> processEntityBusinessOperationsAsync(
+            XElement entityEl, DocumentRelationship relationship,
+            int organizationId, SplParseContext context)
+        {
+            #region implementation
+            if (!entityEl.SplElements(sc.E.Performance).Any())
+                return 0;
+
+            // Set document relationship context for business operation processing
+            var oldDocRel = context.CurrentDocumentRelationship;
+            context.CurrentDocumentRelationship = relationship;
+
+            try
+            {
+                // Process both facility-product links and business operations
+                var facilityLinksCreated = await parseAndSaveFacilityProductLinksAsync(
+                    entityEl, relationship.DocumentRelationshipID, context);
+
+                var businessOpsCreated = await parseBusinessOperationsFromPerformanceElementsAsync(
+                    entityEl, context, relationship.DocumentRelationshipID, organizationId);
+
+                context.Logger?.LogInformation(
+                    "Processed performance elements for organization {OrgId}: {FacilityLinks} facility links, {BusinessOps} business operations",
+                    organizationId, facilityLinksCreated, businessOpsCreated);
+
+                return businessOpsCreated;
+            }
+            finally
+            {
+                // Restore previous document relationship context
+                context.CurrentDocumentRelationship = oldDocRel;
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recursively processes child organizations in the hierarchy.
+        /// Checks for assignedOrganization elements and recurses if found.
+        /// </summary>
+        private async Task<(int OrganizationsCreated, int BusinessOperationsCreated)> processChildOrganizationsAsync(
+            XElement entityEl, SplParseContext context, int documentId,
+            int currentOrgId, string relationshipPrefix, int currentLevel)
+        {
+            #region implementation
+            // Check for further hierarchy levels
+            var assignedOrgElement = entityEl.GetSplElement(sc.E.AssignedOrganization);
+            if (assignedOrgElement == null)
+                return (0, 0);
+
+            // This organization has children - recurse deeper
+            return await parseHierarchyLevelWithBusinessOperationsAsync(
+                assignedOrgElement, context, documentId, currentOrgId,
+                getNextRelationshipPrefix(relationshipPrefix, currentLevel),
+                currentLevel + 1);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Links the identifiers present in this XML element to the document relationship.
+        /// This preserves which identifiers appeared at which hierarchy level.
+        /// </summary>
+        private async Task linkIdentifiersToRelationshipAsync(
+            XElement orgEl, int? relationshipId, int organizationId,
+            SplParseContext context)
+        {
+            if (!relationshipId.HasValue || context?.ServiceProvider == null)
+                return;
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            foreach (var idEl in orgEl.SplElements(sc.E.Id))
+            {
+                var extension = idEl.GetAttrVal(sc.A.Extension);
+                var root = idEl.GetAttrVal(sc.A.Root);
+
+                if (string.IsNullOrWhiteSpace(extension) || string.IsNullOrWhiteSpace(root))
+                    continue;
+
+                // Find identifier - can use navigation properties if needed
+                var identifier = await dbContext.Set<OrganizationIdentifier>()
+                    .FirstOrDefaultAsync(oi =>
+                        oi.OrganizationID == organizationId &&
+                        oi.IdentifierValue == extension &&
+                        oi.IdentifierSystemOID == root);
+
+                if (identifier?.OrganizationIdentifierID == null)
+                    continue;
+
+                // Check existing - can use navigation properties
+                var existingLink = await dbContext.Set<DocumentRelationshipIdentifier>()
+                    .FirstOrDefaultAsync(dri =>
+                        dri.DocumentRelationshipID == relationshipId &&
+                        dri.OrganizationIdentifierID == identifier.OrganizationIdentifierID);
+
+                if (existingLink != null)
+                    continue;
+
+                // Create link - navigation properties work, FK constraint doesn't exist
+                var link = new DocumentRelationshipIdentifier
+                {
+                    DocumentRelationshipID = relationshipId,
+                    OrganizationIdentifierID = identifier.OrganizationIdentifierID,
+                    // Navigation properties will be populated by EF on subsequent queries
+                };
+
+                dbContext.Set<DocumentRelationshipIdentifier>().Add(link);
+            }
+
+            await dbContext.SaveChangesAsync();
         }
 
         /**************************************************************/
@@ -1538,7 +1741,7 @@ namespace MedRecPro.Service.ParsingServices
                 return (null, null);
 
             // Create or retrieve the organization entity from the XML element
-            var (org, _) = await getOrCreateOrganizationAsync(orgEl, context);
+            var (org, _) = await GetOrCreateOrganizationByIdentifierAsync(orgEl, context);
             return (org, orgEl);
             #endregion
         }
@@ -2000,7 +2203,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="dbContext">The database context for entity operations.</param>
         /// <param name="docId">The document ID to associate with the relationship.</param>
-        /// <param name="parentOrgId">The parent organization ID in the relationship hierarchy.</param>
+        /// <param name="parentOrgId">The parent organization ID in the relationship hierarchy (null for top-level).</param>
         /// <param name="childOrgId">The child organization ID in the relationship hierarchy.</param>
         /// <param name="relationshipType">The type of relationship between the organizations.</param>
         /// <param name="relationshipLevel">The hierarchical level of the relationship.</param>
@@ -2018,26 +2221,27 @@ namespace MedRecPro.Service.ParsingServices
             int? relationshipLevel)
         {
             #region implementation
-            // Validate inputs to ensure data integrity
-            if (dbContext == null || docId == null || parentOrgId == null)
+            // Validate required inputs (parentOrgId can be null for top-level relationships)
+            if (dbContext == null || docId == null || childOrgId == null)
                 throw new ArgumentNullException("A required argument for DocumentRelationship is null.");
 
             // Try to find an existing relationship with exact parameter match
+            // Handle null parentOrgId case for top-level relationships
             var existing = await dbContext.Set<DocumentRelationship>().FirstOrDefaultAsync(dr =>
                 dr.DocumentID == docId &&
                 dr.ParentOrganizationID == parentOrgId &&
                 dr.ChildOrganizationID == childOrgId &&
                 dr.RelationshipType == relationshipType);
 
-            // Fallback: was deleted b/c of multiple child orgs
-            // that can appear in the author section and need
-            // to be captured as separate relationships
+            // Return existing relationship if found
+            if (existing != null)
+                return existing;
 
             // Create new relationship entity with provided parameters
             var newRel = new DocumentRelationship
             {
                 DocumentID = docId,
-                ParentOrganizationID = parentOrgId,
+                ParentOrganizationID = parentOrgId, // Can be null for top-level relationships
                 ChildOrganizationID = childOrgId,
                 RelationshipType = relationshipType,
                 RelationshipLevel = relationshipLevel

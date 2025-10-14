@@ -3,12 +3,20 @@
 @inherits RazorLight.TemplatePage<MedRecPro.Models.AuthorRendering>;
 @model AuthorRendering;
 
-@* Hierarchical author template with child organizations and business operations *@
+@* 
+    Hierarchical author template with child organizations and business operations.
+    Uses DocumentRelationshipIdentifier-based contextual filtering to ensure each
+    hierarchy level displays only the identifiers that appeared at that level in
+    the original SPL document, preserving perfect structural fidelity.
+*@
 <author>
     <time />
     <assignedEntity>
         <representedOrganization>
-            @* Render author organization identifiers if available *@
+            @* 
+                Render author organization identifiers if available.
+                These are the identifiers at the top (author/labeler) level.
+            *@
             @if (Model.HasAuthorIdentifiers)
             {
                 foreach (var identifier in Model.AuthorIdentifiers)
@@ -36,7 +44,23 @@
                                     <confidentialityCode code="B" codeSystem="2.16.840.1.113883.5.25" />
                                 }
                                 <assignedOrganization>
-                                    @* Render child organization identifiers *@
+                                    @* 
+                                        CRITICAL: Render contextually-filtered child organization identifiers.
+                                        
+                                        childOrg.OrganizationIdentifiers contains ONLY the identifiers that 
+                                        appeared at THIS specific hierarchy level in the original SPL document.
+                                        
+                                        This is filtered using DocumentRelationshipIdentifier data by the
+                                        AuthorRenderingService.filterContextualIdentifiers method, which ensures
+                                        perfect structural fidelity to the source XML.
+                                        
+                                        Example: If Henry Schein, Inc. has DUNS 012430880 at parent level and 
+                                        DUNS 830995189 at child level, this will render ONLY 830995189 here,
+                                        matching the original document structure exactly.
+                                        
+                                        DO NOT use childOrg.Organization.Identifiers here - that contains ALL
+                                        identifiers for the organization and would break the hierarchy.
+                                    *@
                                     @if (childOrg.HasOrganizationIdentifiers)
                                     {
                                         foreach (var identifier in childOrg.OrganizationIdentifiers)
@@ -51,19 +75,29 @@
                                     @* Child organization name *@
                                     <name>@childOrg.OrganizationName</name>
                                 </assignedOrganization>
-                                @* Render business operations for this child organization *@
+                                @* 
+                                    Render business operations for this child organization.
+                                    Each operation may reference multiple products via facility product links.
+                                *@
                                 @if (childOrg.HasBusinessOperations)
                                 {
                                     foreach (var businessOp in childOrg.BusinessOperations)
                                     {
-                                        if (businessOp.HasOperationCode 
-                                            && businessOp.HasOperationCodeSystem 
-                                            && businessOp.HasProductLinks)
+                                        @* Only render operations that have required codes and associated products *@
+                                        @if (businessOp.HasOperationCode
+                                                                && businessOp.HasOperationCodeSystem
+                                                                && businessOp.HasProductLinks)
                                         {
+                                            @* 
+                                                Generate a separate performance element for each product link.
+                                                This matches SPL specification where each product gets its own
+                                                performance/actDefinition structure.
+                                            *@
                                             foreach (var productLink in businessOp.ProductLinks)
                                             {
                                                 <performance>
                                                     <actDefinition>
+                                                        @* Render business operation code with display name if available *@
                                                         @if (businessOp.HasOperationDisplayName)
                                                         {
                                                             <code @SplTemplateHelpers.Attribute("code", businessOp.OperationCode) @SplTemplateHelpers.Attribute("codeSystem", businessOp.OperationCodeSystem) @SplTemplateHelpers.Attribute("displayName", businessOp.OperationDisplayName) />
@@ -72,7 +106,12 @@
                                                         {
                                                             <code @SplTemplateHelpers.Attribute("code", businessOp.OperationCode) @SplTemplateHelpers.Attribute("codeSystem", businessOp.OperationCodeSystem) />
                                                         }
-                                                        @* Render product based on available identifier *@
+                                                        @* 
+                                                            Render product reference based on available identifier.
+                                                            Preference order:
+                                                            1. ProductName (typically NDC or CLN)
+                                                            2. ProductIdentifierID (if ProductName is null)
+                                                        *@
                                                         @if (!string.IsNullOrWhiteSpace(productLink.ProductName))
                                                         {
                                                             <product>

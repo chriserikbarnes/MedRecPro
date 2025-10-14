@@ -49,6 +49,7 @@ namespace MedRecPro.Models
         /**************************************************************/
         /// <summary>
         /// Pre-computed author organization identifiers for rendering.
+        /// Contains all identifiers for the author organization at the top level.
         /// </summary>
         /// <seealso cref="OrganizationIdentifierDto"/>
         /// <seealso cref="Label.OrganizationIdentifier"/>
@@ -133,9 +134,19 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
-        /// Pre-computed organization identifiers for rendering.
+        /// Pre-computed contextual organization identifiers for rendering.
+        /// Contains ONLY the identifiers that appeared at this specific hierarchy level
+        /// in the original SPL document, enabling accurate XML rendering that matches
+        /// the source structure. Filtered using DocumentRelationshipIdentifier data.
         /// </summary>
+        /// <remarks>
+        /// This property preserves the hierarchical context of identifiers. For example,
+        /// if the same company (Henry Schein, Inc.) has DUNS 012430880 at the parent level
+        /// and DUNS 830995189 at the child level, this property will contain only the
+        /// identifier that appeared at this specific child organization's level.
+        /// </remarks>
         /// <seealso cref="OrganizationIdentifierDto"/>
+        /// <seealso cref="Label.DocumentRelationshipIdentifier"/>
         public List<OrganizationIdentifierDto> OrganizationIdentifiers { get; set; } = new();
 
         /**************************************************************/
@@ -157,7 +168,7 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
-        /// Convenience flag indicating whether organization has identifiers.
+        /// Convenience flag indicating whether organization has contextual identifiers.
         /// </summary>
         public bool HasOrganizationIdentifiers => OrganizationIdentifiers?.Any() == true;
 

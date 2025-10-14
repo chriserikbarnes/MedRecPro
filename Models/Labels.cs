@@ -46,6 +46,9 @@ namespace MedRecPro.Models
         private static List<string> preserveTags = new List<string>
             { "br", "caption", "content", "item", "linkHtml", "list", "p", "paragraph", "sub", "sup", "renderMultiMedia" };
 
+        private static List<string> preserveTextListTags = new List<string>
+            { "br", "content", "item", "linkHtml", "list", "p", "paragraph", "sub", "sup", "renderMultiMedia" };
+
         private static List<string> preserveFormatTags = new List<string>
             { "b", "br", "caption", "cite", "content", "em", "i", "linkHtml", "p", "span", "strong", "sub", "sup", "renderMultiMedia" };
 
@@ -183,6 +186,67 @@ namespace MedRecPro.Models
             /// </summary>
             public virtual ICollection<OrganizationIdentifier> OrganizationIdentifiers { get; set; } = new List<OrganizationIdentifier>();
             #endregion properties
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Links organization identifiers to specific document relationships,
+        /// preserving which identifier was used at which hierarchy level.
+        /// No database FK constraints for performance; relationships managed in application code.
+        /// </summary>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="OrganizationIdentifier"/>
+        public class DocumentRelationshipIdentifier
+        {
+            #region primary key
+
+            /**************************************************************/
+            /// <summary>
+            /// Primary key for the DocumentRelationshipIdentifier table.
+            /// </summary>
+            [System.ComponentModel.DataAnnotations.Key]
+            [System.ComponentModel.DataAnnotations.Schema.Column("DocumentRelationshipIdentifierID")]
+            public int DocumentRelationshipIdentifierID { get; set; }
+
+            #endregion
+
+            #region foreign keys
+
+            /**************************************************************/
+            /// <summary>
+            /// Foreign key to DocumentRelationship.
+            /// Represents which relationship this identifier was used in.
+            /// </summary>
+            public int? DocumentRelationshipID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Foreign key to OrganizationIdentifier.
+            /// Represents which identifier appeared at this relationship level.
+            /// </summary>
+            public int? OrganizationIdentifierID { get; set; }
+
+            #endregion
+
+            #region navigation properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property to the document relationship.
+            /// Virtual to enable lazy loading. No database FK constraint.
+            /// </summary>
+            /// <seealso cref="DocumentRelationship"/>
+            public virtual DocumentRelationship? DocumentRelationship { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property to the organization identifier.
+            /// Virtual to enable lazy loading. No database FK constraint.
+            /// </summary>
+            /// <seealso cref="OrganizationIdentifier"/>
+            public virtual OrganizationIdentifier? OrganizationIdentifier { get; set; }
+
+            #endregion
         }
 
         /*******************************************************************************/
@@ -861,7 +925,7 @@ namespace MedRecPro.Models
             {
                 get => _itemText;
                 set => _itemText = value
-                    ?.RemoveUnwantedTagsRegEx(preserveTags: preserveTags)
+                    ?.RemoveUnwantedTagsRegEx(preserveTags: preserveTextListTags)
                     ?.NormalizeXmlWhitespace();
             }
             #endregion properties

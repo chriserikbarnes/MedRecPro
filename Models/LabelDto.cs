@@ -1402,6 +1402,7 @@ namespace MedRecPro.Models
         public List<CertificationProductLinkDto> CertificationProductLinks { get; set; } = new();
         public List<ComplianceActionDto> ComplianceActions { get; set; } = new();
         public List<FacilityProductLinkDto> FacilityProductLinks { get; set; } = new();
+        public List<DocumentRelationshipIdentifierDto> RelationshipIdentifiers { get; set; } = new();
 
         /// <summary>
         /// Primary key for the DocumentRelationship table.
@@ -1456,6 +1457,41 @@ namespace MedRecPro.Models
             DocumentRelationship.TryGetValue(nameof(RelationshipLevel), out var value)
                 ? value as int?
                 : null;
+    }
+
+    /**************************************************************/
+    /// <seealso cref="Label.DocumentRelationshipIdentifier"/>
+    public class DocumentRelationshipIdentifierDto
+    {
+        public required Dictionary<string, object?> DocumentRelationshipIdentifier { get; set; }
+
+        /// <summary>
+        /// Primary key for the DocumentRelationshipIdentifier table.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? DocumentRelationshipIdentifierID =>
+            DocumentRelationshipIdentifier.TryGetValue("EncryptedDocumentRelationshipIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+
+        /// <summary>
+        /// Foreign key to Document Relationship.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? DocumentRelationshipID =>
+            DocumentRelationshipIdentifier.TryGetValue("EncryptedDocumentRelationshipID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+
+        /// <summary>
+        /// Foreign key to Organization Identifier (e.g., Labeler).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? OrganizationIdentifierID =>
+            DocumentRelationshipIdentifier.TryGetValue("EncryptedOrganizationIdentifierID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+     
     }
 
     /**************************************************************/

@@ -344,6 +344,8 @@ namespace MedRecPro.DataAccess
 
                 var facilityLinks = await buildFacilityProductLinksAsync(db, rel.DocumentRelationshipID, pkSecret, logger);
 
+                var relationshipIdentifiers = await buildDocumentRelationshipIdentifiersAsync(db, rel.DocumentRelationshipID, pkSecret, logger);
+
                 // Assemble complete relationship DTO with all nested data
                 dtos.Add(new DocumentRelationshipDto
                 {
@@ -353,7 +355,8 @@ namespace MedRecPro.DataAccess
                     ComplianceActions = complianceActions,
                     FacilityProductLinks = facilityLinks,
                     ChildOrganization = childOrg,
-                    ParentOrganization = parentOrg
+                    ParentOrganization = parentOrg,
+                    RelationshipIdentifiers = relationshipIdentifiers
                 });
             }
             return dtos;
@@ -446,6 +449,65 @@ namespace MedRecPro.DataAccess
 
 
             return sbDtos;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of DocumentRelationshipIdentifier DTOs for the specified document relationship.
+        /// Retrieves the organization identifiers that were used at this specific hierarchy level
+        /// in the original SPL document, enabling accurate XML rendering that matches the source structure.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="documentRelationshipId">The document relationship ID to find identifiers for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of DocumentRelationshipIdentifier DTOs with encrypted IDs and associated identifier data.</returns>
+        /// <remarks>
+        /// This method preserves the contextual information about which organization identifiers
+        /// (e.g., DUNS numbers, FEI codes) appeared at which hierarchy level in the author section.
+        /// This is critical for rendering SPL documents that match the original structure, where the
+        /// same organization may have different identifiers at different hierarchy levels.
+        /// Returns an empty list if documentRelationshipId is null or no identifiers are found.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var identifiers = await buildDocumentRelationshipIdentifiersAsync(dbContext, 456, "secret", logger);
+        /// foreach (var identifier in identifiers)
+        /// {
+        ///     Console.WriteLine($"Identifier {identifier.OrganizationIdentifierID} at relationship {identifier.DocumentRelationshipID}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.DocumentRelationshipIdentifier"/>
+        /// <seealso cref="DocumentRelationshipIdentifierDto"/>
+        /// <seealso cref="Label.OrganizationIdentifier"/>
+        /// <seealso cref="Label.DocumentRelationship"/>
+        private static async Task<List<DocumentRelationshipIdentifierDto>> buildDocumentRelationshipIdentifiersAsync(
+            ApplicationDbContext db,
+            int? documentRelationshipId,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Return empty list if no documentRelationshipId provided
+            if (documentRelationshipId == null) return new List<DocumentRelationshipIdentifierDto>();
+
+            // Fetch all DocumentRelationshipIdentifier entities for this relationship with no change tracking
+            var items = await db.Set<Label.DocumentRelationshipIdentifier>()
+                .AsNoTracking()
+                .Where(e => e.DocumentRelationshipID == documentRelationshipId)
+                .ToListAsync();
+
+            // Transform entities to DTOs with encrypted IDs
+            return items
+                .Select(item => new DocumentRelationshipIdentifierDto
+                {
+                    DocumentRelationshipIdentifier = item.ToEntityWithEncryptedId(pkSecret, logger)
+                })
+                .ToList();
+
             #endregion
         }
         #endregion

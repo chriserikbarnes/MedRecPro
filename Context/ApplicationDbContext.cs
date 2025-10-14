@@ -2,6 +2,7 @@
 using MedRecPro.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.Data.SqlClient.DataClassification;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Reflection;
@@ -64,6 +65,9 @@ namespace MedRecPro.Data
                     // In some cases the primary keys are resolved with a [Column("fieldId")] attribute,
                     entityBuilder.ToTable(entityType.Name);
                 }
+
+            // CONFIGURE SPECIFIC ENTITIES AFTER REFLECTION REGISTRATION
+            configureDocumentRelationshipIdentifier(builder);
 
             builder.Entity<User>(entity =>
             {
@@ -144,6 +148,58 @@ namespace MedRecPro.Data
             builder.Entity<IdentityRole<long>>(entity =>
             {
                 entity.ToTable("AspNetRoles"); // Default table name
+            });
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Configures the DocumentRelationshipIdentifier entity with navigation properties
+        /// but WITHOUT database foreign key constraints for performance.
+        /// </summary>
+        /// <param name="builder">The model builder to configure.</param>
+        /// <remarks>
+        /// This configuration creates logical relationships for EF Core navigation properties
+        /// while preventing the creation of physical FK constraints in the database.
+        /// Referential integrity must be maintained in application code.
+        /// </remarks>
+        /// <seealso cref="LabelContainer.DocumentRelationshipIdentifier"/>
+        /// <seealso cref="LabelContainer.DocumentRelationship"/>
+        /// <seealso cref="LabelContainer.OrganizationIdentifier"/>
+        private void configureDocumentRelationshipIdentifier(ModelBuilder builder)
+        {
+            builder.Entity<LabelContainer.DocumentRelationshipIdentifier>(entity =>
+            {
+                // Primary key is already configured via [Key] attribute
+                entity.HasKey(e => e.DocumentRelationshipIdentifierID);
+
+                // ⚠️ CONFIGURE NAVIGATION WITHOUT FK CONSTRAINTS
+
+                // Relationship to DocumentRelationship - NO database constraint
+                entity.HasOne(d => d.DocumentRelationship)
+                    .WithMany() // Add collection property to DocumentRelationship if needed
+                    .HasForeignKey(d => d.DocumentRelationshipID)
+                    .OnDelete(DeleteBehavior.NoAction)
+                    .IsRequired(false);
+
+                // Relationship to OrganizationIdentifier - NO database constraint
+                entity.HasOne(d => d.OrganizationIdentifier)
+                    .WithMany() // Add collection property to OrganizationIdentifier if needed
+                    .HasForeignKey(d => d.OrganizationIdentifierID)
+                    .OnDelete(DeleteBehavior.NoAction)
+                    .IsRequired(false);
+
+                // INDEXES FOR PERFORMANCE 
+                entity.HasIndex(e => e.DocumentRelationshipID)
+                    .HasDatabaseName("IX_DocumentRelationshipIdentifier_DocumentRelationshipID");
+
+                entity.HasIndex(e => e.OrganizationIdentifierID)
+                    .HasDatabaseName("IX_DocumentRelationshipIdentifier_OrganizationIdentifierID");
+
+                // COMPOSITE UNIQUE INDEX to prevent duplicate links
+                entity.HasIndex(e => new { e.DocumentRelationshipID, e.OrganizationIdentifierID })
+                    .IsUnique()
+                    .HasFilter("[DocumentRelationshipID] IS NOT NULL AND [OrganizationIdentifierID] IS NOT NULL")
+                    .HasDatabaseName("UX_DocumentRelationshipIdentifier_Unique");
             });
         }
     }
