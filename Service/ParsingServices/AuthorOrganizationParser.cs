@@ -642,17 +642,6 @@ namespace MedRecPro.Service.ParsingServices
                 $"{authorType}ToDocument", // e.g., "LabelerToDocument"
                 0); // Level 0 for author level
 
-            // Link author-level identifiers to this relationship
-            // This captures which identifiers appeared at the author/labeler level
-            await linkIdentifiersToRelationshipAsync(
-                representedOrgEl,
-                authorRelationship.DocumentRelationshipID,
-                labelerId,
-                context);
-
-            context.Logger?.LogInformation(
-                "Created/found author-level relationship {RelationshipId} and linked identifiers for labeler {LabelerId}",
-                authorRelationship.DocumentRelationshipID, labelerId);
 
             // Start recursive parsing from the represented organization for child relationships
             // Now labelerId becomes the PARENT for child relationships
