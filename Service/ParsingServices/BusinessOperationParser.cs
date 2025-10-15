@@ -139,9 +139,9 @@ namespace MedRecPro.Service.ParsingServices
                 // Process business operations for each document relationship.
                 foreach (var docRel in docRels)
                 {
-                    // Ensure the document relationship exists or create it.
-                    var thisDocRel = await saveOrGetDocumentRelationshipAsync(
-                        dbContext, docId, labelerOrgId, docRel.ChildOrganizationID, docRel.RelationshipType, docRel.RelationshipLevel);
+                    // Use the parent from the existing relationship, not labelerOrgId
+                    // This prevents creating duplicate relationships with incorrect parent assignments
+                    var thisDocRel = await saveOrGetDocumentRelationshipAsync(dbContext, docId, docRel.ParentOrganizationID, docRel.ChildOrganizationID, docRel.RelationshipType, docRel.RelationshipLevel);
 
                     // --- START: CONTEXT MANAGEMENT AND ORCHESTRATION ---
                     // Set the context for this specific DocumentRelationship and wrap dependent

@@ -11,10 +11,6 @@ using c = MedRecPro.Models.Constant;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 using MedRecPro.Models;
-using System.Security.Cryptography;
-using AngleSharp.Svg.Dom;
-using System.Collections.Generic;
-using static MedRecPro.Models.Constant;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -237,27 +233,40 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Finds or creates an Organization by its identifier (e.g., FEI, DUNS). This is the preferred method for establishments.
+        /// Finds or creates an Organization by its identifier (e.g., FEI, DUNS), implementing
+        /// proper deduplication to support multiple identifiers per organization.
         /// </summary>
-        /// <param name="orgEl">The XElement containing the organization's data (e.g., representedOrganization).</param>
+        /// <param name="orgEl">The XElement containing the organization's data.</param>
         /// <param name="context">The parsing context for DB access.</param>
         /// <returns>The existing or newly created Organization entity.</returns>
+        /// <remarks>
+        /// Implements 1-to-many Organization-to-Identifier relationship.
+        /// When a new identifier is encountered for an existing organization name,
+        /// the identifier is added to the existing organization rather than creating
+        /// a duplicate organization record. This handles cases where the same company
+        /// appears at different hierarchy levels with different DUNS numbers.
+        /// </remarks>
         /// <seealso cref="Organization"/>
+        /// <seealso cref="OrganizationIdentifier"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        public static async Task<(Organization? Organization, bool Created)> GetOrCreateOrganizationByIdentifierAsync(XElement orgEl, SplParseContext context)
+        public static async Task<(Organization? Organization, bool Created)> GetOrCreateOrganizationByIdentifierAsync(
+            XElement orgEl, SplParseContext context)
         {
             #region implementation
+
             if (orgEl == null) return (null, false);
 
             var idEl = orgEl.SplElement(sc.E.Id);
             var identifierValue = idEl?.GetAttrVal(sc.A.Extension);
             var identifierRoot = idEl?.GetAttrVal(sc.A.Root);
+            var orgName = orgEl.GetSplElementVal(sc.E.Name)?.Trim();
 
-            if (string.IsNullOrWhiteSpace(identifierValue))
+            // Validate we have at least a name
+            if (string.IsNullOrWhiteSpace(orgName))
             {
-                context?.Logger?.LogWarning("Organization element is missing an identifier. Falling back to name-based lookup.");
-                return await GetOrCreateOrganizationByNameAsync(orgEl, context!);
+                context?.Logger?.LogError("Organization element is missing both identifier and name.");
+                return (null, false);
             }
 
             if (context == null || context.ServiceProvider == null)
@@ -268,54 +277,100 @@ namespace MedRecPro.Service.ParsingServices
 
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-            // Step 1: Search for an existing OrganizationIdentifier
-            var existingIdentifier = await dbContext.Set<OrganizationIdentifier>()
-                .Include(oi => oi.Organization) // Eager load the related Organization
-                .FirstOrDefaultAsync(oi => oi.IdentifierValue == identifierValue && oi.IdentifierSystemOID == identifierRoot);
-
-            if (existingIdentifier?.Organization != null)
+            // Step 1: If we have an identifier, search for existing OrganizationIdentifier
+            if (!string.IsNullOrWhiteSpace(identifierValue) && !string.IsNullOrWhiteSpace(identifierRoot))
             {
-                // Step 2: If found, return the associated Organization
-                return (existingIdentifier.Organization, false);
+                var existingIdentifier = await dbContext.Set<OrganizationIdentifier>()
+                    .Include(oi => oi.Organization)
+                    .FirstOrDefaultAsync(oi =>
+                        oi.IdentifierValue == identifierValue &&
+                        oi.IdentifierSystemOID == identifierRoot);
+
+                if (existingIdentifier?.Organization != null)
+                {
+                    // Identifier found - return the associated organization
+                    context?.Logger?.LogInformation(
+                        "Found existing Organization '{OrgName}' (ID: {OrgId}) via identifier '{Identifier}'",
+                        existingIdentifier.Organization.OrganizationName,
+                        existingIdentifier.Organization.OrganizationID,
+                        identifierValue);
+                    return (existingIdentifier.Organization, false);
+                }
+
+                // Step 2: Identifier not found, but we have one to add
+                // Check if organization exists by NAME (to support multiple identifiers per org)
+                var existingOrgByName = await dbContext.Set<Organization>()
+                    .FirstOrDefaultAsync(o => o.OrganizationName == orgName);
+
+                if (existingOrgByName != null)
+                {
+                    // FIXED: Organization exists with same name - add new identifier to existing org
+                    context?.Logger?.LogInformation(
+                        "Found existing Organization '{OrgName}' (ID: {OrgId}) by name. " +
+                        "Adding new identifier '{Identifier}' to existing organization.",
+                        orgName, existingOrgByName.OrganizationID, identifierValue);
+
+                    // Add the new identifier to the existing organization
+                    var identifierRepo = context!.GetRepository<OrganizationIdentifier>();
+                    var newIdentifier = new OrganizationIdentifier
+                    {
+                        OrganizationID = existingOrgByName.OrganizationID,
+                        IdentifierValue = identifierValue,
+                        IdentifierSystemOID = identifierRoot,
+                        IdentifierType = inferIdentifierTypeFromOid(identifierRoot)
+                    };
+                    await identifierRepo.CreateAsync(newIdentifier);
+
+                    context?.Logger?.LogInformation(
+                        "Added identifier '{Identifier}' ({Type}) to existing Organization '{OrgName}' (ID: {OrgId})",
+                        identifierValue,
+                        newIdentifier.IdentifierType,
+                        orgName,
+                        existingOrgByName.OrganizationID);
+
+                    return (existingOrgByName, false); // Return existing org, not created
+                }
+
+                // Step 3: Neither identifier nor organization name found - create new organization
+                var orgRepo = context.GetRepository<Organization>();
+                var newOrganization = new Organization
+                {
+                    OrganizationName = orgName,
+                    IsConfidential = orgEl.GetSplElementAttrVal(sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
+                };
+                await orgRepo.CreateAsync(newOrganization);
+
+                if (newOrganization.OrganizationID == null)
+                {
+                    context?.Logger?.LogError("Failed to save new organization '{OrgName}'.", orgName);
+                    return (null, false);
+                }
+
+                // Create the identifier for the new organization
+                var identifierRepo2 = context.GetRepository<OrganizationIdentifier>();
+                var newIdentifier2 = new OrganizationIdentifier
+                {
+                    OrganizationID = newOrganization.OrganizationID,
+                    IdentifierValue = identifierValue,
+                    IdentifierSystemOID = identifierRoot,
+                    IdentifierType = inferIdentifierTypeFromOid(identifierRoot)
+                };
+                await identifierRepo2.CreateAsync(newIdentifier2);
+
+                context?.Logger?.LogInformation(
+                    "Created new Organization '{OrgName}' (ID: {OrgId}) with Identifier '{Identifier}'",
+                    orgName, newOrganization.OrganizationID, identifierValue);
+                return (newOrganization, true);
+            }
+            else
+            {
+                // Step 4: No identifier provided - fall back to name-based lookup
+                context?.Logger?.LogWarning(
+                    "Organization element '{OrgName}' is missing an identifier. Using name-based lookup.",
+                    orgName);
+                return await GetOrCreateOrganizationByNameAsync(orgEl, context!);
             }
 
-            // Step 3: If not found, create both the Organization and the OrganizationIdentifier
-            var orgRepo = context.GetRepository<Organization>();
-            var orgName = orgEl.GetSplElementVal(sc.E.Name)?.Trim();
-
-            if (string.IsNullOrWhiteSpace(orgName))
-            {
-                context?.Logger?.LogError("Cannot create new organization for identifier '{Identifier}' because its name is missing.", identifierValue);
-                return (null, false);
-            }
-
-            // Step 3a: Create the new Organization
-            var newOrganization = new Organization
-            {
-                OrganizationName = orgName,
-                IsConfidential = orgEl.GetSplElementAttrVal(sc.E.ConfidentialityCode, sc.A.CodeValue) == "B"
-            };
-            await orgRepo.CreateAsync(newOrganization);
-
-            if (newOrganization.OrganizationID == null)
-            {
-                context?.Logger?.LogError("Failed to save new organization '{OrgName}'.", orgName);
-                return (null, false);
-            }
-
-            // Step 3b: Create the new OrganizationIdentifier and link it
-            var identifierRepo = context.GetRepository<OrganizationIdentifier>();
-            var newIdentifier = new OrganizationIdentifier
-            {
-                OrganizationID = newOrganization.OrganizationID,
-                IdentifierValue = identifierValue,
-                IdentifierSystemOID = identifierRoot,
-                IdentifierType = inferIdentifierTypeFromOid(identifierRoot) // Helper to map OID to a friendly type
-            };
-            await identifierRepo.CreateAsync(newIdentifier);
-
-            context?.Logger?.LogInformation("Created new Organization '{OrgName}' (ID: {OrgId}) with Identifier '{Identifier}'", orgName, newOrganization.OrganizationID, identifierValue);
-            return (newOrganization, true);
             #endregion
         }
 
@@ -444,6 +499,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Determines the document author type based on business operations found in performance elements.
         /// Maps business operation codes to appropriate author types with intelligent fallback logic.
+        /// Uses deep traversal to find all performance elements regardless of nesting depth.
         /// </summary>
         /// <param name="authorElement">The author XML element containing performance/business operation data.</param>
         /// <param name="context">The parsing context for logging and database access.</param>
@@ -456,6 +512,9 @@ namespace MedRecPro.Service.ParsingServices
         /// - Analysis/Testing operations → "Analyzer"
         /// - Multiple operations → Combined type (e.g., "Manufacturer/Packager")
         /// - No operations found → "Labeler" (default for author section)
+        /// 
+        /// Uses Descendants() to traverse all nested performance elements,
+        /// not just immediate children of assignedEntity.
         /// </remarks>
         /// <seealso cref="BusinessOperation"/>
         /// <seealso cref="Label"/>
@@ -466,13 +525,16 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
-                // Find all business operations in performance elements
+                // Find all business operations in performance elements using deep traversal
+                // Use Descendants() instead of SplElements() to find nested performance nodes
                 var assignedEntityEl = authorElement.GetSplElement(sc.E.AssignedEntity);
                 if (assignedEntityEl != null)
                 {
-                    foreach (var performanceEl in assignedEntityEl.SplElements(sc.E.Performance))
+                    // Search all descendant performance elements, not just immediate children
+                    foreach (var performanceEl in assignedEntityEl.Descendants(ns + sc.E.Performance))
                     {
-                        foreach (var actDefEl in performanceEl.SplElements(sc.E.ActDefinition))
+                        // Find all actDefinition elements within each performance element
+                        foreach (var actDefEl in performanceEl.Descendants(ns + sc.E.ActDefinition))
                         {
                             var codeEl = actDefEl.GetSplElement(sc.E.Code);
                             var operationCode = codeEl?.GetAttrVal(sc.A.CodeValue);
@@ -548,11 +610,18 @@ namespace MedRecPro.Service.ParsingServices
             XElement authorEl, SplParseContext context, int documentId, int labelerId, string authorType)
         {
             #region implementation
+
             int orgCount = 0;
             int bizOpCount = 0;
 
             if (context?.ServiceProvider == null || context.Logger == null)
                 return (orgCount, bizOpCount);
+
+            context.Logger?.LogWarning(
+                "=== ENTERING parseOrganizationalHierarchyWithBusinessOperationsAsync === " +
+                "DocId={DocId}, LabelerId={LabelerId}, AuthorType={AuthorType}, StackTrace={StackTrace}",
+                documentId, labelerId, authorType,
+                new System.Diagnostics.StackTrace().ToString());
 
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
@@ -564,8 +633,9 @@ namespace MedRecPro.Service.ParsingServices
 
             // Create/find a relationship for the author/labeler organization itself
             // This represents the top-level (Document -> Author Organization) relationship
-            var authorRelationship = await saveOrGetDocumentRelationshipAsync(
+            var authorRelationship = await saveOrGetDocumentRelationshipAsync(           
                 dbContext,
+                context,
                 documentId,
                 null, // No parent organization - this is the top level
                 labelerId, // The author org is the "child" in this document relationship
@@ -590,6 +660,7 @@ namespace MedRecPro.Service.ParsingServices
                 representedOrgEl, context, documentId, labelerId, authorType, 1);
 
             return (result.OrganizationsCreated, result.BusinessOperationsCreated);
+
             #endregion
         }
 
@@ -651,6 +722,7 @@ namespace MedRecPro.Service.ParsingServices
             int parentOrgId, string relationshipPrefix, int currentLevel)
         {
             #region implementation
+
             int orgCount = 0;
             int bizOpCount = 0;
 
@@ -676,6 +748,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return (orgCount, bizOpCount);
+
             #endregion
         }
 
@@ -698,6 +771,7 @@ namespace MedRecPro.Service.ParsingServices
             int parentOrgId, string relationshipPrefix, int currentLevel)
         {
             #region implementation
+
             int orgCount = 0;
             int bizOpCount = 0;
 
@@ -717,8 +791,20 @@ namespace MedRecPro.Service.ParsingServices
             // Handle self-referential organizations (same org as parent)
             if (childOrg.OrganizationID == parentOrgId)
             {
+                // Need to find the Level 0 relationship to associate operations
+                // Since this is self-referential at a deeper level, find the top-level relationship
+                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var topLevelRelationship = await dbContext.Set<DocumentRelationship>()
+                    .Where(dr => dr.DocumentID == documentId &&
+                                dr.ParentOrganizationID == null &&
+                                dr.ChildOrganizationID == parentOrgId &&
+                                dr.RelationshipLevel == 0)
+                    .FirstOrDefaultAsync();
+
                 var selfRefBizOps = await handleSelfReferentialOrganizationAsync(
-                    entityEl, context, parentOrgId, currentLevel);
+                    entityEl, context, parentOrgId, currentLevel,
+                    topLevelRelationship?.DocumentRelationshipID);
+
                 return (orgCount, selfRefBizOps);
             }
 
@@ -728,6 +814,7 @@ namespace MedRecPro.Service.ParsingServices
                 parentOrgId, relationshipPrefix, currentLevel);
 
             return (newOrgCount, newBizOpCount);
+
             #endregion
         }
 
@@ -741,6 +828,7 @@ namespace MedRecPro.Service.ParsingServices
             int parentOrgId, string relationshipPrefix, int currentLevel)
         {
             #region implementation
+
             // Check if this entity has assignedOrganization with nested structure
             var assignedOrgEl = entityEl.GetSplElement(sc.E.AssignedOrganization);
             if (assignedOrgEl != null)
@@ -752,32 +840,84 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return (0, 0);
+
             #endregion
         }
-
         /**************************************************************/
         /// <summary>
         /// Handles self-referential organizations (where child org is the same as parent org).
-        /// Processes business operations without creating a circular relationship.
+        /// Associates business operations with the parent relationship when encountering
+        /// the same organization at deeper nesting levels.
         /// </summary>
+        /// <param name="entityEl">The entity XML element containing business operations.</param>
+        /// <param name="context">The parsing context for logging and database access.</param>
+        /// <param name="organizationId">The organization ID (same as parent in this case).</param>
+        /// <param name="currentLevel">The current hierarchy level for logging purposes.</param>
+        /// <param name="parentRelationshipId">The parent document relationship ID to use for operations.</param>
+        /// <returns>Count of business operations created.</returns>
+        /// <remarks>
+        /// When the same organization appears at multiple nesting levels
+        /// (e.g., Henry Schein with different DUNS at different levels), this method
+        /// ensures business operations found at the deeper level are properly associated
+        /// with the top-level relationship, and identifiers are linked correctly.
+        /// 
+        /// This handles the SPL pattern where performance elements are SIBLINGS
+        /// to the nested assignedOrganization, not children of it.
+        /// </remarks>
+        /// <seealso cref="BusinessOperation"/>
+        /// <seealso cref="DocumentRelationship"/>
+        /// <seealso cref="DocumentRelationshipIdentifier"/>
+        /// <seealso cref="Label"/>
         private async Task<int> handleSelfReferentialOrganizationAsync(
-            XElement entityEl, SplParseContext context, int organizationId, int currentLevel)
+            XElement entityEl, SplParseContext context, int organizationId,
+            int currentLevel, int? parentRelationshipId)
         {
             #region implementation
+
             context.Logger?.LogInformation(
-                "Skipping self-referential relationship for organization {OrgId} at level {Level}",
-                organizationId, currentLevel);
+                "Skipping self-referential relationship for organization {OrgId} at level {Level}. " +
+                "Will associate any business operations with parent relationship {ParentRelId}.",
+                organizationId, currentLevel, parentRelationshipId);
 
-            // Still process business operations even though we skip the relationship
-            if (!entityEl.SplElements(sc.E.Performance).Any())
-                return 0;
+            int businessOpsCreated = 0;
 
-            var businessOpsCreated = await parseBusinessOperationsFromPerformanceElementsAsync(
-                entityEl, context,
-                context.CurrentDocumentRelationship?.DocumentRelationshipID,
-                organizationId);
+            // Link identifiers at this nesting level to the parent relationship
+            // This ensures the child-level identifier (e.g., second DUNS) is captured
+            var childOrgEl = entityEl.GetSplElement(sc.E.AssignedOrganization);
+            if (childOrgEl != null && parentRelationshipId.HasValue)
+            {
+                await linkIdentifiersToRelationshipAsync(
+                    childOrgEl,
+                    parentRelationshipId,
+                    organizationId,
+                    context);
+
+                context.Logger?.LogInformation(
+                    "Linked child-level identifiers for self-referential org {OrgId} to parent relationship {RelId}",
+                    organizationId, parentRelationshipId);
+            }
+
+            // Check for business operations at this level (as siblings to assignedOrganization)
+            if (entityEl.Descendants(ns + sc.E.Performance).Any() && parentRelationshipId.HasValue)
+            {
+                // Associate operations with the PARENT relationship since we're not creating a new one
+                businessOpsCreated = await parseBusinessOperationsFromPerformanceElementsAsync(
+                    entityEl, context, parentRelationshipId, organizationId);
+
+                context.Logger?.LogInformation(
+                    "Processed {Count} business operations for self-referential organization {OrgId}, " +
+                    "associated with parent relationship {ParentRelId}",
+                    businessOpsCreated, organizationId, parentRelationshipId);
+            }
+            else
+            {
+                context.Logger?.LogInformation(
+                    "No business operations found for self-referential organization {OrgId}",
+                    organizationId);
+            }
 
             return businessOpsCreated;
+
             #endregion
         }
 
@@ -792,6 +932,7 @@ namespace MedRecPro.Service.ParsingServices
             string relationshipPrefix, int currentLevel)
         {
             #region implementation
+
             int orgCount = 0;
             int bizOpCount = 0;
 
@@ -802,8 +943,7 @@ namespace MedRecPro.Service.ParsingServices
 
             var relationship = await saveOrGetDocumentRelationshipAsync(
                 context.ServiceProvider.GetRequiredService<ApplicationDbContext>(),
-                documentId, parentOrgId, childOrg.OrganizationID,
-                relationshipType, currentLevel);
+                context,documentId, parentOrgId, childOrg.OrganizationID, relationshipType, currentLevel);
 
             orgCount++;
 
@@ -836,6 +976,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return (orgCount, bizOpCount);
+
             #endregion
         }
 
@@ -849,6 +990,7 @@ namespace MedRecPro.Service.ParsingServices
             int organizationId, SplParseContext context)
         {
             #region implementation
+
             if (!entityEl.SplElements(sc.E.Performance).Any())
                 return 0;
 
@@ -876,6 +1018,7 @@ namespace MedRecPro.Service.ParsingServices
                 // Restore previous document relationship context
                 context.CurrentDocumentRelationship = oldDocRel;
             }
+
             #endregion
         }
 
@@ -889,6 +1032,7 @@ namespace MedRecPro.Service.ParsingServices
             int currentOrgId, string relationshipPrefix, int currentLevel)
         {
             #region implementation
+
             // Check for further hierarchy levels
             var assignedOrgElement = entityEl.GetSplElement(sc.E.AssignedOrganization);
             if (assignedOrgElement == null)
@@ -899,6 +1043,7 @@ namespace MedRecPro.Service.ParsingServices
                 assignedOrgElement, context, documentId, currentOrgId,
                 getNextRelationshipPrefix(relationshipPrefix, currentLevel),
                 currentLevel + 1);
+
             #endregion
         }
 
@@ -911,6 +1056,8 @@ namespace MedRecPro.Service.ParsingServices
             XElement orgEl, int? relationshipId, int organizationId,
             SplParseContext context)
         {
+            #region implementation
+
             if (!relationshipId.HasValue || context?.ServiceProvider == null)
                 return;
 
@@ -954,23 +1101,29 @@ namespace MedRecPro.Service.ParsingServices
                 dbContext.Set<DocumentRelationshipIdentifier>().Add(link);
             }
 
-            await dbContext.SaveChangesAsync();
+            await dbContext.SaveChangesAsync(); 
+
+            #endregion
         }
 
         /**************************************************************/
         /// <summary>
         /// Parses business operations from performance elements within the author context.
         /// Leverages BusinessOperationParser methods to maintain DRY principles.
+        /// Uses deep traversal to find all nested performance elements.
         /// </summary>
         /// <param name="parentEl">The parent element containing performance elements.</param>
         /// <param name="context">The parsing context with document relationship set.</param>
         /// <param name="documentRelationshipId">The document relationship ID for linking operations.</param>
-        /// <param name="performingOrganizationId">The organization performing the action</param>
+        /// <param name="performingOrganizationId">The organization performing the action.</param>
         /// <returns>The count of business operations created.</returns>
         /// <remarks>
         /// This method addresses the core issue by extracting business operations during
         /// author processing using the same logic as BusinessOperationParser. This ensures
         /// business operations are captured regardless of parser execution order.
+        /// 
+        /// Now uses Descendants() to find all actDefinition elements in nested
+        /// performance structures, not just immediate children.
         /// </remarks>
         /// <seealso cref="BusinessOperationParser"/>
         /// <seealso cref="BusinessOperation"/>
@@ -980,6 +1133,7 @@ namespace MedRecPro.Service.ParsingServices
             XElement parentEl, SplParseContext context, int? documentRelationshipId, int? performingOrganizationId)
         {
             #region implementation
+
             int createdCount = 0;
 
             if (context?.ServiceProvider == null || context.Logger == null || !documentRelationshipId.HasValue)
@@ -987,27 +1141,33 @@ namespace MedRecPro.Service.ParsingServices
 
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-            // Process each performance element
-            foreach (var actDefEl in parentEl.SplElements(sc.E.Performance, sc.E.ActDefinition))
+            // Use Descendants to find all actDefinition elements in nested performance structures
+            // This replaces the SplElements approach which only checked immediate children
+            foreach (var actDefEl in parentEl.Descendants(ns + sc.E.ActDefinition))
             {
-                // Extract business operation details from the actDefinition
-                var bizOp = await parseAndSaveBusinessOperationAsync(
-                    dbContext, documentRelationshipId, performingOrganizationId, actDefEl, context);
-
-                if (bizOp?.BusinessOperationID != null)
+                // Verify this actDefinition is within a performance element
+                if (actDefEl.Ancestors(ns + sc.E.Performance).Any())
                 {
-                    createdCount++;
+                    // Extract business operation details from the actDefinition
+                    var bizOp = await parseAndSaveBusinessOperationAsync(
+                        dbContext, documentRelationshipId, performingOrganizationId, actDefEl, context);
 
-                    context.Logger?.LogInformation(
-                        "Created/found BusinessOperation {OperationCode} ({DisplayName}) for DocumentRelationship {DocRelId}",
-                        bizOp.OperationCode, bizOp.OperationDisplayName, documentRelationshipId);
+                    if (bizOp?.BusinessOperationID != null)
+                    {
+                        createdCount++;
 
-                    // Process any business operation qualifiers (approvals, licenses, etc.)
-                    await processBusinessOperationQualifiersAsync(actDefEl, bizOp, dbContext, context);
+                        context.Logger?.LogInformation(
+                            "Created/found BusinessOperation {OperationCode} ({DisplayName}) for DocumentRelationship {DocRelId}",
+                            bizOp.OperationCode, bizOp.OperationDisplayName, documentRelationshipId);
+
+                        // Process any business operation qualifiers (approvals, licenses, etc.)
+                        await processBusinessOperationQualifiersAsync(actDefEl, bizOp, dbContext, context);
+                    }
                 }
             }
 
             return createdCount;
+
             #endregion
         }
 
@@ -1167,6 +1327,7 @@ namespace MedRecPro.Service.ParsingServices
             XElement orgEl, int organizationId, SplParseContext context)
         {
             #region implementation
+
             if (orgEl == null) return;
 
             // Process identifiers
@@ -1184,6 +1345,7 @@ namespace MedRecPro.Service.ParsingServices
             context.Logger?.LogInformation(
                 "Processed organization {OrgId}: {IdentifierCount} identifiers, {TelecomCount} telecoms, {EntityCount} named entities",
                 organizationId, identifiers?.Count ?? 0, telecoms, namedEntities?.Count ?? 0);
+
             #endregion
         }
 
@@ -1198,6 +1360,7 @@ namespace MedRecPro.Service.ParsingServices
         private string determineRelationshipType(string prefix, int level)
         {
             #region implementation
+
             return level switch
             {
                 1 => $"{prefix}ToRegistrant",
@@ -1206,6 +1369,7 @@ namespace MedRecPro.Service.ParsingServices
                 4 => "FacilityToSubFacility",
                 _ => $"Level{level}Relationship"
             };
+
             #endregion
         }
 
@@ -1727,12 +1891,14 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="context">The current parsing context.</param>
         /// <returns>A tuple containing the Organization entity and its corresponding XElement.</returns>
         /// <seealso cref="Organization"/>
+        /// <seealso cref="GetOrCreateOrganizationByIdentifierAsync"/>
         /// <seealso cref="getOrCreateOrganizationAsync"/>
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="Label"/>
         private async Task<(Organization? org, XElement? orgEl)> getOrgFromEntityAsync(XElement entityEl, SplParseContext context)
         {
             #region implementation
+
             // Find either AssignedOrganization or RepresentedOrganization element
             var orgEl = entityEl.SplElement(sc.E.AssignedOrganization)
                         ?? entityEl.SplElement(sc.E.RepresentedOrganization);
@@ -1743,6 +1909,7 @@ namespace MedRecPro.Service.ParsingServices
             // Create or retrieve the organization entity from the XML element
             var (org, _) = await GetOrCreateOrganizationByIdentifierAsync(orgEl, context);
             return (org, orgEl);
+
             #endregion
         }
 
@@ -2199,9 +2366,11 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Gets an existing DocumentRelationship or creates and saves it if not found.
+        /// Gets an existing DocumentRelationship or creates and saves it if not found 
+        /// with robust deduplication including NULL-safe parent comparison.
         /// </summary>
         /// <param name="dbContext">The database context for entity operations.</param>
+        /// <param name="context">The parsing context</param>
         /// <param name="docId">The document ID to associate with the relationship.</param>
         /// <param name="parentOrgId">The parent organization ID in the relationship hierarchy (null for top-level).</param>
         /// <param name="childOrgId">The child organization ID in the relationship hierarchy.</param>
@@ -2209,11 +2378,17 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="relationshipLevel">The hierarchical level of the relationship.</param>
         /// <returns>The existing or newly created DocumentRelationship entity.</returns>
         /// <exception cref="ArgumentNullException">Thrown when required parameters are null.</exception>
+        /// <remarks>
+        /// Enhanced NULL comparison for ParentOrganizationID to prevent duplicate
+        /// level 0 (Document→Author) relationships. Uses explicit NULL handling in LINQ query
+        /// to ensure proper deduplication when ParentOrganizationID is NULL.
+        /// </remarks>
         /// <seealso cref="DocumentRelationship"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private async Task<DocumentRelationship> saveOrGetDocumentRelationshipAsync(
             ApplicationDbContext dbContext,
+            SplParseContext context,
             int? docId,
             int? parentOrgId,
             int? childOrgId,
@@ -2221,27 +2396,50 @@ namespace MedRecPro.Service.ParsingServices
             int? relationshipLevel)
         {
             #region implementation
+
             // Validate required inputs (parentOrgId can be null for top-level relationships)
             if (dbContext == null || docId == null || childOrgId == null)
                 throw new ArgumentNullException("A required argument for DocumentRelationship is null.");
 
-            // Try to find an existing relationship with exact parameter match
-            // Handle null parentOrgId case for top-level relationships
-            var existing = await dbContext.Set<DocumentRelationship>().FirstOrDefaultAsync(dr =>
-                dr.DocumentID == docId &&
-                dr.ParentOrganizationID == parentOrgId &&
-                dr.ChildOrganizationID == childOrgId &&
-                dr.RelationshipType == relationshipType);
+            // Robust deduplication with NULL-safe parent comparison
+            // This prevents duplicate level 0 relationships where ParentOrganizationID is NULL
+            DocumentRelationship? existing;
+
+            if (parentOrgId.HasValue)
+            {
+                // Parent is specified - match all fields including parent
+                existing = await dbContext.Set<DocumentRelationship>().FirstOrDefaultAsync(dr =>
+                    dr.DocumentID == docId &&
+                    dr.ParentOrganizationID == parentOrgId &&
+                    dr.ChildOrganizationID == childOrgId &&
+                    dr.RelationshipType == relationshipType &&
+                    dr.RelationshipLevel == relationshipLevel);
+            }
+            else
+            {
+                // Parent is NULL - explicitly match NULL parent to prevent duplicates
+                existing = await dbContext.Set<DocumentRelationship>().FirstOrDefaultAsync(dr =>
+                    dr.DocumentID == docId &&
+                    dr.ParentOrganizationID == null &&
+                    dr.ChildOrganizationID == childOrgId &&
+                    dr.RelationshipType == relationshipType &&
+                    dr.RelationshipLevel == relationshipLevel);
+            }
 
             // Return existing relationship if found
             if (existing != null)
+            {
+                context?.Logger?.LogDebug(
+                    "Found existing relationship {RelationshipId}: Doc={DocId}, Parent={ParentId}, Child={ChildId}, Type={Type}, Level={Level}",
+                    existing.DocumentRelationshipID, docId, parentOrgId, childOrgId, relationshipType, existing.RelationshipLevel);
                 return existing;
+            }
 
             // Create new relationship entity with provided parameters
             var newRel = new DocumentRelationship
             {
                 DocumentID = docId,
-                ParentOrganizationID = parentOrgId, // Can be null for top-level relationships
+                ParentOrganizationID = parentOrgId,
                 ChildOrganizationID = childOrgId,
                 RelationshipType = relationshipType,
                 RelationshipLevel = relationshipLevel
@@ -2250,7 +2448,13 @@ namespace MedRecPro.Service.ParsingServices
             // Save the new relationship to database
             dbContext.Set<DocumentRelationship>().Add(newRel);
             await dbContext.SaveChangesAsync();
+
+            context?.Logger?.LogInformation(
+                "Created new relationship {RelationshipId}: Doc={DocId}, Parent={ParentId}, Child={ChildId}, Type={Type}, Level={Level}",
+                newRel.DocumentRelationshipID, docId, parentOrgId, childOrgId, relationshipType, relationshipLevel);
+
             return newRel;
+
             #endregion
         }
 
