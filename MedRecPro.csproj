@@ -60,19 +60,4 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 	</ItemGroup>
-
-	<ItemGroup>
-	  <Compile Remove="Views\SplTemplates\_MarketingStatus.cshtml" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <Content Remove="Views\SplTemplates\_AuthorHierarchical.cshtml" />
-	  <Content Remove="Views\SplTemplates\_CharacteristicDetail.cshtml" />
-	  <Content Remove="Views\SplTemplates\_MarketingStatus.cshtml" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <EmbeddedResource Remove="Views\SplTemplates\_AuthorHierarchical.cshtml" />
-	  <EmbeddedResource Remove="Views\SplTemplates\_MarketingStatus.cshtml" />
-	</ItemGroup>
 </Project>

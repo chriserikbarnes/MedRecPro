@@ -271,7 +271,8 @@ namespace MedRecPro.Service
 
             var childRelationships = allRelationships
                 .Where(r => r.ParentOrganizationID == authorOrgId.Value &&
-                           r.ChildOrganization != null)
+                            r.ChildOrganization != null &&
+                            (r.RelationshipLevel ?? 1) > 1)
                 .ToList();
 
             _logger.LogDebug("Found {RelationshipCount} child relationships for author {AuthorId}",
@@ -311,7 +312,12 @@ namespace MedRecPro.Service
                 childOrganizations.Add(childOrgRendering);
             }
 
-            return childOrganizations;
+            // CHANGE: Child orgs must have business operations
+            //childOrganizations = childOrganizations
+            //    ?.Where(x => x.HasBusinessOperations == true)
+            //    ?.ToList();
+
+            return childOrganizations ?? new List<ChildOrganizationRendering>();
 
             #endregion
         }
