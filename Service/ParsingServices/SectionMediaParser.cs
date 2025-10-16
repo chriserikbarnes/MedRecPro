@@ -171,6 +171,7 @@ namespace MedRecPro.Service.ParsingServices
                 var newMedia = new ObservationMedia
                 {
                     SectionID = sectionId,
+                    DocumentID = context?.Document?.DocumentID,
                     MediaID = mediaId,
                     DescriptionText = mediaEl.GetSplElementVal(sc.E.Text),
                     MediaType = mediaEl.GetSplElementAttrVal(sc.E.Value, sc.A.MediaType),
@@ -217,10 +218,12 @@ namespace MedRecPro.Service.ParsingServices
             int createdCount = 0;
 
             // Validate context to ensure required services and current section are available
-            if (context?.ServiceProvider == null || context?.CurrentSection == null) return 0;
+            if (context == null || context?.ServiceProvider == null || context?.CurrentSection == null) return 0;
+
+            int documentId = context?.Document?.DocumentID ?? 0;
 
             // Get DB context and repositories for RenderedMedia and ObservationMedia operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context!.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var renderedMediaRepo = context.GetRepository<RenderedMedia>();
             var renderedMediaDbSet = dbContext.Set<RenderedMedia>();
             var observationMediaDbSet = dbContext.Set<ObservationMedia>();
@@ -239,22 +242,27 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // Extract the referenced object ID from the renderMultimedia element
                 var referencedObjectId = el.Attribute(sc.A.ReferencedObject)?.Value;
+
                 if (string.IsNullOrWhiteSpace(referencedObjectId))
                 {
                     // Log warning for missing referencedObject attribute
-                    context.Logger?.LogWarning("Found <renderMultimedia> tag with no referencedObject attribute in file {FileName}.", context.FileNameInZip);
+                    context!.Logger?.LogWarning("Found <renderMultimedia> tag with no referencedObject attribute in file {FileName}.", context.FileNameInZip);
                     continue;
                 }
 
                 // Find the ObservationMedia this tag refers to.
                 // Note: This assumes ObservationMedia for the entire section has already been parsed.
                 var observationMedia = await observationMediaDbSet
-                    .FirstOrDefaultAsync(om => om.MediaID == referencedObjectId && om.SectionID == context.CurrentSection.SectionID);
+                    .FirstOrDefaultAsync(om => 
+                        om != null
+                        && om.MediaID == referencedObjectId 
+                        && om.DocumentID != null
+                        && om.DocumentID == documentId);
 
                 if (observationMedia?.ObservationMediaID == null)
                 {
                     // Log warning for dangling reference when no matching ObservationMedia found
-                    context.Logger?.LogWarning("Dangling reference: <renderMultimedia referencedObject='{RefId}'> found, but no matching <observationMedia> was found in the same section in file {FileName}.", 
+                    context?.Logger?.LogWarning("Dangling reference: <renderMultimedia referencedObject='{RefId}'> found, but no matching <observationMedia> was found in the same section in file {FileName}.", 
                         referencedObjectId, context.FileNameInZip);
                     continue;
                 }
@@ -262,6 +270,7 @@ namespace MedRecPro.Service.ParsingServices
                 // Deduplicate: Check if this link already exists to avoid duplicate records
                 var existingLink = await renderedMediaDbSet.FirstOrDefaultAsync(rm =>
                     rm.SectionTextContentID == sectionTextContentId &&
+                    rm.DocumentID == documentId &&
                     rm.ObservationMediaID == observationMedia.ObservationMediaID &&
                     rm.SequenceInContent == seqNum);
 
@@ -272,6 +281,7 @@ namespace MedRecPro.Service.ParsingServices
                     {
                         SectionTextContentID = sectionTextContentId,
                         ObservationMediaID = observationMedia.ObservationMediaID,
+                        DocumentID = documentId,
                         SequenceInContent = seqNum,
                         IsInline = isInline
                     };

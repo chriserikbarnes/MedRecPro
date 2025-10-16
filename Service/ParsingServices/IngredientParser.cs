@@ -226,9 +226,9 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SpecifiedSubstance"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private async Task<(IngredientSubstance substance, int specifiedSubstanceId)> getOrCreateSubstanceEntitiesAsync(XElement ingredientSubstanceEl, 
-            SplParseContext context, 
-            string? ingredientClassCode, 
+        private async Task<(IngredientSubstance substance, int specifiedSubstanceId)> getOrCreateSubstanceEntitiesAsync(XElement ingredientSubstanceEl,
+            SplParseContext context,
+            string? ingredientClassCode,
             Action<string>? reportProgress)
         {
             #region implementation
@@ -438,17 +438,17 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Ingredient"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private Ingredient buildIngredient(XElement element, 
-            SplParseContext context, 
-            int ingredientSubstanceId, 
-            int specifiedSubstanceId, 
+        private Ingredient buildIngredient(XElement element,
+            SplParseContext context,
+            int ingredientSubstanceId,
+            int specifiedSubstanceId,
             int sequenceNumber,
             string? ingredientSubElementName)
         {
             #region implementation
 
             // For those products not marking an ingredient with IACT for inactive ingredients
-            string? classCode = !string.IsNullOrEmpty(ingredientSubElementName) 
+            string? classCode = !string.IsNullOrEmpty(ingredientSubElementName)
                     && ingredientSubElementName.Contains("inactive", StringComparison.OrdinalIgnoreCase)
                     ? "IACT"
                     : element.GetAttrVal(sc.A.ClassCode);
@@ -550,7 +550,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Ingredient"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private async Task saveIngredientAsync(Ingredient ingredient, 
+        private async Task saveIngredientAsync(Ingredient ingredient,
             SplParseContext context)
         {
             #region implementation
@@ -590,13 +590,13 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SpecifiedSubstance"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="ApplicationDbContext"/>
-        private async Task<SpecifiedSubstance?> getOrCreateSpecifiedSubstanceAsync(XElement substanceEl, 
+        private async Task<SpecifiedSubstance?> getOrCreateSpecifiedSubstanceAsync(XElement substanceEl,
             SplParseContext context)
         {
             #region implementation
 
-            if(substanceEl == null 
-                || context == null 
+            if (substanceEl == null
+                || context == null
                 || context.Logger == null
                 || context.ServiceProvider == null)
             {
@@ -657,8 +657,8 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Finds an existing IngredientSubstance by its UNII. If not found, creates a new one.
-        /// This ensures that substance data is normalized in the database.
+        /// Orchestrates the process of finding or creating an IngredientSubstance entity.
+        /// This method delegates to specialized helper methods to maintain single responsibility.
         /// </summary>
         /// <param name="substanceEl">The XElement representing the ingredientSubstance to process.</param>
         /// <param name="context">The current parsing context containing database access services.</param>
@@ -667,7 +667,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>An IngredientSubstance entity, either existing or newly created, or null if creation fails.</returns>
         /// <example>
         /// <code>
-        /// var substance = await getOrCreateIngredientSubstanceAsync(substanceElement, context);
+        /// var substance = await getOrCreateIngredientSubstanceAsync(substanceElement, context, "ACTIB");
         /// if (substance != null)
         /// {
         ///     Console.WriteLine($"Substance: {substance.SubstanceName} (UNII: {substance.UNII})");
@@ -675,177 +675,564 @@ namespace MedRecPro.Service.ParsingServices
         /// </code>
         /// </example>
         /// <remarks>
-        /// This method implements substance normalization using UNII (Unique Ingredient Identifier) codes.
-        /// The process:
-        /// 1. Extracts UNII and name from the XML element
-        /// 2. If UNII is missing, creates a non-normalized substance record
-        /// 3. If UNII exists, searches for existing substance with same UNII
-        /// 4. If found, returns existing substance; otherwise creates new one
+        /// This orchestrator method coordinates the substance normalization workflow by:
+        /// 1. Validating input parameters
+        /// 2. Extracting substance identifiers from XML
+        /// 3. Searching for existing substances
+        /// 4. Creating new substances if needed
+        /// 5. Processing active moieties and reference substances
         /// 
-        /// This approach prevents duplicate substance records for the same chemical entity.
+        /// The method delegates each responsibility to focused helper methods,
+        /// making the code more maintainable and testable.
         /// </remarks>
         /// <seealso cref="IngredientSubstance"/>
-        /// <seealso cref="ApplicationDbContext"/>
-        /// <seealso cref="XElementExtensions.GetSplElementAttrVal(XElement, string, string)"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="extractSubstanceIdentifiers(XElement)"/>
+        /// <seealso cref="findExistingSubstanceAsync(string, string, ApplicationDbContext, ILogger)"/>
+        /// <seealso cref="createNonNormalizedSubstanceAsync(string, string, SplParseContext, Action{string})"/>
+        /// <seealso cref="createNormalizedSubstanceAsync(string, string, string, ApplicationDbContext, SplParseContext, Action{string})"/>
+        /// <seealso cref="processSubstancePostCreationAsync(XElement, IngredientSubstance, string, SplParseContext, bool)"/>
         /// <seealso cref="Label"/>
-        private async Task<IngredientSubstance?> getOrCreateIngredientSubstanceAsync(XElement substanceEl, 
-            SplParseContext context, 
+        private async Task<IngredientSubstance?> getOrCreateIngredientSubstanceAsync(
+            XElement substanceEl,
+            SplParseContext context,
             string? ingredientClassCode,
             Action<string>? reportProgress)
         {
             #region implementation
-            if(substanceEl == null
-                || context == null
-                || context.Logger == null
-                || context.ServiceProvider == null)
+
+            // Validate required parameters
+            if (!validateParameters(substanceEl, context))
             {
                 return null;
             }
 
+            // Extract identifiers from XML element
+            var (unii, substanceName, fieldName) = extractSubstanceIdentifiers(substanceEl);
+
+            // Get database context
+            var dbContext = context.ServiceProvider!.GetRequiredService<ApplicationDbContext>();
+
+            // Search for existing substance
+            var existingSubstance = await findExistingSubstanceAsync(
+                unii,
+                substanceName,
+                dbContext,
+                context.Logger!);
+
+            // Determine which substance to use
+            IngredientSubstance? substanceToUse;
+            bool isNewSubstance;
+
+            if (existingSubstance != null)
+            {
+                // Use existing substance
+                reportProgress?.Invoke($"Found Existing Ingredient {existingSubstance.SubstanceName} for file {context.FileNameInZip}");
+                substanceToUse = existingSubstance;
+                isNewSubstance = false;
+            }
+            else if (string.IsNullOrWhiteSpace(unii))
+            {
+                // Create non-normalized substance (missing UNII)
+                substanceToUse = await createNonNormalizedSubstanceAsync(
+                    substanceName,
+                    fieldName,
+                    context,
+                    reportProgress);
+                isNewSubstance = true;
+            }
+            else
+            {
+                // Create new normalized substance with UNII
+                substanceToUse = await createNormalizedSubstanceAsync(
+                    unii,
+                    substanceName,
+                    fieldName,
+                    dbContext,
+                    context,
+                    reportProgress);
+                isNewSubstance = true;
+            }
+
+            // Process active moieties and reference substances for all substances
+            await processSubstancePostCreationAsync(
+                substanceEl,
+                substanceToUse,
+                ingredientClassCode,
+                context,
+                isNewSubstance);
+
+            return substanceToUse;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates the required parameters for substance processing.
+        /// </summary>
+        /// <param name="substanceEl">The XElement to validate.</param>
+        /// <param name="context">The parsing context to validate.</param>
+        /// <returns>True if all required parameters are valid; otherwise, false.</returns>
+        /// <remarks>
+        /// This method ensures that all critical dependencies are present before
+        /// attempting to process substance data. It checks for null values on
+        /// the element, context, logger, and service provider.
+        /// </remarks>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private bool validateParameters(XElement? substanceEl, SplParseContext? context)
+        {
+            #region implementation
+
+            return substanceEl != null
+                && context != null
+                && context.Logger != null
+                && context.ServiceProvider != null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts substance identifiers (UNII, name, field) from an XML element.
+        /// </summary>
+        /// <param name="substanceEl">The XElement containing substance data.</param>
+        /// <returns>A tuple containing the UNII code, substance name, and originating field name.</returns>
+        /// <example>
+        /// <code>
+        /// var (unii, name, field) = extractSubstanceIdentifiers(substanceElement);
+        /// Console.WriteLine($"UNII: {unii}, Name: {name}, Field: {field}");
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method extracts three key identifiers:
+        /// - UNII: The unique ingredient identifier code from the code element
+        /// - Substance Name: The text value from the name element
+        /// - Field Name: The local name of the XML element (for tracking purposes)
+        /// 
+        /// These identifiers are used for substance normalization and database lookups.
+        /// </remarks>
+        /// <seealso cref="XElementExtensions.GetSplElementAttrVal(XElement, string, string)"/>
+        /// <seealso cref="XElementExtensions.GetSplElement(XElement, string)"/>
+        /// <seealso cref="SplConstants.E"/>
+        /// <seealso cref="SplConstants.A"/>
+        /// <seealso cref="Label"/>
+        private (string unii, string substanceName, string fieldName) extractSubstanceIdentifiers(XElement substanceEl)
+        {
+            #region implementation
+
             // Extract UNII code from the code element's codeValue attribute
-            var unii = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue);
+            var unii = substanceEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue) ?? string.Empty;
 
             // Extract substance name from the name element
-            var name = substanceEl.GetSplElement(sc.E.Name);
+            var nameElement = substanceEl.GetSplElement(sc.E.Name);
+            var substanceName = nameElement?.Value ?? string.Empty;
 
-            // Enclosing field. 
-            var field = substanceEl.Name.LocalName;
+            // Get enclosing field name for tracking purposes
+            var fieldName = substanceEl.Name.LocalName;
 
-            // Use the DbContext directly for the specific 'find by UNII' query
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            return (unii, substanceName, fieldName);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches the database for an existing IngredientSubstance by UNII or name.
+        /// </summary>
+        /// <param name="unii">The UNII code to search for.</param>
+        /// <param name="substanceName">The substance name to search for if UNII lookup fails.</param>
+        /// <param name="dbContext">The database context for querying.</param>
+        /// <param name="logger">The logger for recording search operations.</param>
+        /// <returns>An existing IngredientSubstance if found; otherwise, null.</returns>
+        /// <example>
+        /// <code>
+        /// var existing = await findExistingSubstanceAsync("451W47IQ8X", "Sodium Chloride", dbContext, logger);
+        /// if (existing != null)
+        /// {
+        ///     Console.WriteLine($"Found existing substance: {existing.SubstanceName}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method implements a two-tier search strategy:
+        /// 1. Primary: Search by UNII code (preferred for normalization)
+        /// 2. Fallback: Search by substance name (case-insensitive)
+        /// 
+        /// The UNII search is prioritized because it provides unique identification
+        /// across different naming conventions and languages.
+        /// </remarks>
+        /// <seealso cref="IngredientSubstance"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<IngredientSubstance?> findExistingSubstanceAsync(
+            string unii,
+            string substanceName,
+            ApplicationDbContext dbContext,
+            ILogger logger)
+        {
+            #region implementation
 
             // Get the DbSet for IngredientSubstance
             var substanceDbSet = dbContext.Set<IngredientSubstance>();
 
-            // Search for existing substance with the same UNII code
-            var existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s => s != null
+            // Primary search: by UNII code
+            var existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s =>
+                s != null
                 && s.UNII != null
                 && s.UNII == unii);
 
-            // Search by name if UNII is not found or is empty
-            if ((existingSubstance == null || existingSubstance.IngredientSubstanceID <= 0)
-                && name != null && !string.IsNullOrWhiteSpace(name.Value))
-                existingSubstance = await substanceDbSet
-                    .FirstOrDefaultAsync(s => s != null
-                        && !string.IsNullOrEmpty(s.SubstanceName)
-                        && s.SubstanceName.ToString().ToLower() == name.Value.ToLower());
-
-            // Return existing substance if found
+            // Log the primary search result
             if (existingSubstance != null)
             {
-                context.Logger.LogDebug("Found existing IngredientSubstance '{Name}' with UNII {UNII}", name, unii);
-                reportProgress?.Invoke($"Skipped Existing Ingredient {existingSubstance.SubstanceName} for file {context.FileNameInZip}");
+                logger.LogDebug("Found existing IngredientSubstance by UNII: {UNII}", unii);
                 return existingSubstance;
             }
 
-            // Handle case where UNII is missing - create non-normalized substance
-            if (string.IsNullOrWhiteSpace(unii))
+            // Fallback search: by name (case-insensitive) if UNII search fails
+            if (!string.IsNullOrWhiteSpace(substanceName))
             {
-                context.Logger.LogWarning("Ingredient substance '{Name}' is missing a UNII. It will not be normalized and a new record may be created.", name);
+                var lowerName = substanceName.ToLower();
+                existingSubstance = await substanceDbSet.FirstOrDefaultAsync(s =>
+                    s != null
+                    && !string.IsNullOrEmpty(s.SubstanceName)
+                    && s.SubstanceName.ToLower() == lowerName);
 
-                // Fallback: create a new substance record every time if UNII is missing
-                var nonNormalizedSubstance = new IngredientSubstance
+                if (existingSubstance != null)
                 {
-                    SubstanceName = name?.Value?.ToLower(),
-                    OriginatingElement = field
-                };
-
-                var repo = context.GetRepository<IngredientSubstance>();
-                await repo.CreateAsync(nonNormalizedSubstance);
-                reportProgress?.Invoke($"Added Ingredient {nonNormalizedSubstance.SubstanceName} for file {context.FileNameInZip}");
-                return nonNormalizedSubstance;
-            }
-
-            // If not found, create, save, and return the new entity
-            context.Logger.LogInformation("Creating new IngredientSubstance '{Name}' with UNII {UNII}", name, unii);
-
-            // Create new substance with extracted UNII and name
-            var newSubstance = new IngredientSubstance
-            {
-                UNII = unii,
-                SubstanceName = name?.Value?.ToLower(),
-                OriginatingElement = field
-            };
-
-            // Add to DbSet and save immediately to get the new ID populated
-            substanceDbSet.Add(newSubstance);
-            await dbContext.SaveChangesAsync(); // Save immediately to get the new ID
-
-            // If the substance has an active moiety, create it
-            if (newSubstance != null && newSubstance.IngredientSubstanceID > 0)
-            {
-                await createActiveMoietyAsync(substanceEl, newSubstance.IngredientSubstanceID.Value, context);
-
-                // If the ingredient is a reference ingredient for strength, create the link
-                if (!string.IsNullOrWhiteSpace(ingredientClassCode) 
-                    && ingredientClassCode.Equals(c.ACTIVE_INGREDIENT_REFERENCE_BASIS_CODE, StringComparison.OrdinalIgnoreCase))
-                {
-                    await getOrCreateReferenceSubstanceAsync(substanceEl, newSubstance.IngredientSubstanceID.Value, context);
+                    logger.LogDebug("Found existing IngredientSubstance by name: {Name}", substanceName);
                 }
             }
 
-            reportProgress?.Invoke($"Added Ingredient {newSubstance?.SubstanceName} for file {context.FileNameInZip}");
+            return existingSubstance;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a non-normalized IngredientSubstance when UNII is missing.
+        /// </summary>
+        /// <param name="substanceName">The name of the substance.</param>
+        /// <param name="fieldName">The originating XML element name.</param>
+        /// <param name="context">The parsing context containing repository access.</param>
+        /// <param name="reportProgress">Optional action to report progress during creation.</param>
+        /// <returns>A newly created non-normalized IngredientSubstance.</returns>
+        /// <example>
+        /// <code>
+        /// var substance = await createNonNormalizedSubstanceAsync("Sodium Chloride", "ingredientSubstance", context);
+        /// Console.WriteLine($"Created non-normalized substance: {substance.SubstanceName}");
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method handles the special case where an ingredient substance lacks a UNII code.
+        /// Without UNII normalization, duplicate substances may be created for the same chemical
+        /// entity. This is logged as a warning to alert operators to potential data quality issues.
+        /// 
+        /// Non-normalized substances are created when:
+        /// - The UNII field is empty or null
+        /// - The substance cannot be uniquely identified
+        /// </remarks>
+        /// <seealso cref="IngredientSubstance"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseContext.GetRepository{T}"/>
+        /// <seealso cref="Label"/>
+        private async Task<IngredientSubstance> createNonNormalizedSubstanceAsync(
+            string substanceName,
+            string fieldName,
+            SplParseContext context,
+            Action<string>? reportProgress)
+        {
+            #region implementation
+
+            // Log warning about missing UNII
+            context.Logger!.LogWarning(
+                "Ingredient substance '{Name}' is missing a UNII. It will not be normalized and a new record may be created.",
+                substanceName);
+
+            // Create new substance without UNII
+            var nonNormalizedSubstance = new IngredientSubstance
+            {
+                SubstanceName = substanceName?.ToLower(),
+                OriginatingElement = fieldName
+            };
+
+            // Save to database using repository
+            var repo = context.GetRepository<IngredientSubstance>();
+            await repo.CreateAsync(nonNormalizedSubstance);
+
+            // Report progress
+            reportProgress?.Invoke($"Added Ingredient {nonNormalizedSubstance.SubstanceName} for file {context.FileNameInZip}");
+
+            return nonNormalizedSubstance;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a new normalized IngredientSubstance with a UNII code.
+        /// </summary>
+        /// <param name="unii">The UNII code for the substance.</param>
+        /// <param name="substanceName">The name of the substance.</param>
+        /// <param name="fieldName">The originating XML element name.</param>
+        /// <param name="dbContext">The database context for saving.</param>
+        /// <param name="context">The parsing context containing repository access.</param>
+        /// <param name="reportProgress">Optional action to report progress during creation.</param>
+        /// <returns>A newly created normalized IngredientSubstance with populated ID.</returns>
+        /// <example>
+        /// <code>
+        /// var substance = await createNormalizedSubstanceAsync(
+        ///     "451W47IQ8X", 
+        ///     "Sodium Chloride", 
+        ///     "ingredientSubstance", 
+        ///     dbContext, 
+        ///     context,
+        ///     reportProgress);
+        /// Console.WriteLine($"Created normalized substance with ID: {substance.IngredientSubstanceID}");
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method creates a new substance record with proper UNII-based normalization.
+        /// The substance is immediately saved to the database to populate the auto-generated
+        /// IngredientSubstanceID, which is required for subsequent processing of active
+        /// moieties and reference substances.
+        /// 
+        /// Normalized substances prevent duplicate records and enable proper substance
+        /// relationship tracking across multiple products.
+        /// </remarks>
+        /// <seealso cref="IngredientSubstance"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<IngredientSubstance> createNormalizedSubstanceAsync(
+            string unii,
+            string substanceName,
+            string fieldName,
+            ApplicationDbContext dbContext,
+            SplParseContext context,
+            Action<string>? reportProgress
+         )
+        {
+            #region implementation
+
+            // Log creation of new normalized substance
+            context?.Logger?.LogInformation("Creating new IngredientSubstance '{Name}' with UNII {UNII}", substanceName, unii);
+
+            // Create new substance with UNII normalization
+            var newSubstance = new IngredientSubstance
+            {
+                UNII = unii,
+                SubstanceName = substanceName?.ToLower(),
+                OriginatingElement = fieldName
+            };
+
+            // Add to DbSet and save immediately to populate the ID
+            var substanceDbSet = dbContext.Set<IngredientSubstance>();
+            substanceDbSet.Add(newSubstance);
+            await dbContext.SaveChangesAsync();
+
+            // Report progress
+            reportProgress?.Invoke($"Added Ingredient {newSubstance.SubstanceName} for file {context?.FileNameInZip ?? "empty filename"}");
 
             return newSubstance;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes active moieties and reference substances for an IngredientSubstance.
+        /// This method always executes regardless of whether the substance is new or existing.
+        /// </summary>
+        /// <param name="substanceEl">The XElement containing substance data with nested active moieties.</param>
+        /// <param name="substance">The IngredientSubstance entity to process (new or existing).</param>
+        /// <param name="ingredientClassCode">The class code indicating if this is a reference ingredient.</param>
+        /// <param name="context">The parsing context for database operations.</param>
+        /// <param name="isNewSubstance">Flag indicating whether the substance was newly created.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <example>
+        /// <code>
+        /// await processSubstancePostCreationAsync(
+        ///     substanceElement, 
+        ///     substance, 
+        ///     "ACTIB", 
+        ///     context, 
+        ///     isNew: true);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method handles post-creation processing that must occur for all substances:
+        /// 
+        /// 1. Active Moiety Processing: Parses and creates linked active moiety records
+        ///    from the XML structure. Multiple active moieties are supported.
+        /// 
+        /// 2. Reference Substance Linking: If the ingredient has a class code of "ACTIR"
+        ///    (Active Ingredient Reference Basis), creates the reference substance relationship.
+        /// 
+        /// This processing occurs for both newly created and existing substances to ensure
+        /// that all active moiety relationships are properly established, preventing data
+        /// loss when substances are reused across multiple products.
+        /// </remarks>
+        /// <seealso cref="IngredientSubstance"/>
+        /// <seealso cref="getOrCreateActiveMoietyAsync(XElement, int, SplParseContext)"/>
+        /// <seealso cref="getOrCreateReferenceSubstanceAsync(XElement, int, SplParseContext)"/>
+        /// <seealso cref="Constant.ACTIVE_INGREDIENT_REFERENCE_BASIS_CODE"/>
+        /// <seealso cref="Label"/>
+        private async Task processSubstancePostCreationAsync(
+            XElement substanceEl,
+            IngredientSubstance? substance,
+            string? ingredientClassCode,
+            SplParseContext context,
+            bool isNewSubstance)
+        {
+            #region implementation
+
+            // Validate substance has a valid ID before processing
+            if (substance == null || !substance.IngredientSubstanceID.HasValue || substance.IngredientSubstanceID <= 0)
+            {
+                return;
+            }
+
+            // Process active moieties for this substance (new or existing)
+            await getOrCreateActiveMoietyAsync(substanceEl, substance.IngredientSubstanceID.Value, context);
+
+            // Create reference substance link if this is a reference ingredient
+            if (!string.IsNullOrWhiteSpace(ingredientClassCode)
+                && ingredientClassCode.Equals(c.ACTIVE_INGREDIENT_REFERENCE_BASIS_CODE, StringComparison.OrdinalIgnoreCase))
+            {
+                await getOrCreateReferenceSubstanceAsync(substanceEl, substance.IngredientSubstanceID.Value, context);
+            }
+
+            // Log completion of post-processing
+            var substanceType = isNewSubstance ? "new" : "existing";
+            context.Logger!.LogDebug(
+                "Completed post-creation processing (active moieties and references) for {Type} substance '{Name}'",
+                substanceType,
+                substance.SubstanceName);
+
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
         /// Parses and creates ActiveMoiety records linked to a parent IngredientSubstance.
+        /// Handles multiple active moieties per ingredient substance as per SPL specification.
         /// </summary>
         /// <param name="substanceEl">The XML element containing the substance data with potential active moiety information.</param>
-        /// <param name="ingredientSubstanceId">The ID of the parent ingredient substance to link the active moiety to.</param>
+        /// <param name="ingredientSubstanceId">The ID of the parent ingredient substance to link the active moieties to.</param>
         /// <param name="context">The current parsing context containing database access and logging services.</param>
+        /// <remarks>
+        /// This method processes all activeMoiety elements within an ingredientSubstance.
+        /// Each activeMoiety has a nested structure where the inner activeMoiety element contains
+        /// the actual code and name data. The method validates data completeness and checks for
+        /// duplicate entries before creating new records.
+        /// </remarks>
+        /// <example>
+        /// For Sodium Chloride with two active moieties (Chloride Ion and Sodium Cation),
+        /// this method will create two separate ActiveMoiety records linked to the same
+        /// IngredientSubstance.
+        /// </example>
         /// <seealso cref="ActiveMoiety"/>
         /// <seealso cref="IngredientSubstance"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private async Task createActiveMoietyAsync(XElement substanceEl, int ingredientSubstanceId, SplParseContext context)
+        private async Task getOrCreateActiveMoietyAsync(XElement substanceEl, int ingredientSubstanceId, SplParseContext context)
         {
             #region implementation
-            // The XML can have a confusing <activeMoiety><activeMoiety>... structure.
-            // We need to find the inner-most one that contains the code and name.
-            var activeMoietyEl = substanceEl.GetSplElement(sc.E.ActiveMoiety)?.GetSplElement(sc.E.ActiveMoiety);
 
-            if (activeMoietyEl == null
-                || context == null
+            #region validation
+            // Validate context and required services before processing
+            if (context == null
                 || context.Logger == null
                 || context.ServiceProvider == null)
             {
-                return; // No active moiety to parse
+                return; // Cannot proceed without valid context
             }
+            #endregion
 
-            // Create the active moiety object with extracted data
-            var moiety = new ActiveMoiety
-            {
-                IngredientSubstanceID = ingredientSubstanceId,
-                MoietyUNII = activeMoietyEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
-                MoietyName = activeMoietyEl.GetSplElementVal(sc.E.Name)
-            };
+            #region retrieve all active moiety elements
+            // The XML can have multiple <activeMoiety> elements at the same level.
+            // Each has a confusing nested structure: <activeMoiety><activeMoiety>...
+            // We need to find all outer activeMoiety elements first
+            var outerActiveMoietyElements = substanceEl.SplElements(sc.E.ActiveMoiety);
 
-            // Validate that we have the required data before proceeding
-            if (string.IsNullOrWhiteSpace(moiety.MoietyUNII) || string.IsNullOrWhiteSpace(moiety.MoietyName))
+            if (outerActiveMoietyElements == null || !outerActiveMoietyElements.Any())
             {
-                context.Logger.LogWarning("Skipping ActiveMoiety for IngredientSubstanceID {ID} due to missing UNII or Name.", ingredientSubstanceId);
-                return;
+                return; // No active moieties to parse
             }
+            #endregion
 
-            // Check if this exact moiety link already exists to prevent duplicates
+            #region process each active moiety
+            // Get database context once for all moiety operations
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var existingMoiety = await dbContext.Set<ActiveMoiety>().FirstOrDefaultAsync(m =>
-                m.IngredientSubstanceID == ingredientSubstanceId && m.MoietyUNII == moiety.MoietyUNII);
-
-            if (existingMoiety != null)
-            {
-                context.Logger.LogDebug("ActiveMoiety link for UNII {UNII} already exists for IngredientSubstanceID {ID}.", moiety.MoietyUNII, ingredientSubstanceId);
-                return;
-            }
-
-            // Create and save the new active moiety record
             var moietyRepo = context.GetRepository<ActiveMoiety>();
-            await moietyRepo.CreateAsync(moiety);
-            context.Logger.LogInformation("Created ActiveMoiety '{Name}' for IngredientSubstanceID {ID}", moiety.MoietyName, ingredientSubstanceId);
+
+            // Process each active moiety element
+            foreach (var outerActiveMoietyEl in outerActiveMoietyElements)
+            {
+                #region extract inner moiety data
+                // Navigate to the inner-most activeMoiety element that contains the code and name
+                var innerActiveMoietyEl = outerActiveMoietyEl.GetSplElement(sc.E.ActiveMoiety);
+
+                if (innerActiveMoietyEl == null)
+                {
+                    context.Logger.LogWarning(
+                        "Skipping ActiveMoiety for IngredientSubstanceID {ID} due to missing inner activeMoiety element.",
+                        ingredientSubstanceId);
+                    continue; // Skip this moiety and process the next one
+                }
+                #endregion
+
+                #region create moiety object
+                // Create the active moiety object with extracted data
+                var moiety = new ActiveMoiety
+                {
+                    IngredientSubstanceID = ingredientSubstanceId,
+                    MoietyUNII = innerActiveMoietyEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
+                    MoietyName = innerActiveMoietyEl.GetSplElementVal(sc.E.Name)
+                };
+                #endregion
+
+                #region validate moiety data
+                // Validate that we have the required data before proceeding
+                if (string.IsNullOrWhiteSpace(moiety.MoietyUNII) || string.IsNullOrWhiteSpace(moiety.MoietyName))
+                {
+                    context.Logger.LogWarning(
+                        "Skipping ActiveMoiety for IngredientSubstanceID {ID} due to missing UNII or Name.",
+                        ingredientSubstanceId);
+                    continue; // Skip this moiety and process the next one
+                }
+                #endregion
+
+                #region check for duplicates
+                // Check if this exact moiety link already exists to prevent duplicates
+                var existingMoiety = await dbContext.Set<ActiveMoiety>()
+                    .FirstOrDefaultAsync(m => m.IngredientSubstanceID == ingredientSubstanceId
+                        && m.MoietyUNII == moiety.MoietyUNII);
+
+                if (existingMoiety != null)
+                {
+                    context.Logger.LogDebug(
+                        "ActiveMoiety link for UNII {UNII} already exists for IngredientSubstanceID {ID}.",
+                        moiety.MoietyUNII,
+                        ingredientSubstanceId);
+                    continue; // Skip this duplicate and process the next one
+                }
+                #endregion
+
+                #region persist moiety record
+                // Create and save the new active moiety record
+                await moietyRepo.CreateAsync(moiety);
+                context.Logger.LogInformation(
+                    "Created ActiveMoiety '{Name}' (UNII: {UNII}) for IngredientSubstanceID {ID}",
+                    moiety.MoietyName,
+                    moiety.MoietyUNII,
+                    ingredientSubstanceId);
+                #endregion
+            }
+            #endregion
+
             #endregion
         }
     }

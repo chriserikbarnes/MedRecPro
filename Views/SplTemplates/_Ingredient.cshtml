@@ -47,9 +47,10 @@
 
                 @if (Model.HasActiveMoieties && Model.OrderedActiveMoieties != null)
                 {
-                    <activeMoiety>
-                        @foreach (var moiety in Model.OrderedActiveMoieties)
-                        {
+
+                    @foreach (var moiety in Model.OrderedActiveMoieties)
+                    {
+                        <activeMoiety>
                             <activeMoiety>
                                 @if (!string.IsNullOrEmpty(moiety.MoietyUNII))
                                 {
@@ -57,8 +58,8 @@
                                 }
                                 <name>@(moiety.MoietyName ?? "")</name>
                             </activeMoiety>
-                        }
-                    </activeMoiety>
+                        </activeMoiety>
+                    }
                 }
 
                 @* Render asEquivalentSubstance for ACTIR ingredients *@

@@ -7,6 +7,9 @@ namespace MedRecPro.Models
         public static string XML_NAMESPACE = "urn:hl7-org:v3";
 
        
+        public const int LABEL_REGISTRANT = 1;
+        public const int LABEL_ESTABLISHMENT = 2;
+        public const int LABEL_FACILITY = 3;
 
         public const string BLANKET_NO_CHANGES_CERTIFICATION_CODE = "BNCC";
         public const string CERTIFICATION_RELATIONSHIP_TYPE = "Certification";

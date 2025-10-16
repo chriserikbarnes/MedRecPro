@@ -391,7 +391,7 @@ namespace MedRecPro.Service.ParsingServices
                     dr.DocumentID == documentId &&
                     dr.ChildOrganizationID == authorOrgId &&
                     dr.ParentOrganizationID == null &&
-                    (dr.RelationshipLevel == 0 || dr.RelationshipLevel == 1));
+                    (dr.RelationshipLevel == 0 || dr.RelationshipLevel == c.LABEL_REGISTRANT));
 
             // If no author-level relationship exists, create one
             // This is separate from any child relationships in the organizational hierarchy
@@ -407,8 +407,8 @@ namespace MedRecPro.Service.ParsingServices
                     DocumentID = documentId,
                     ParentOrganizationID = authorOrgId, // CHANGE: parent = child indicates self referential relations
                     ChildOrganizationID = authorOrgId,
-                    RelationshipType = $"{getNextRelationshipPrefix("Labeler", 1)}ToDocument", // e.g., "RegistrantToDocument"
-                    RelationshipLevel = 1 // CHANGE: Level 1 for representedOrganization
+                    RelationshipType = $"{getNextRelationshipPrefix("Labeler", c.LABEL_REGISTRANT)}ToDocument", // e.g., "RegistrantToDocument"
+                    RelationshipLevel = c.LABEL_REGISTRANT // CHANGE: Level 1 for representedOrganization
                 };
 
                 dbContext.Set<DocumentRelationship>().Add(authorLevelRelationship);

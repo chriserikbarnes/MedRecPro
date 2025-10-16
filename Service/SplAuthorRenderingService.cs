@@ -365,11 +365,11 @@ namespace MedRecPro.Service
             }
 
             // Find the top-level relationship where this organization is the CHILD
-            // and there is NO PARENT (ParentOrganizationID is NULL) or RelationshipLevel is 0
+            // and there is NO PARENT (ParentOrganizationID is NULL) or RelationshipLevel is 1
             // This represents the Document → Author Organization relationship
             var authorLevelRelationship = allRelationships
                 .Where(r => r.ChildOrganizationID == authorOrgId.Value &&
-                           (r.ParentOrganizationID == null || r.RelationshipLevel == 0) &&
+                           (r.ParentOrganizationID == null || r.RelationshipLevel == Constant.LABEL_REGISTRANT) &&
                            r.RelationshipIdentifiers != null &&
                            r.RelationshipIdentifiers.Any())
                 .OrderBy(r => r.RelationshipLevel ?? 0)

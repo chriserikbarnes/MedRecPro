@@ -1255,6 +1255,11 @@ namespace MedRecPro.Models
             /// </summary>
             public int? SectionID { get; set; } // Made nullable
 
+            /// <summary>
+            /// Foreign key to Document for RenderMedia lookups
+            /// </summary>
+            public int? DocumentID { get; set; } // Made nullable
+
             private string? _mediaID;
             /// <summary>
             /// Identifier for the media object ([observationMedia ID=]), referenced by [renderMultimedia].
@@ -1334,6 +1339,11 @@ namespace MedRecPro.Models
             /// Link to the ObservationMedia containing the image details, via the referencedObject attribute.
             /// </summary>
             public int? ObservationMediaID { get; set; } // Made nullable
+
+            /// <summary>
+            /// Gets or sets the unique identifier for the document.
+            /// </summary>
+            public int? DocumentID { get; set; } // Made nullable
 
             /// <summary>
             /// Order if multiple images are in one content block.
