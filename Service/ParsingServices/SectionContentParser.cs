@@ -1393,6 +1393,8 @@ namespace MedRecPro.Service.ParsingServices
             if (context.StructuredBody?.StructuredBodyID == null)
                 throw new InvalidOperationException("No valid structured body context.");
 
+            int? documentId = context.StructuredBody.DocumentID;
+
             // Get section GUID
             // Extract unique identifier for section from XML element
             var sectionGuidStr = sectionEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root);
@@ -1430,6 +1432,7 @@ namespace MedRecPro.Service.ParsingServices
             // Build new section entity with all extracted metadata and context relationships
             var newSection = new Section
             {
+                DocumentID = documentId,
                 StructuredBodyID = context.StructuredBody.StructuredBodyID.Value,
                 SectionGUID = sectionGuid,
                 SectionCode = sectionCode,

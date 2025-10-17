@@ -5100,6 +5100,15 @@ namespace MedRecPro.Models
                 : null;
 
         /// <summary>
+        /// Foreign key to Document (for top-level sections).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? DocumentID =>
+            Section.TryGetValue("EncryptedDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+
+        /// <summary>
         /// Attribute identifying the section link ([section][ID]), used for 
         /// cross-references within the document e.g. [section ID="ID_1dc7080f-1d52-4bf7-b353-3c13ec291810"]
         /// </summary>

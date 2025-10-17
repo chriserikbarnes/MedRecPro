@@ -21,7 +21,9 @@ using RazorLight;
 using System.Reflection;
 using System.Text.Json.Serialization;
 
-string? connectionString, googleClientId, googleClientSecret;
+string? connectionString;
+string? googleClientId;
+string? googleClientSecret;
 
 var builder = WebApplication.CreateBuilder(args);
 var configuration = builder.Configuration;
@@ -401,7 +403,7 @@ builder.Services.AddSingleton<IRazorLightEngine>(serviceProvider =>
 });
 
 // View rendering service for ASP.NET Core views
-builder.Services.AddScoped<IViewRenderService, ViewRenderService>(); 
+builder.Services.AddScoped<IViewRenderService, ViewRenderService>();
 #endregion
 
 var app = builder.Build();
@@ -468,7 +470,7 @@ app.UseAuthorization();  // Enables authorization capabilities
 
 app.MapControllers();
 
-Util.Initialize(httpContextAccessor: app.Services.GetRequiredService<IHttpContextAccessor>(), 
+Util.Initialize(httpContextAccessor: app.Services.GetRequiredService<IHttpContextAccessor>(),
     encryptionService: app.Services.GetRequiredService<IEncryptionService>(),
     dictionaryUtilityService: app.Services.GetRequiredService<IDictionaryUtilityService>());
 

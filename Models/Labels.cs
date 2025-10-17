@@ -666,6 +666,11 @@ namespace MedRecPro.Models
             /// </summary>
             public int? StructuredBodyID { get; set; } // Made nullable
 
+            /// <summary>
+            /// Gets or sets the unique identifier for the document.
+            /// </summary>
+            public int? DocumentID { get; set; }
+
             [Microsoft.OpenApi.Attributes.Display("ID")]
             private string? _sectionLinkGUID;
             /// <summary>
@@ -677,7 +682,6 @@ namespace MedRecPro.Models
                 get => _sectionLinkGUID;
                 set => _sectionLinkGUID = value?.RemoveHtmlXss();
             }
-
 
             /// <summary>
             /// Unique identifier for the section ([id root]).

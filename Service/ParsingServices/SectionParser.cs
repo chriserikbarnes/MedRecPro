@@ -577,9 +577,12 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
             try
             {
+                int? documentID = context.Document?.DocumentID ?? 0;
+
                 // Build section entity with extracted metadata from XML attributes and elements
                 var section = new Section
                 {
+                    DocumentID = documentID,
                     StructuredBodyID = context.StructuredBody!.StructuredBodyID!.Value,
                     SectionLinkGUID = xEl.GetAttrVal(sc.A.ID),
                     SectionGUID = Util.ParseNullableGuid(xEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root) ?? string.Empty) ?? Guid.Empty,

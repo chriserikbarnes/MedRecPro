@@ -10,6 +10,7 @@
 *       - Adds the [SectionLinkGUID] column if it doesn't exist.
 *       - Adds the [EffectiveTimeLow] column if it doesn't exist.
 *       - Adds the [EffectiveTimeHigh] column if it doesn't exist.
+*       - Adds the [DocumentID] column if it doesn't exist.
 *       - Adds or updates MS_Description extended properties for the table and its columns.
 *
 *   NOTES:
@@ -55,6 +56,15 @@ BEGIN TRY
           AND Object_ID = Object_ID(N'dbo.Section')
     )
         ALTER TABLE [dbo].[Section] ADD [EffectiveTimeHigh] DATETIME NULL;
+
+    -- Add DocumentID column
+    PRINT ' -> Adding [DocumentID] column if not exists.';
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.columns 
+        WHERE Name = N'DocumentID' 
+          AND Object_ID = Object_ID(N'dbo.Section')
+    )
+        ALTER TABLE [dbo].[Section] ADD [DocumentID] INT NULL;
 
     -- Add/Update Extended Properties
     PRINT ' -> Updating extended properties for [dbo].[Section].';
@@ -129,6 +139,20 @@ IF NOT EXISTS (
     -- Column: EffectiveTimeHigh
     SET @ColumnName = N'EffectiveTimeHigh';
     SET @PropValue = N'High boundary of the effective time period for the section ([effectiveTime][high value]). Used for reporting periods and date ranges, particularly in Warning Letters and Compounded Drug Labels.';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
+        EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
+            @level0type = N'SCHEMA', @level0name = @SchemaName,
+            @level1type = N'TABLE', @level1name = @TableName,
+            @level2type = N'COLUMN', @level2name = @ColumnName;
+    ELSE
+        EXEC sp_addextendedproperty @name = N'MS_Description', @value = @PropValue,
+            @level0type = N'SCHEMA', @level0name = @SchemaName,
+            @level1type = N'TABLE', @level1name = @TableName,
+            @level2type = N'COLUMN', @level2name = @ColumnName;
+
+    -- Column: DocumentID
+    SET @ColumnName = N'DocumentID';
+    SET @PropValue = N'Foreign key to Document. No database constraint - managed by ApplicationDbContext.';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,

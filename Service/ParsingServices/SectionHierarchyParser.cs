@@ -277,6 +277,9 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
+                // Get the DocumentID from context for section lookups
+                int documentId = context.Document?.DocumentID ?? 0;
+
                 // Get database context and repository for section hierarchy operations
                 var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                 var repo = context.GetRepository<SectionHierarchy>();
@@ -309,7 +312,7 @@ namespace MedRecPro.Service.ParsingServices
                         // Find the Section record in DB by SectionGUID
                         // Lookup the corresponding database entity for this child section
                         var childSection = await dbContext.Set<Section>()
-                            .FirstOrDefaultAsync(s => s.SectionGUID == childSectionGuid);
+                            .FirstOrDefaultAsync(s => s.SectionGUID == childSectionGuid && s.DocumentID == documentId);
                         if (childSection == null || childSection.SectionID == null)
                             continue;
 

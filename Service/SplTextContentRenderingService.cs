@@ -1,5 +1,9 @@
-﻿using MedRecPro.Models;
+﻿using MedRecPro.Data;
+using MedRecPro.DataAccess;
+using MedRecPro.Models;
+using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
+using static MedRecPro.Models.Label;
 
 namespace MedRecPro.Service
 {
@@ -150,6 +154,24 @@ namespace MedRecPro.Service
 
         #endregion
 
+
+        private readonly ApplicationDbContext _dbContext;
+
+        #region constructors
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a new instance of the TextContentRenderingService class.
+        /// </summary>
+        /// <param name="dbContext">The database context for accessing observation media data.</param>
+        /// <exception cref="ArgumentNullException">Thrown if dbContext is null.</exception>
+        public TextContentRenderingService(ApplicationDbContext dbContext)
+        {
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        }
+
+        #endregion
+
         #region public methods
 
         /**************************************************************/
@@ -201,7 +223,7 @@ namespace MedRecPro.Service
                 {
                     Debug.WriteLine($"  ObservationMedia: ID={om.ObservationMediaID}, MediaID={om.MediaID}");
                 }
-            } 
+            }
 #endif
             if (textContents?.Any() != true && observationMedia?.Any() != true)
                 return new List<TextContentRendering>();
@@ -226,7 +248,7 @@ namespace MedRecPro.Service
                         {
                             Debug.WriteLine($"    RenderedMedia: ID={rm.RenderedMediaID}, ObsMediaID={rm.ObservationMediaID}");
                         }
-                    } 
+                    }
 #endif
                     var renderedContent = prepareTextContentItemForRendering(content, observationMedia);
 #if DEBUG
@@ -242,7 +264,7 @@ namespace MedRecPro.Service
                         {
                             Debug.WriteLine($"      Resolved MediaID: {mediaId}");
                         }
-                    } 
+                    }
 #endif
                     renderedContents.Add(renderedContent);
                 }
@@ -288,7 +310,7 @@ namespace MedRecPro.Service
         /// <returns>A prepared text content rendering object with computed properties</returns>
         /// <seealso cref="TextContentRendering"/>
         /// <seealso cref="ObservationMediaDto"/>
-        /// <seealso cref="AnalyzeContentCharacteristics"/>
+        /// <seealso cref="AnalyzeContentCharacteristics(SectionTextContentDto, IEnumerable{ObservationMediaDto})"/>
         /// <seealso cref="determineRenderingAction"/>
         /// <example>
         /// <code>
@@ -468,6 +490,8 @@ namespace MedRecPro.Service
         /// <remarks>
         /// Resolution process: RenderedMedia.ObservationMediaID → ObservationMedia.ObservationMediaID → ObservationMedia.MediaID.
         /// The MediaID property contains the actual ID attribute value (e.g., "MM8") used in the referencedObject attribute.
+        /// When observationMedia is not available, falls back to parsing referencedObject from ContentText XML to enable
+        /// rendering of multimedia content even when media definitions are in different sections.
         /// </remarks>
         private ContentCharacteristics analyzeContentCharacteristics(
             SectionTextContentDto textContent,
@@ -523,18 +547,45 @@ namespace MedRecPro.Service
                     hasReferencedObject = true;
                 }
             }
-
-            // Tertiary fallback: String-based detection for legacy content
-            if (!hasReferencedObject)
+            // Tertirary fallback: for RenderedMedia references that are disjointed from the observationMedia section
+            // e.g. the reference link will be on its own line <renderMultiMedia referencedObject="MM74347"/>
+            else if (normalizedContentType == CONTENT_TYPE_MULTIMEDIA &&
+                     textContent != null &&
+                     textContent.RenderedMedias != null &&
+                     textContent.RenderedMedias.Any())
             {
-                hasReferencedObject = contentText.Contains(REFERENCED_OBJECT);
+                // Look up the media reference
+                // Query the database to find matching ObservationMedia by MediaID
+                var matchingMedia = _dbContext.Set<ObservationMedia>()
+                    .FirstOrDefault(predicate: om => om.ObservationMediaID == textContent!.RenderedMedias!.FirstOrDefault()!.ObservationMediaID);
+
+                // Verify and extract the MediaID
+                if (matchingMedia != null && !string.IsNullOrWhiteSpace(matchingMedia.MediaID))
+                {
+                    referencedObjectId = matchingMedia.MediaID;
+                    hasReferencedObject = true;
+                }
+            }
+
+            // Final fallback: Extract referencedObject from ContentText XML when observationMedia unavailable
+            // This handles cases where multimedia is in a different section than the media definitions
+            if (!hasReferencedObject && !string.IsNullOrWhiteSpace(contentText))
+            {
+                // Check for renderMultiMedia tag with referencedObject attribute
+                if (contentText.Contains(REFERENCED_OBJECT))
+                {
+                    hasReferencedObject = true;
+
+                    // Extract the referencedObject value from the XML
+                    referencedObjectId = extractReferencedObjectFromXml(contentText);
+                }
             }
 
             return new ContentCharacteristics
             {
                 HasContentText = !string.IsNullOrWhiteSpace(contentText),
-                HasLists = textContent.TextLists?.Any() == true,
-                HasTables = textContent.TextTables?.Any() == true,
+                HasLists = textContent?.TextLists?.Any() == true,
+                HasTables = textContent?.TextTables?.Any() == true,
                 HasRenderedMedia = hasRenderedMedia,
                 HasReferencedObject = hasReferencedObject,
                 ProcessedContentText = contentText,
@@ -568,7 +619,7 @@ namespace MedRecPro.Service
 #if DEBUG
             Debug.WriteLine($"  === resolveRenderedMediaReferences ===");
             Debug.WriteLine($"    RenderedMedias count: {renderedMedias?.Count() ?? 0}");
-            Debug.WriteLine($"    ObservationMedia count: {observationMedia?.Count() ?? 0}"); 
+            Debug.WriteLine($"    ObservationMedia count: {observationMedia?.Count() ?? 0}");
 #endif
             var resolvedMediaIds = new List<string>();
 
@@ -576,7 +627,7 @@ namespace MedRecPro.Service
             {
 #if DEBUG
                 Debug.WriteLine($"    Early return: Missing data");
-                Debug.WriteLine($"  === End resolveRenderedMediaReferences ==="); 
+                Debug.WriteLine($"  === End resolveRenderedMediaReferences ===");
 #endif
                 return resolvedMediaIds;
             }
@@ -587,12 +638,12 @@ namespace MedRecPro.Service
             {
 #if DEBUG
                 Debug.WriteLine($"    Processing RenderedMedia ID={renderedMedia.RenderedMediaID}");
-                Debug.WriteLine($"      ObservationMediaID: {renderedMedia.ObservationMediaID}"); 
+                Debug.WriteLine($"      ObservationMediaID: {renderedMedia.ObservationMediaID}");
 #endif
                 if (renderedMedia.ObservationMediaID == null)
                 {
 #if DEBUG
-                    Debug.WriteLine($"      Skipping: ObservationMediaID is null"); 
+                    Debug.WriteLine($"      Skipping: ObservationMediaID is null");
 #endif
                     continue;
                 }
@@ -602,7 +653,7 @@ namespace MedRecPro.Service
                 );
 
 #if DEBUG
-                Debug.WriteLine($"      Matching ObservationMedia found: {matchingObservationMedia != null}"); 
+                Debug.WriteLine($"      Matching ObservationMedia found: {matchingObservationMedia != null}");
 
                 if (matchingObservationMedia != null)
                 {
@@ -613,19 +664,19 @@ namespace MedRecPro.Service
                 {
                     resolvedMediaIds.Add(matchingObservationMedia.MediaID);
 #if DEBUG
-                    Debug.WriteLine($"      Added MediaID: {matchingObservationMedia.MediaID}"); 
+                    Debug.WriteLine($"      Added MediaID: {matchingObservationMedia.MediaID}");
 #endif
                 }
                 else
                 {
 #if DEBUG
-                    Debug.WriteLine($"      Skipping: MediaID is null or whitespace"); 
+                    Debug.WriteLine($"      Skipping: MediaID is null or whitespace");
 #endif
                 }
             }
 #if DEBUG
             Debug.WriteLine($"    Total resolved: {resolvedMediaIds.Count}");
-            Debug.WriteLine($"  === End resolveRenderedMediaReferences ==="); 
+            Debug.WriteLine($"  === End resolveRenderedMediaReferences ===");
 #endif
 
             return resolvedMediaIds;
@@ -840,6 +891,55 @@ namespace MedRecPro.Service
             return textContent?.TextTables?.Any() == true
                 ? textContent.TextTables
                 : null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the referencedObject attribute value from renderMultiMedia XML content.
+        /// Parses the ContentText to find and extract the MediaID reference when observationMedia
+        /// is not available during rendering.
+        /// </summary>
+        /// <param name="contentText">The XML content containing renderMultiMedia tags</param>
+        /// <returns>The extracted referencedObject value (e.g., "MM58560"), or null if not found</returns>
+        /// <seealso cref="analyzeContentCharacteristics"/>
+        /// <remarks>
+        /// This method enables rendering of multimedia content even when the observation media
+        /// collection is in a different section. It uses simple string parsing to extract the
+        /// referencedObject attribute value from the XML.
+        /// </remarks>
+        private static string? extractReferencedObjectFromXml(string contentText)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(contentText))
+                return null;
+
+            try
+            {
+                // Look for referencedObject="..." pattern in the XML
+                const string pattern = $"{REFERENCED_OBJECT}=";
+                int startIndex = contentText.IndexOf(pattern, StringComparison.Ordinal);
+
+                if (startIndex >= 0)
+                {
+                    startIndex += pattern.Length;
+                    int endIndex = contentText.IndexOf('"', startIndex);
+
+                    if (endIndex > startIndex)
+                    {
+                        return contentText.Substring(startIndex, endIndex - startIndex);
+                    }
+                }
+            }
+            catch
+            {
+                // If parsing fails, return null - the content will still render without the reference
+                return null;
+            }
+
+            return null;
 
             #endregion
         }
