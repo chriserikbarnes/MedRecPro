@@ -2,6 +2,7 @@
 using MedRecPro.Models;
 using MedRecPro.Service.Common;
 using Newtonsoft.Json;
+using static MedRecPro.Models.Label;
 
 namespace MedRecPro.Service
 {
@@ -279,6 +280,7 @@ namespace MedRecPro.Service
                 OrderedTopLevelPackaging = GetOrderedTopLevelPackaging(product),
                 OrderedRoutes = GetOrderedRoutes(product),
                 OrderedEquivalentEntities = GetOrderedEquivalentEntities(product),
+                OrderedPolicies = getPolicies(product),
 
                 // Pre-compute marketing status properties
                 OrderedMarketingCategories = GetOrderedMarketingCategories(product),
@@ -296,7 +298,8 @@ namespace MedRecPro.Service
                 HasEquivalentEntities = GetOrderedEquivalentEntities(product)?.Any() == true,
                 HasGenericMedicines = product.GenericMedicines?.Any() == true,
                 HasMarketingStatus = GetOrderedMarketingCategories(product)?.Any() == true,
-                HasPrimaryMarketingCategory = GetPrimaryMarketingCategory(product) != null
+                HasPrimaryMarketingCategory = GetPrimaryMarketingCategory(product) != null,
+                HasPolicy = product.Policies?.Any() == true
             };
 
             additionalParams ??= new { product };
@@ -930,6 +933,24 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Parses and orders policies for the product.
+        /// </summary>
+        /// <param name="product"></param>
+        /// <returns></returns>
+        private List<PolicyDto>? getPolicies(ProductDto product)
+        {
+            #region implementation
+            if (product?.Policies == null || !product.Policies.Any())
+                return null;
+
+            return product.Policies
+                .OrderBy(p => p.PolicyID)
+                .ToList();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Validates if an equivalent entity contains the required fields for rendering.
         /// Checks against SPL specification requirements for equivalent entity elements.
         /// </summary>
@@ -1404,6 +1425,10 @@ namespace MedRecPro.Service
         /// 
         /// This ensures the most relevant marketing information is rendered when
         /// multiple statuses exist and need to be reduced to one per SPL 3.1.8.2.
+        /// 
+        /// 3.1.8.11 If the marketing start or end date is on a package, then the start date is not before
+        /// the marketing start date of the product and the end date not after the end date of
+        /// the product.
         /// </remarks>
         private static MarketingStatusDto? selectPrimaryMarketingStatus(List<MarketingStatusDto>? marketingStatuses)
         {
@@ -1425,11 +1450,11 @@ namespace MedRecPro.Service
             if (activeStatuses.Count == 1)
                 return activeStatuses[0];
 
-            // Priority 2: Most recent start date among active statuses
+            // Priority 2: Oldest start date among active statuses 3.1.8.11 
             if (activeStatuses.Any())
             {
                 return activeStatuses
-                    .OrderByDescending(ms => ms.EffectiveStartDate ?? DateTime.MinValue)
+                    .OrderBy(ms => ms.EffectiveStartDate ?? DateTime.MinValue)
                     .First();
             }
 

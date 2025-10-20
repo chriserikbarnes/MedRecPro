@@ -128,6 +128,20 @@
                 </subjectOf>
             }
 
+            @* Redener product policy information e.g. classCode="DEADrugSchedule"*@
+            @if (Model.HasPolicy && Model.OrderedPolicies != null)
+            {
+                @* Use enhanced policy rendering *@
+                foreach (var policy in Model.OrderedPolicies)
+                {
+                    <subjectOf>
+                        <policy @SplTemplateHelpers.Attribute("classCode", policy.PolicyClassCode)>
+                            <code @SplTemplateHelpers.Attribute("code", policy.PolicyCode) @SplTemplateHelpers.Attribute("codeSystem", policy.PolicyCodeSystem) @SplTemplateHelpers.Attribute("displayName", policy.PolicyDisplayName) />
+                        </policy>
+                    </subjectOf>
+                }
+            }
+
             @* Render characteristics with proper fallback logic *@
             @if (Model.HasCharacteristicRendering && Model.CharacteristicRendering != null)
             {

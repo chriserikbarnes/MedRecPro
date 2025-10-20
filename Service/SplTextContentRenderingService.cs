@@ -478,7 +478,7 @@ namespace MedRecPro.Service
         /// <summary>
         /// Internal implementation for analyzing content characteristics with optional media context.
         /// Performs comprehensive content analysis including rendered media reference resolution
-        /// by looking up observation media IDs to retrieve the actual MediaID values.
+        /// by coordinating multiple resolution strategies in sequence.
         /// </summary>
         /// <param name="textContent">The text content item to analyze</param>
         /// <param name="observationMedia">Optional observation media collection for resolving media ID references</param>
@@ -486,12 +486,12 @@ namespace MedRecPro.Service
         /// <seealso cref="ContentCharacteristics"/>
         /// <seealso cref="SectionTextContentDto"/>
         /// <seealso cref="ObservationMediaDto"/>
-        /// <seealso cref="RenderedMediaDto"/>
         /// <remarks>
-        /// Resolution process: RenderedMedia.ObservationMediaID → ObservationMedia.ObservationMediaID → ObservationMedia.MediaID.
-        /// The MediaID property contains the actual ID attribute value (e.g., "MM8") used in the referencedObject attribute.
-        /// When observationMedia is not available, falls back to parsing referencedObject from ContentText XML to enable
-        /// rendering of multimedia content even when media definitions are in different sections.
+        /// The method attempts reference resolution in order of preference:
+        /// 1. Primary: RenderedMedia collection to lookup MediaID from ObservationMedia
+        /// 2. Secondary: First available MediaID for multimedia content without RenderedMedia
+        /// 3. Tertiary: Database query for disjointed RenderedMedia references
+        /// 4. Final: XML parsing fallback when media definitions are in different sections
         /// </remarks>
         private ContentCharacteristics analyzeContentCharacteristics(
             SectionTextContentDto textContent,
@@ -510,77 +510,231 @@ namespace MedRecPro.Service
             bool hasReferencedObject = false;
             bool hasRenderedMedia = textContent.RenderedMedias?.Any() == true;
 
+            // Attempt to resolve referenced object through sequential fallback strategies
+            referencedObjectId = resolveReferencedObjectId(
+                textContent,
+                observationMedia,
+                contentText,
+                normalizedContentType,
+                out hasReferencedObject
+            );
+
+            return buildContentCharacteristics(
+                textContent,
+                contentText,
+                normalizedContentType,
+                hasRenderedMedia,
+                hasReferencedObject,
+                referencedObjectId
+            );
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Attempts to resolve the referenced object ID through sequential fallback strategies.
+        /// Coordinates multiple resolution approaches in order of preference.
+        /// </summary>
+        /// <param name="textContent">The text content item containing media references</param>
+        /// <param name="observationMedia">Optional observation media collection for lookup</param>
+        /// <param name="contentText">The normalized content text</param>
+        /// <param name="normalizedContentType">The determined content type</param>
+        /// <param name="hasReferencedObject">Output parameter indicating if reference was resolved</param>
+        /// <returns>The resolved referenced object ID, or null if unresolved</returns>
+        /// <seealso cref="resolvePrimaryMediaReference"/>
+        /// <seealso cref="resolveSecondaryMediaReference"/>
+        /// <seealso cref="resolveTertiaryMediaReference"/>
+        /// <seealso cref="resolveFinalMediaReference"/>
+        /// <remarks>
+        /// Resolution strategies are attempted in descending priority order.
+        /// Each strategy may be skipped based on data availability and content type.
+        /// </remarks>
+        private string? resolveReferencedObjectId(
+            SectionTextContentDto textContent,
+            IEnumerable<ObservationMediaDto>? observationMedia,
+            string contentText,
+            string normalizedContentType,
+            out bool hasReferencedObject)
+        {
+            hasReferencedObject = false;
+            string? referencedObjectId = null;
+
             // Primary resolution: Use RenderedMedia collection to lookup MediaID from ObservationMedia
-            if (hasRenderedMedia &&
-                textContent.RenderedMedias != null &&
-                observationMedia?.Any() == true)
+            referencedObjectId = resolvePrimaryMediaReference(textContent, observationMedia);
+            if (!string.IsNullOrWhiteSpace(referencedObjectId))
             {
-                // Get the first rendered media reference
-                var firstRenderedMedia = textContent.RenderedMedias
-                    .OrderBy(rm => rm.SequenceInContent ?? 0)
-                    .FirstOrDefault();
-
-                if (firstRenderedMedia?.ObservationMediaID != null)
-                {
-                    // Lookup the corresponding ObservationMedia by matching ObservationMediaID
-                    var matchingObservationMedia = observationMedia.FirstOrDefault(
-                        om => om.ObservationMediaID == firstRenderedMedia.ObservationMediaID
-                    );
-
-                    // Extract the MediaID (e.g., "MM8") which is the actual referencedObject value
-                    if (!string.IsNullOrWhiteSpace(matchingObservationMedia?.MediaID))
-                    {
-                        referencedObjectId = matchingObservationMedia.MediaID;
-                        hasReferencedObject = true;
-                    }
-                }
+                hasReferencedObject = true;
+                return referencedObjectId;
             }
+
             // Secondary fallback: For multimedia content without RenderedMedia, use first available MediaID
-            else if (!string.IsNullOrWhiteSpace(contentText) &&
-                     normalizedContentType == CONTENT_TYPE_MULTIMEDIA &&
-                     observationMedia?.Any() == true)
+            referencedObjectId = resolveSecondaryMediaReference(normalizedContentType, observationMedia);
+            if (!string.IsNullOrWhiteSpace(referencedObjectId))
             {
-                var firstMedia = observationMedia.FirstOrDefault();
-                if (!string.IsNullOrWhiteSpace(firstMedia?.MediaID))
-                {
-                    referencedObjectId = firstMedia.MediaID;
-                    hasReferencedObject = true;
-                }
+                hasReferencedObject = true;
+                return referencedObjectId;
             }
-            // Tertirary fallback: for RenderedMedia references that are disjointed from the observationMedia section
-            // e.g. the reference link will be on its own line <renderMultiMedia referencedObject="MM74347"/>
-            else if (normalizedContentType == CONTENT_TYPE_MULTIMEDIA &&
-                     textContent != null &&
-                     textContent.RenderedMedias != null &&
-                     textContent.RenderedMedias.Any())
-            {
-                // Look up the media reference
-                // Query the database to find matching ObservationMedia by MediaID
-                var matchingMedia = _dbContext.Set<ObservationMedia>()
-                    .FirstOrDefault(predicate: om => om.ObservationMediaID == textContent!.RenderedMedias!.FirstOrDefault()!.ObservationMediaID);
 
-                // Verify and extract the MediaID
-                if (matchingMedia != null && !string.IsNullOrWhiteSpace(matchingMedia.MediaID))
-                {
-                    referencedObjectId = matchingMedia.MediaID;
-                    hasReferencedObject = true;
-                }
+            // Tertiary fallback: For RenderedMedia references disjointed from observationMedia section
+            referencedObjectId = resolveTertiaryMediaReference(textContent);
+            if (!string.IsNullOrWhiteSpace(referencedObjectId))
+            {
+                hasReferencedObject = true;
+                return referencedObjectId;
             }
 
             // Final fallback: Extract referencedObject from ContentText XML when observationMedia unavailable
-            // This handles cases where multimedia is in a different section than the media definitions
-            if (!hasReferencedObject && !string.IsNullOrWhiteSpace(contentText))
+            referencedObjectId = resolveFinalMediaReference(contentText);
+            if (!string.IsNullOrWhiteSpace(referencedObjectId))
             {
-                // Check for renderMultiMedia tag with referencedObject attribute
-                if (contentText.Contains(REFERENCED_OBJECT))
-                {
-                    hasReferencedObject = true;
-
-                    // Extract the referencedObject value from the XML
-                    referencedObjectId = extractReferencedObjectFromXml(contentText);
-                }
+                hasReferencedObject = true;
+                return referencedObjectId;
             }
 
+            return null;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves media reference using primary strategy: RenderedMedia collection lookup.
+        /// Matches RenderedMedia.ObservationMediaID to ObservationMedia to extract MediaID.
+        /// </summary>
+        /// <param name="textContent">The text content item containing rendered media</param>
+        /// <param name="observationMedia">Observation media collection for matching</param>
+        /// <returns>Resolved MediaID value, or null if primary resolution fails</returns>
+        /// <seealso cref="RenderedMediaDto"/>
+        /// <seealso cref="ObservationMediaDto"/>
+        /// <remarks>
+        /// This is the preferred resolution strategy as it leverages explicit media references.
+        /// Resolution path: RenderedMedia.ObservationMediaID → ObservationMedia.ObservationMediaID → ObservationMedia.MediaID
+        /// </remarks>
+        private string? resolvePrimaryMediaReference(
+            SectionTextContentDto textContent,
+            IEnumerable<ObservationMediaDto>? observationMedia)
+        {
+            // Verify both RenderedMedia and ObservationMedia collections are available
+            if (textContent?.RenderedMedias?.Any() != true || observationMedia?.Any() != true)
+                return null;
+
+            // Get the first rendered media reference, ordered by sequence
+            var firstRenderedMedia = textContent.RenderedMedias
+                .OrderBy(rm => rm.SequenceInContent ?? 0)
+                .FirstOrDefault();
+
+            if (firstRenderedMedia?.ObservationMediaID == null)
+                return null;
+
+            // Lookup the corresponding ObservationMedia by matching ObservationMediaID
+            var matchingObservationMedia = observationMedia.FirstOrDefault(
+                om => om.ObservationMediaID == firstRenderedMedia.ObservationMediaID
+            );
+
+            // Extract the MediaID (e.g., "MM8") which is the actual referencedObject value
+            return matchingObservationMedia?.MediaID;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves media reference using secondary strategy: first available ObservationMedia.
+        /// Applied when multimedia content exists but RenderedMedia collection is unavailable.
+        /// </summary>
+        /// <param name="normalizedContentType">The determined content type</param>
+        /// <param name="observationMedia">Observation media collection for extraction</param>
+        /// <returns>First available MediaID from observation media, or null if unavailable</returns>
+        /// <seealso cref="ObservationMediaDto"/>
+        /// <remarks>
+        /// This fallback applies only to multimedia content types and requires
+        /// at least one item in the observationMedia collection.
+        /// </remarks>
+        private string? resolveSecondaryMediaReference(
+            string normalizedContentType,
+            IEnumerable<ObservationMediaDto>? observationMedia)
+        {
+            // Apply only to multimedia content with available observation media
+            if (normalizedContentType != CONTENT_TYPE_MULTIMEDIA || observationMedia?.Any() != true)
+                return null;
+
+            return observationMedia.FirstOrDefault()?.MediaID;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves media reference using tertiary strategy: database query for disjointed references.
+        /// Handles cases where RenderedMedia references exist separately from ObservationMedia definitions.
+        /// </summary>
+        /// <param name="textContent">The text content item containing rendered media references</param>
+        /// <returns>Resolved MediaID from database lookup, or null if resolution fails</returns>
+        /// <seealso cref="ObservationMedia"/>
+        /// <seealso cref="RenderedMediaDto"/>
+        /// <remarks>
+        /// This strategy queries the database directly when RenderedMedia references exist
+        /// but are not co-located with their ObservationMedia definitions.
+        /// Example: renderMultiMedia referencedObject="MM74347" on separate line.
+        /// </remarks>
+        private string? resolveTertiaryMediaReference(SectionTextContentDto textContent)
+        {
+            // Verify RenderedMedia collection exists and has items
+            if (textContent?.RenderedMedias?.Any() != true)
+                return null;
+
+            var firstRenderedMediaId = textContent.RenderedMedias.FirstOrDefault()?.ObservationMediaID;
+            if (firstRenderedMediaId == null)
+                return null;
+
+            // Query the database to find matching ObservationMedia by ObservationMediaID
+            var matchingMedia = _dbContext.Set<ObservationMedia>()
+                .FirstOrDefault(om => om.ObservationMediaID == firstRenderedMediaId);
+
+            // Extract and return the MediaID if found
+            return matchingMedia?.MediaID;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves media reference using final fallback strategy: XML parsing.
+        /// Extracts referencedObject attribute from ContentText when media definitions unavailable.
+        /// </summary>
+        /// <param name="contentText">The content text to parse for media references</param>
+        /// <returns>Extracted referencedObject value from XML, or null if not found</returns>
+        /// <seealso cref="extractReferencedObjectFromXml"/>
+        /// <remarks>
+        /// This final fallback enables rendering of multimedia content even when
+        /// media definitions are in different sections or unavailable.
+        /// Searches for renderMultiMedia tags with referencedObject attributes.
+        /// </remarks>
+        private string? resolveFinalMediaReference(string contentText)
+        {
+            // Check for renderMultiMedia tag with referencedObject attribute
+            if (string.IsNullOrWhiteSpace(contentText) || !contentText.Contains(REFERENCED_OBJECT))
+                return null;
+
+            // Extract the referencedObject value from the XML
+            return extractReferencedObjectFromXml(contentText);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the ContentCharacteristics object from analyzed content properties.
+        /// Consolidates all content metadata into a single characteristics container.
+        /// </summary>
+        /// <param name="textContent">The source text content item</param>
+        /// <param name="contentText">The normalized content text</param>
+        /// <param name="normalizedContentType">The determined content type</param>
+        /// <param name="hasRenderedMedia">Indicates if rendered media exists</param>
+        /// <param name="hasReferencedObject">Indicates if referenced object was resolved</param>
+        /// <param name="referencedObjectId">The resolved referenced object ID</param>
+        /// <returns>ContentCharacteristics object with all analyzed properties</returns>
+        /// <seealso cref="ContentCharacteristics"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        private ContentCharacteristics buildContentCharacteristics(
+            SectionTextContentDto textContent,
+            string contentText,
+            string normalizedContentType,
+            bool hasRenderedMedia,
+            bool hasReferencedObject,
+            string? referencedObjectId)
+        {
             return new ContentCharacteristics
             {
                 HasContentText = !string.IsNullOrWhiteSpace(contentText),
@@ -592,8 +746,6 @@ namespace MedRecPro.Service
                 NormalizedContentType = normalizedContentType,
                 ReferencedObjectId = referencedObjectId
             };
-
-            #endregion
         }
 
         /**************************************************************/

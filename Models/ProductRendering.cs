@@ -159,6 +159,25 @@
 
         #endregion
 
+        #region policy properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and ordered policies for efficient rendering.
+        /// Contains PolicyDto objects with product-level Policy information.
+        /// Null if no marketing statuses exist.
+        /// </summary>
+        /// <seealso cref="PolicyDto"/>
+        /// <seealso cref="Label"/>
+        public List<PolicyDto>? OrderedPolicies { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this product has Policies to render.
+        /// </summary>
+        public bool HasPolicy { get; set; }
+        #endregion
+
         #region equivalent entity properties
 
         /**************************************************************/
