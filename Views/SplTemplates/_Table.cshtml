@@ -15,12 +15,48 @@
         {
             <caption>@Raw(Model.Caption)</caption>
         }
-        @if (Model.TextTableColumns != null && Model.TextTableColumns.Any())
+         @if (Model.TextTableColumns != null && Model.TextTableColumns.Any())
         {
-            @foreach (var col in Model.TextTableColumns.OrderBy(c => c.SequenceNumber))
+            var orderedColumns = Model.TextTableColumns.OrderBy(c => c.SequenceNumber).ToList();
+            var processedSequences = new HashSet<int?>();
+            
+            @foreach (var col in orderedColumns)
             {
-                @* Self-closing col element with conditional attributes *@
-                <col @SplTemplateHelpers.Attribute("width", col.Width) @SplTemplateHelpers.Attribute("align", col.Align) @SplTemplateHelpers.Attribute("valign", col.VAlign) @SplTemplateHelpers.Attribute("styleCode", col.StyleCode) />
+                @* Skip if already processed as part of a colgroup *@
+                if (processedSequences.Contains(col.SequenceNumber))
+                {
+                    continue;
+                }
+                
+                @* Check if this column is part of a colgroup *@
+                if (col.ColGroupSequenceNumber.HasValue)
+                {
+                    @* Get all columns in this colgroup *@
+                    var groupColumns = orderedColumns
+                        .Where(c => c.ColGroupSequenceNumber == col.ColGroupSequenceNumber)
+                        .OrderBy(c => c.SequenceNumber)
+                        .ToList();
+                    
+                    @* Only render colgroup if this is the first column in the group *@
+                    if (groupColumns.First().SequenceNumber == col.SequenceNumber)
+                    {
+                        @* Opening colgroup tag with group-level attributes *@
+                        <colgroup @SplTemplateHelpers.Attribute("styleCode", col.ColGroupStyleCode) @SplTemplateHelpers.Attribute("align", col.ColGroupAlign) @SplTemplateHelpers.Attribute("valign", col.ColGroupVAlign)>
+                            @foreach (var groupCol in groupColumns)
+                            {
+                                @* Self-closing col element with conditional attributes *@
+                                <col @SplTemplateHelpers.Attribute("width", groupCol.Width) @SplTemplateHelpers.Attribute("align", groupCol.Align) @SplTemplateHelpers.Attribute("valign", groupCol.VAlign) @SplTemplateHelpers.Attribute("styleCode", groupCol.StyleCode) />
+                                processedSequences.Add(groupCol.SequenceNumber);
+                            }
+                        </colgroup>
+                    }
+                }
+                else
+                {
+                    @* Standalone column (not in colgroup) *@
+                    <col @SplTemplateHelpers.Attribute("width", col.Width) @SplTemplateHelpers.Attribute("align", col.Align) @SplTemplateHelpers.Attribute("valign", col.VAlign) @SplTemplateHelpers.Attribute("styleCode", col.StyleCode) />
+                    processedSequences.Add(col.SequenceNumber);
+                }
             }
         }
         @if (hasHeader)
@@ -32,7 +68,7 @@
                     await IncludeAsync("_TableRow", row);
                 }
             </thead>
-        }    
+        }
         @if (hasFooter)
         {
             <tfoot>

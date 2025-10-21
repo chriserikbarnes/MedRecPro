@@ -6060,6 +6060,58 @@ namespace MedRecPro.Models
                 : null;
         #endregion
 
+        /**************************************************************/
+        /// <summary>
+        /// Optional width attribute on [colgroup].
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ColGroupSequenceNumber =>
+        #region implementation
+            TextTableColumn.TryGetValue(nameof(ColGroupSequenceNumber), out var value)
+                ? value as int?
+                : null;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional align attribute on [colgroup].
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ColGroupStyleCode =>
+        #region implementation
+            TextTableColumn.TryGetValue(nameof(ColGroupStyleCode), out var value)
+                ? value as string
+                : null;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional valign attribute on [colgroup].
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ColGroupAlign =>
+        #region implementation
+            TextTableColumn.TryGetValue(nameof(ColGroupAlign), out var value)
+                ? value as string
+                : null;
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional styleCode attribute on [colgroup].
+        /// </summary>
+        /// <seealso cref="Label"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ColGroupVAlign =>
+        #region implementation
+            TextTableColumn.TryGetValue(nameof(ColGroupVAlign), out var value)
+                ? value as string
+                : null;
+        #endregion
+
         #endregion properties
     }
 

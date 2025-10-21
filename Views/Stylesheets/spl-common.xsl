@@ -20,6 +20,10 @@ Contributor(s): Steven Gitterman, Brian Keller, Brian Suggs
 
 TODO: footnote styleCode Footnote, Endnote not yet obeyed
 TODO: Implementation guide needs to define linkHtml styleCodes.
+
+10/21/2025 Barnes: Made changes to the xslt for Highlights and 
+Full Prescribing information to better support two column rendering
+
 --><xsl:transform version="1.0"
 							 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 							 xmlns:v3="urn:hl7-org:v3"
@@ -1457,11 +1461,11 @@ TODO: Implementation guide needs to define linkHtml styleCodes.
 		<div id="Highlights" class="Highlights">
 			<table cellspacing="5" cellpadding="5" width="100%" style="table-layout:fixed">
 				<tr>
-					<td width="50%" align="left" valign="top">
-						<div/>
+					<td width="50%" align="left" valign="top" id="highlightsLeftColumn">
+						<!-- Left column - will be populated by JavaScript -->
 					</td>
-					<td width="50%" align="left" valign="top">
-						<div>
+					<td width="50%" align="left" valign="top" id="highlightsRightColumn">
+						<div id="highlightsContent">
 							<h1>HIGHLIGHTS OF PRESCRIBING INFORMATION</h1>
 							<xsl:apply-templates mode="highlights" select="@*|node()" />
 						</div>
@@ -1718,14 +1722,14 @@ TODO: Implementation guide needs to define linkHtml styleCodes.
 		<div id="Index" class="Index">
 			<table cellspacing="5" cellpadding="5" width="100%" style="table-layout:fixed">
 				<tr>
-					<td width="50%" align="left" valign="top">
-						<div/>
+					<td width="50%" align="left" valign="top" id="indexLeftColumn">
+						<!-- Left column - will be populated by JavaScript -->
 					</td>
-					<td width="50%" align="left" valign="top">
-						<div>
+					<td width="50%" align="left" valign="top" id="indexRightColumn">
+						<div id="indexContent">
 							<h1 class="Colspan">
 								FULL PRESCRIBING INFORMATION: CONTENTS<!-- do not allow a space here 
-            --><a href="#footnote-content" name="footnote-reference-content">*</a>
+        --><a href="#footnote-content" name="footnote-reference-content">*</a>
 							</h1>
 							<xsl:apply-templates mode="index" select="@*|node()" />
 							<dl class="Footnote">

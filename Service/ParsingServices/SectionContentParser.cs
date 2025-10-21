@@ -294,7 +294,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 // Aggregate results from the processed block
                 // Combine results from current block processing into overall collection
-                if (blockResult != null 
+                if (blockResult != null
                     && blockResult.MainContent != null)
                 {
                     allCreatedContent.Add(blockResult.MainContent);
@@ -986,17 +986,47 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses all column definitions ([col] and [colgroup]/[col]) within a table,
-        /// creating TextTableColumn records with alignment and width specifications.
+        /// Parses and creates TextTableColumn entities from [col] and [colgroup] elements in a table.
+        /// Handles both standalone [col] elements and [col] elements nested within [colgroup].
         /// </summary>
-        /// <param name="tableEl">The XElement for the table.</param>
-        /// <param name="textTableId">The database ID of the parent TextTable.</param>
-        /// <param name="context">The current parsing context.</param>
-        /// <returns>A task that resolves to the number of TextTableColumn entities created.</returns>
+        /// <param name="tableEl">The XElement representing the [table] element to parse.</param>
+        /// <param name="textTableId">The foreign key ID linking columns to their parent TextTable.</param>
+        /// <param name="context">The SPL parse context containing database services and repositories.</param>
+        /// <returns>
+        /// The total count of newly created TextTableColumn entities.
+        /// Returns 0 if context is invalid or no columns are found.
+        /// </returns>
         /// <remarks>
-        /// Handles both standalone col elements and col elements within colgroup.
-        /// Maintains column sequence for proper alignment with table cells.
+        /// Per Section 2.2.2.5 of SPL Implementation Guide:
+        /// - [colgroup] elements are optional and uncommon but must be supported
+        /// - [col] elements can exist standalone or within [colgroup]
+        /// - [colgroup] attributes provide defaults that individual [col] can override
+        /// - Column width, alignment, and styleCode attributes must be preserved
+        /// 
+        /// Parsing Logic:
+        /// 1. First processes all [colgroup] elements and their child [col] elements
+        /// 2. Then processes standalone [col] elements not within any [colgroup]
+        /// 3. Maintains sequence numbering across both types for proper rendering order
+        /// 
+        /// Backwards Compatibility:
+        /// - Tables without [colgroup] work identically to previous implementation
+        /// - ColGroupSequenceNumber remains null for standalone columns
         /// </remarks>
+        /// <example>
+        /// XML with colgroup:
+        /// &lt;table&gt;
+        ///   &lt;colgroup align="center" styleCode="Rrule"&gt;
+        ///     &lt;col width="20%" /&gt;
+        ///     &lt;col width="30%" align="left" /&gt;
+        ///   &lt;/colgroup&gt;
+        ///   &lt;col width="50%" /&gt;
+        /// &lt;/table&gt;
+        /// 
+        /// Results in 3 columns:
+        /// - Column 1: In colgroup #1, inherits center align and Rrule styleCode, 20% width
+        /// - Column 2: In colgroup #1, overrides with left align, keeps Rrule styleCode, 30% width
+        /// - Column 3: Standalone (no colgroup), 50% width
+        /// </example>
         /// <seealso cref="TextTableColumn"/>
         /// <seealso cref="TextTable"/>
         /// <seealso cref="SplParseContext"/>
@@ -1009,6 +1039,7 @@ namespace MedRecPro.Service.ParsingServices
             SplParseContext context)
         {
             #region implementation
+
             int createdCount = 0;
 
             // Validate required context dependencies for database operations
@@ -1020,52 +1051,186 @@ namespace MedRecPro.Service.ParsingServices
             var columnRepo = context.GetRepository<TextTableColumn>();
             var columnDbSet = dbContext.Set<TextTableColumn>();
 
-            // Extract all col elements directly under table
-            var colElements = tableEl.Elements(ns + sc.E.Col).ToList();
+            // Initialize sequence number for maintaining column order across the entire table
+            int overallSeqNum = 1;
 
-            // Also check for colgroup/col structure
-            var colgroupEl = tableEl.Element(ns + sc.E.Colgroup);
-            if (colgroupEl != null)
-            {
-                // Add col elements nested within colgroup
-                colElements.AddRange(colgroupEl.Elements(ns + sc.E.Col));
-            }
+            // Track colgroup sequence for identifying which columns belong to which colgroup
+            int colgroupSeqNum = 1;
 
-            // Initialize sequence number for maintaining column order
-            int seqNum = 1;
+            #region process colgroup elements
 
-            // Process each column definition element
-            foreach (var colEl in colElements)
-            {
-                // Check for existing column to avoid duplicates based on table and sequence
-                var existingCol = await columnDbSet.FirstOrDefaultAsync(c =>
-                    c.TextTableID == textTableId &&
-                    c.SequenceNumber == seqNum);
+            // Extract all colgroup elements to process columns within groups first
+            var colgroupElements = tableEl.Elements(ns + sc.E.Colgroup).ToList();
 
-                // Create new column if none exists at this position
-                if (existingCol == null)
+            // Check if any colgroup elements exist
+            if (colgroupElements.Any())
+                // Process each colgroup and its child col elements
+                foreach (var colgroupEl in colgroupElements)
                 {
-                    // Build new column entity with all extracted attributes
-                    var newColumn = new TextTableColumn
-                    {
-                        TextTableID = textTableId,
-                        SequenceNumber = seqNum,
-                        Width = colEl.Attribute(sc.A.Width)?.Value,
-                        Align = colEl.Attribute(sc.A.Align)?.Value,
-                        VAlign = colEl.Attribute(sc.A.VAlign)?.Value,
-                        StyleCode = colEl.Attribute(sc.A.StyleCode)?.Value
-                    };
+                    // Extract colgroup-level attributes that serve as defaults for child columns
+                    var colgroupStyleCode = colgroupEl.Attribute(sc.A.StyleCode)?.Value;
+                    var colgroupAlign = colgroupEl.Attribute(sc.A.Align)?.Value;
+                    var colgroupVAlign = colgroupEl.Attribute(sc.A.VAlign)?.Value;
 
-                    // Persist new column to database
-                    await columnRepo.CreateAsync(newColumn);
-                    createdCount++;
+                    // Extract all col elements within this colgroup
+                    var colElementsInGroup = colgroupEl.Elements(ns + sc.E.Col).ToList();
+
+                    // Process each column definition within the colgroup
+                    foreach (var colEl in colElementsInGroup)
+                    {
+                        // Create column entity with colgroup context
+                        var createdCol = await createColumnEntityAsync(
+                            columnDbSet,
+                            columnRepo,
+                            textTableId,
+                            overallSeqNum,
+                            colEl,
+                            colgroupSeqNum,
+                            colgroupStyleCode,
+                            colgroupAlign,
+                            colgroupVAlign);
+
+                        // Track creation and increment sequence for next column
+                        if (createdCol)
+                        {
+                            createdCount++;
+                        }
+                        overallSeqNum++;
+                    }
+
+                    // Increment colgroup sequence for next colgroup
+                    colgroupSeqNum++;
                 }
 
-                // Increment sequence for next column
-                seqNum++;
-            }
+            #endregion
+
+            #region process standalone col elements
+
+            // Extract standalone col elements (those directly under table, not in colgroup)
+            var standaloneColElements = tableEl.Elements(ns + sc.E.Col).ToList();
+
+            // Check if any standalone col elements exist
+            if (standaloneColElements.Any())
+                // Process each standalone column definition
+                foreach (var colEl in standaloneColElements)
+                {
+                    // Create column entity without colgroup context (all colgroup params null)
+                    var createdCol = await createColumnEntityAsync(
+                        columnDbSet,
+                        columnRepo,
+                        textTableId,
+                        overallSeqNum,
+                        colEl,
+                        colgroupSequence: null,
+                        colgroupStyleCode: null,
+                        colgroupAlign: null,
+                        colgroupVAlign: null);
+
+                    // Track creation and increment sequence for next column
+                    if (createdCol)
+                    {
+                        createdCount++;
+                    }
+                    overallSeqNum++;
+                }
+
+            #endregion
 
             return createdCount;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a single TextTableColumn entity from a [col] element, optionally with colgroup context.
+        /// Checks for existing columns to avoid duplicates before creating new entities.
+        /// </summary>
+        /// <param name="columnDbSet">The DbSet for querying existing TextTableColumn entities.</param>
+        /// <param name="columnRepo">The repository for creating new TextTableColumn entities.</param>
+        /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
+        /// <param name="sequenceNumber">The overall sequence number for this column within the table.</param>
+        /// <param name="colElement">The XElement representing the [col] element to parse.</param>
+        /// <param name="colgroupSequence">
+        /// The colgroup sequence number if this column is within a [colgroup], null otherwise.
+        /// </param>
+        /// <param name="colgroupStyleCode">
+        /// The styleCode attribute from parent [colgroup], null if standalone or not specified.
+        /// </param>
+        /// <param name="colgroupAlign">
+        /// The align attribute from parent [colgroup], null if standalone or not specified.
+        /// </param>
+        /// <param name="colgroupVAlign">
+        /// The valign attribute from parent [colgroup], null if standalone or not specified.
+        /// </param>
+        /// <returns>
+        /// True if a new column entity was created, false if column already existed.
+        /// </returns>
+        /// <remarks>
+        /// Individual [col] attributes always take precedence over [colgroup] attributes.
+        /// When both are present, the column-level value is stored in the direct property
+        /// (Width, Align, VAlign, StyleCode) while colgroup-level values are stored in
+        /// ColGroup* properties for reference.
+        /// 
+        /// During rendering, the GetEffective* methods can be used to retrieve the
+        /// appropriate value considering both levels.
+        /// </remarks>
+        /// <seealso cref="TextTableColumn"/>
+        /// <seealso cref="parseAndCreateColumnsAsync"/>
+        /// <seealso cref="Label"/>
+        private async Task<bool> createColumnEntityAsync(
+            DbSet<TextTableColumn> columnDbSet,
+            Repository<TextTableColumn> columnRepo,
+            int textTableId,
+            int sequenceNumber,
+            XElement colElement,
+            int? colgroupSequence,
+            string? colgroupStyleCode,
+            string? colgroupAlign,
+            string? colgroupVAlign)
+        {
+            #region implementation
+
+            // Check for existing column to avoid duplicates based on table and sequence
+            var existingCol = await columnDbSet.FirstOrDefaultAsync(c =>
+                c.TextTableID == textTableId &&
+                c.SequenceNumber == sequenceNumber);
+
+            // Skip creation if column already exists at this position
+            if (existingCol != null)
+                return false;
+
+            // Extract individual col element attributes
+            var colWidth = colElement.Attribute(sc.A.Width)?.Value;
+            var colAlign = colElement.Attribute(sc.A.Align)?.Value;
+            var colVAlign = colElement.Attribute(sc.A.VAlign)?.Value;
+            var colStyleCode = colElement.Attribute(sc.A.StyleCode)?.Value;
+
+            // Build new column entity with all extracted attributes
+            var newColumn = new TextTableColumn
+            {
+                // Core identification fields
+                TextTableID = textTableId,
+                SequenceNumber = sequenceNumber,
+
+                // Colgroup membership and inherited attributes
+                ColGroupSequenceNumber = colgroupSequence,
+                ColGroupStyleCode = colgroupStyleCode,
+                ColGroupAlign = colgroupAlign,
+                ColGroupVAlign = colgroupVAlign,
+
+                // Individual col element attributes (these take precedence)
+                Width = colWidth,
+                Align = colAlign,
+                VAlign = colVAlign,
+                StyleCode = colStyleCode
+            };
+
+            // Persist new column to database
+            await columnRepo.CreateAsync(newColumn);
+
+            return true;
+
             #endregion
         }
 
@@ -1219,7 +1384,7 @@ namespace MedRecPro.Service.ParsingServices
                         TextTableRowID = textTableRowId,
                         CellType = cellEl.Name.LocalName, // "th" or "td"
                         SequenceNumber = seqNum,
-                        CellText = cellEl.GetSplHtml(stripNamespaces:true),
+                        CellText = cellEl.GetSplHtml(stripNamespaces: true),
                         RowSpan = rs > 0 ? rs : null, // Only store valid span values
                         ColSpan = cs > 0 ? cs : null, // Only store valid span values
                         StyleCode = cellEl.Attribute(sc.A.StyleCode)?.Value,

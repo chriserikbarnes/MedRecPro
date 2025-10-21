@@ -1,4 +1,6 @@
-﻿-- ====================================================================================
+﻿USE MedRecLocal
+
+-- ====================================================================================
 -- WARNING: THIS SCRIPT DELETES ALL DATA from tables except for the exceptions below.
 -- DO NOT RUN THIS ON A PRODUCTION DATABASE.
 --

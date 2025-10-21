@@ -1,89 +1,114 @@
-/***************************************************************************************************
-*   DATABASE MODIFICATION SCRIPT
-*
-*   PURPOSE:
-*   This script creates or modifies the [dbo].[TextTableColumn] table to align it with the 
-*   corresponding Entity Framework (EF) model for structured product labeling table support.
-*
-*   CHANGES:
-*   1.  Table [dbo].[TextTableColumn]:
-*       - Creates the table if it doesn't exist.
-*       - Adds columns for table column definitions per Section 2.2.2.5.
-*       - Adds MS_Description extended properties for the table and its columns.
-*
-*   NOTES:
-*   - The script is idempotent and can be run multiple times safely.
-*   - NO foreign key constraints are created (ApplicationDbContext uses reflection).
-*   - Supports [col] element attributes for table column formatting and alignment.
-*
-***************************************************************************************************/
+/***************************************************************
+ * Migration Script: Add Colgroup Support to TextTableColumn
+ * Purpose: Extends TextTableColumn table to support [colgroup] elements
+ *          while maintaining backwards compatibility with existing data.
+ * 
+ * Based On: SPL Implementation Guide Section 2.2.2.5
+ * 
+ * Changes:
+ * - Adds ColGroupSequenceNumber (nullable) to identify colgroup membership
+ * - Adds ColGroupStyleCode (nullable) for colgroup-level formatting rules
+ * - Adds ColGroupAlign (nullable) for colgroup-level horizontal alignment
+ * - Adds ColGroupVAlign (nullable) for colgroup-level vertical alignment
+ * 
+ * Backwards Compatibility:
+ * - All new columns are nullable, existing rows remain valid with NULL values
+ * - Standalone [col] elements will have NULL ColGroupSequenceNumber
+ * - No data migration required
+ ***************************************************************/
 
-USE [MedRecLocal]
+SET NOCOUNT ON;
 GO
 
-BEGIN TRANSACTION;
-
 BEGIN TRY
+    BEGIN TRANSACTION;
 
-    -- ==========================================================================================
-    --  Create/Modify [dbo].[TextTableColumn] Table
-    -- ==========================================================================================
-    PRINT 'Creating/Modifying table [dbo].[TextTableColumn]...';
+    PRINT '========================================';
+    PRINT 'Adding Colgroup Support to TextTableColumn';
+    PRINT '========================================';
+    PRINT '';
 
-    -- Create table if it doesn't exist
-    IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.TextTableColumn') AND type = N'U')
+    -- Verify table exists before attempting modifications
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'TextTableColumn' AND schema_id = SCHEMA_ID('dbo'))
     BEGIN
-        PRINT ' -> Creating [dbo].[TextTableColumn] table.';
-        CREATE TABLE [dbo].[TextTableColumn] (
-            [TextTableColumnID] INT IDENTITY(1,1) NOT NULL,
-            [TextTableID] INT NULL,
-            [SequenceNumber] INT NULL,
-            [Width] NVARCHAR(50) NULL,
-            [Align] NVARCHAR(50) NULL,
-            [VAlign] NVARCHAR(50) NULL,
-            [StyleCode] NVARCHAR(256) NULL,
-            CONSTRAINT [PK_TextTableColumn] PRIMARY KEY CLUSTERED ([TextTableColumnID] ASC)
-        );
+        PRINT 'ERROR: [dbo].[TextTableColumn] table does not exist.';
+        PRINT 'Please ensure the base table is created before applying this migration.';
+        ROLLBACK TRANSACTION;
+        RETURN;
+    END
+
+    PRINT ' -> [dbo].[TextTableColumn] table found.';
+    PRINT '';
+
+    -- Add new columns if they don't exist
+    PRINT ' -> Adding new colgroup-related columns...';
+
+    -- Add ColGroupSequenceNumber column
+    IF NOT EXISTS (SELECT 1 FROM sys.columns 
+                   WHERE Name = N'ColGroupSequenceNumber' 
+                   AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
+    BEGIN
+        ALTER TABLE [dbo].[TextTableColumn] 
+        ADD [ColGroupSequenceNumber] INT NULL;
+        PRINT '    - Added column: ColGroupSequenceNumber';
     END
     ELSE
     BEGIN
-        PRINT ' -> Table [dbo].[TextTableColumn] already exists. Adding missing columns...';
-        
-        -- Add TextTableID column
-        IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'TextTableID' AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
-            ALTER TABLE [dbo].[TextTableColumn] ADD [TextTableID] INT NULL;
-
-        -- Add SequenceNumber column
-        IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SequenceNumber' AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
-            ALTER TABLE [dbo].[TextTableColumn] ADD [SequenceNumber] INT NULL;
-
-        -- Add Width column
-        IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'Width' AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
-            ALTER TABLE [dbo].[TextTableColumn] ADD [Width] NVARCHAR(50) NULL;
-
-        -- Add Align column
-        IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'Align' AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
-            ALTER TABLE [dbo].[TextTableColumn] ADD [Align] NVARCHAR(50) NULL;
-
-        -- Add VAlign column
-        IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'VAlign' AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
-            ALTER TABLE [dbo].[TextTableColumn] ADD [VAlign] NVARCHAR(50) NULL;
-
-        -- Add StyleCode column
-        IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'StyleCode' AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
-            ALTER TABLE [dbo].[TextTableColumn] ADD [StyleCode] NVARCHAR(256) NULL;
+        PRINT '    - Column already exists: ColGroupSequenceNumber';
     END
 
-    -- Add/Update Extended Properties
-    PRINT ' -> Updating extended properties for [dbo].[TextTableColumn].';
+    -- Add ColGroupStyleCode column
+    IF NOT EXISTS (SELECT 1 FROM sys.columns 
+                   WHERE Name = N'ColGroupStyleCode' 
+                   AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
+    BEGIN
+        ALTER TABLE [dbo].[TextTableColumn] 
+        ADD [ColGroupStyleCode] NVARCHAR(256) NULL;
+        PRINT '    - Added column: ColGroupStyleCode';
+    END
+    ELSE
+    BEGIN
+        PRINT '    - Column already exists: ColGroupStyleCode';
+    END
+
+    -- Add ColGroupAlign column
+    IF NOT EXISTS (SELECT 1 FROM sys.columns 
+                   WHERE Name = N'ColGroupAlign' 
+                   AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
+    BEGIN
+        ALTER TABLE [dbo].[TextTableColumn] 
+        ADD [ColGroupAlign] NVARCHAR(50) NULL;
+        PRINT '    - Added column: ColGroupAlign';
+    END
+    ELSE
+    BEGIN
+        PRINT '    - Column already exists: ColGroupAlign';
+    END
+
+    -- Add ColGroupVAlign column
+    IF NOT EXISTS (SELECT 1 FROM sys.columns 
+                   WHERE Name = N'ColGroupVAlign' 
+                   AND Object_ID = Object_ID(N'dbo.TextTableColumn'))
+    BEGIN
+        ALTER TABLE [dbo].[TextTableColumn] 
+        ADD [ColGroupVAlign] NVARCHAR(50) NULL;
+        PRINT '    - Added column: ColGroupVAlign';
+    END
+    ELSE
+    BEGIN
+        PRINT '    - Column already exists: ColGroupVAlign';
+    END
+
+    PRINT '';
+    PRINT ' -> Updating extended properties for colgroup columns...';
 
     DECLARE @SchemaName NVARCHAR(128) = N'dbo';
     DECLARE @TableName NVARCHAR(128) = N'TextTableColumn';
     DECLARE @ColumnName NVARCHAR(128);
     DECLARE @PropValue SQL_VARIANT;
 
-    -- Table description
-    SET @PropValue = N'Stores individual [col] elements within a [table]. Based on Section 2.2.2.5. Column definitions specify default formatting and alignment for table columns.';
+    -- Update table description to reflect colgroup support
+    SET @PropValue = N'Stores individual [col] elements within a [table]. Based on Section 2.2.2.5. Column definitions specify default formatting and alignment for table columns. Supports both standalone [col] elements and [col] elements nested within [colgroup].';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, NULL, NULL))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
@@ -93,9 +118,9 @@ BEGIN TRY
             @level0type = N'SCHEMA', @level0name = @SchemaName,
             @level1type = N'TABLE', @level1name = @TableName;
 
-    -- Column: TextTableColumnID
-    SET @ColumnName = N'TextTableColumnID';
-    SET @PropValue = N'Primary key for the TextTableColumn table.';
+    -- Column: ColGroupSequenceNumber
+    SET @ColumnName = N'ColGroupSequenceNumber';
+    SET @PropValue = N'Identifies which colgroup this column belongs to (if any). Null indicates a standalone [col] element not within a [colgroup]. Multiple columns with the same ColGroupSequenceNumber belong to the same [colgroup].';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
@@ -107,9 +132,9 @@ BEGIN TRY
             @level1type = N'TABLE', @level1name = @TableName,
             @level2type = N'COLUMN', @level2name = @ColumnName;
 
-    -- Column: TextTableID
-    SET @ColumnName = N'TextTableID';
-    SET @PropValue = N'Foreign key to TextTable. No database constraint - managed by ApplicationDbContext.';
+    -- Column: ColGroupStyleCode
+    SET @ColumnName = N'ColGroupStyleCode';
+    SET @PropValue = N'Optional styleCode attribute from the parent [colgroup] element. Null if column is not within a [colgroup] or if [colgroup] has no styleCode. Individual [col] styleCode attributes take precedence over colgroup-level styles.';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
@@ -121,9 +146,9 @@ BEGIN TRY
             @level1type = N'TABLE', @level1name = @TableName,
             @level2type = N'COLUMN', @level2name = @ColumnName;
 
-    -- Column: SequenceNumber
-    SET @ColumnName = N'SequenceNumber';
-    SET @PropValue = N'Order of the column within the table.';
+    -- Column: ColGroupAlign
+    SET @ColumnName = N'ColGroupAlign';
+    SET @PropValue = N'Optional align attribute from the parent [colgroup] element. Null if column is not within a [colgroup] or if [colgroup] has no align. Individual [col] align attributes take precedence. Valid values: left, center, right, justify, char.';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
@@ -135,9 +160,9 @@ BEGIN TRY
             @level1type = N'TABLE', @level1name = @TableName,
             @level2type = N'COLUMN', @level2name = @ColumnName;
 
-    -- Column: Width
-    SET @ColumnName = N'Width';
-    SET @PropValue = N'Optional width attribute on [col] element.';
+    -- Column: ColGroupVAlign
+    SET @ColumnName = N'ColGroupVAlign';
+    SET @PropValue = N'Optional valign attribute from the parent [colgroup] element. Null if column is not within a [colgroup] or if [colgroup] has no valign. Individual [col] valign attributes take precedence.';
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
         EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
             @level0type = N'SCHEMA', @level0name = @SchemaName,
@@ -149,58 +174,97 @@ BEGIN TRY
             @level1type = N'TABLE', @level1name = @TableName,
             @level2type = N'COLUMN', @level2name = @ColumnName;
 
-    -- Column: Align
-    SET @ColumnName = N'Align';
-    SET @PropValue = N'Optional align attribute on [col] for horizontal alignment.';
-    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
-        EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
-            @level0type = N'SCHEMA', @level0name = @SchemaName,
-            @level1type = N'TABLE', @level1name = @TableName,
-            @level2type = N'COLUMN', @level2name = @ColumnName;
-    ELSE
-        EXEC sp_addextendedproperty @name = N'MS_Description', @value = @PropValue,
-            @level0type = N'SCHEMA', @level0name = @SchemaName,
-            @level1type = N'TABLE', @level1name = @TableName,
-            @level2type = N'COLUMN', @level2name = @ColumnName;
+    PRINT '    - Extended properties updated successfully.';
+    PRINT '';
 
-    -- Column: VAlign
-    SET @ColumnName = N'VAlign';
-    SET @PropValue = N'Optional valign attribute on [col] for vertical alignment.';
-    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
-        EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
-            @level0type = N'SCHEMA', @level0name = @SchemaName,
-            @level1type = N'TABLE', @level1name = @TableName,
-            @level2type = N'COLUMN', @level2name = @ColumnName;
-    ELSE
-        EXEC sp_addextendedproperty @name = N'MS_Description', @value = @PropValue,
-            @level0type = N'SCHEMA', @level0name = @SchemaName,
-            @level1type = N'TABLE', @level1name = @TableName,
-            @level2type = N'COLUMN', @level2name = @ColumnName;
-
-    -- Column: StyleCode
-    SET @ColumnName = N'StyleCode';
-    SET @PropValue = N'Optional styleCode attribute on [col] for formatting rules.';
-    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
-        EXEC sp_updateextendedproperty @name = N'MS_Description', @value = @PropValue,
-            @level0type = N'SCHEMA', @level0name = @SchemaName,
-            @level1type = N'TABLE', @level1name = @TableName,
-            @level2type = N'COLUMN', @level2name = @ColumnName;
-    ELSE
-        EXEC sp_addextendedproperty @name = N'MS_Description', @value = @PropValue,
-            @level0type = N'SCHEMA', @level0name = @SchemaName,
-            @level1type = N'TABLE', @level1name = @TableName,
-            @level2type = N'COLUMN', @level2name = @ColumnName;
-
+    PRINT '';
     COMMIT TRANSACTION;
-    PRINT 'Script completed successfully.';
-    PRINT 'TextTableColumn table created/modified for structured product labeling table support.';
+    
+    PRINT '========================================';
+    PRINT 'Migration completed successfully!';
+    PRINT '========================================';
+    PRINT '';
+    PRINT 'Summary:';
+    PRINT '  - Added 4 new nullable columns for colgroup support';
+    PRINT '  - Updated extended properties/documentation';
+    PRINT '';
+    PRINT 'Next: Creating performance index...';
 
 END TRY
 BEGIN CATCH
     IF @@TRANCOUNT > 0
         ROLLBACK TRANSACTION;
 
-    PRINT 'An error occurred. Transaction rolled back.';
+    PRINT '';
+    PRINT '========================================';
+    PRINT 'ERROR: Migration failed!';
+    PRINT '========================================';
+    PRINT 'Error Message: ' + ERROR_MESSAGE();
+    PRINT 'Error Line: ' + CAST(ERROR_LINE() AS NVARCHAR(10));
+    PRINT 'Transaction rolled back.';
+    
     THROW;
+END CATCH;
+GO
+
+/*********************************************************************
+ * PART 2: Create Performance Index (Separate Batch)
+ * This must run after the columns are committed to the database
+ *********************************************************************/
+BEGIN TRY
+    PRINT '';
+    PRINT '========================================';
+    PRINT 'Creating Performance Index';
+    PRINT '========================================';
+
+    -- Create index for colgroup queries (optional but recommended for performance)
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes 
+                   WHERE name = 'IX_TextTableColumn_ColGroupSequenceNumber' 
+                   AND object_id = OBJECT_ID('dbo.TextTableColumn'))
+    BEGIN
+        CREATE NONCLUSTERED INDEX [IX_TextTableColumn_ColGroupSequenceNumber]
+        ON [dbo].[TextTableColumn] ([TextTableID], [ColGroupSequenceNumber])
+        INCLUDE ([SequenceNumber])
+        WHERE [ColGroupSequenceNumber] IS NOT NULL;
+        
+        PRINT ' -> Created index: IX_TextTableColumn_ColGroupSequenceNumber';
+        PRINT '    (Optimizes queries for columns within colgroups)';
+    END
+    ELSE
+    BEGIN
+        PRINT ' -> Index already exists: IX_TextTableColumn_ColGroupSequenceNumber';
+    END
+    
+    PRINT '';
+    PRINT '========================================';
+    PRINT 'Index creation completed successfully!';
+    PRINT '========================================';
+    PRINT '';
+    PRINT '========================================';
+    PRINT 'COMPLETE SUCCESS!';
+    PRINT '========================================';
+    PRINT '';
+    PRINT 'Summary:';
+    PRINT '  - Added 4 new nullable columns for colgroup support';
+    PRINT '  - Updated extended properties/documentation';
+    PRINT '  - Created performance index for colgroup queries';
+    PRINT '  - All existing data remains valid (backwards compatible)';
+    PRINT '';
+    PRINT 'Next Steps:';
+    PRINT '  - Update parsing logic to populate colgroup fields';
+    PRINT '  - Update rendering templates to use GetEffective* methods';
+    PRINT '  - Test with both standalone [col] and [colgroup] structures';
+
+END TRY
+BEGIN CATCH
+    PRINT '';
+    PRINT '========================================';
+    PRINT 'WARNING: Index creation failed!';
+    PRINT '========================================';
+    PRINT 'Error Message: ' + ERROR_MESSAGE();
+    PRINT '';
+    PRINT 'Note: Column creation was successful.';
+    PRINT 'The index can be created manually later if needed.';
+    PRINT 'The application will work without the index (with slightly reduced performance).';
 END CATCH;
 GO

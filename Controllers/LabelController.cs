@@ -94,6 +94,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="statusStore">Service for storing operation status</param>
         /// <param name="scopeFactory"></param>
         /// <param name="applicationDbContext"></param>
+        /// <param name="splExportService"></param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null</exception>
         /// <exception cref="InvalidOperationException">Thrown when PKSecret configuration is missing</exception>
         public LabelController(
@@ -184,22 +185,27 @@ namespace MedRecPro.Api.Controllers
         {
             #region implementation
 
-            // Replace any encoding declaration with UTF-8
-            if (xmlContent.Contains("encoding=\"UTF-16\"", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(xmlContent))
             {
-                xmlContent = xmlContent.Replace(
-                    "encoding=\"UTF-16\"",
-                    "encoding=\"UTF-8\"",
-                    StringComparison.OrdinalIgnoreCase);
-            }
-            else if (xmlContent.Contains("encoding=\"utf-16\"", StringComparison.OrdinalIgnoreCase))
-            {
-                xmlContent = xmlContent.Replace(
-                    "encoding=\"utf-16\"",
-                    "encoding=\"UTF-8\"",
-                    StringComparison.OrdinalIgnoreCase);
-            }
+                // Replace any encoding declaration with UTF-8
+                if (xmlContent.Contains("encoding=\"UTF-16\"", StringComparison.OrdinalIgnoreCase))
+                {
+                    xmlContent = xmlContent.Replace(
+                        "encoding=\"UTF-16\"",
+                        "encoding=\"UTF-8\"",
+                        StringComparison.OrdinalIgnoreCase);
+                }
+                else if (xmlContent.Contains("encoding=\"utf-16\"", StringComparison.OrdinalIgnoreCase))
+                {
+                    xmlContent = xmlContent.Replace(
+                        "encoding=\"utf-16\"",
+                        "encoding=\"UTF-8\"",
+                        StringComparison.OrdinalIgnoreCase);
+                }
 
+                return xmlContent.Trim(); 
+            }
+            
             return xmlContent;
 
             #endregion

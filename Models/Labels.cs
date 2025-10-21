@@ -1024,7 +1024,23 @@ namespace MedRecPro.Models
         /// <summary>
         /// Stores individual [col] elements within a [table]. Based on Section 2.2.2.5.
         /// Column definitions specify default formatting and alignment for table columns.
+        /// Supports both standalone [col] elements and [col] elements nested within [colgroup].
         /// </summary>
+        /// <remarks>
+        /// The [colgroup] element is uncommon in SPL documents but when present, provides
+        /// grouping and default attributes for multiple columns. Individual [col] elements
+        /// can override colgroup-level attributes.
+        /// </remarks>
+        /// <example>
+        /// Standalone column:
+        /// &lt;col width="20%" align="left" /&gt;
+        /// 
+        /// Column within colgroup:
+        /// &lt;colgroup align="center" styleCode="Rrule"&gt;
+        ///     &lt;col width="20%" /&gt;
+        ///     &lt;col width="30%" /&gt;
+        /// &lt;/colgroup&gt;
+        /// </example>
         /// <seealso cref="TextTable"/>
         /// <seealso cref="Label"/>
         public class TextTableColumn
@@ -1053,6 +1069,82 @@ namespace MedRecPro.Models
             /// <seealso cref="Label"/>
             public int? SequenceNumber { get; set; }
 
+            /**************************************************************/
+            /// <summary>
+            /// Identifies which colgroup this column belongs to (if any).
+            /// Null indicates a standalone [col] element not within a [colgroup].
+            /// Multiple columns with the same ColGroupSequenceNumber belong to the same [colgroup].
+            /// </summary>
+            /// <remarks>
+            /// This field enables backwards compatibility - existing data will have null values.
+            /// When parsing tables without [colgroup] elements, this remains null.
+            /// </remarks>
+            /// <seealso cref="ColGroupStyleCode"/>
+            /// <seealso cref="ColGroupAlign"/>
+            /// <seealso cref="Label"/>
+            public int? ColGroupSequenceNumber { get; set; }
+
+            private string? _colGroupStyleCode;
+            /**************************************************************/
+            /// <summary>
+            /// Optional styleCode attribute from the parent [colgroup] element.
+            /// Null if column is not within a [colgroup] or if [colgroup] has no styleCode.
+            /// Individual [col] styleCode attributes take precedence over colgroup-level styles.
+            /// </summary>
+            /// <remarks>
+            /// According to Section 2.2.2.5, preferred method for vertical rules is to define
+            /// colgroup with styleCode="Lrule" or "Rrule" (or both).
+            /// </remarks>
+            /// <seealso cref="StyleCode"/>
+            /// <seealso cref="ColGroupSequenceNumber"/>
+            /// <seealso cref="Label"/>
+            public string? ColGroupStyleCode
+            {
+                #region implementation
+                get => _colGroupStyleCode;
+                set => _colGroupStyleCode = value?.RemoveHtmlXss();
+                #endregion
+            }
+
+            private string? _colGroupAlign;
+            /**************************************************************/
+            /// <summary>
+            /// Optional align attribute from the parent [colgroup] element.
+            /// Null if column is not within a [colgroup] or if [colgroup] has no align.
+            /// Individual [col] align attributes take precedence over colgroup-level alignment.
+            /// </summary>
+            /// <remarks>
+            /// Valid values per Section 2.2.2.5: "left", "center", "right", "justify", "char".
+            /// </remarks>
+            /// <seealso cref="Align"/>
+            /// <seealso cref="ColGroupSequenceNumber"/>
+            /// <seealso cref="Label"/>
+            public string? ColGroupAlign
+            {
+                #region implementation
+                get => _colGroupAlign;
+                set => _colGroupAlign = value?.RemoveHtmlXss();
+                #endregion
+            }
+
+            private string? _colGroupVAlign;
+            /**************************************************************/
+            /// <summary>
+            /// Optional valign attribute from the parent [colgroup] element.
+            /// Null if column is not within a [colgroup] or if [colgroup] has no valign.
+            /// Individual [col] valign attributes take precedence over colgroup-level alignment.
+            /// </summary>
+            /// <seealso cref="VAlign"/>
+            /// <seealso cref="ColGroupSequenceNumber"/>
+            /// <seealso cref="Label"/>
+            public string? ColGroupVAlign
+            {
+                #region implementation
+                get => _colGroupVAlign;
+                set => _colGroupVAlign = value?.RemoveHtmlXss();
+                #endregion
+            }
+
             private string? _width;
             /**************************************************************/
             /// <summary>
@@ -1071,7 +1163,9 @@ namespace MedRecPro.Models
             /**************************************************************/
             /// <summary>
             /// Optional align attribute on [col] for horizontal alignment.
+            /// Takes precedence over ColGroupAlign when both are present.
             /// </summary>
+            /// <seealso cref="ColGroupAlign"/>
             /// <seealso cref="Label"/>
             public string? Align
             {
@@ -1085,7 +1179,9 @@ namespace MedRecPro.Models
             /**************************************************************/
             /// <summary>
             /// Optional valign attribute on [col] for vertical alignment.
+            /// Takes precedence over ColGroupVAlign when both are present.
             /// </summary>
+            /// <seealso cref="ColGroupVAlign"/>
             /// <seealso cref="Label"/>
             public string? VAlign
             {
@@ -1099,7 +1195,9 @@ namespace MedRecPro.Models
             /**************************************************************/
             /// <summary>
             /// Optional styleCode attribute on [col] for formatting rules.
+            /// Takes precedence over ColGroupStyleCode when both are present.
             /// </summary>
+            /// <seealso cref="ColGroupStyleCode"/>
             /// <seealso cref="Label"/>
             public string? StyleCode
             {
@@ -1110,6 +1208,72 @@ namespace MedRecPro.Models
             }
 
             #endregion properties
+
+            #region methods
+
+            /**************************************************************/
+            /// <summary>
+            /// Determines the effective styleCode for rendering, combining colgroup and column-level values.
+            /// Column-level styleCode takes precedence; colgroup styleCode is used as fallback.
+            /// </summary>
+            /// <returns>
+            /// The effective styleCode to apply, or null if neither level specifies a styleCode.
+            /// </returns>
+            /// <remarks>
+            /// Per Section 2.2.2.5, styleCode attributes can be applied at colgroup, col, or cell level.
+            /// Individual elements override group-level attributes.
+            /// </remarks>
+            /// <seealso cref="StyleCode"/>
+            /// <seealso cref="ColGroupStyleCode"/>
+            /// <seealso cref="Label"/>
+            public string? GetEffectiveStyleCode()
+            {
+                #region implementation
+                return StyleCode ?? ColGroupStyleCode;
+                #endregion
+            }
+
+            /**************************************************************/
+            /// <summary>
+            /// Determines the effective horizontal alignment for rendering, combining colgroup and column-level values.
+            /// Column-level align takes precedence; colgroup align is used as fallback.
+            /// </summary>
+            /// <returns>
+            /// The effective align value to apply, or null if neither level specifies alignment.
+            /// </returns>
+            /// <remarks>
+            /// Per Section 2.2.2.5, preferred method for aligning cell content is to use
+            /// col align in the colgroup element to ensure consistent column alignment.
+            /// </remarks>
+            /// <seealso cref="Align"/>
+            /// <seealso cref="ColGroupAlign"/>
+            /// <seealso cref="Label"/>
+            public string? GetEffectiveAlign()
+            {
+                #region implementation
+                return Align ?? ColGroupAlign;
+                #endregion
+            }
+
+            /**************************************************************/
+            /// <summary>
+            /// Determines the effective vertical alignment for rendering, combining colgroup and column-level values.
+            /// Column-level valign takes precedence; colgroup valign is used as fallback.
+            /// </summary>
+            /// <returns>
+            /// The effective valign value to apply, or null if neither level specifies alignment.
+            /// </returns>
+            /// <seealso cref="VAlign"/>
+            /// <seealso cref="ColGroupVAlign"/>
+            /// <seealso cref="Label"/>
+            public string? GetEffectiveVAlign()
+            {
+                #region implementation
+                return VAlign ?? ColGroupVAlign;
+                #endregion
+            }
+
+            #endregion methods
         }
 
         /*******************************************************************************/
