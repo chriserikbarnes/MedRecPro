@@ -86,84 +86,74 @@ namespace MedRecPro.Filters
             ActionExecutionDelegate next)
         {
             #region Implementation
-
             var stopwatch = Stopwatch.StartNew();
+            var httpContext = context.HttpContext;
 
-            try
+            // Get user ID (handle both authenticated and anonymous)
+            var userIdClaim = httpContext.User?.FindFirstValue(ClaimTypes.NameIdentifier);
+            long userId = 0;
+
+            // Try to parse user ID, default to 0 for anonymous
+            if (!string.IsNullOrEmpty(userIdClaim))
             {
-
-                var httpContext = context.HttpContext;
-
-                // Get user ID (handle both authenticated and anonymous)
-                var userIdClaim = httpContext.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-                long userId = 0;
-
-                // Try to parse user ID, default to 0 for anonymous
-                if (!string.IsNullOrEmpty(userIdClaim))
-                {
-                    long.TryParse(userIdClaim, out userId);
-                }
-
-                // Execute the action
-                var resultContext = await next();
-
-                stopwatch.Stop();
-
-                // Prepare the activity log
-                var log = new ActivityLog
-                {
-                    UserId = userId,
-                    ActivityType = getActivityType(context, resultContext),
-                    ActivityTimestamp = DateTime.UtcNow,
-
-                    // Request Details
-                    IpAddress = getClientIpAddress(httpContext),
-                    UserAgent = httpContext.Request.Headers["User-Agent"].ToString(),
-                    RequestPath = httpContext.Request.Path,
-
-                    // Controller/Endpoint Details
-                    ControllerName = context.RouteData.Values["controller"]?.ToString(),
-                    ActionName = context.RouteData.Values["action"]?.ToString(),
-                    HttpMethod = httpContext.Request.Method,
-
-                    // Parameters and Performance
-                    RequestParameters = serializeParameters(context.ActionArguments),
-                    ResponseStatusCode = httpContext.Response.StatusCode,
-                    ExecutionTimeMs = (int)stopwatch.ElapsedMilliseconds,
-
-                    // Result and Error Tracking
-                    Result = resultContext.Exception == null ? "Success" : "Error",
-                    SessionId = httpContext.Session?.Id
-                };
-
-                // Handle exceptions
-                if (resultContext.Exception != null)
-                {
-                    log.ErrorMessage = resultContext.Exception.Message;
-                    log.ExceptionType = resultContext.Exception.GetType().Name;
-                    log.StackTrace = resultContext.Exception.StackTrace;
-                }
-
-                // Set description
-                log.Description = $"{log.HttpMethod} {log.ControllerName}/{log.ActionName}";
-
-                // Log asynchronously (fire and forget to not slow down the response)
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await _activityLogService.LogActivityAsync(log);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to persist activity log asynchronously");
-                    }
-                });
+                long.TryParse(userIdClaim, out userId);
             }
-            finally
+
+            // Execute the action
+            var resultContext = await next();
+
+            stopwatch.Stop();
+
+            // Prepare the activity log
+            var log = new ActivityLog
             {
-                stopwatch = null;
+                UserId = userId,
+                ActivityType = getActivityType(context, resultContext),
+                ActivityTimestamp = DateTime.UtcNow,
+
+                // Request Details
+                IpAddress = getClientIpAddress(httpContext),
+                UserAgent = httpContext.Request.Headers["User-Agent"].ToString(),
+                RequestPath = httpContext.Request.Path,
+
+                // Controller/Endpoint Details
+                ControllerName = context.RouteData.Values["controller"]?.ToString(),
+                ActionName = context.RouteData.Values["action"]?.ToString(),
+                HttpMethod = httpContext.Request.Method,
+
+                // Parameters and Performance
+                RequestParameters = serializeParameters(context.ActionArguments),
+                ResponseStatusCode = httpContext.Response.StatusCode,
+                ExecutionTimeMs = (int)stopwatch.ElapsedMilliseconds,
+
+                // Result and Error Tracking
+                Result = resultContext.Exception == null ? "Success" : "Error",
+                SessionId = getSessionId(httpContext)
+            };
+
+            // Handle exceptions
+            if (resultContext.Exception != null)
+            {
+                log.ErrorMessage = resultContext.Exception.Message;
+                log.ExceptionType = resultContext.Exception.GetType().Name;
+                log.StackTrace = resultContext.Exception.StackTrace;
             }
+
+            // Set description
+            log.Description = $"{log.HttpMethod} {log.ControllerName}/{log.ActionName}";
+
+            // Log asynchronously (fire and forget to not slow down the response)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _activityLogService.LogActivityAsync(log);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to persist activity log asynchronously");
+                }
+            });
             #endregion
         }
 
@@ -291,6 +281,32 @@ namespace MedRecPro.Filters
             }
 
             return context.Connection.RemoteIpAddress?.ToString();
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Safely retrieves the session ID from the HTTP context.
+        /// </summary>
+        /// <param name="context">The HTTP context containing session information.</param>
+        /// <returns>The session ID if available, or null if sessions are not configured.</returns>
+        /// <remarks>
+        /// Handles the case where session middleware is not enabled. Returns null
+        /// instead of throwing an exception when sessions are not configured.
+        /// </remarks>
+        private string? getSessionId(HttpContext context)
+        {
+            #region Implementation
+            try
+            {
+                // Attempt to access session - will throw if session middleware not configured
+                return context.Session?.Id;
+            }
+            catch (InvalidOperationException)
+            {
+                // Session middleware not configured - return null
+                return null;
+            }
             #endregion
         }
 

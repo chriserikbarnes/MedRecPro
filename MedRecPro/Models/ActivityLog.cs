@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace MedRecPro.Models
 {
@@ -277,6 +278,7 @@ namespace MedRecPro.Models
         /// </remarks>
         /// <seealso cref="UserId"/>
         /// <seealso cref="User"/>
+        //[JsonIgnore]
         [ForeignKey(nameof(UserId))]
         public virtual User? User { get; set; }
 

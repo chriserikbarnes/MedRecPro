@@ -5,6 +5,7 @@ using MedRecPro.Helpers;
 using System.ComponentModel;
 using Microsoft.AspNetCore.Identity;
 using System.ComponentModel.DataAnnotations; // For IdentityUser<TKey>
+using static MedRecPro.Models.UserRole;
 
 
 namespace MedRecPro.Models
@@ -240,9 +241,6 @@ namespace MedRecPro.Models
         /// </summary>
         public bool MfaEnabled { get; set; } // Custom property, distinct from IdentityUser.TwoFactorEnabled if needed
 
-        // PasswordHash is inherited from IdentityUser
-        // SecurityStamp is inherited from IdentityUser (it's a string)
-
         /// <summary>
         /// UTC timestamp of the most recent password change/reset.
         /// </summary>
@@ -270,7 +268,6 @@ namespace MedRecPro.Models
 
         /// <summary>
         /// Coarse‑grained role (e.g., User, Admin).
-        /// Roles are typically managed via `UserManager.AddToRoleAsync`.
         /// </summary>
         public string UserRole { get; set; } = "User";
 
@@ -379,6 +376,30 @@ namespace MedRecPro.Models
         /// </summary>
         public string? LastIpAddress { get; set; }
 
+        #region Overrides for senesitive data attributes
+
+        /// <summary>
+        /// Hashed password. IdentityUser has PasswordHash.
+        /// </summary>
+        [JsonIgnore]
+        public override string? PasswordHash { get; set; }
+
+        /// <summary>
+        /// Gets or sets the security stamp associated with the user.
+        /// </summary>
+        [JsonIgnore]
+        public override string? SecurityStamp { get; set; }
+
+        /// <summary>
+        /// Gets or sets the concurrency token for the entity.
+        /// </summary>
+        /// <remarks>This property is used to handle optimistic concurrency in database operations. It is
+        /// automatically updated whenever the entity is modified.</remarks>
+        [JsonIgnore]
+        public override string? ConcurrencyStamp { get; set; }
+
+        #endregion
+
         /// <summary>
         /// Internal method to set the UserID (which is 'Id').
         /// This is primarily for UserDataAccess to set the ID after retrieval if necessary,
@@ -438,8 +459,8 @@ namespace MedRecPro.Models
                 return false;
             }
 
-            return this.UserRole.Equals(MedRecPro.Models.UserRole.Admin, StringComparison.OrdinalIgnoreCase)
-            || this.UserRole.Equals(MedRecPro.Models.UserRole.UserAdmin, StringComparison.OrdinalIgnoreCase);
+            return this.UserRole.Equals(Admin, StringComparison.OrdinalIgnoreCase)
+            || this.UserRole.Equals(UserAdmin, StringComparison.OrdinalIgnoreCase);
         }
 
         #region Encrypted User ID (Custom Property, separate from IdentityUser.Id)

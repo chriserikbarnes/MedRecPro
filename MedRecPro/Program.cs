@@ -106,6 +106,17 @@ builder.Services.AddDocumentRenderingServices(options =>
     options.MaxConcurrentOperations = Environment.ProcessorCount;
 });
 
+#region Session Configuration
+
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromMinutes(30); // Session timeout
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.Name = ".MedRecPro.Session";
+});
+
+#endregion
 
 #region User and Authentication
 // --- ASP.NET Core Identity ---

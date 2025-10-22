@@ -1,18 +1,18 @@
 ﻿
-using Microsoft.AspNetCore.Mvc;
-using System.Security.Cryptography; // Required for CryptographicException
-using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Identity; // Added for StatusCodes
-using Microsoft.IdentityModel.JsonWebTokens;
-
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
-using MedRecPro.DataAccess;
+using MedRecPro.Service;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity; // Added for StatusCodes
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
 using Newtonsoft.Json; // Added for UserDataAccess
+using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
+using System.Security.Cryptography; // Required for CryptographicException
+using System.Text;
 
 
 namespace MedRecPro.Controllers
@@ -26,6 +26,7 @@ namespace MedRecPro.Controllers
         private readonly UserDataAccess _userDataAccess; // Added UserDataAccess
         private readonly ILogger<UsersController> _logger; // Added for logging
         private readonly string _pkSecret;
+        private readonly IActivityLogService _activityLogService;
 
         #region Properties
         // Username and password for LoginRequestDto
@@ -63,16 +64,18 @@ namespace MedRecPro.Controllers
         /// <param name="configuration">The application configuration.</param>
         /// <param name="userDataAccess">The data access layer for users.</param>
         /// <param name="logger">Logger for logging information and errors.</param>
+        /// <param name="activityLogService">Access to persitant db logs</param>
         /// <remarks>
         /// Dependencies are injected via the constructor.
         /// The PKSecret for encryption is retrieved from configuration.
         /// </remarks>
-        public UsersController(StringCipher stringCipher, IConfiguration configuration, UserDataAccess userDataAccess, ILogger<UsersController> logger)
+        public UsersController(StringCipher stringCipher, IConfiguration configuration, UserDataAccess userDataAccess, ILogger<UsersController> logger, Service.IActivityLogService activityLogService)
         {
             #region implementation
             _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-            _userDataAccess = userDataAccess ?? throw new ArgumentNullException(nameof(userDataAccess)); // Initialize UserDataAccess
+            _userDataAccess = userDataAccess ?? throw new ArgumentNullException(nameof(userDataAccess));
+            _activityLogService = activityLogService ?? throw new ArgumentNullException(nameof(activityLogService));
 
             _pkSecret = _configuration["Security:DB:PKSecret"] ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing.");
             if (string.IsNullOrWhiteSpace(_pkSecret))
@@ -119,7 +122,7 @@ namespace MedRecPro.Controllers
 
                 try
                 {
-                    encryptedAuthUserId = StringCipher.Encrypt(id.ToString(), _pkSecret,StringCipher.EncryptionStrength.Fast);
+                    encryptedAuthUserId = StringCipher.Encrypt(id.ToString(), _pkSecret, StringCipher.EncryptionStrength.Fast);
 
                     ret = encryptedAuthUserId;
                 }
@@ -135,7 +138,7 @@ namespace MedRecPro.Controllers
                 throw;
             }
 
-            return ret; 
+            return ret;
 
             #endregion
         }
@@ -194,6 +197,80 @@ namespace MedRecPro.Controllers
 
             return Ok(); // Return OK if the user is an admin or authorized 
             #endregion
+        }
+        #endregion
+
+        #region User Logs
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)] // 
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [HttpGet("user/{encryptedUserId}/activity")]
+        public async Task<IActionResult> GetUserActivity(string encryptedUserId)
+        {
+
+            long userId = 0;
+
+            bool v = Int64.TryParse(TextUtil.Decrypt(encryptedUserId, _pkSecret), out userId);
+
+            if (!v || userId <= 0)
+            {
+                return BadRequest("Invalid encrypted user ID.");
+            }
+
+            // IMPORTANT: Get the authenticated user's ID from claims.
+            var encryptedUpdaterUserIdFromAuth = getEncryptedIdFromClaim();
+
+            // Get the claim user
+            var claimsUser = await _userDataAccess
+                .GetByIdAsync(encryptedUpdaterUserIdFromAuth);
+
+            if (claimsUser == null || !claimsUser.IsUserAdmin())
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized.");
+            }
+
+            // Get last 50 activities for user
+            var activities = await _activityLogService.GetUserActivityAsync(userId, 50);
+
+            var secured = activities.Select(a => (new
+            {
+                Id = a.ActivityLogId,
+                a.UserId,
+                Email = a.User?.Email ?? string.Empty,
+                DisplayName = a.User?.DisplayName ?? string.Empty,
+                a.ActivityType,
+                a.ActivityTimestamp,
+                a.IpAddress,
+                a.UserAgent,
+                a.ExecutionTimeMs,
+                a.ControllerName,
+                a.ActionName,
+                a.RequestPath,
+                a.RequestParameters,
+                a.HttpMethod,
+                a.ResponseStatusCode,
+                a.ErrorMessage,
+                a.Description,
+                a.Result
+            })?.ToEntityWithEncryptedId(_pkSecret, _logger)
+            );
+
+            return Ok(secured);
+        }
+
+        [HttpGet("endpoint-stats")]
+        public async Task<IActionResult> GetEndpointStats()
+        {
+            // Get activities for specific endpoint
+            var activities = await _activityLogService
+                .GetActivityByEndpointAsync("Labels", "Create", 100);
+
+            // Calculate average execution time
+            var avgTime = activities.Average(a => a.ExecutionTimeMs ?? 0);
+
+            return Ok(new { AverageExecutionTime = avgTime });
         }
         #endregion
 
@@ -1104,14 +1181,14 @@ namespace MedRecPro.Controllers
                         if (targetUserExists == null) return NotFound($"Target user with ID '{rotatePasswordRequest.EncryptedTargetUserId}' not found for password rotation.");
 
                         return BadRequest("Failed to rotate password. The user may not exist or an error occurred.");
-                    } 
+                    }
                 }
                 else
                 {
                     return Unauthorized("You are not authorized to rotate this user's password.");
                 }
 
-                    return NoContent();
+                return NoContent();
             }
             catch (ArgumentException ex)
             {

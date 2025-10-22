@@ -150,7 +150,7 @@ Full Prescribing information to better support two column rendering
 				</title>
 				<link rel="stylesheet" type="text/css" href="{$css}"/>
 			</head>
-			<body>
+			<body style="margin-left: 30px;margin-right: 30px;margin-top: 30px;margin-bottom: 30px;">
 				<table width="100%" cellpadding="3" cellspacing="0" class="formTableMorePetite">
 					<tr>
 						<td colspan="6" class="formHeadingReg">
@@ -281,7 +281,7 @@ Full Prescribing information to better support two column rendering
 				</title>
 				<link rel="stylesheet" type="text/css" href="{$css}"/>
 			</head>
-			<body>
+			<body style="margin-left: 30px;margin-right: 30px;margin-top: 30px;margin-bottom: 30px;">
 				<table cellpadding="0" class="tableContentAlign3911">
 					<tr>
 						<td style="text-align:left; font-family: Century Gothic,sans-serif;">
@@ -1461,10 +1461,10 @@ Full Prescribing information to better support two column rendering
 		<div id="Highlights" class="Highlights">
 			<table cellspacing="5" cellpadding="5" width="100%" style="table-layout:fixed">
 				<tr>
-					<td width="50%" align="left" valign="top" id="highlightsLeftColumn">
+					<td width="50%" align="left" valign="top" id="highlightsLeftColumn" style="padding-right:10px;">
 						<!-- Left column - will be populated by JavaScript -->
 					</td>
-					<td width="50%" align="left" valign="top" id="highlightsRightColumn">
+					<td width="50%" align="left" valign="top" id="highlightsRightColumn" style="padding-left:10px;">
 						<div id="highlightsContent">
 							<h1>HIGHLIGHTS OF PRESCRIBING INFORMATION</h1>
 							<xsl:apply-templates mode="highlights" select="@*|node()" />
@@ -1722,10 +1722,10 @@ Full Prescribing information to better support two column rendering
 		<div id="Index" class="Index">
 			<table cellspacing="5" cellpadding="5" width="100%" style="table-layout:fixed">
 				<tr>
-					<td width="50%" align="left" valign="top" id="indexLeftColumn">
+					<td width="50%" align="left" valign="top" id="indexLeftColumn" style="padding-right:10px;">
 						<!-- Left column - will be populated by JavaScript -->
 					</td>
-					<td width="50%" align="left" valign="top" id="indexRightColumn">
+					<td width="50%" align="left" valign="top" id="indexRightColumn"  style="padding-left:10px;">
 						<div id="indexContent">
 							<h1 class="Colspan">
 								FULL PRESCRIBING INFORMATION: CONTENTS<!-- do not allow a space here 
