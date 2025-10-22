@@ -2,6 +2,7 @@
 using MedRecPro.Configuration;
 using MedRecPro.Data; // Namespace for ApplicationDbContext
 using MedRecPro.DataAccess;
+using MedRecPro.Filters;
 using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
 using MedRecPro.Models; // Namespace for User model
 using MedRecPro.Security;
@@ -70,6 +71,10 @@ builder.Services.AddScoped<IClaudeApiService, ClaudeApiService>();
 
 builder.Services.AddUserLogger(); // custom service
 
+builder.Services.AddScoped<IActivityLogService, ActivityLogService>();
+
+builder.Services.AddScoped<ActivityLogActionFilter>();
+
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 
 builder.Services.AddScoped(typeof(Repository<>), typeof(Repository<>));
@@ -100,6 +105,7 @@ builder.Services.AddDocumentRenderingServices(options =>
     options.CacheTemplates = true;
     options.MaxConcurrentOperations = Environment.ProcessorCount;
 });
+
 
 #region User and Authentication
 // --- ASP.NET Core Identity ---
@@ -383,8 +389,12 @@ builder.Services.Configure<KestrelServerOptions>(options =>
 #endregion
 
 #region View Configuration
-// Enable ASP.NET Core Razor Views
-builder.Services.AddControllersWithViews(); // This adds Razor view support
+
+// Enable ASP.NET Core Razor Views with Activity Logging Filter
+builder.Services.AddControllersWithViews(options =>
+{
+    options.Filters.Add<ActivityLogActionFilter>();
+});
 
 // RazorLight for programmatic templates (after your existing custom services)
 builder.Services.AddSingleton<IRazorLightEngine>(serviceProvider =>

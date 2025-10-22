@@ -1,4 +1,5 @@
 ﻿using MedRecPro.Models;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace MedRecPro.Service.Test
 {

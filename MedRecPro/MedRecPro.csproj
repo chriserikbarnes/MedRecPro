@@ -1,5 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
-
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
 		<Nullable>enable</Nullable>
@@ -7,10 +6,8 @@
 		<UserSecretsId>63befe8e-22f7-4030-825b-52499ee17e59</UserSecretsId>
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>
 		<NoWarn>$(NoWarn);1591</NoWarn>
-
 		<PreserveCompilationContext>true</PreserveCompilationContext>
 	</PropertyGroup>
-
 	<ItemGroup>
 		<PackageReference Include="AspNet.Security.OAuth.Apple" Version="8.3.0" />
 		<PackageReference Include="Dapper" Version="2.1.66" />
@@ -40,24 +37,27 @@
 		<PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.4" />
 		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.8" />
 		<PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.11.0" />
-		<PackageReference Include="MSTest.TestFramework" Version="3.10.3" />
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 		<PackageReference Include="RazorLight" Version="2.3.1" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
 		<PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
 		<PackageReference Include="System.Runtime.Caching" Version="9.0.4" />
-
+	</ItemGroup>
+	
+	<ItemGroup>
+		
 		<!-- Include for IntelliSense in design-time, exclude during build -->
 		<!-- This blocks build errors when compiling with RazorLight views -->
 		<!-- and allows IntelliSense to work as expected when editing -->
 		<Compile Include="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' == 'true'" />
 		<Compile Remove="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' != 'true'" />
-
+		
 		<!-- Always include as embedded resources for RazorLight -->
 		<EmbeddedResource Include="Views\SplTemplates\**\*.cshtml" />
-
+		
 		<None Include="Views\SplTemplates\**\*.cshtml">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
+		
 	</ItemGroup>
 </Project>

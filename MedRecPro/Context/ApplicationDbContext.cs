@@ -35,6 +35,8 @@ namespace MedRecPro.Data
         /// </summary>
         public DbSet<User> AppUsers { get; set; } // This will map to the same table as Identity's Users.
 
+        public DbSet<ActivityLog> ActivityLogs { get; set; } // Maps to AspNetUserActivityLog table
+
         public DbSet<SplData> SplData { get; set; }
 
         /// <summary>
