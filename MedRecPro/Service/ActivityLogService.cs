@@ -99,42 +99,153 @@ namespace MedRecPro.Service
             #endregion
         }
 
-        /*************************************************************/
+        /**************************************************************/
         /// <summary>
-        /// Retrieves the most recent activity log entries for a specific user.
+        /// Retrieves activity log entries for a specific user with paging support.
         /// </summary>
         /// <param name="userId">The identifier of the user whose activity to retrieve.</param>
-        /// <param name="count">The maximum number of log entries to return. Defaults to 100.</param>
+        /// <param name="pageSize">The maximum number of log entries to return.</param>
+        /// <param name="skip">The number of entries to skip for paging. Defaults to 0.</param>
         /// <returns>A task containing a list of activity log entries, ordered by timestamp descending.</returns>
         /// <remarks>
         /// Returns empty list if no activities found or if an error occurs.
         /// Results are ordered by ActivityTimestamp in descending order (most recent first).
+        /// Use skip parameter for pagination by calculating: skip = (pageNumber - 1) * pageSize.
         /// </remarks>
         /// <example>
         /// <code>
-        /// var recentActivity = await _activityLogService.GetUserActivityAsync(123, 50);
-        /// foreach (var activity in recentActivity)
+        /// // Get first page (25 entries)
+        /// var page1 = await _activityLogService.GetUserActivityAsync(123, 25, 0);
+        /// 
+        /// // Get second page (next 25 entries)
+        /// var page2 = await _activityLogService.GetUserActivityAsync(123, 25, 25);
+        /// </code>
+        /// </example>
+        /// <seealso cref="ActivityLog"/>
+        /// <seealso cref="GetUserActivityByDateRangeAsync"/>
+        public async Task<List<ActivityLog>> GetUserActivityAsync(long userId, int pageSize, int skip = 0)
+        {
+            #region implementation
+            try
+            {
+                // Validate parameters
+                if (userId <= 0)
+                {
+                    _logger.LogWarning("GetUserActivityAsync called with invalid userId: {UserId}", userId);
+                    return new List<ActivityLog>();
+                }
+
+                if (pageSize <= 0)
+                {
+                    _logger.LogWarning("GetUserActivityAsync called with invalid pageSize: {PageSize}", pageSize);
+                    return new List<ActivityLog>();
+                }
+
+                if (skip < 0)
+                {
+                    _logger.LogWarning("GetUserActivityAsync called with invalid skip: {Skip}", skip);
+                    skip = 0; // Reset to 0 if negative
+                }
+
+                return await _context.ActivityLogs
+                    .Where(a => a.UserId == userId)
+                    .OrderByDescending(a => a.ActivityTimestamp)
+                    .Skip(skip)
+                    .Take(pageSize)
+                    .ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to retrieve activity logs for user {UserId} with pageSize {PageSize} and skip {Skip}",
+                    userId, pageSize, skip);
+                return new List<ActivityLog>();
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves activity log entries for a specific user filtered by date range with paging support.
+        /// </summary>
+        /// <param name="userId">The identifier of the user whose activity to retrieve.</param>
+        /// <param name="startDate">The start date for filtering activity logs (inclusive).</param>
+        /// <param name="endDate">The end date for filtering activity logs (inclusive).</param>
+        /// <param name="pageSize">The maximum number of log entries to return.</param>
+        /// <param name="skip">The number of entries to skip for paging. Defaults to 0.</param>
+        /// <returns>A task containing a list of activity log entries within the date range, ordered by timestamp descending.</returns>
+        /// <remarks>
+        /// Returns empty list if no activities found within the date range or if an error occurs.
+        /// Results are ordered by ActivityTimestamp in descending order (most recent first).
+        /// Both startDate and endDate are inclusive. The time component is considered for comparison.
+        /// Use skip parameter for pagination by calculating: skip = (pageNumber - 1) * pageSize.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var startDate = new DateTime(2024, 1, 1);
+        /// var endDate = new DateTime(2024, 12, 31);
+        /// 
+        /// // Get first page of activities in date range
+        /// var activities = await _activityLogService.GetUserActivityByDateRangeAsync(123, startDate, endDate, 50, 0);
+        /// 
+        /// foreach (var activity in activities)
         /// {
         ///     Console.WriteLine($"{activity.ActivityTimestamp}: {activity.Description}");
         /// }
         /// </code>
         /// </example>
         /// <seealso cref="ActivityLog"/>
-        public async Task<List<ActivityLog>> GetUserActivityAsync(long userId, int count = 100)
+        /// <seealso cref="GetUserActivityAsync"/>
+        public async Task<List<ActivityLog>> GetUserActivityByDateRangeAsync(
+            long userId,
+            DateTime startDate,
+            DateTime endDate,
+            int pageSize,
+            int skip = 0)
         {
-            #region Implementation
+            #region implementation
             try
             {
+                // Validate parameters
+                if (userId <= 0)
+                {
+                    _logger.LogWarning("GetUserActivityByDateRangeAsync called with invalid userId: {UserId}", userId);
+                    return new List<ActivityLog>();
+                }
+
+                if (startDate > endDate)
+                {
+                    _logger.LogWarning("GetUserActivityByDateRangeAsync called with invalid date range: {StartDate} to {EndDate}",
+                        startDate, endDate);
+                    return new List<ActivityLog>();
+                }
+
+                if (pageSize <= 0)
+                {
+                    _logger.LogWarning("GetUserActivityByDateRangeAsync called with invalid pageSize: {PageSize}", pageSize);
+                    return new List<ActivityLog>();
+                }
+
+                if (skip < 0)
+                {
+                    _logger.LogWarning("GetUserActivityByDateRangeAsync called with invalid skip: {Skip}", skip);
+                    skip = 0; // Reset to 0 if negative
+                }
+
                 return await _context.ActivityLogs
-                    .Where(a => a.UserId == userId)
+                    .Where(a => a.UserId == userId
+                        && a.ActivityTimestamp >= startDate
+                        && a.ActivityTimestamp <= endDate)
                     .OrderByDescending(a => a.ActivityTimestamp)
-                    .Take(count)
+                    .Skip(skip)
+                    .Take(pageSize)
                     .ToListAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "Failed to retrieve activity logs for user {UserId}", userId);
+                    "Failed to retrieve activity logs for user {UserId} with date range {StartDate} to {EndDate}, pageSize {PageSize} and skip {Skip}",
+                    userId, startDate, endDate, pageSize, skip);
                 return new List<ActivityLog>();
             }
             #endregion
@@ -180,18 +291,19 @@ namespace MedRecPro.Service
             #endregion
         }
 
-        /*************************************************************/
+        /**************************************************************/
         /// <summary>
         /// Retrieves activity log entries for a specific controller and action.
         /// </summary>
         /// <param name="controllerName">The name of the controller.</param>
         /// <param name="actionName">The name of the action method. Optional.</param>
-        /// <param name="count">The maximum number of log entries to return. Defaults to 100.</param>
+        /// <param name="limit">The maximum number of log entries to return. Defaults to 100.</param>
         /// <returns>A task containing a list of activity log entries matching the specified criteria.</returns>
         /// <remarks>
         /// If actionName is null or empty, returns all activities for the specified controller.
         /// Returns empty list if no activities found or if an error occurs.
-        /// Results are ordered by ActivityTimestamp in descending order.
+        /// Results are ordered by ActivityTimestamp in descending order (most recent first).
+        /// Used for analyzing usage patterns of specific endpoints and troubleshooting controller-specific issues.
         /// </remarks>
         /// <example>
         /// <code>
@@ -206,11 +318,25 @@ namespace MedRecPro.Service
         public async Task<List<ActivityLog>> GetActivityByEndpointAsync(
             string controllerName,
             string? actionName = null,
-            int count = 100)
+            int limit = 100)
         {
-            #region Implementation
+            #region implementation
             try
             {
+                // Validate parameters
+                if (string.IsNullOrWhiteSpace(controllerName))
+                {
+                    _logger.LogWarning("GetActivityByEndpointAsync called with null or empty controllerName");
+                    return new List<ActivityLog>();
+                }
+
+                if (limit <= 0)
+                {
+                    _logger.LogWarning("GetActivityByEndpointAsync called with invalid limit: {Limit}", limit);
+                    return new List<ActivityLog>();
+                }
+
+                // Build query starting with controller name filter
                 var query = _context.ActivityLogs
                     .Where(a => a.ControllerName == controllerName);
 
@@ -220,16 +346,17 @@ namespace MedRecPro.Service
                     query = query.Where(a => a.ActionName == actionName);
                 }
 
+                // Execute query with ordering and limit
                 return await query
                     .OrderByDescending(a => a.ActivityTimestamp)
-                    .Take(count)
+                    .Take(limit)
                     .ToListAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "Failed to retrieve activity logs for endpoint {Controller}/{Action}",
-                    controllerName, actionName ?? "All");
+                    "Failed to retrieve activity logs for endpoint {Controller}/{Action} with limit {Limit}",
+                    controllerName, actionName ?? "All", limit);
                 return new List<ActivityLog>();
             }
             #endregion

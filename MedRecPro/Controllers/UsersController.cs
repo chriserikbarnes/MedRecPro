@@ -34,25 +34,171 @@ namespace MedRecPro.Controllers
         {
             [System.ComponentModel.DataAnnotations.Required]
             [System.ComponentModel.DataAnnotations.EmailAddress]
-            public string Email { get; set; }
+            public string? Email { get; set; }
 
             [System.ComponentModel.DataAnnotations.Required]
-            public string Password { get; set; }
+            public string? Password { get; set; }
         }
 
         // Define DTO for password rotation
         public class RotatePasswordRequestDto
         {
             [System.ComponentModel.DataAnnotations.Required]
-            public string EncryptedTargetUserId { get; set; }
+            public string? EncryptedTargetUserId { get; set; }
 
             [System.ComponentModel.DataAnnotations.Required]
             [MinLength(12)]
-            public string NewPlainPassword { get; set; }
+            public string? NewPlainPassword { get; set; }
 
             [System.ComponentModel.DataAnnotations.Required]
             [MinLength(12)]
-            public string NewConfirmationPassword { get; set; }
+            public string? NewConfirmationPassword { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Represents statistics for endpoint activity logs, including execution time metrics.
+        /// </summary>
+        /// <remarks>
+        /// This class encapsulates performance metrics and activity counts for a specific
+        /// controller endpoint. Used for monitoring and analyzing endpoint performance over time.
+        /// All execution time values are measured in milliseconds and rounded to 2 decimal places.
+        /// </remarks>
+        /// <seealso cref="ActivityLog"/>
+        /// <seealso cref="EndpointDateRange"/>
+        public class EndpointStatisticsResponse
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the name of the controller.
+            /// </summary>
+            /// <remarks>
+            /// The controller name identifies which API controller the statistics represent.
+            /// </remarks>
+            /// <example>Labels</example>
+            public string ControllerName { get; set; } = string.Empty;
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the name of the action method.
+            /// </summary>
+            /// <remarks>
+            /// The action name identifies the specific endpoint method. If statistics are aggregated
+            /// across all actions in a controller, this will be "All Actions".
+            /// </remarks>
+            /// <example>Create</example>
+            public string ActionName { get; set; } = string.Empty;
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the total number of activity log entries analyzed.
+            /// </summary>
+            /// <remarks>
+            /// This count represents all activity logs retrieved for the endpoint, regardless
+            /// of whether they contain execution time data.
+            /// </remarks>
+            public int TotalActivities { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the average execution time in milliseconds.
+            /// </summary>
+            /// <remarks>
+            /// Calculated from activity logs that contain execution time data. Rounded to 2 decimal places.
+            /// Returns 0 if no activities have execution time data.
+            /// </remarks>
+            public double AverageExecutionTimeMs { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the minimum execution time in milliseconds.
+            /// </summary>
+            /// <remarks>
+            /// Represents the fastest recorded execution time for the endpoint. Rounded to 2 decimal places.
+            /// Null if no activities have execution time data.
+            /// </remarks>
+            public double? MinExecutionTimeMs { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the maximum execution time in milliseconds.
+            /// </summary>
+            /// <remarks>
+            /// Represents the slowest recorded execution time for the endpoint. Rounded to 2 decimal places.
+            /// Null if no activities have execution time data. Useful for identifying performance outliers.
+            /// </remarks>
+            public double? MaxExecutionTimeMs { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the count of activities that contain execution time data.
+            /// </summary>
+            /// <remarks>
+            /// Not all activity logs may contain execution time information. This count represents
+            /// the subset of activities used for calculating execution time statistics.
+            /// </remarks>
+            public int ActivitiesWithExecutionTime { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the maximum number of activities that were analyzed.
+            /// </summary>
+            /// <remarks>
+            /// This represents the limit parameter used in the query. The actual number of activities
+            /// analyzed may be less if fewer activities exist for the endpoint.
+            /// </remarks>
+            public int AnalyzedLimit { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the date range of the activities analyzed.
+            /// </summary>
+            /// <remarks>
+            /// Represents the time span covered by the analyzed activity logs, from the oldest
+            /// to the most recent activity. Null if no activities were found.
+            /// </remarks>
+            /// <seealso cref="EndpointDateRange"/>
+            public EndpointDateRange? DateRangeAnalyzed { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets an optional message providing additional context about the statistics.
+            /// </summary>
+            /// <remarks>
+            /// Typically used to communicate situations like "No activities found for the specified endpoint."
+            /// when no data is available.
+            /// </remarks>
+            public string? Message { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Represents a date range for endpoint activity analysis.
+        /// </summary>
+        /// <remarks>
+        /// Defines the time span of activity logs included in endpoint statistics,
+        /// from the earliest to the most recent activity timestamp.
+        /// </remarks>
+        /// <seealso cref="EndpointStatisticsResponse"/>
+        public class EndpointDateRange
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the start date of the analyzed period.
+            /// </summary>
+            /// <remarks>
+            /// Represents the timestamp of the oldest activity log in the analyzed set.
+            /// </remarks>
+            public DateTime From { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets or sets the end date of the analyzed period.
+            /// </summary>
+            /// <remarks>
+            /// Represents the timestamp of the most recent activity log in the analyzed set.
+            /// </remarks>
+            public DateTime To { get; set; }
         }
         #endregion
 
@@ -201,76 +347,523 @@ namespace MedRecPro.Controllers
         #endregion
 
         #region User Logs
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        /**************************************************************/
+        /// <summary>
+        /// (Admin) Retrieves activity log entries for a specific user with optional paging.
+        /// </summary>
+        /// <param name="encryptedUserId">The encrypted identifier of the user whose activity to retrieve.</param>
+        /// <param name="pageNumber">The page number to retrieve. Defaults to 1.</param>
+        /// <param name="pageSize">The number of entries per page. Defaults to 50, maximum 100.</param>
+        /// <returns>
+        /// An <see cref="IActionResult"/> containing a list of <see cref="ActivityLogDto"/> objects if successful,
+        /// or an error response if the request fails.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint requires admin authorization. The authenticated user must have admin privileges
+        /// to view another user's activity logs. Results are ordered by timestamp in descending order (most recent first).
+        /// The encrypted user ID is decrypted and validated before processing.
+        /// </remarks>
+        /// <example>
+        /// GET /api/user/{encryptedUserId}/activity?pageNumber=1&amp;pageSize=25
+        /// </example>
+        /// <seealso cref="ActivityLog"/>
+        /// <seealso cref="ActivityLogDto"/>
+        /// <seealso cref="GetUserActivityByDateRange"/>
+        [ProducesResponseType(typeof(List<ActivityLogDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)] // 
+        [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         [HttpGet("user/{encryptedUserId}/activity")]
-        public async Task<IActionResult> GetUserActivity(string encryptedUserId)
+        public async Task<IActionResult> GetUserActivity(
+            string encryptedUserId,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 50)
         {
+            #region validation
+            // Validate encrypted user ID parameter
+            if (string.IsNullOrWhiteSpace(encryptedUserId))
+            {
+                _logger.LogWarning("GetUserActivity called with null or empty encryptedUserId");
+                return BadRequest("User ID is required.");
+            }
 
+            // Validate paging parameters
+            if (pageNumber < 1)
+            {
+                _logger.LogWarning("GetUserActivity called with invalid pageNumber: {PageNumber}", pageNumber);
+                return BadRequest("Page number must be greater than 0.");
+            }
+
+            if (pageSize < 1 || pageSize > 100)
+            {
+                _logger.LogWarning("GetUserActivity called with invalid pageSize: {PageSize}", pageSize);
+                return BadRequest("Page size must be between 1 and 100.");
+            }
+            #endregion
+
+            #region decryption and user id validation
             long userId = 0;
-
-            bool v = Int64.TryParse(TextUtil.Decrypt(encryptedUserId, _pkSecret), out userId);
-
-            if (!v || userId <= 0)
+            try
             {
-                return BadRequest("Invalid encrypted user ID.");
+                // Decrypt the user ID
+                string? decryptedValue = TextUtil.Decrypt(encryptedUserId, _pkSecret);
+
+                if (string.IsNullOrWhiteSpace(decryptedValue))
+                {
+                    _logger.LogWarning("Decryption resulted in null or empty value for encryptedUserId");
+                    return BadRequest("Invalid encrypted user ID.");
+                }
+
+                bool parseSuccess = Int64.TryParse(decryptedValue, out userId);
+
+                if (!parseSuccess || userId <= 0)
+                {
+                    _logger.LogWarning("Failed to parse decrypted user ID or invalid value: {DecryptedValue}", decryptedValue);
+                    return BadRequest("Invalid encrypted user ID.");
+                }
             }
-
-            // IMPORTANT: Get the authenticated user's ID from claims.
-            var encryptedUpdaterUserIdFromAuth = getEncryptedIdFromClaim();
-
-            // Get the claim user
-            var claimsUser = await _userDataAccess
-                .GetByIdAsync(encryptedUpdaterUserIdFromAuth);
-
-            if (claimsUser == null || !claimsUser.IsUserAdmin())
+            catch (Exception ex)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized.");
+                _logger.LogError(ex, "Error decrypting user ID: {EncryptedUserId}", encryptedUserId);
+                return BadRequest("Invalid encrypted user ID format.");
             }
+            #endregion
 
-            // Get last 50 activities for user
-            var activities = await _activityLogService.GetUserActivityAsync(userId, 50);
-
-            var secured = activities.Select(a => (new
+            #region authorization
+            try
             {
-                Id = a.ActivityLogId,
-                a.UserId,
-                Email = a.User?.Email ?? string.Empty,
-                DisplayName = a.User?.DisplayName ?? string.Empty,
-                a.ActivityType,
-                a.ActivityTimestamp,
-                a.IpAddress,
-                a.UserAgent,
-                a.ExecutionTimeMs,
-                a.ControllerName,
-                a.ActionName,
-                a.RequestPath,
-                a.RequestParameters,
-                a.HttpMethod,
-                a.ResponseStatusCode,
-                a.ErrorMessage,
-                a.Description,
-                a.Result
-            })?.ToEntityWithEncryptedId(_pkSecret, _logger)
-            );
+                // Get the authenticated user's ID from claims
+                var encryptedUpdaterUserIdFromAuth = getEncryptedIdFromClaim();
 
-            return Ok(secured);
+                if (string.IsNullOrWhiteSpace(encryptedUpdaterUserIdFromAuth))
+                {
+                    _logger.LogWarning("No user ID found in claims for GetUserActivity request");
+                    return Unauthorized("Authentication required.");
+                }
+
+                // Get the claims user
+                var claimsUser = await _userDataAccess.GetByIdAsync(encryptedUpdaterUserIdFromAuth);
+
+                if (claimsUser == null)
+                {
+                    _logger.LogWarning("Claims user not found: {EncryptedUserId}", encryptedUpdaterUserIdFromAuth);
+                    return Unauthorized("User not found.");
+                }
+
+                if (!claimsUser.IsUserAdmin())
+                {
+                    _logger.LogWarning("Non-admin user {UserId} attempted to access activity logs for user {TargetUserId}",
+                        claimsUser.Id, userId);
+                    return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized to view user activity logs.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during authorization check for GetUserActivity");
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during authorization.");
+            }
+            #endregion
+
+            #region retrieve activity logs
+            try
+            {
+                // Calculate skip count for paging
+                int skip = (pageNumber - 1) * pageSize;
+
+                // Get activities for user with paging
+                var activities = await _activityLogService.GetUserActivityAsync(userId, pageSize, skip);
+
+                if (activities == null)
+                {
+                    _logger.LogWarning("Activity log service returned null for user {UserId}", userId);
+                    return StatusCode(StatusCodes.Status500InternalServerError, "Error retrieving activity logs.");
+                }
+
+                // Convert to DTOs with encryption
+                var secured = ActivityLogDto.FromActivityLogs(activities, _pkSecret, _logger);
+
+                _logger.LogInformation("Retrieved {Count} activity logs for user {UserId}, page {PageNumber}",
+                    secured.Count, userId, pageNumber);
+
+                return Ok(secured);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving activity logs for user {UserId}", userId);
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while retrieving activity logs.");
+            }
+            #endregion
         }
 
-        [HttpGet("endpoint-stats")]
-        public async Task<IActionResult> GetEndpointStats()
+        /**************************************************************/
+        /// <summary>
+        /// (Admin) Retrieves activity log entries for a specific user filtered by date range with optional paging.
+        /// </summary>
+        /// <param name="encryptedUserId">The encrypted identifier of the user whose activity to retrieve.</param>
+        /// <param name="startDate">The start date for filtering activity logs (inclusive).</param>
+        /// <param name="endDate">The end date for filtering activity logs (inclusive).</param>
+        /// <param name="pageNumber">The page number to retrieve. Defaults to 1.</param>
+        /// <param name="pageSize">The number of entries per page. Defaults to 50, maximum 100.</param>
+        /// <returns>
+        /// An <see cref="IActionResult"/> containing a list of <see cref="ActivityLogDto"/> objects if successful,
+        /// or an error response if the request fails.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint requires admin authorization. The authenticated user must have admin privileges
+        /// to view another user's activity logs. Results are filtered to include only activities within
+        /// the specified date range and are ordered by timestamp in descending order (most recent first).
+        /// Both startDate and endDate are inclusive.
+        /// </remarks>
+        /// <example>
+        /// GET /api/user/{encryptedUserId}/activity/daterange?startDate=2024-01-01&amp;endDate=2024-12-31&amp;pageNumber=1&amp;pageSize=25
+        /// </example>
+        /// <seealso cref="ActivityLog"/>
+        /// <seealso cref="ActivityLogDto"/>
+        /// <seealso cref="GetUserActivity"/>
+        [ProducesResponseType(typeof(List<ActivityLogDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [HttpGet("user/{encryptedUserId}/activity/daterange")]
+        public async Task<IActionResult> GetUserActivityByDateRange(
+            string encryptedUserId,
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 50)
         {
-            // Get activities for specific endpoint
-            var activities = await _activityLogService
-                .GetActivityByEndpointAsync("Labels", "Create", 100);
+            #region validation
+            // Validate encrypted user ID parameter
+            if (string.IsNullOrWhiteSpace(encryptedUserId))
+            {
+                _logger.LogWarning("GetUserActivityByDateRange called with null or empty encryptedUserId");
+                return BadRequest("User ID is required.");
+            }
 
-            // Calculate average execution time
-            var avgTime = activities.Average(a => a.ExecutionTimeMs ?? 0);
+            // Validate date range
+            if (startDate > endDate)
+            {
+                _logger.LogWarning("GetUserActivityByDateRange called with invalid date range: {StartDate} to {EndDate}",
+                    startDate, endDate);
+                return BadRequest("Start date must be before or equal to end date.");
+            }
 
-            return Ok(new { AverageExecutionTime = avgTime });
+            // Check for unreasonably large date ranges (e.g., more than 1 year)
+            if ((endDate - startDate).TotalDays > 365)
+            {
+                _logger.LogWarning("GetUserActivityByDateRange called with date range exceeding 365 days");
+                return BadRequest("Date range cannot exceed 365 days.");
+            }
+
+            // Validate paging parameters
+            if (pageNumber < 1)
+            {
+                _logger.LogWarning("GetUserActivityByDateRange called with invalid pageNumber: {PageNumber}", pageNumber);
+                return BadRequest("Page number must be greater than 0.");
+            }
+
+            if (pageSize < 1 || pageSize > 100)
+            {
+                _logger.LogWarning("GetUserActivityByDateRange called with invalid pageSize: {PageSize}", pageSize);
+                return BadRequest("Page size must be between 1 and 100.");
+            }
+            #endregion
+
+            #region decryption and user id validation
+            long userId = 0;
+            try
+            {
+                // Decrypt the user ID
+                string decryptedValue = TextUtil.Decrypt(encryptedUserId, _pkSecret);
+
+                if (string.IsNullOrWhiteSpace(decryptedValue))
+                {
+                    _logger.LogWarning("Decryption resulted in null or empty value for encryptedUserId");
+                    return BadRequest("Invalid encrypted user ID.");
+                }
+
+                bool parseSuccess = Int64.TryParse(decryptedValue, out userId);
+
+                if (!parseSuccess || userId <= 0)
+                {
+                    _logger.LogWarning("Failed to parse decrypted user ID or invalid value: {DecryptedValue}", decryptedValue);
+                    return BadRequest("Invalid encrypted user ID.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error decrypting user ID: {EncryptedUserId}", encryptedUserId);
+                return BadRequest("Invalid encrypted user ID format.");
+            }
+            #endregion
+
+            #region authorization
+            try
+            {
+                // Get the authenticated user's ID from claims
+                var encryptedUpdaterUserIdFromAuth = getEncryptedIdFromClaim();
+
+                if (string.IsNullOrWhiteSpace(encryptedUpdaterUserIdFromAuth))
+                {
+                    _logger.LogWarning("No user ID found in claims for GetUserActivityByDateRange request");
+                    return Unauthorized("Authentication required.");
+                }
+
+                // Get the claims user
+                var claimsUser = await _userDataAccess.GetByIdAsync(encryptedUpdaterUserIdFromAuth);
+
+                if (claimsUser == null)
+                {
+                    _logger.LogWarning("Claims user not found: {EncryptedUserId}", encryptedUpdaterUserIdFromAuth);
+                    return Unauthorized("User not found.");
+                }
+
+                if (!claimsUser.IsUserAdmin())
+                {
+                    _logger.LogWarning("Non-admin user {UserId} attempted to access activity logs for user {TargetUserId}",
+                        claimsUser.Id, userId);
+                    return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized to view user activity logs.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during authorization check for GetUserActivityByDateRange");
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during authorization.");
+            }
+            #endregion
+
+            #region retrieve activity logs
+            try
+            {
+                // Calculate skip count for paging
+                int skip = (pageNumber - 1) * pageSize;
+
+                // Get activities for user with date filtering and paging
+                var activities = await _activityLogService.GetUserActivityByDateRangeAsync(
+                    userId, startDate, endDate, pageSize, skip);
+
+                if (activities == null)
+                {
+                    _logger.LogWarning("Activity log service returned null for user {UserId} with date range {StartDate} to {EndDate}",
+                        userId, startDate, endDate);
+                    return StatusCode(StatusCodes.Status500InternalServerError, "Error retrieving activity logs.");
+                }
+
+                // Convert to DTOs with encryption
+                var secured = ActivityLogDto.FromActivityLogs(activities, _pkSecret, _logger);
+
+                _logger.LogInformation("Retrieved {Count} activity logs for user {UserId} from {StartDate} to {EndDate}, page {PageNumber}",
+                    secured.Count, userId, startDate, endDate, pageNumber);
+
+                return Ok(secured);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving activity logs for user {UserId} with date range {StartDate} to {EndDate}",
+                    userId, startDate, endDate);
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while retrieving activity logs.");
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// (Admin) Retrieves endpoint statistics for a specific controller and action, including average execution time.
+        /// </summary>
+        /// <param name="controllerName">The name of the controller to retrieve statistics for.</param>
+        /// <param name="actionName">The name of the action method. Optional. If not provided, statistics for all actions in the controller are returned.</param>
+        /// <param name="limit">The maximum number of activity log entries to analyze. Defaults to 100, maximum 1000.</param>
+        /// <returns>
+        /// An <see cref="IActionResult"/> containing an <see cref="EndpointStatisticsResponse"/> object if successful,
+        /// or an error response if the request fails.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint requires admin authorization. The authenticated user must have admin privileges
+        /// to view endpoint statistics. Calculates average execution time based on the specified
+        /// number of most recent activity log entries for the endpoint.
+        /// If no activities are found or all execution times are null, returns 0 for average execution time.
+        /// </remarks>
+        /// <example>
+        /// GET /api/endpoint-stats?controllerName=Labels&amp;actionName=Create&amp;limit=100
+        /// </example>
+        /// <seealso cref="ActivityLog"/>
+        /// <seealso cref="EndpointStatisticsResponse"/>
+        /// <seealso cref="IActivityLogService.GetActivityByEndpointAsync"/>
+        [ProducesResponseType(typeof(EndpointStatisticsResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [HttpGet("endpoint-stats")]
+        public async Task<IActionResult> GetEndpointStats(
+            [FromQuery] string controllerName,
+            [FromQuery] string? actionName = null,
+            [FromQuery] int limit = 100)
+        {
+            #region validation
+            // Validate controller name parameter
+            if (string.IsNullOrWhiteSpace(controllerName))
+            {
+                _logger.LogWarning("GetEndpointStats called with null or empty controllerName");
+                return BadRequest("Controller name is required.");
+            }
+
+            // Validate limit parameter
+            if (limit < 1)
+            {
+                _logger.LogWarning("GetEndpointStats called with invalid limit: {Limit}", limit);
+                return BadRequest("Limit must be greater than 0.");
+            }
+
+            if (limit > 1000)
+            {
+                _logger.LogWarning("GetEndpointStats called with limit exceeding maximum: {Limit}", limit);
+                return BadRequest("Limit cannot exceed 1000.");
+            }
+
+            // Sanitize controller name to prevent injection
+            if (controllerName.Length > 100)
+            {
+                _logger.LogWarning("GetEndpointStats called with excessively long controller name");
+                return BadRequest("Controller name is too long.");
+            }
+
+            // Sanitize action name if provided
+            if (!string.IsNullOrWhiteSpace(actionName) && actionName.Length > 100)
+            {
+                _logger.LogWarning("GetEndpointStats called with excessively long action name");
+                return BadRequest("Action name is too long.");
+            }
+            #endregion
+
+            #region authorization
+            try
+            {
+                // Get the authenticated user's ID from claims
+                var encryptedUpdaterUserIdFromAuth = getEncryptedIdFromClaim();
+
+                if (string.IsNullOrWhiteSpace(encryptedUpdaterUserIdFromAuth))
+                {
+                    _logger.LogWarning("No user ID found in claims for GetEndpointStats request");
+                    return Unauthorized("Authentication required.");
+                }
+
+                // Get the claims user
+                var claimsUser = await _userDataAccess.GetByIdAsync(encryptedUpdaterUserIdFromAuth);
+
+                if (claimsUser == null)
+                {
+                    _logger.LogWarning("Claims user not found: {EncryptedUserId}", encryptedUpdaterUserIdFromAuth);
+                    return Unauthorized("User not found.");
+                }
+
+                if (!claimsUser.IsUserAdmin())
+                {
+                    _logger.LogWarning("Non-admin user {UserId} attempted to access endpoint statistics for {Controller}/{Action}",
+                        claimsUser.Id, controllerName, actionName ?? "All");
+                    return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized to view endpoint statistics.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during authorization check for GetEndpointStats");
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during authorization.");
+            }
+            #endregion
+
+            #region retrieve and calculate statistics
+            try
+            {
+                // Get activities for specific endpoint
+                var activities = await _activityLogService.GetActivityByEndpointAsync(
+                    controllerName,
+                    actionName,
+                    limit);
+
+                if (activities == null)
+                {
+                    _logger.LogWarning("Activity log service returned null for endpoint {Controller}/{Action}",
+                        controllerName, actionName ?? "All");
+                    return StatusCode(StatusCodes.Status500InternalServerError, "Error retrieving endpoint statistics.");
+                }
+
+                // Check if any activities were found
+                if (activities.Count == 0)
+                {
+                    _logger.LogInformation("No activities found for endpoint {Controller}/{Action}",
+                        controllerName, actionName ?? "All");
+
+                    var emptyResult = new EndpointStatisticsResponse
+                    {
+                        ControllerName = controllerName,
+                        ActionName = actionName ?? "All Actions",
+                        TotalActivities = 0,
+                        AverageExecutionTimeMs = 0,
+                        MinExecutionTimeMs = null,
+                        MaxExecutionTimeMs = null,
+                        ActivitiesWithExecutionTime = 0,
+                        AnalyzedLimit = limit,
+                        DateRangeAnalyzed = null,
+                        Message = "No activities found for the specified endpoint."
+                    };
+
+                    return Ok(emptyResult);
+                }
+
+                // Filter activities that have execution time data
+                var activitiesWithExecutionTime = activities
+                    .Where(a => a.ExecutionTimeMs.HasValue && a.ExecutionTimeMs.Value >= 0)
+                    .ToList();
+
+                // Calculate statistics
+                double avgTime = 0;
+                double? minTime = null;
+                double? maxTime = null;
+
+                if (activitiesWithExecutionTime.Any())
+                {
+                    avgTime = activitiesWithExecutionTime.Average(a => a.ExecutionTimeMs!.Value);
+                    minTime = activitiesWithExecutionTime.Min(a => a.ExecutionTimeMs!.Value);
+                    maxTime = activitiesWithExecutionTime.Max(a => a.ExecutionTimeMs!.Value);
+                }
+
+                var result = new EndpointStatisticsResponse
+                {
+                    ControllerName = controllerName,
+                    ActionName = actionName ?? "All Actions",
+                    TotalActivities = activities.Count,
+                    AverageExecutionTimeMs = Math.Round(avgTime, 2),
+                    MinExecutionTimeMs = minTime.HasValue ? Math.Round(minTime.Value, 2) : null,
+                    MaxExecutionTimeMs = maxTime.HasValue ? Math.Round(maxTime.Value, 2) : null,
+                    ActivitiesWithExecutionTime = activitiesWithExecutionTime.Count,
+                    AnalyzedLimit = limit,
+                    DateRangeAnalyzed = activities.Any() ? new EndpointDateRange
+                    {
+                        From = activities.Min(a => a.ActivityTimestamp),
+                        To = activities.Max(a => a.ActivityTimestamp)
+                    } : null
+                };
+
+                _logger.LogInformation(
+                    "Retrieved endpoint statistics for {Controller}/{Action}: {TotalActivities} activities, {AvgTime}ms average execution time",
+                    controllerName, actionName ?? "All", activities.Count, avgTime);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error retrieving endpoint statistics for {Controller}/{Action}",
+                    controllerName, actionName ?? "All");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving endpoint statistics.");
+            }
+            #endregion
         }
         #endregion
 

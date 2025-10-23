@@ -41,23 +41,70 @@ namespace MedRecPro.Service
 
         /*************************************************************/
         /// <summary>
-        /// Retrieves the most recent activity log entries for a specific user.
+        /// Retrieves activity log entries for a specific user with paging support.
         /// </summary>
         /// <param name="userId">The identifier of the user whose activity to retrieve.</param>
-        /// <param name="count">The maximum number of log entries to return. Defaults to 100.</param>
+        /// <param name="pageSize">The maximum number of log entries to return.</param>
+        /// <param name="skip">The number of entries to skip for paging. Defaults to 0.</param>
         /// <returns>A task containing a list of activity log entries, ordered by timestamp descending.</returns>
         /// <remarks>
-        /// Returns the most recent activities first. Useful for displaying user activity
-        /// history, audit trails, and debugging user issues.
+        /// Returns empty list if no activities found or if an error occurs.
+        /// Results are ordered by ActivityTimestamp in descending order (most recent first).
+        /// Use skip parameter for pagination by calculating: skip = (pageNumber - 1) * pageSize.
+        /// Useful for displaying user activity history, audit trails, and debugging user issues.
         /// </remarks>
         /// <example>
         /// <code>
-        /// // Get last 50 activities for user
-        /// var activities = await _activityLogService.GetUserActivityAsync(userId: 123, count: 50);
+        /// // Get first page (25 entries)
+        /// var page1 = await _activityLogService.GetUserActivityAsync(userId: 123, pageSize: 25, skip: 0);
+        /// 
+        /// // Get second page (next 25 entries)
+        /// var page2 = await _activityLogService.GetUserActivityAsync(userId: 123, pageSize: 25, skip: 25);
         /// </code>
         /// </example>
         /// <seealso cref="ActivityLog"/>
-        Task<List<ActivityLog>> GetUserActivityAsync(long userId, int count = 100);
+        /// <seealso cref="GetUserActivityByDateRangeAsync"/>
+        Task<List<ActivityLog>> GetUserActivityAsync(long userId, int pageSize, int skip = 0);
+
+        /*************************************************************/
+        /// <summary>
+        /// Retrieves activity log entries for a specific user filtered by date range with paging support.
+        /// </summary>
+        /// <param name="userId">The identifier of the user whose activity to retrieve.</param>
+        /// <param name="startDate">The start date for filtering activity logs (inclusive).</param>
+        /// <param name="endDate">The end date for filtering activity logs (inclusive).</param>
+        /// <param name="pageSize">The maximum number of log entries to return.</param>
+        /// <param name="skip">The number of entries to skip for paging. Defaults to 0.</param>
+        /// <returns>A task containing a list of activity log entries within the date range, ordered by timestamp descending.</returns>
+        /// <remarks>
+        /// Returns empty list if no activities found within the date range or if an error occurs.
+        /// Results are ordered by ActivityTimestamp in descending order (most recent first).
+        /// Both startDate and endDate are inclusive. The time component is considered for comparison.
+        /// Use skip parameter for pagination by calculating: skip = (pageNumber - 1) * pageSize.
+        /// Useful for generating date-specific reports and analyzing user activity patterns over specific periods.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var startDate = new DateTime(2024, 1, 1);
+        /// var endDate = new DateTime(2024, 12, 31);
+        /// 
+        /// // Get first page of activities in date range
+        /// var activities = await _activityLogService.GetUserActivityByDateRangeAsync(
+        ///     userId: 123, 
+        ///     startDate: startDate, 
+        ///     endDate: endDate, 
+        ///     pageSize: 50, 
+        ///     skip: 0);
+        /// 
+        /// foreach (var activity in activities)
+        /// {
+        ///     Console.WriteLine($"{activity.ActivityTimestamp}: {activity.Description}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <seealso cref="ActivityLog"/>
+        /// <seealso cref="GetUserActivityAsync"/>
+        Task<List<ActivityLog>> GetUserActivityByDateRangeAsync(long userId, DateTime startDate, DateTime endDate, int pageSize, int skip = 0);
 
         /*************************************************************/
         /// <summary>
@@ -86,23 +133,24 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="controllerName">The name of the controller.</param>
         /// <param name="actionName">The name of the action method. Optional.</param>
-        /// <param name="count">The maximum number of log entries to return. Defaults to 100.</param>
+        /// <param name="limit">The maximum number of log entries to return. Defaults to 100.</param>
         /// <returns>A task containing a list of activity log entries matching the specified criteria.</returns>
         /// <remarks>
         /// Used for analyzing usage patterns of specific endpoints and troubleshooting
-        /// controller-specific issues. If actionName is null, returns all activities
-        /// for the specified controller.
+        /// controller-specific issues. If actionName is null or empty, returns all activities
+        /// for the specified controller. Returns empty list if no activities found or if an error occurs.
+        /// Results are ordered by ActivityTimestamp in descending order (most recent first).
         /// </remarks>
         /// <example>
         /// <code>
-        /// // Get all Label controller activities
+        /// // Get all Label controller activities (limit 50)
         /// var labelActivities = await _activityLogService.GetActivityByEndpointAsync("Labels", null, 50);
         /// 
-        /// // Get specific action activities
-        /// var createActivities = await _activityLogService.GetActivityByEndpointAsync("Labels", "Create", 50);
+        /// // Get specific action activities (limit 100)
+        /// var createActivities = await _activityLogService.GetActivityByEndpointAsync("Labels", "Create", 100);
         /// </code>
         /// </example>
         /// <seealso cref="ActivityLog"/>
-        Task<List<ActivityLog>> GetActivityByEndpointAsync(string controllerName, string? actionName = null, int count = 100);
+        Task<List<ActivityLog>> GetActivityByEndpointAsync(string controllerName, string? actionName = null, int limit = 100);
     }
 }
