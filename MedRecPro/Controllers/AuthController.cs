@@ -9,6 +9,19 @@ using System.Security.Claims;
 
 namespace MedRecPro.Controllers
 {
+    /**************************************************************/
+    /// <summary>
+    /// Manages authentication operations for the MedRecPro application, including external provider authentication,
+    /// user session management, and access control.
+    /// </summary>
+    /// <remarks>
+    /// This controller handles OAuth-based external authentication flows, user login/logout operations,
+    /// and provides endpoints for retrieving authenticated user information. It integrates with ASP.NET Core
+    /// Identity to manage user accounts, authentication tokens, and session state through cookie-based authentication.
+    /// </remarks>
+    /// <seealso cref="User"/>
+    /// <seealso cref="Microsoft.AspNetCore.Identity.SignInManager{TUser}"/>
+    /// <seealso cref="Microsoft.AspNetCore.Identity.UserManager{TUser}"/>
     [Route("api/[controller]")]
     [ApiController]
     public class AuthController : ControllerBase
@@ -429,9 +442,21 @@ namespace MedRecPro.Controllers
         /// GET /api/auth/login/Google
         /// </example>
         [HttpGet("login/{provider}")]
+        [ProducesResponseType(503)]
         public IActionResult LoginExternalProvider(string provider)
         {
             #region implementation
+
+            var extAuthEnabled = _configuration.GetValue<bool>("FeatureFlags:ExternalAuthEnabled", true);
+
+            if (!extAuthEnabled)
+            {
+                return StatusCode(503, new
+                {
+                    error = "Exnternal auth functionality is currently disabled"
+                });
+            }
+
             // Path to Swagger UI (adjust as needed)
             var swaggerPath = "/swagger/index.html";
 

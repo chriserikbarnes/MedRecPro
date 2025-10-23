@@ -1508,6 +1508,16 @@ namespace MedRecPro.Api.Controllers
             #region Implementation
             List<BufferedFile>? bufferedFiles = null;
 
+            var importEnabled = _configuration.GetValue<bool>("FeatureFlags:SplImportEnabled", true);
+
+            if (!importEnabled)
+            {
+                return StatusCode(503, new
+                {
+                    error = "Import functionality is currently disabled"
+                });
+            }
+
             // Validate that files were provided in the request
             if (files == null || !files.Any())
             {
@@ -1866,11 +1876,22 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(string), 200, "text/xml")]
         [ProducesResponseType(404)]
         [ProducesResponseType(500)]
+        [ProducesResponseType(503)]
         public async Task<IActionResult> GenerateXmlDocument(Guid documentGuid, bool minify = false)
         {
             #region implementation
             try
             {
+                var exportEnabled = _configuration.GetValue<bool>("FeatureFlags:SplExportEnabled", true);
+
+                if (!exportEnabled)
+                {
+                    return StatusCode(503, new
+                    {
+                        error = "Export functionality is currently disabled"
+                    });
+                }
+
                 _logger.LogInformation("Generating XML document for GUID: {DocumentGuid}", documentGuid);
                 var startTime = DateTime.UtcNow;
 

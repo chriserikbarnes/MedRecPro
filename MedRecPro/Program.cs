@@ -1,14 +1,15 @@
-
+﻿
 using MedRecPro.Configuration;
-using MedRecPro.Data; // Namespace for ApplicationDbContext
+using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Filters;
-using MedRecPro.Helpers; // Namespace for StringCipher, AppSettings etc.
-using MedRecPro.Models; // Namespace for User model
+using MedRecPro.Helpers;
+using MedRecPro.Models;
 using MedRecPro.Security;
 using MedRecPro.Service;
 using MedRecPro.Service.Common;
-using Microsoft.AspNetCore.Authentication; // Required for AuthenticationBuilder
+using MedRecPro.Services;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
@@ -87,7 +88,8 @@ builder.Services.AddScoped<SplDataService>();
 
 builder.Services.AddTransient<StringCipher>();
 
-builder.Services.AddSingleton<IBackgroundTaskQueueService, BackgroundTaskQueueService>();
+if (builder.Configuration.GetValue<bool>("FeatureFlags:BackgroundProcessingEnabled", true))
+    builder.Services.AddSingleton<IBackgroundTaskQueueService, BackgroundTaskQueueService>();
 
 builder.Services.AddSingleton<IOperationStatusStore, InMemoryOperationStatusStore>();
 
@@ -96,6 +98,8 @@ builder.Services.AddHostedService<ZipImportWorkerService>();
 builder.Services.AddSingleton<IEncryptionService, EncryptionService>();
 
 builder.Services.AddSingleton<IDictionaryUtilityService, DictionaryUtilityService>();
+
+builder.Services.AddHostedService<DemoModeService>();
 
 builder.Services.AddEndpointsApiExplorer();
 
@@ -264,70 +268,341 @@ builder.Services.AddControllers()
 #region Swagger Documentation
 builder.Services.AddSwaggerGen(c =>
 {
+    #region environment configuration
 #if DEBUG || DEV
     var environment = "Dev";
     var serverName = "Localhost";
-
 #elif RELEASE
     var environment = "Prod";
     var serverName = "ProdHost";
 #endif
+    #endregion
+
+    #region demo mode detection
+    // Check if demo mode is enabled from configuration
+    var configuration = builder.Configuration;
+    var demoModeEnabled = configuration.GetValue<bool>("DemoModeSettings:Enabled", false);
+    var demoRefreshInterval = configuration.GetValue<int>("DemoModeSettings:RefreshIntervalMinutes", 60);
+    var version = configuration.GetValue<string>("Version");
+
+    // Build demo mode warning banner if enabled
+    var demoModeWarning = demoModeEnabled
+        ? $@"
+---
+## ⚠️ **DEMO MODE ACTIVE** ⚠️
+**This system is running in DEMO MODE.**
+- Database is automatically truncated every **{demoRefreshInterval} minutes**
+- User authentication and activity logs are preserved
+- All other data will be periodically removed
+- DO NOT use for production data
+---
+"
+        : string.Empty;
+    #endregion
 
     c.DocumentFilter<IncludeLabelNestedTypesDocumentFilter>();
 
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Version = "v1",
+        Version = $"{version}",
         Title = "MedRecPro API",
         Description = $@"
+{demoModeWarning}
+
 This API provides a REST interface for the SQL Server {environment} environment ({serverName}).
-It is designed to manage Structured Product Labeling (SPL) data based on the ICH7 SPL Implementation Guide (December 2023) https://www.fda.gov/media/84201/download?attachment.
-
-## General Information
-
-* **Data Access:** The API utilizes a generic repository pattern (`Repository<T>`) implemented in `MedRecPro.DataAccess` for database operations. It assumes table names match class names and primary keys follow the `[ClassName]ID` naming convention. EntityFramework is used for object-relational mapping.
-* **Data Models:** Data structures corresponding to the database tables (e.g., `Document`, `Organization`) are defined in `MedRecPro.DataModels` (`LabelClasses.cs`).
-* **Database Schema:** The underlying database schema is defined in `MedRecPro-TableCreation.sql`.
-
-## Label CRUD API Endpoints
-
-### Labels (`/api/Labels`)
-
-This controller manages `Label Section` entities, providing CRUD operations based on SPL metadata.
-
-* **`GET /api/Labels`**: Retrieves all Label Section records.
-    * **Response:** `200 OK` - Returns a list of documents.
-* **`GET /api/Labels/encryptedId`**: Retrieves a specific Label Section record by its primary key (`Object Identifier`).
-    * **Parameters:** `encryptedId` (integer, path) - The `Object Identifier` of the label to retrieve.
-    * **Responses:**
-        * `200 OK` - Returns the requested label.
-        * `404 Not Found` - If the label with the specified ID is not found.
-* **`POST /api/Labels`**: Creates a new Label Section record.
-    * **Request Body:** A `Label Section` object (defined in `LabelClasses.cs`). `Object Identifier` should be omitted or 0 as it is auto-generated.
-    * **Responses:**
-        * `201 Created` - Returns the newly created label, including its assigned `Object Identifier`.
-        * `400 Bad Request` - If the input label data is invalid.
-* **`PUT /api/Labels/encryptedId`**: Updates an existing Label Section record.
-    * **Parameters:** `encryptedId` (integer, path) - The `Object Identifier` of the label to update.
-    * **Request Body:** The updated `Label Section` object. The `Object Identifier` in the body must match the `encryptedId` in the route.
-    * **Responses:**
-        * `204 No Content` - If the update was successful.
-        * `400 Bad Request` - If the ID in the route doesn't match the ID in the body, or if the data is invalid.
-        * `404 Not Found` - If the label with the specified ID is not found.
-* **`DELETE /api/Labels/encryptedId;`**: Deletes a Label Section record by its ID.
-    * **Parameters:** `encryptedId` (integer, path) - The `Object Identifier` of the label to delete.
-    * **Responses:**
-        * `204 No Content` - If the deletion was successful.
-        * `404 Not Found` - If the label with the specified ID is not found.
-
-*(Examples for each endpoint can be found in the XML comments within `LabelController.cs`)*.
+It is designed to manage Structured Product Labeling (SPL) data based on the ICH7 SPL Implementation Guide (December 2023).
+Reference: https://www.fda.gov/media/84201/download?attachment
 
 ---
 
-## Database Caching:
+## 📋 General Information
+
+### Data Access
+The API utilizes a generic repository pattern (`Repository<T>`) implemented in `MedRecPro.DataAccess` for database operations. 
+It assumes table names match class names and primary keys follow the `[ClassName]ID` naming convention. 
+EntityFramework is used for object-relational mapping.
+
+### Data Models
+Data structures corresponding to the database tables (e.g., `Document`, `Organization`) are defined in 
+`MedRecPro.Models` (`Labels.cs`).
+
+### Database Schema
+The underlying database schema is defined in `MedRecPro.sql`.
+
+### Security
+All primary/foriegn keys are encrypted using a secure cipher. Encrypted IDs must be provided in requests and will be 
+returned in responses for security purposes.
+
+---
+
+## 🔐 Authentication & Authorization (`/api/Auth`)
+
+The authentication system uses ASP.NET Core Identity with cookie-based authentication and supports external OAuth providers.
+
+### **External Login Endpoints**
+* **`GET /api/auth/login/{{provider}}`**: Initiates external login flow (e.g., Google, Microsoft)
+  * **Parameters:** `provider` (string, path) - The authentication provider name
+  * **Response:** Redirects to provider's login page
+  * **Example:** `GET /api/auth/login/Google`
+
+* **`GET /api/auth/external-logincallback`**: OAuth callback endpoint
+  * **Parameters:** 
+    - `returnUrl` (string, query, optional) - URL to redirect after successful login
+    - `remoteError` (string, query, optional) - Error message from provider
+  * **Responses:**
+    - Redirects to returnUrl on success
+    - Redirects to login failure page on error
+  * **Note:** This endpoint is automatically called by the OAuth provider
+
+### **Session Management**
+* **`GET /api/auth/user`**: Retrieves current authenticated user information
+  * **Authorization:** Required (must be logged in)
+  * **Responses:**
+    - `200 OK` - Returns user ID (encrypted), name, and claims
+    - `401 Unauthorized` - If not authenticated
+
+* **`POST /api/auth/logout`**: Logs out the current user
+  * **Authorization:** Required
+  * **Response:** `200 OK` - Confirmation message
+
+### **Error Handling Endpoints**
+* **`GET /api/auth/loginfailure`**: Handles login failures
+  * **Parameters:** `message` (string, query, optional) - Error message
+  * **Response:** `400 Bad Request` - Error details
+
+* **`GET /api/auth/lockout`**: Handles account lockout
+  * **Response:** `403 Forbidden` - Account locked message
+
+* **`GET /api/auth/accessdenied`**: Handles authorization failures
+  * **Response:** `403 Forbidden` - Access denied message
+
+### **Swagger Helper Endpoints**
+* **`GET /api/auth/external-login`**: Swagger OAuth2 authorization URL placeholder
+* **`POST /api/auth/token-placeholder`**: Swagger OAuth2 token URL placeholder
+
+---
+
+## 📄 Label CRUD API (`/api/Labels`)
+
+This controller manages SPL Label Section entities with dynamic routing based on section type.
+Each section corresponds to a nested class within the Label data model (e.g., Document, Organization, ActiveMoiety).
+
+### **Metadata & Documentation**
+* **`GET /api/labels/sectionMenu`**: Retrieves list of all available label sections
+  * **Response:** `200 OK` - Array of section names
+  * **Use Case:** Discover available sections for dynamic UI construction
+
+* **`GET /api/labels/{{menuSelection}}/documentation`**: Get schema documentation for a specific section
+  * **Parameters:** `menuSelection` (string, path) - The section name (e.g., ""Document"", ""Organization"")
+  * **Response:** `200 OK` - JSON schema and property descriptions
+  * **Example:** `GET /api/labels/Document/documentation`
+
+### **Data Retrieval**
+* **`GET /api/labels/section/{{menuSelection}}`**: Get all records for a specific section (paginated)
+  * **Parameters:**
+    - `menuSelection` (string, path) - Section name
+    - `pageNumber` (int, query, optional) - Default: 1
+    - `pageSize` (int, query, optional) - Default: 10
+  * **Response:** `200 OK` - Paginated list of records
+
+* **`GET /api/labels/{{menuSelection}}/{{encryptedId}}`**: Get a specific record by encrypted ID
+  * **Parameters:**
+    - `menuSelection` (string, path) - Section name
+    - `encryptedId` (string, path) - Encrypted primary key
+  * **Responses:**
+    - `200 OK` - The requested record
+    - `404 Not Found` - Record doesn't exist
+
+* **`GET /api/labels/single/{{documentGuid}}`**: Get a complete document by GUID
+  * **Parameters:** `documentGuid` (GUID, path) - The document's unique identifier
+  * **Response:** `200 OK` - Complete document with all related sections
+  * **Example:** `GET /api/labels/single/123e4567-e89b-12d3-a456-426614174000`
+
+* **`GET /api/labels/complete/{{pageNumber}}/{{pageSize}}`**: Get all complete documents (paginated)
+  * **Parameters:**
+    - `pageNumber` (int, path, optional) - Default: 1
+    - `pageSize` (int, path, optional) - Default: 10
+  * **Response:** `200 OK` - Paginated list of complete documents
+
+### **Data Modification**
+* **`POST /api/labels/{{menuSelection}}`**: Create a new record
+  * **Parameters:** `menuSelection` (string, path) - Section name
+  * **Request Body:** Record object (ID should be omitted or 0)
+  * **Responses:**
+    - `201 Created` - Returns created record with assigned encrypted ID
+    - `400 Bad Request` - Invalid data
+
+* **`PUT /api/labels/{{menuSelection}}/{{encryptedId}}`**: Update an existing record
+  * **Parameters:**
+    - `menuSelection` (string, path) - Section name
+    - `encryptedId` (string, path) - Encrypted ID of record to update
+  * **Request Body:** Updated record object (ID must match encryptedId)
+  * **Responses:**
+    - `204 No Content` - Update successful
+    - `400 Bad Request` - ID mismatch or invalid data
+    - `404 Not Found` - Record doesn't exist
+
+* **`DELETE /api/labels/{{menuSelection}}/{{encryptedId}}`**: Delete a record
+  * **Parameters:**
+    - `menuSelection` (string, path) - Section name
+    - `encryptedId` (string, path) - Encrypted ID of record to delete
+  * **Responses:**
+    - `204 No Content` - Deletion successful
+    - `404 Not Found` - Record doesn't exist
+
+### **Import/Export Operations**
+* **`POST /api/labels/import`**: Import SPL data from ZIP file
+  * **Request Body:** Multipart form with ZIP file containing XML files
+  * **Response:** `202 Accepted` - Returns operation ID for progress tracking
+  * **Note:** This is a long-running background operation
+
+* **`GET /api/labels/import/progress/{{operationId}}`**: Check import progress
+  * **Parameters:** `operationId` (GUID, path) - Operation identifier from import response
+  * **Response:** `200 OK` - Progress status and details
+
+* **`GET /api/labels/generate/{{documentGuid}}/{{minify}}`**: Generate SPL XML from document
+  * **Parameters:**
+    - `documentGuid` (GUID, path) - Document identifier
+    - `minify` (bool, path) - Whether to minify the XML output
+  * **Response:** `200 OK` - Generated SPL XML
+
+### **Analysis & Comparison**
+* **`POST /api/labels/comparison/analysis/{{documentGuid}}`**: Analyze document against FDA template
+  * **Parameters:** `documentGuid` (GUID, path) - Document to analyze
+  * **Response:** `202 Accepted` - Returns operation ID for progress tracking
+
+* **`GET /api/labels/comparison/analysis/{{documentGuid}}`**: Get cached analysis results
+  * **Parameters:** `documentGuid` (GUID, path) - Document identifier
+  * **Response:** `200 OK` - Analysis report (if available in cache)
+
+* **`GET /api/labels/comparison/progress/{{operationId}}`**: Check analysis progress
+  * **Parameters:** `operationId` (GUID, path) - Operation identifier
+  * **Response:** `200 OK` - Progress status and analysis results when complete
+
+---
+
+## 👥 User Management API (`/api/Users`)
+
+Manages user accounts, authentication, activity tracking, and administrative operations.
+
+### **User Profile Operations**
+* **`GET /api/users/{{encryptedUserId}}`**: Get user by encrypted ID
+  * **Parameters:** `encryptedUserId` (string, path) - Encrypted user ID
+  * **Authorization:** Required
+  * **Responses:**
+    - `200 OK` - User profile
+    - `404 Not Found` - User doesn't exist
+
+* **`GET /api/users`**: Get all users (paginated)
+  * **Authorization:** Admin role required
+  * **Parameters:**
+    - `pageNumber` (int, query, optional) - Default: 1
+    - `pageSize` (int, query, optional) - Default: 10
+  * **Response:** `200 OK` - Paginated user list
+
+* **`GET /api/users/byemail`**: Find user by email address
+  * **Parameters:** `email` (string, query) - Email address to search
+  * **Authorization:** Required
+  * **Responses:**
+    - `200 OK` - User profile
+    - `404 Not Found` - User not found
+
+* **`GET /api/users/me`**: Get current authenticated user's profile
+  * **Authorization:** Required
+  * **Response:** `200 OK` - Current user's profile with encrypted ID
+
+* **`PUT /api/users/{{encryptedUserId}}/profile`**: Update user profile
+  * **Parameters:** `encryptedUserId` (string, path) - Encrypted user ID
+  * **Request Body:** Updated user profile object
+  * **Authorization:** Required (must be the user or admin)
+  * **Responses:**
+    - `204 No Content` - Update successful
+    - `400 Bad Request` - Invalid data
+    - `404 Not Found` - User doesn't exist
+
+* **`DELETE /api/users/{{encryptedUserId}}`**: Delete user account
+  * **Parameters:** `encryptedUserId` (string, path) - Encrypted user ID
+  * **Authorization:** Admin role required
+  * **Responses:**
+    - `204 No Content` - Deletion successful
+    - `404 Not Found` - User doesn't exist
+
+### **Activity Tracking**
+* **`GET /api/users/user/{{encryptedUserId}}/activity`**: Get user's activity log
+  * **Parameters:**
+    - `encryptedUserId` (string, path) - Encrypted user ID
+    - `pageNumber` (int, query, optional) - Default: 1
+    - `pageSize` (int, query, optional) - Default: 50
+  * **Authorization:** Required (must be the user or admin)
+  * **Response:** `200 OK` - Paginated activity log
+
+* **`GET /api/users/user/{{encryptedUserId}}/activity/daterange`**: Get activity within date range
+  * **Parameters:**
+    - `encryptedUserId` (string, path) - Encrypted user ID
+    - `startDate` (DateTime, query) - Start of date range
+    - `endDate` (DateTime, query) - End of date range
+    - `pageNumber` (int, query, optional)
+    - `pageSize` (int, query, optional)
+  * **Authorization:** Required (must be the user or admin)
+  * **Response:** `200 OK` - Filtered activity log
+
+* **`GET /api/users/endpoint-stats`**: Get API endpoint usage statistics
+  * **Parameters:**
+    - `startDate` (DateTime, query, optional) - Start date for stats
+    - `endDate` (DateTime, query, optional) - End date for stats
+  * **Authorization:** Admin role required
+  * **Response:** `200 OK` - Aggregated endpoint usage data
+
+### **Authentication** (Legacy/Alternative)
+* **`POST /api/users/signup`**: Create new user account
+  * **Request Body:** User registration object (username, email, password)
+  * **Responses:**
+    - `201 Created` - User created successfully
+    - `400 Bad Request` - Validation errors or user already exists
+
+* **`POST /api/users/authenticate`**: Authenticate user with credentials
+  * **Request Body:** Login credentials (username/email and password)
+  * **Responses:**
+    - `200 OK` - Authentication successful, returns encrypted user ID
+    - `401 Unauthorized` - Invalid credentials
+  * **Note:** External OAuth login via `/api/auth/login/{{provider}}` is recommended
+
+### **Administrative Operations**
+* **`PUT /api/users/admin-update`**: Admin bulk update user properties
+  * **Request Body:** Array of user updates
+  * **Authorization:** Admin role required
+  * **Response:** `200 OK` - Update results
+
+* **`POST /api/users/rotate-password`**: Rotate user password
+  * **Request Body:** Current and new password
+  * **Authorization:** Required (must be the user)
+  * **Responses:**
+    - `200 OK` - Password updated
+    - `400 Bad Request` - Invalid current password
+
+---
+
+## 🗄️ Database Caching
+
 The system implements both timer-based and managed caching for database requests to optimize performance.
 Retrieving data from cache is significantly faster than querying the database directly.
-When you need to ensure fresh data from the database, use the `/REST/API/Utility/ClearManagedCache` endpoint to clear the managed cache before making your request."
+
+When you need to ensure fresh data from the database, use the `/API/Settings/ClearManagedCache` endpoint 
+to clear the managed cache before making your request.
+
+---
+
+## 📝 Notes
+
+* All endpoints that return or accept IDs use **encrypted IDs** for security
+* Timestamps are stored and returned in **UTC**
+* Pagination is supported on list endpoints with configurable page size
+* All POST/PUT operations validate input data and return detailed error messages
+* Background operations (import, analysis) return operation IDs for async progress tracking
+* Activity logging captures all API usage for audit purposes
+
+For detailed examples of request/response formats, refer to the XML comments within each controller file.
+"
     });
 
     c.AddSecurityDefinition("BasicAuthentication", new OpenApiSecurityScheme
@@ -402,25 +677,28 @@ builder.Services.Configure<KestrelServerOptions>(options =>
 #region View Configuration
 
 // Enable ASP.NET Core Razor Views with Activity Logging Filter
-builder.Services.AddControllersWithViews(options =>
-{
-    options.Filters.Add<ActivityLogActionFilter>();
-});
+if (builder.Configuration.GetValue<bool>("FeatureFlags:BackgroundProcessingEnabled", true))
+    builder.Services.AddControllersWithViews(options =>
+    {
+        options.Filters.Add<ActivityLogActionFilter>();
+    });
+else
+    builder.Services.AddControllersWithViews();
 
 // RazorLight for programmatic templates (after your existing custom services)
 builder.Services.AddSingleton<IRazorLightEngine>(serviceProvider =>
 {
-    var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();
+var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();
 
-    return new RazorLightEngineBuilder()
-        .UseFileSystemProject(Path.Combine(environment.ContentRootPath, "Views"))
-        .UseEmbeddedResourcesProject(typeof(Program))
-        .UseMemoryCachingProvider()
-        .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(Program).Assembly.Location))
-        .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(User).Assembly.Location))
-        .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(ApplicationDbContext).Assembly.Location))
-        .EnableDebugMode(environment.IsDevelopment())
-        .Build();
+return new RazorLightEngineBuilder()
+    .UseFileSystemProject(Path.Combine(environment.ContentRootPath, "Views"))
+    .UseEmbeddedResourcesProject(typeof(Program))
+    .UseMemoryCachingProvider()
+    .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(Program).Assembly.Location))
+    .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(User).Assembly.Location))
+    .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(ApplicationDbContext).Assembly.Location))
+    .EnableDebugMode(environment.IsDevelopment())
+    .Build();
 });
 
 // View rendering service for ASP.NET Core views

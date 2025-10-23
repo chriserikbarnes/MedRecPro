@@ -22,6 +22,7 @@ namespace MedRecPro.Service
 
         private readonly ApplicationDbContext _context;
         private readonly ILogger<ActivityLogService> _logger;
+        private readonly IConfiguration _configuration;
 
         #endregion
 
@@ -33,14 +34,17 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="context">The database context for accessing activity logs.</param>
         /// <param name="logger">The logger for recording service-level events and errors.</param>
+        /// <param name="configuration">Access to feature config</param>
         /// <seealso cref="ApplicationDbContext"/>
         public ActivityLogService(
             ApplicationDbContext context,
-            ILogger<ActivityLogService> logger)
+            ILogger<ActivityLogService> logger,
+            IConfiguration configuration)
         {
             #region Implementation
             _context = context;
             _logger = logger;
+            _configuration = configuration;
             #endregion
         }
 
@@ -77,6 +81,13 @@ namespace MedRecPro.Service
             #region Implementation
             try
             {
+                var logginEnabled = _configuration.GetValue<bool>("FeatureFlags:BackgroundProcessingEnabled", true);
+
+                if (!logginEnabled)
+                {
+                   throw new Exception("Activity logging is disabled via configuration.");
+                }
+
                 // Ensure timestamp is set
                 if (log.ActivityTimestamp == default)
                 {

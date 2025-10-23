@@ -17,6 +17,20 @@ using System.Text;
 
 namespace MedRecPro.Controllers
 {
+    /**************************************************************/
+    /// <summary>
+    /// Manages user account operations, authentication, and administrative functions for the MedRecPro application.
+    /// </summary>
+    /// <remarks>
+    /// This controller provides endpoints for user CRUD operations, password management, activity logging,
+    /// and endpoint performance statistics. It handles both standard user operations and elevated administrative
+    /// functions such as role assignment, user status updates, and password rotation. Authentication is performed
+    /// through encrypted user identifiers and claims-based authorization.
+    /// </remarks>
+    /// <seealso cref="User"/>
+    /// <seealso cref="UserDataAccess"/>
+    /// <seealso cref="IActivityLogService"/>
+    /// <seealso cref="StringCipher"/>
     [ApiController]
     [Route("api/[controller]")]
     public class UsersController : ControllerBase
@@ -215,7 +229,11 @@ namespace MedRecPro.Controllers
         /// Dependencies are injected via the constructor.
         /// The PKSecret for encryption is retrieved from configuration.
         /// </remarks>
-        public UsersController(StringCipher stringCipher, IConfiguration configuration, UserDataAccess userDataAccess, ILogger<UsersController> logger, Service.IActivityLogService activityLogService)
+        public UsersController(StringCipher stringCipher, 
+            IConfiguration configuration, 
+            UserDataAccess userDataAccess, 
+            ILogger<UsersController> logger, 
+            Service.IActivityLogService activityLogService)
         {
             #region implementation
             _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));

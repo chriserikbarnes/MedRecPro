@@ -2,7 +2,6 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Caching;
-using Microsoft.Extensions.Caching.Memory;
 
 namespace MedRecPro.Helpers
 {
@@ -21,7 +20,6 @@ namespace MedRecPro.Helpers
         public PerformanceProperty() {; }
 
     }
-
 
     /// <summary>
     /// Some SP's can get called repeatedly resulting in
@@ -55,6 +53,7 @@ namespace MedRecPro.Helpers
         public PerformanceHelper Instance { get { return lazy.Value; } }
 
         public static Random Rnd { get; private set; } = new Random(Guid.NewGuid().GetHashCode());
+        public static bool Initialized { get; private set; }
 
         private static PerformanceProperty p;
 
@@ -66,8 +65,8 @@ namespace MedRecPro.Helpers
         private static void initStatic()
         {
             p = new PerformanceProperty();
+            Initialized = true;
         }
-
 
         #region memory cache methods
 
