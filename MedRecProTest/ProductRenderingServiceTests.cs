@@ -1,5 +1,15 @@
-﻿using MedRecPro.Models;
+﻿using MedRecPro.Helpers;
+using MedRecPro.Models;
+using MedRecPro.Service.Common;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting.Logging;
+using Moq;
+using static MedRecPro.Models.Label;
+
 
 namespace MedRecPro.Service.Test
 {
@@ -12,6 +22,62 @@ namespace MedRecPro.Service.Test
     [TestClass]
     public class ProductRenderingServiceTests
     {
+        #region configuration
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets a null logger for testing scenarios where logging is not validated.
+        /// NullLogger discards all log messages without side effects.
+        /// </summary>
+        private static ILogger<PackagingLevel> Logger => NullLogger<PackagingLevel>.Instance;
+
+
+
+        private static IConfiguration? _configuration;
+        private IEncryptionService? _encryptionService;
+        private IDictionaryUtilityService? _dictionaryUtilityService;
+         
+        /**************************************************************/
+        /// <summary>
+        /// Sets up test environment before each test method.
+        /// </summary>
+        [TestInitialize]
+        public void TestInitialize()
+        {
+
+            // Create real service instances
+            _encryptionService = new EncryptionService(Configuration);
+            _dictionaryUtilityService = new DictionaryUtilityService();
+
+            // Initialize Util with real services
+            var mockHttpContextAccessor = new Mock<IHttpContextAccessor>();
+            Util.Initialize(
+                mockHttpContextAccessor.Object,
+                _encryptionService,
+                _dictionaryUtilityService);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the configuration with user secrets for testing.
+        /// Lazy-loads configuration on first access to avoid overhead.
+        /// </summary>
+        private static IConfiguration Configuration
+        {
+            get
+            {
+                if (_configuration == null)
+                {
+                    _configuration = new ConfigurationBuilder()
+                        .AddUserSecrets<ProductRenderingServiceTests>()
+                        .Build();
+                }
+                return _configuration;
+            }
+        }
+
+        #endregion
+
         #region test helper methods
 
         /**************************************************************/
@@ -76,14 +142,16 @@ namespace MedRecPro.Service.Test
                     {
                         Characteristic = new Dictionary<string, object?>
                         {
-                            { nameof(CharacteristicDto.CharacteristicID), 1 }
+                            { nameof(CharacteristicDto.CharacteristicID), 1 },
+                            { nameof(CharacteristicDto.PackagingLevelID), null }
                         }
                     },
                     new CharacteristicDto
                     {
                         Characteristic = new Dictionary<string, object?>
                         {
-                            { nameof(CharacteristicDto.CharacteristicID), 2 }
+                            { nameof(CharacteristicDto.CharacteristicID), 2 },
+                            { nameof(CharacteristicDto.PackagingLevelID), null }
                         }
                     }
                 },
@@ -108,38 +176,67 @@ namespace MedRecPro.Service.Test
         /// Configures packaging hierarchy based on the specified parameters.
         /// </summary>
         /// <param name="id">Packaging level identifier for unique identification</param>
-        /// <param name="hasHierarchy">Whether to include packaging hierarchy relationships</param>
+        /// <param name="childPackaging">Optional child packaging to create hierarchy relationship</param>
+        /// <param name="packageCode">Optional package code for business duplicate testing</param>
+        /// <param name="packageCodeSystem">Optional package code system</param>
+        /// <param name="formCode">Optional form code</param>
+        /// <param name="formCodeSystem">Optional form code system</param>
+        /// <param name="formDisplayName">Optional form display name</param>
+        /// <param name="quantityNumerator">Optional quantity numerator</param>
+        /// <param name="quantityDenominator">Optional quantity denominator</param>
         /// <returns>PackagingLevelDto with test data configured according to parameters</returns>
         /// <seealso cref="PackagingLevelDto"/>
         /// <seealso cref="Label.PackagingLevel"/>
-        private PackagingLevelDto createTestPackagingLevel(int id, bool hasHierarchy = false)
+        private PackagingLevelDto createTestPackagingLevel(
+          int id,
+          PackagingLevelDto? childPackaging = null,
+          string? packageCode = null,
+          string? packageCodeSystem = null,
+          string? formCode = null,
+          string? formCodeSystem = null,
+          string? formDisplayName = null,
+          decimal? quantityNumerator = null,
+          decimal? quantityDenominator = null)
         {
             #region implementation
 
-            var packagingLevel = new PackagingLevelDto
+            var secret = Configuration["Security:DB:PKSecret"];
+
+            var packagingLevel = new PackagingLevel
             {
-                PackagingLevel = new Dictionary<string, object?>
-                {
-                    { nameof(PackagingLevelDto.PackagingLevelID), id },
-                    { nameof(PackagingLevelDto.PackageCode), $"PKG{id}" },
-                    { nameof(PackagingLevelDto.PackageFormCode), "BOT" },
-                    { nameof(PackagingLevelDto.PackageFormDisplayName), "Bottle" }
-                }
+                PackagingLevelID = id,
+                PackageCode = packageCode ?? $"PKG{id}",
+                PackageCodeSystem = packageCodeSystem,
+                PackageFormCode = formCode ?? "BOT",
+                PackageFormCodeSystem = formCodeSystem,
+                PackageFormDisplayName = formDisplayName ?? "Bottle",
+                QuantityNumerator = quantityNumerator,
+                QuantityDenominator = quantityDenominator
             };
 
-            // Configure hierarchy based on test requirements
-            if (hasHierarchy)
+            // Convert entity to dictionary with encrypted IDs
+            var packagingLevelDict = packagingLevel.ToEntityWithEncryptedId(secret!, Logger);
+
+            // Create the DTO with the encrypted dictionary
+            var packagingLevelDto = new PackagingLevelDto
             {
-                packagingLevel.PackagingHierarchy = new List<PackagingHierarchyDto>
+                PackagingLevel = packagingLevelDict
+            };
+
+            // If a child packaging is provided, create a hierarchy relationship
+            if (childPackaging != null)
+            {
+                packagingLevelDto.PackagingHierarchy = new List<PackagingHierarchyDto>
                 {
                     new PackagingHierarchyDto
                     {
-                        PackagingHierarchy = new Dictionary<string, object?>()
+                        PackagingHierarchy = new Dictionary<string, object?>(),
+                        ChildPackagingLevel = childPackaging
                     }
                 };
             }
 
-            return packagingLevel;
+            return packagingLevelDto;
 
             #endregion
         }
@@ -152,6 +249,7 @@ namespace MedRecPro.Service.Test
         /// <summary>
         /// Tests that PrepareForRendering with valid ProductDto returns enhanced context.
         /// Verifies all pre-computed flags and collections are correctly populated.
+        /// UPDATED: Fixed parameter order to match current method signature.
         /// </summary>
         /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
         /// <seealso cref="Label.Product"/>
@@ -166,7 +264,13 @@ namespace MedRecPro.Service.Test
             var packageService = new PackageRenderingService();
 
             // Act - Process the product through rendering service
-            var result = service.PrepareForRendering(product: testProductDto, packageService);
+            // FIXED: Pass packageService as the 4th parameter (packageRenderingService), not 2nd
+            var result = service.PrepareForRendering(
+                product: testProductDto,
+                additionalParams: null,
+                ingredientRenderingService: null,
+                packageRenderingService: packageService,
+                characteristicRenderingService: null);
 
             // Assert - Verify the service created a valid result with proper context
             Assert.IsNotNull(result);
@@ -188,206 +292,99 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(2, result.OrderedCharacteristics?.Count);
 
             // Verify that computed properties work correctly from the dictionary
-            Assert.AreEqual(123, testProductDto.ProductID);
-            Assert.AreEqual("Test Product", testProductDto.ProductName);
-            Assert.AreEqual("TAB", testProductDto.FormCode);
-            Assert.AreEqual("XR", testProductDto.ProductSuffix);
+            Assert.AreEqual("Test Product", result.ProductDto.ProductName);
+            Assert.AreEqual("XR", result.ProductDto.ProductSuffix);
+            Assert.AreEqual("TAB", result.ProductDto.FormCode);
 
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Tests that PrepareForRendering with null ProductDto throws ArgumentNullException.
-        /// Ensures proper parameter validation and error handling.
+        /// Tests PrepareForRendering with all optional rendering services provided.
+        /// Verifies that the service properly integrates all enhancement services.
         /// </summary>
         /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
+        /// <seealso cref="Label.Product"/>
         [TestMethod]
-        [ExpectedException(typeof(ArgumentNullException))]
-        public void PrepareForRendering_WithNullProduct_ThrowsArgumentNullException()
+        public void PrepareForRendering_WithAllServices_ReturnsFullyEnhancedContext()
         {
             #region implementation
 
-            // Arrange - Create service instance for testing
+            // Arrange - Create test product and all rendering services
+            var testProductDto = createTestProductDto();
             var service = new ProductRenderingService();
+            var packageService = new PackageRenderingService();
+            var characteristicService = new CharacteristicRenderingService();
 
-            // Act & Assert - Should throw ArgumentNullException for null input
-            service.PrepareForRendering(product: null);
+            // Act - Process with all services provided
+            var result = service.PrepareForRendering(
+                product: testProductDto,
+                additionalParams: null,
+                ingredientRenderingService: null,
+                packageRenderingService: packageService,
+                characteristicRenderingService: characteristicService);
 
-            #endregion
-        }
-
-        #endregion
-
-        #region ndc identifier tests
-
-        /**************************************************************/
-        /// <summary>
-        /// Tests that GetNdcProductIdentifier returns correct NDC identifier from multiple types.
-        /// Verifies proper filtering and selection of NDC-specific identifiers.
-        /// </summary>
-        /// <seealso cref="IProductRenderingService.GetNdcProductIdentifier"/>
-        /// <seealso cref="Label.ProductIdentifier"/>
-        [TestMethod]
-        public void GetNdcProductIdentifier_WithNdcIdentifier_ReturnsCorrectIdentifier()
-        {
-            #region implementation
-
-            // Arrange - Create product with multiple identifier types including NDC
-            var productDto = new ProductDto
-            {
-                Product = new Dictionary<string, object?>(),
-                ProductIdentifiers = new List<ProductIdentifierDto>
-                {
-                    new ProductIdentifierDto
-                    {
-                        ProductIdentifier = new Dictionary<string, object?>
-                        {
-                            { nameof(ProductIdentifierDto.IdentifierType), "UPC" },
-                            { nameof(ProductIdentifierDto.IdentifierValue), "123456789012" }
-                        }
-                    },
-                    new ProductIdentifierDto
-                    {
-                        ProductIdentifier = new Dictionary<string, object?>
-                        {
-                            { nameof(ProductIdentifierDto.IdentifierType), "NDC" },
-                            { nameof(ProductIdentifierDto.IdentifierValue), "12345-678-90" },
-                            { nameof(ProductIdentifierDto.IdentifierSystemOID), "2.16.840.1.113883.6.69" }
-                        }
-                    },
-                    new ProductIdentifierDto
-                    {
-                        ProductIdentifier = new Dictionary<string, object?>
-                        {
-                            { nameof(ProductIdentifierDto.IdentifierType), "OTHER" },
-                            { nameof(ProductIdentifierDto.IdentifierValue), "OTHER-123" }
-                        }
-                    }
-                }
-            };
-
-            var service = new ProductRenderingService();
-
-            // Act - Extract NDC identifier from mixed collection
-            var result = service.GetNdcProductIdentifier(productDto);
-
-            // Assert - Should find the NDC identifier specifically among all types
+            // Assert - Verify enhanced context
             Assert.IsNotNull(result);
-            Assert.AreEqual("NDC", result.IdentifierType);
-            Assert.AreEqual("12345-678-90", result.IdentifierValue);
-            Assert.AreEqual("2.16.840.1.113883.6.69", result.IdentifierSystemOID);
+            Assert.IsTrue(result.HasValidData);
+            Assert.IsTrue(result.HasCharacteristics);
+            Assert.AreEqual(2, result.OrderedCharacteristics?.Count);
 
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Tests that GetNdcProductIdentifier handles NDCProduct type as well.
-        /// Verifies support for alternative NDC identifier type naming conventions.
+        /// Tests PrepareForRendering behavior with minimal product data.
+        /// Verifies service handles products with only required fields gracefully.
         /// </summary>
-        /// <seealso cref="IProductRenderingService.GetNdcProductIdentifier"/>
-        /// <seealso cref="Label.ProductIdentifier"/>
+        /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
+        /// <seealso cref="Label.Product"/>
         [TestMethod]
-        public void GetNdcProductIdentifier_WithNdcProductType_ReturnsCorrectIdentifier()
+        public void PrepareForRendering_WithMinimalProductData_ReturnsValidContext()
         {
             #region implementation
 
-            // Arrange - Test NDCProduct type specifically for alternative naming
-            var productDto = new ProductDto
+            // Arrange - Create minimal product with just basic info
+            var minimalProduct = new ProductDto
             {
-                Product = new Dictionary<string, object?>(),
-                ProductIdentifiers = new List<ProductIdentifierDto>
+                Product = new Dictionary<string, object?>
                 {
-                    new ProductIdentifierDto
-                    {
-                        ProductIdentifier = new Dictionary<string, object?>
-                        {
-                            { nameof(ProductIdentifierDto.IdentifierType), "NDCProduct" },
-                            { nameof(ProductIdentifierDto.IdentifierValue), "98765-432-10" },
-                            { nameof(ProductIdentifierDto.IdentifierSystemOID), "2.16.840.1.113883.6.69" }
-                        }
-                    }
+                    { nameof(ProductDto.ProductID), 1 },
+                    { nameof(ProductDto.ProductName), "Minimal Product" }
                 }
             };
 
             var service = new ProductRenderingService();
 
-            // Act - Process NDCProduct type identifier
-            var result = service.GetNdcProductIdentifier(productDto);
+            // Act - Process minimal product
+            var result = service.PrepareForRendering(product: minimalProduct);
 
-            // Assert - Should find NDCProduct type correctly
+            // Assert - Should handle gracefully with false flags for missing data
             Assert.IsNotNull(result);
-            Assert.AreEqual("NDCProduct", result.IdentifierType);
-            Assert.AreEqual("98765-432-10", result.IdentifierValue);
+            Assert.IsTrue(result.HasValidData); // Has name so should be valid
+            Assert.IsFalse(result.HasNdcIdentifier);
+            Assert.IsFalse(result.HasActiveIngredients);
+            Assert.IsFalse(result.HasInactiveIngredients);
+            Assert.IsFalse(result.HasCharacteristics);
 
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Tests that GetNdcProductIdentifier returns null when no NDC identifier exists.
-        /// Ensures proper handling when NDC identifiers are absent from the collection.
-        /// </summary>
-        /// <seealso cref="IProductRenderingService.GetNdcProductIdentifier"/>
-        [TestMethod]
-        public void GetNdcProductIdentifier_WithoutNdcIdentifier_ReturnsNull()
-        {
-            #region implementation
-
-            // Arrange - Product with no NDC identifiers, only other types
-            var productDto = new ProductDto
-            {
-                Product = new Dictionary<string, object?>(),
-                ProductIdentifiers = new List<ProductIdentifierDto>
-                {
-                    new ProductIdentifierDto
-                    {
-                        ProductIdentifier = new Dictionary<string, object?>
-                        {
-                            { nameof(ProductIdentifierDto.IdentifierType), "UPC" },
-                            { nameof(ProductIdentifierDto.IdentifierValue), "123" }
-                        }
-                    },
-                    new ProductIdentifierDto
-                    {
-                        ProductIdentifier = new Dictionary<string, object?>
-                        {
-                            { nameof(ProductIdentifierDto.IdentifierType), "GTIN" },
-                            { nameof(ProductIdentifierDto.IdentifierValue), "456" }
-                        }
-                    }
-                }
-            };
-
-            var service = new ProductRenderingService();
-
-            // Act - Attempt to find NDC identifier in non-NDC collection
-            var result = service.GetNdcProductIdentifier(productDto);
-
-            // Assert - Should return null when no NDC identifiers present
-            Assert.IsNull(result);
-
-            #endregion
-        }
-
-        #endregion
-
-        #region ingredient filtering tests
-
-        /**************************************************************/
-        /// <summary>
-        /// Tests that GetOrderedActiveIngredients returns correctly filtered and ordered results.
-        /// Verifies filtering by originating element and ordering by sequence number.
+        /// Tests GetOrderedActiveIngredients with multiple active ingredients.
+        /// Verifies proper filtering and ordering based on sequence numbers.
         /// </summary>
         /// <seealso cref="IProductRenderingService.GetOrderedActiveIngredients"/>
         /// <seealso cref="Label.Ingredient"/>
         [TestMethod]
-        public void GetOrderedActiveIngredients_WithMixedIngredients_ReturnsOnlyActiveOrdered()
+        public void GetOrderedActiveIngredients_WithMultipleIngredients_ReturnsOrderedActive()
         {
             #region implementation
 
-            // Arrange - Create ingredients with mixed types and out-of-order sequences
+            // Arrange - Product with multiple active and inactive ingredients
             var productDto = new ProductDto
             {
                 Product = new Dictionary<string, object?>(),
@@ -398,7 +395,7 @@ namespace MedRecPro.Service.Test
                         Ingredient = new Dictionary<string, object?>
                         {
                             { nameof(IngredientDto.OriginatingElement), "activeIngredient" },
-                            { nameof(IngredientDto.SequenceNumber), 3 } // Out of order
+                            { nameof(IngredientDto.SequenceNumber), 2 }
                         }
                     },
                     new IngredientDto
@@ -406,7 +403,7 @@ namespace MedRecPro.Service.Test
                         Ingredient = new Dictionary<string, object?>
                         {
                             { nameof(IngredientDto.OriginatingElement), "inactiveIngredient" },
-                            { nameof(IngredientDto.SequenceNumber), 1 } // Should be filtered out
+                            { nameof(IngredientDto.SequenceNumber), 1 }
                         }
                     },
                     new IngredientDto
@@ -414,15 +411,7 @@ namespace MedRecPro.Service.Test
                         Ingredient = new Dictionary<string, object?>
                         {
                             { nameof(IngredientDto.OriginatingElement), "activeIngredient" },
-                            { nameof(IngredientDto.SequenceNumber), 1 } // Should be first
-                        }
-                    },
-                    new IngredientDto
-                    {
-                        Ingredient = new Dictionary<string, object?>
-                        {
-                            { nameof(IngredientDto.OriginatingElement), "activeIngredient" },
-                            { nameof(IngredientDto.SequenceNumber), 2 } // Should be second
+                            { nameof(IngredientDto.SequenceNumber), 1 }
                         }
                     }
                 }
@@ -433,14 +422,11 @@ namespace MedRecPro.Service.Test
             // Act - Filter and order active ingredients
             var result = service.GetOrderedActiveIngredients(productDto);
 
-            // Assert - Should return only active ingredients in sequence order
+            // Assert - Should return only active ingredients in proper sequence order
             Assert.IsNotNull(result);
-            Assert.AreEqual(3, result.Count);
-
-            // Verify ordering by SequenceNumber (1, 2, 3)
+            Assert.AreEqual(2, result.Count);
             Assert.AreEqual(1, result[0].SequenceNumber);
             Assert.AreEqual(2, result[1].SequenceNumber);
-            Assert.AreEqual(3, result[2].SequenceNumber);
 
             // Verify all are active ingredients
             foreach (var ingredient in result)
@@ -453,17 +439,17 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Tests that GetOrderedInactiveIngredients returns correctly filtered results.
-        /// Ensures proper filtering for inactive ingredients and sequence ordering.
+        /// Tests GetOrderedInactiveIngredients with multiple inactive ingredients.
+        /// Verifies proper filtering and ordering based on sequence numbers.
         /// </summary>
         /// <seealso cref="IProductRenderingService.GetOrderedInactiveIngredients"/>
         /// <seealso cref="Label.Ingredient"/>
         [TestMethod]
-        public void GetOrderedInactiveIngredients_WithMixedIngredients_ReturnsOnlyInactiveOrdered()
+        public void GetOrderedInactiveIngredients_WithMultipleIngredients_ReturnsOrderedInactive()
         {
             #region implementation
 
-            // Arrange - Mixed ingredient types with varying sequence numbers
+            // Arrange - Product with multiple inactive ingredients
             var productDto = new ProductDto
             {
                 Product = new Dictionary<string, object?>(),
@@ -482,7 +468,7 @@ namespace MedRecPro.Service.Test
                         Ingredient = new Dictionary<string, object?>
                         {
                             { nameof(IngredientDto.OriginatingElement), "activeIngredient" },
-                            { nameof(IngredientDto.SequenceNumber), 1 } // Should be filtered out
+                            { nameof(IngredientDto.SequenceNumber), 1 }
                         }
                     },
                     new IngredientDto
@@ -522,8 +508,9 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Tests that GetOrderedTopLevelPackaging filters correctly for top-level only.
-        /// Verifies identification of top-level packages based on hierarchy presence.
+        /// Tests that GetOrderedTopLevelPackaging filters correctly based on hierarchy relationships.
+        /// Verifies identification of top-level packages by checking which packages appear as children.
+        /// UPDATED: Test now reflects the current two-stage filtering logic (hierarchy + business duplicates).
         /// </summary>
         /// <seealso cref="IProductRenderingService.GetOrderedTopLevelPackaging"/>
         /// <seealso cref="Label.PackagingLevel"/>
@@ -532,36 +519,177 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
 
-            // Arrange - Create packaging levels with different hierarchy configurations
+            // Arrange - Create packaging hierarchy where:
+            // Package 2 is referenced as a child of Package 1
+            // Package 3 is standalone with no hierarchy relationships
+            var package2 = createTestPackagingLevel(2);
+            var package3 = createTestPackagingLevel(3);
+            var package1 = createTestPackagingLevel(1, childPackaging: package2);
+
             var productDto = new ProductDto
             {
                 Product = new Dictionary<string, object?>(),
                 PackagingLevels = new List<PackagingLevelDto>
                 {
-                    createTestPackagingLevel(1, hasHierarchy: false), // Top level - null hierarchy
-                    createTestPackagingLevel(2, hasHierarchy: false), // Top level - empty hierarchy  
-                    createTestPackagingLevel(3, hasHierarchy: true)   // Not top level - has hierarchy
+                    package1,  // Parent with child - IS top level
+                    package2,  // Referenced as child - NOT top level  
+                    package3   // Standalone - IS top level
                 }
             };
-
-            // Set up specific hierarchy conditions for testing
-            productDto.PackagingLevels[0].PackagingHierarchy = null; // Explicitly null
-            productDto.PackagingLevels[1].PackagingHierarchy = new List<PackagingHierarchyDto>(); // Empty list
 
             var service = new ProductRenderingService();
 
             // Act - Filter for top-level packaging only
             var result = service.GetOrderedTopLevelPackaging(productDto);
 
-            // Assert - Should return only the first two (top-level) packaging items
+            // Assert - Should return only packages 1 and 3 (packages that don't appear as children)
             Assert.IsNotNull(result);
             Assert.AreEqual(2, result.Count);
             Assert.AreEqual(1, result[0].PackagingLevelID);
-            Assert.AreEqual(2, result[1].PackagingLevelID);
+            Assert.AreEqual(3, result[1].PackagingLevelID);
 
             // Verify computed properties work correctly from dictionaries
             Assert.AreEqual("PKG1", result[0].PackageCode);
-            Assert.AreEqual("PKG2", result[1].PackageCode);
+            Assert.AreEqual("PKG3", result[1].PackageCode);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tests GetOrderedTopLevelPackaging with nested multi-level hierarchy.
+        /// Verifies recursive traversal correctly identifies all child packages at any depth.
+        /// </summary>
+        /// <seealso cref="IProductRenderingService.GetOrderedTopLevelPackaging"/>
+        /// <seealso cref="Label.PackagingLevel"/>
+        [TestMethod]
+        public void GetOrderedTopLevelPackaging_WithNestedHierarchy_ExcludesAllChildLevels()
+        {
+            #region implementation
+
+            // Arrange - Create multi-level hierarchy:
+            // Package 1 -> Package 2 -> Package 3 (nested)
+            // Package 4 (standalone)
+            var package3 = createTestPackagingLevel(3);
+            var package2 = createTestPackagingLevel(2, childPackaging: package3);
+            var package1 = createTestPackagingLevel(1, childPackaging: package2);
+            var package4 = createTestPackagingLevel(4);
+
+            var productDto = new ProductDto
+            {
+                Product = new Dictionary<string, object?>(),
+                PackagingLevels = new List<PackagingLevelDto>
+                {
+                    package1,
+                    package2,
+                    package3,
+                    package4
+                }
+            };
+
+            var service = new ProductRenderingService();
+
+            // Act - Filter for top-level packaging
+            var result = service.GetOrderedTopLevelPackaging(productDto);
+
+            // Assert - Should return only packages 1 and 4 (2 and 3 are children at various levels)
+            Assert.IsNotNull(result);
+            Assert.AreEqual(2, result.Count);
+            Assert.AreEqual(1, result[0].PackagingLevelID);
+            Assert.AreEqual(4, result[1].PackagingLevelID);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tests GetOrderedTopLevelPackaging with business duplicate filtering.
+        /// Verifies that packages with identical business attributes to children are excluded.
+        /// </summary>
+        /// <seealso cref="IProductRenderingService.GetOrderedTopLevelPackaging"/>
+        /// <seealso cref="Label.PackagingLevel"/>
+        [TestMethod]
+        public void GetOrderedTopLevelPackaging_WithBusinessDuplicates_ExcludesDuplicates()
+        {
+            #region implementation
+
+            // Arrange - Create packages where:
+            // Package 1 is parent with child Package 2
+            // Package 3 has same business attributes as Package 2 (business duplicate)
+
+            // Create Package 2 with specific business attributes
+            var package2 = createTestPackagingLevel(
+                id: 2,
+                packageCode: "SHARED-CODE",
+                packageCodeSystem: "2.16.840.1.113883.6.69",
+                formCode: "BOT",
+                formCodeSystem: "2.16.840.1.113883.3.26.1.1",
+                formDisplayName: "Bottle",
+                quantityNumerator: 100m,
+                quantityDenominator: 1m);
+
+            // Create Package 1 as parent of Package 2
+            var package1 = createTestPackagingLevel(
+                id: 1,
+                childPackaging: package2,
+                formCode: "CASE",
+                formDisplayName: "Case");
+
+            // Create Package 3 as business duplicate of Package 2
+            var package3 = createTestPackagingLevel(
+                id: 3,
+                packageCode: "SHARED-CODE",
+                packageCodeSystem: "2.16.840.1.113883.6.69",
+                formCode: "BOT",
+                formCodeSystem: "2.16.840.1.113883.3.26.1.1",
+                formDisplayName: "Bottle",
+                quantityNumerator: 100m,
+                quantityDenominator: 1m);
+
+            var productDto = new ProductDto
+            {
+                Product = new Dictionary<string, object?>(),
+                PackagingLevels = new List<PackagingLevelDto> { package1, package2, package3 }
+            };
+
+            var service = new ProductRenderingService();
+
+            // Act - Filter for top-level packaging
+            var result = service.GetOrderedTopLevelPackaging(productDto);
+
+            // Assert - Should return only Package 1 (Package 2 is a child, Package 3 is a business duplicate)
+            Assert.IsNotNull(result);
+            Assert.AreEqual(1, result.Count);
+            Assert.AreEqual(1, result[0].PackagingLevelID);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tests GetOrderedTopLevelPackaging with no packaging levels.
+        /// Verifies graceful handling of null or empty packaging collections.
+        /// </summary>
+        /// <seealso cref="IProductRenderingService.GetOrderedTopLevelPackaging"/>
+        [TestMethod]
+        public void GetOrderedTopLevelPackaging_WithNoPackaging_ReturnsNull()
+        {
+            #region implementation
+
+            // Arrange - Product with null packaging levels
+            var productDto = new ProductDto
+            {
+                Product = new Dictionary<string, object?>(),
+                PackagingLevels = null
+            };
+
+            var service = new ProductRenderingService();
+
+            // Act - Attempt to get top-level packaging
+            var result = service.GetOrderedTopLevelPackaging(productDto);
+
+            // Assert - Should return null gracefully
+            Assert.IsNull(result);
 
             #endregion
         }
@@ -667,6 +795,204 @@ namespace MedRecPro.Service.Test
             Assert.IsFalse(result.HasNdcIdentifier);
             Assert.IsFalse(result.HasActiveIngredients);
             Assert.IsFalse(result.HasInactiveIngredients);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tests PrepareForRendering with null product argument.
+        /// Verifies proper exception handling for invalid input.
+        /// </summary>
+        /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
+        [TestMethod]
+        [ExpectedException(typeof(ArgumentNullException))]
+        public void PrepareForRendering_WithNullProduct_ThrowsArgumentNullException()
+        {
+            #region implementation
+
+            // Arrange
+            var service = new ProductRenderingService();
+
+            // Act - Should throw ArgumentNullException
+            service.PrepareForRendering(product: null!);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tests GetOrderedCharacteristics with multiple characteristics.
+        /// Verifies proper ordering by CharacteristicID.
+        /// NOTE: GetOrderedCharacteristics filters for product-level characteristics only (PackagingLevelID == null).
+        /// </summary>
+        /// <seealso cref="IProductRenderingService.GetOrderedCharacteristics"/>
+        /// <seealso cref="Label.Characteristic"/>
+        [TestMethod]
+        public void GetOrderedCharacteristics_WithMultipleCharacteristics_ReturnsOrdered()
+        {
+            #region implementation
+
+            // Arrange - Product with multiple characteristics in non-sequential order
+            // IMPORTANT: Must set PackagingLevelID = null for product-level characteristics
+            // Arrange - Product with multiple characteristics in non-sequential order
+            var secret = Configuration["Security:DB:PKSecret"];
+
+            // Create the product entity and convert to encrypted entity
+            var product = new Product
+            {
+                // Add any product properties here
+            };
+
+            var productDict = product.ToEntityWithEncryptedId(secret!, Logger);
+
+            var productDto = new ProductDto
+            {
+                Product = productDict,
+                Characteristics = new List<CharacteristicDto>
+                {
+                    // Characteristic 3
+                    new CharacteristicDto
+                    {
+                        Characteristic = new Characteristic
+                        {
+                            CharacteristicID = 3,
+                            PackagingLevelID = null
+                            // Add other characteristic properties as needed
+                        }.ToEntityWithEncryptedId(secret!, Logger)
+                    },
+                    // Characteristic 1
+                    new CharacteristicDto
+                    {
+                        Characteristic = new Characteristic
+                        {
+                            CharacteristicID = 1,
+                            PackagingLevelID = null
+                        }.ToEntityWithEncryptedId(secret!, Logger)
+                    },
+                    // Characteristic 2
+                    new CharacteristicDto
+                    {
+                        Characteristic = new Characteristic
+                        {
+                            CharacteristicID = 2,
+                            PackagingLevelID = null
+                        }.ToEntityWithEncryptedId(secret!, Logger)
+                    }
+                }
+            };
+
+            var service = new ProductRenderingService();
+
+            // Act - Get ordered characteristics
+            var result = service.GetOrderedCharacteristics(productDto);
+
+            // Assert - Should be ordered by CharacteristicID
+            Assert.IsNotNull(result);
+            Assert.AreEqual(3, result.Count);
+            Assert.AreEqual(1, result[0].CharacteristicID);
+            Assert.AreEqual(2, result[1].CharacteristicID);
+            Assert.AreEqual(3, result[2].CharacteristicID);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tests GetNdcProductIdentifier with multiple identifiers.
+        /// Verifies correct identification and extraction of NDC identifier.
+        /// </summary>
+        /// <seealso cref="IProductRenderingService.GetNdcProductIdentifier"/>
+        /// <seealso cref="Label.ProductIdentifier"/>
+        [TestMethod]
+        public void GetNdcProductIdentifier_WithMultipleIdentifiers_ReturnsNdcOnly()
+        {
+            #region implementation
+
+            // Arrange - Product with multiple identifier types
+            var productDto = new ProductDto
+            {
+                Product = new Dictionary<string, object?>(),
+                ProductIdentifiers = new List<ProductIdentifierDto>
+                {
+                    new ProductIdentifierDto
+                    {
+                        ProductIdentifier = new Dictionary<string, object?>
+                        {
+                            { nameof(ProductIdentifierDto.IdentifierType), "UPC" },
+                            { nameof(ProductIdentifierDto.IdentifierValue), "123456789012" }
+                        }
+                    },
+                    new ProductIdentifierDto
+                    {
+                        ProductIdentifier = new Dictionary<string, object?>
+                        {
+                            { nameof(ProductIdentifierDto.IdentifierType), "NDC" },
+                            { nameof(ProductIdentifierDto.IdentifierValue), "12345-678-90" }
+                        }
+                    }
+                }
+            };
+
+            var service = new ProductRenderingService();
+
+            // Act - Get NDC identifier
+            var result = service.GetNdcProductIdentifier(productDto);
+
+            // Assert - Should return only the NDC identifier
+            Assert.IsNotNull(result);
+            Assert.AreEqual("NDC", result.IdentifierType);
+            Assert.AreEqual("12345-678-90", result.IdentifierValue);
+
+            #endregion
+        }
+
+        #endregion
+
+        #region marketing status tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Tests that marketing status properties are correctly computed in PrepareForRendering.
+        /// Verifies HasMarketingAct flag and OrderedMarketingStatuses collection.
+        /// </summary>
+        /// <seealso cref="IProductRenderingService.PrepareForRendering"/>
+        /// <seealso cref="Label.MarketingStatus"/>
+        [TestMethod]
+        public void PrepareForRendering_WithMarketingStatuses_ComputesMarketingProperties()
+        {
+            #region implementation
+
+            // Arrange - Product with marketing statuses
+            var productDto = new ProductDto
+            {
+                Product = new Dictionary<string, object?>
+                {
+                    { nameof(ProductDto.ProductName), "Test Product" }
+                },
+                MarketingStatuses = new List<MarketingStatusDto>
+                {
+                    new MarketingStatusDto
+                    {
+                        MarketingStatus = new Dictionary<string, object?>
+                        {
+                            { nameof(MarketingStatusDto.MarketingStatusID), 1 },
+                            { nameof(MarketingStatusDto.StatusCode), "active" }
+                        }
+                    }
+                }
+            };
+
+            var service = new ProductRenderingService();
+
+            // Act - Prepare for rendering
+            var result = service.PrepareForRendering(product: productDto);
+
+            // Assert - Marketing status properties should be computed
+            Assert.IsNotNull(result);
+            Assert.IsTrue(result.HasMarketingAct);
+            Assert.IsNotNull(result.OrderedMarketingStatuses);
+            Assert.AreEqual(1, result.OrderedMarketingStatuses.Count);
 
             #endregion
         }

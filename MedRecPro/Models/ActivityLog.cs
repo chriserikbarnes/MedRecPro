@@ -8,16 +8,26 @@ namespace MedRecPro.Models
 {
     /*************************************************************/
     /// <summary>
-    /// Represents a comprehensive activity log entry for tracking user actions, 
-    /// controller execution, and system events in the database.
+    /// Represents a comprehensive activity log entry for user actions and system events.
     /// </summary>
     /// <remarks>
-    /// This model persists activity data to the AspNetUserActivityLog table and provides
-    /// detailed tracking of user interactions, request/response details, performance metrics,
-    /// and error information. Used in conjunction with ActivityLogActionFilter for automatic
-    /// controller action logging.
+    /// This entity tracks all user activities and controller executions including:
+    /// request/response details, performance metrics, error information, and audit trails.
+    /// Supports both authenticated users and anonymous activity logging.
     /// </remarks>
-    /// <seealso cref="User"/>
+    /// <example>
+    /// <code>
+    /// var log = new ActivityLog
+    /// {
+    ///     UserId = 123,  // or null for anonymous
+    ///     ActivityType = "Create",
+    ///     ControllerName = "Labels",
+    ///     ActionName = "Create",
+    ///     HttpMethod = "POST",
+    ///     Result = "Success"
+    /// };
+    /// </code>
+    /// </example>
     [Table("AspNetUserActivityLog")]
     public class ActivityLog
     {
@@ -25,10 +35,11 @@ namespace MedRecPro.Models
 
         /*************************************************************/
         /// <summary>
-        /// Gets or sets the unique identifier for the activity log entry.
+        /// Gets or sets the unique identifier for this activity log entry.
         /// </summary>
+        /// <value>Auto-incrementing BIGINT primary key.</value>
         [Key]
-        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        [Column("ActivityLogId")]
         public long ActivityLogId { get; set; }
 
         #endregion
@@ -39,51 +50,64 @@ namespace MedRecPro.Models
         /// <summary>
         /// Gets or sets the identifier of the user who performed the activity.
         /// </summary>
+        /// <value>
+        /// Foreign key to AspNetUsers table. NULL for anonymous/unauthenticated users.
+        /// </value>
         /// <remarks>
-        /// Foreign key reference to AspNetUsers table. For anonymous requests, 
-        /// this may contain "Anonymous" or a similar indicator depending on implementation.
+        /// When null, indicates activity was performed by an anonymous user or system process.
         /// </remarks>
-        /// <seealso cref="User"/>
-        [Required]
-        public long UserId { get; set; }
+        [Column("UserId")]
+        public long? UserId { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Gets or sets the navigation property to the associated user.
+        /// </summary>
+        /// <value>
+        /// The User entity that performed this activity, or null for anonymous activities.
+        /// </value>
+        [ForeignKey("UserId")]
+        public User? User { get; set; }
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the type of activity performed.
         /// </summary>
+        /// <value>
+        /// Common values: Login, Logout, Create, Read, Update, Delete, Registration, Other.
+        /// </value>
         /// <remarks>
-        /// Common values include: Login, Logout, Registration, Create, Read, Update, Delete, Other.
+        /// Automatically determined by HTTP method mapping or specific action names.
         /// </remarks>
-        /// <example>
-        /// "Login", "Create", "Update", "Delete"
-        /// </example>
         [Required]
-        [MaxLength(100)]
+        [StringLength(100)]
+        [Column("ActivityType")]
         public string ActivityType { get; set; } = string.Empty;
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the UTC timestamp when the activity occurred.
         /// </summary>
-        /// <remarks>
-        /// Automatically set to UTC time when the log is created. Used for temporal analysis
-        /// and activity timeline reconstruction.
-        /// </remarks>
+        /// <value>
+        /// UTC DateTime representing when the action was executed.
+        /// </value>
         [Required]
-        public DateTime ActivityTimestamp { get; set; }
+        [Column("ActivityTimestamp")]
+        public DateTime ActivityTimestamp { get; set; } = DateTime.UtcNow;
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets a human-readable description of the activity.
         /// </summary>
-        /// <remarks>
-        /// Typically formatted as "{HttpMethod} {ControllerName}/{ActionName}" but can be
-        /// customized for specific scenarios.
-        /// </remarks>
+        /// <value>
+        /// Typically formatted as "HTTP_METHOD ControllerName/ActionName".
+        /// </value>
         /// <example>
-        /// "GET Labels/GetById", "POST Auth/Login"
+        /// "GET Users/GetEndpointStats"
+        /// "POST Labels/Create"
         /// </example>
-        [MaxLength(500)]
+        [StringLength(500)]
+        [Column("Description")]
         public string? Description { get; set; }
 
         #endregion
@@ -92,70 +116,78 @@ namespace MedRecPro.Models
 
         /*************************************************************/
         /// <summary>
-        /// Gets or sets the IP address of the client making the request.
+        /// Gets or sets the IP address of the client that made the request.
         /// </summary>
+        /// <value>
+        /// IPv4 or IPv6 address. Extracted from X-Forwarded-For header or RemoteIpAddress.
+        /// </value>
         /// <remarks>
-        /// Supports both IPv4 and IPv6 addresses. Checks X-Forwarded-For header
-        /// for requests behind proxies or load balancers.
+        /// May represent proxy/load balancer IP if X-Forwarded-For is not available.
         /// </remarks>
-        [MaxLength(45)]
+        [StringLength(45)]
+        [Column("IpAddress")]
         public string? IpAddress { get; set; }
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the User-Agent string from the HTTP request header.
         /// </summary>
-        /// <remarks>
-        /// Contains browser/client information useful for analytics and debugging.
-        /// </remarks>
-        [MaxLength(500)]
+        /// <value>
+        /// Contains browser, OS, and device information.
+        /// </value>
+        [StringLength(500)]
+        [Column("UserAgent")]
         public string? UserAgent { get; set; }
 
         /*************************************************************/
         /// <summary>
-        /// Gets or sets the request path (URL path component).
+        /// Gets or sets the URL path of the request (without query string).
         /// </summary>
-        /// <remarks>
-        /// Does not include query string parameters. Example: "/api/Labels/123"
-        /// </remarks>
-        [MaxLength(500)]
+        /// <value>
+        /// The path portion of the request URL.
+        /// </value>
+        /// <example>
+        /// "/api/Users/endpoint-stats"
+        /// </example>
+        [StringLength(500)]
+        [Column("RequestPath")]
         public string? RequestPath { get; set; }
 
         #endregion
 
-        #region Controller and Endpoint Details
+        #region Controller/Endpoint Details
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the name of the controller that handled the request.
         /// </summary>
-        /// <remarks>
-        /// Extracted from route data. Example: "Labels", "Auth", "Users"
-        /// </remarks>
-        [MaxLength(100)]
+        /// <value>
+        /// Controller name without "Controller" suffix (e.g., "Users", "Labels").
+        /// </value>
+        [StringLength(100)]
+        [Column("ControllerName")]
         public string? ControllerName { get; set; }
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the name of the action method that was executed.
         /// </summary>
-        /// <remarks>
-        /// Extracted from route data. Example: "GetById", "Create", "Update"
-        /// </remarks>
-        [MaxLength(100)]
+        /// <value>
+        /// Action method name (e.g., "GetEndpointStats", "Create", "Delete").
+        /// </value>
+        [StringLength(100)]
+        [Column("ActionName")]
         public string? ActionName { get; set; }
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the HTTP method used for the request.
         /// </summary>
-        /// <remarks>
-        /// Standard HTTP methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS
-        /// </remarks>
-        /// <example>
-        /// "GET", "POST", "PUT", "DELETE"
-        /// </example>
-        [MaxLength(10)]
+        /// <value>
+        /// Standard HTTP methods: GET, POST, PUT, PATCH, DELETE, etc.
+        /// </value>
+        [StringLength(10)]
+        [Column("HttpMethod")]
         public string? HttpMethod { get; set; }
 
         #endregion
@@ -164,36 +196,35 @@ namespace MedRecPro.Models
 
         /*************************************************************/
         /// <summary>
-        /// Gets or sets the request parameters serialized as JSON.
+        /// Gets or sets the action parameters serialized as JSON.
         /// </summary>
+        /// <value>
+        /// JSON string of non-sensitive request parameters.
+        /// </value>
         /// <remarks>
-        /// Contains action method parameters, excluding sensitive data such as passwords,
-        /// tokens, and secrets. Stored as JSON for flexibility and queryability.
+        /// Sensitive parameters (password, token, secret, etc.) are automatically filtered out.
         /// </remarks>
-        [Column(TypeName = "nvarchar(max)")]
+        [Column("RequestParameters")]
         public string? RequestParameters { get; set; }
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the HTTP response status code.
         /// </summary>
-        /// <remarks>
-        /// Standard HTTP status codes: 200 (OK), 201 (Created), 400 (Bad Request),
-        /// 401 (Unauthorized), 404 (Not Found), 500 (Internal Server Error), etc.
-        /// </remarks>
-        /// <example>
-        /// 200, 201, 400, 404, 500
-        /// </example>
+        /// <value>
+        /// Standard HTTP status codes (200, 400, 404, 500, etc.).
+        /// </value>
+        [Column("ResponseStatusCode")]
         public int? ResponseStatusCode { get; set; }
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the execution time of the action in milliseconds.
         /// </summary>
-        /// <remarks>
-        /// Measured from action execution start to completion. Useful for performance
-        /// analysis and identifying slow endpoints.
-        /// </remarks>
+        /// <value>
+        /// Time taken to execute the controller action, measured via Stopwatch.
+        /// </value>
+        [Column("ExecutionTimeMs")]
         public int? ExecutionTimeMs { get; set; }
 
         #endregion
@@ -202,54 +233,47 @@ namespace MedRecPro.Models
 
         /*************************************************************/
         /// <summary>
-        /// Gets or sets the overall result status of the operation.
+        /// Gets or sets the overall result status of the action.
         /// </summary>
-        /// <remarks>
-        /// Typical values: "Success", "Error", "Warning". Used for high-level
-        /// filtering and reporting.
-        /// </remarks>
-        /// <example>
-        /// "Success", "Error"
-        /// </example>
-        [MaxLength(50)]
+        /// <value>
+        /// Common values: "Success", "Error", "Warning".
+        /// </value>
+        [StringLength(50)]
+        [Column("Result")]
         public string? Result { get; set; }
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the error message if an exception occurred.
         /// </summary>
-        /// <remarks>
-        /// Contains the Exception.Message property. Only populated when an error occurs.
-        /// </remarks>
-        /// <seealso cref="ExceptionType"/>
-        /// <seealso cref="StackTrace"/>
-        [Column(TypeName = "nvarchar(max)")]
+        /// <value>
+        /// Exception.Message property, or null if no error.
+        /// </value>
+        [Column("ErrorMessage")]
         public string? ErrorMessage { get; set; }
 
         /*************************************************************/
         /// <summary>
         /// Gets or sets the type name of the exception that occurred.
         /// </summary>
-        /// <remarks>
-        /// Contains the full type name (e.g., "System.NullReferenceException",
-        /// "System.InvalidOperationException"). Useful for categorizing errors.
-        /// </remarks>
-        /// <seealso cref="ErrorMessage"/>
-        /// <seealso cref="StackTrace"/>
-        [MaxLength(200)]
+        /// <value>
+        /// Full type name of the exception (e.g., "System.NullReferenceException").
+        /// </value>
+        [StringLength(200)]
+        [Column("ExceptionType")]
         public string? ExceptionType { get; set; }
 
         /*************************************************************/
         /// <summary>
-        /// Gets or sets the stack trace of the exception.
+        /// Gets or sets the full stack trace for debugging.
         /// </summary>
+        /// <value>
+        /// Complete stack trace from the exception, or null if no error.
+        /// </value>
         /// <remarks>
-        /// Full stack trace for debugging purposes. Only captured when an exception occurs.
-        /// Can be very long for deeply nested call stacks.
+        /// Only populated when an exception occurs during action execution.
         /// </remarks>
-        /// <seealso cref="ErrorMessage"/>
-        /// <seealso cref="ExceptionType"/>
-        [Column(TypeName = "nvarchar(max)")]
+        [Column("StackTrace")]
         public string? StackTrace { get; set; }
 
         #endregion
@@ -258,31 +282,17 @@ namespace MedRecPro.Models
 
         /*************************************************************/
         /// <summary>
-        /// Gets or sets the session identifier associated with the request.
+        /// Gets or sets the session identifier for correlating requests.
         /// </summary>
+        /// <value>
+        /// ASP.NET Core session ID, or null if sessions are not configured.
+        /// </value>
         /// <remarks>
-        /// Used to correlate multiple requests within the same user session.
-        /// Only available if session middleware is enabled.
+        /// Useful for tracking multiple requests within the same user session.
         /// </remarks>
-        [MaxLength(100)]
+        [StringLength(100)]
+        [Column("SessionId")]
         public string? SessionId { get; set; }
-
-        #endregion
-
-        #region Navigation Properties
-
-        /*************************************************************/
-        /// <summary>
-        /// Gets or sets the User entity associated with this activity log.
-        /// </summary>
-        /// <remarks>
-        /// Navigation property for Entity Framework. Enables eager loading of user data.
-        /// </remarks>
-        /// <seealso cref="UserId"/>
-        /// <seealso cref="User"/>
-        //[JsonIgnore]
-        [ForeignKey(nameof(UserId))]
-        public virtual User? User { get; set; }
 
         #endregion
     }
@@ -507,7 +517,7 @@ namespace MedRecPro.Models
         /// <seealso cref="ActivityLog.UserId"/>
         /// <seealso cref="User"/>
         [Required]
-        public long UserId { get; set; }
+        public long? UserId { get; set; }
 
         #endregion
 

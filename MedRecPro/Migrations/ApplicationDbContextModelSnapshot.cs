@@ -22,6 +22,106 @@ namespace MedRecPro.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("MedRecPro.Models.ActivityLog", b =>
+                {
+                    b.Property<long>("ActivityLogId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("ActivityLogId");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("ActivityLogId"));
+
+                    b.Property<string>("ActionName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("ActionName");
+
+                    b.Property<DateTime>("ActivityTimestamp")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("ActivityTimestamp");
+
+                    b.Property<string>("ActivityType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("ActivityType");
+
+                    b.Property<string>("ControllerName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("ControllerName");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("Description");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("ErrorMessage");
+
+                    b.Property<string>("ExceptionType")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("ExceptionType");
+
+                    b.Property<int?>("ExecutionTimeMs")
+                        .HasColumnType("int")
+                        .HasColumnName("ExecutionTimeMs");
+
+                    b.Property<string>("HttpMethod")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)")
+                        .HasColumnName("HttpMethod");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)")
+                        .HasColumnName("IpAddress");
+
+                    b.Property<string>("RequestParameters")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("RequestParameters");
+
+                    b.Property<string>("RequestPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("RequestPath");
+
+                    b.Property<int?>("ResponseStatusCode")
+                        .HasColumnType("int")
+                        .HasColumnName("ResponseStatusCode");
+
+                    b.Property<string>("Result")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("Result");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("SessionId");
+
+                    b.Property<string>("StackTrace")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("StackTrace");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("UserAgent");
+
+                    b.Property<long?>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("UserId");
+
+                    b.HasKey("ActivityLogId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserActivityLog", (string)null);
+                });
+
             modelBuilder.Entity("MedRecPro.Models.Label+ActiveMoiety", b =>
                 {
                     b.Property<int?>("ActiveMoietyID")
@@ -158,6 +258,12 @@ namespace MedRecPro.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int?>("AttachedDocumentID"));
 
+                    b.Property<int?>("ComplianceActionID")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DocumentIdRoot")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("FileName")
                         .HasColumnType("nvarchar(max)");
 
@@ -168,6 +274,18 @@ namespace MedRecPro.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("ParentEntityType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("ProductID")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SectionID")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("TitleReference")
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("AttachedDocumentID");
@@ -223,7 +341,12 @@ namespace MedRecPro.Migrations
                     b.Property<string>("OperationDisplayName")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("PerformingOrganizationID")
+                        .HasColumnType("int");
+
                     b.HasKey("BusinessOperationID");
+
+                    b.HasIndex("PerformingOrganizationID");
 
                     b.ToTable("BusinessOperation", (string)null);
                 });
@@ -305,6 +428,12 @@ namespace MedRecPro.Migrations
                     b.Property<string>("CharacteristicCodeSystem")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("MoietyID")
+                        .HasColumnType("int");
+
+                    b.Property<string>("OriginalText")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int?>("PackagingLevelID")
                         .HasColumnType("int");
 
@@ -321,6 +450,9 @@ namespace MedRecPro.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ValueCV_DisplayName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ValueED_CDATAContent")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ValueED_FileName")
@@ -360,6 +492,8 @@ namespace MedRecPro.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("CharacteristicID");
+
+                    b.HasIndex("MoietyID");
 
                     b.ToTable("Characteristic", (string)null);
                 });
@@ -547,6 +681,9 @@ namespace MedRecPro.Migrations
                     b.Property<string>("DocumentCodeSystem")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("DocumentCodeSystemName")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("DocumentDisplayName")
                         .HasColumnType("nvarchar(max)");
 
@@ -592,6 +729,8 @@ namespace MedRecPro.Migrations
 
                     b.HasKey("DocumentAuthorID");
 
+                    b.HasIndex("OrganizationID");
+
                     b.ToTable("DocumentAuthor", (string)null);
                 });
 
@@ -623,6 +762,37 @@ namespace MedRecPro.Migrations
                     b.ToTable("DocumentRelationship", (string)null);
                 });
 
+            modelBuilder.Entity("MedRecPro.Models.Label+DocumentRelationshipIdentifier", b =>
+                {
+                    b.Property<int>("DocumentRelationshipIdentifierID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("DocumentRelationshipIdentifierID");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("DocumentRelationshipIdentifierID"));
+
+                    b.Property<int?>("DocumentRelationshipID")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("OrganizationIdentifierID")
+                        .HasColumnType("int");
+
+                    b.HasKey("DocumentRelationshipIdentifierID");
+
+                    b.HasIndex("DocumentRelationshipID")
+                        .HasDatabaseName("IX_DocumentRelationshipIdentifier_DocumentRelationshipID");
+
+                    b.HasIndex("OrganizationIdentifierID")
+                        .HasDatabaseName("IX_DocumentRelationshipIdentifier_OrganizationIdentifierID");
+
+                    b.HasIndex("DocumentRelationshipID", "OrganizationIdentifierID")
+                        .IsUnique()
+                        .HasDatabaseName("UX_DocumentRelationshipIdentifier_Unique")
+                        .HasFilter("[DocumentRelationshipID] IS NOT NULL AND [OrganizationIdentifierID] IS NOT NULL");
+
+                    b.ToTable("DocumentRelationshipIdentifier", (string)null);
+                });
+
             modelBuilder.Entity("MedRecPro.Models.Label+DosingSpecification", b =>
                 {
                     b.Property<int?>("DosingSpecificationID")
@@ -638,15 +808,21 @@ namespace MedRecPro.Migrations
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<int?>("ProductID")
+                        .IsRequired()
                         .HasColumnType("int");
 
                     b.Property<string>("RouteCode")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("RouteCodeSystem")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("RouteDisplayName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RouteNullFlavor")
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("DosingSpecificationID");
@@ -693,6 +869,9 @@ namespace MedRecPro.Migrations
                     b.Property<int?>("DocumentRelationshipID")
                         .HasColumnType("int");
 
+                    b.Property<bool>("IsResolved")
+                        .HasColumnType("bit");
+
                     b.Property<int?>("ProductID")
                         .HasColumnType("int");
 
@@ -703,6 +882,8 @@ namespace MedRecPro.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("FacilityProductLinkID");
+
+                    b.HasIndex("DocumentRelationshipID");
 
                     b.ToTable("FacilityProductLink", (string)null);
                 });
@@ -820,6 +1001,9 @@ namespace MedRecPro.Migrations
                     b.Property<string>("NumeratorValue")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("OriginatingElement")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int?>("ProductConceptID")
                         .HasColumnType("int");
 
@@ -906,6 +1090,9 @@ namespace MedRecPro.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int?>("IngredientSubstanceID"));
+
+                    b.Property<string>("OriginatingElement")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("SubstanceName")
                         .HasColumnType("nvarchar(max)");
@@ -1160,6 +1347,51 @@ namespace MedRecPro.Migrations
                     b.ToTable("MarketingStatus", (string)null);
                 });
 
+            modelBuilder.Entity("MedRecPro.Models.Label+Moiety", b =>
+                {
+                    b.Property<int?>("MoietyID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int?>("MoietyID"));
+
+                    b.Property<int?>("IdentifiedSubstanceID")
+                        .HasColumnType("int");
+
+                    b.Property<string>("MoietyCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("MoietyCodeSystem")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("MoietyDisplayName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("QuantityDenominatorUnit")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("QuantityDenominatorValue")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool?>("QuantityNumeratorInclusive")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal?>("QuantityNumeratorLowValue")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("QuantityNumeratorUnit")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("SequenceNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("MoietyID");
+
+                    b.HasIndex("IdentifiedSubstanceID");
+
+                    b.ToTable("Moiety", (string)null);
+                });
+
             modelBuilder.Entity("MedRecPro.Models.Label+NCTLink", b =>
                 {
                     b.Property<int?>("NCTLinkID")
@@ -1258,6 +1490,9 @@ namespace MedRecPro.Migrations
                     b.Property<string>("DescriptionText")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("DocumentID")
+                        .HasColumnType("int");
+
                     b.Property<string>("FileName")
                         .HasColumnType("nvarchar(max)");
 
@@ -1269,6 +1504,9 @@ namespace MedRecPro.Migrations
 
                     b.Property<int?>("SectionID")
                         .HasColumnType("int");
+
+                    b.Property<string>("XsiType")
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("ObservationMediaID");
 
@@ -1315,6 +1553,8 @@ namespace MedRecPro.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("OrganizationIdentifierID");
+
+                    b.HasIndex("OrganizationID");
 
                     b.ToTable("OrganizationIdentifier", (string)null);
                 });
@@ -1393,6 +1633,21 @@ namespace MedRecPro.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int?>("PackagingLevelID"));
 
+                    b.Property<string>("NumeratorTranslationCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NumeratorTranslationCodeSystem")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NumeratorTranslationDisplayName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PackageCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PackageCodeSystem")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("PackageFormCode")
                         .HasColumnType("nvarchar(max)");
 
@@ -1410,6 +1665,9 @@ namespace MedRecPro.Migrations
 
                     b.Property<int?>("ProductInstanceID")
                         .HasColumnType("int");
+
+                    b.Property<decimal?>("QuantityDenominator")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal?>("QuantityNumerator")
                         .HasColumnType("decimal(18,2)");
@@ -1671,6 +1929,7 @@ namespace MedRecPro.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("PackagingLevelID")
+                        .IsRequired()
                         .HasColumnType("int");
 
                     b.Property<string>("QuantityUnit")
@@ -1985,6 +2244,9 @@ namespace MedRecPro.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int?>("RenderedMediaID"));
 
+                    b.Property<int?>("DocumentID")
+                        .HasColumnType("int");
+
                     b.Property<bool?>("IsInline")
                         .HasColumnType("bit");
 
@@ -2081,7 +2343,16 @@ namespace MedRecPro.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int?>("SectionID"));
 
+                    b.Property<int?>("DocumentID")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("EffectiveTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("EffectiveTimeHigh")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("EffectiveTimeLow")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("SectionCode")
@@ -2090,11 +2361,17 @@ namespace MedRecPro.Migrations
                     b.Property<string>("SectionCodeSystem")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("SectionCodeSystemName")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("SectionDisplayName")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("SectionGUID")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SectionLinkGUID")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("StructuredBodyID")
                         .HasColumnType("int");
@@ -2162,11 +2439,17 @@ namespace MedRecPro.Migrations
                     b.Property<string>("ContentType")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("ParentSectionTextContentID")
+                        .HasColumnType("int");
+
                     b.Property<int?>("SectionID")
                         .HasColumnType("int");
 
                     b.Property<int?>("SequenceNumber")
                         .HasColumnType("int");
+
+                    b.Property<string>("StyleCode")
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("SectionTextContentID");
 
@@ -2316,8 +2599,14 @@ namespace MedRecPro.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int?>("TerritorialAuthorityID"));
 
-                    b.Property<int?>("GoverningAgencyOrgID")
-                        .HasColumnType("int");
+                    b.Property<string>("GoverningAgencyIdExtension")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("GoverningAgencyIdRoot")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("GoverningAgencyName")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("TerritoryCode")
                         .HasColumnType("nvarchar(max)");
@@ -2385,11 +2674,17 @@ namespace MedRecPro.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int?>("TextTableID"));
 
+                    b.Property<string>("Caption")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool?>("HasFooter")
                         .HasColumnType("bit");
 
                     b.Property<bool?>("HasHeader")
                         .HasColumnType("bit");
+
+                    b.Property<string>("SectionTableLink")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("SectionTextContentID")
                         .HasColumnType("int");
@@ -2440,6 +2735,49 @@ namespace MedRecPro.Migrations
                     b.HasKey("TextTableCellID");
 
                     b.ToTable("TextTableCell", (string)null);
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+TextTableColumn", b =>
+                {
+                    b.Property<int?>("TextTableColumnID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int?>("TextTableColumnID"));
+
+                    b.Property<string>("Align")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ColGroupAlign")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("ColGroupSequenceNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ColGroupStyleCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ColGroupVAlign")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("SequenceNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StyleCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("TextTableID")
+                        .HasColumnType("int");
+
+                    b.Property<string>("VAlign")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Width")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("TextTableColumnID");
+
+                    b.ToTable("TextTableColumn", (string)null);
                 });
 
             modelBuilder.Entity("MedRecPro.Models.Label+TextTableRow", b =>
@@ -2524,6 +2862,38 @@ namespace MedRecPro.Migrations
                     b.HasKey("WarningLetterProductInfoID");
 
                     b.ToTable("WarningLetterProductInfo", (string)null);
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.SplData", b =>
+                {
+                    b.Property<long>("SplDataID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("SplDataID"));
+
+                    b.Property<bool?>("Archive")
+                        .HasColumnType("bit");
+
+                    b.Property<long?>("AspNetUsersID")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("LogDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("SplDataGUID")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SplXML")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SplXMLHash")
+                        .HasColumnType("char(64)");
+
+                    b.HasKey("SplDataID");
+
+                    b.ToTable("SplData", (string)null);
                 });
 
             modelBuilder.Entity("MedRecPro.Models.User", b =>
@@ -2857,6 +3227,82 @@ namespace MedRecPro.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("MedRecPro.Models.ActivityLog", b =>
+                {
+                    b.HasOne("MedRecPro.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+BusinessOperation", b =>
+                {
+                    b.HasOne("MedRecPro.Models.Label+Organization", "PerformingOrganization")
+                        .WithMany()
+                        .HasForeignKey("PerformingOrganizationID");
+
+                    b.Navigation("PerformingOrganization");
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+Characteristic", b =>
+                {
+                    b.HasOne("MedRecPro.Models.Label+Moiety", null)
+                        .WithMany("Characteristics")
+                        .HasForeignKey("MoietyID");
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+DocumentAuthor", b =>
+                {
+                    b.HasOne("MedRecPro.Models.Label+Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationID");
+
+                    b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+DocumentRelationshipIdentifier", b =>
+                {
+                    b.HasOne("MedRecPro.Models.Label+DocumentRelationship", "DocumentRelationship")
+                        .WithMany()
+                        .HasForeignKey("DocumentRelationshipID")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("MedRecPro.Models.Label+OrganizationIdentifier", "OrganizationIdentifier")
+                        .WithMany()
+                        .HasForeignKey("OrganizationIdentifierID")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("DocumentRelationship");
+
+                    b.Navigation("OrganizationIdentifier");
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+FacilityProductLink", b =>
+                {
+                    b.HasOne("MedRecPro.Models.Label+DocumentRelationship", "DocumentRelationship")
+                        .WithMany()
+                        .HasForeignKey("DocumentRelationshipID");
+
+                    b.Navigation("DocumentRelationship");
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+Moiety", b =>
+                {
+                    b.HasOne("MedRecPro.Models.Label+IdentifiedSubstance", null)
+                        .WithMany("Moieties")
+                        .HasForeignKey("IdentifiedSubstanceID");
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+OrganizationIdentifier", b =>
+                {
+                    b.HasOne("MedRecPro.Models.Label+Organization", "Organization")
+                        .WithMany("OrganizationIdentifiers")
+                        .HasForeignKey("OrganizationID");
+
+                    b.Navigation("Organization");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<long>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole<long>", null)
@@ -2906,6 +3352,21 @@ namespace MedRecPro.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+IdentifiedSubstance", b =>
+                {
+                    b.Navigation("Moieties");
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+Moiety", b =>
+                {
+                    b.Navigation("Characteristics");
+                });
+
+            modelBuilder.Entity("MedRecPro.Models.Label+Organization", b =>
+                {
+                    b.Navigation("OrganizationIdentifiers");
                 });
 #pragma warning restore 612, 618
         }

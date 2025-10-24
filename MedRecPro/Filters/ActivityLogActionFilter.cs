@@ -36,7 +36,7 @@ namespace MedRecPro.Filters
     {
         #region Fields
 
-        private readonly IActivityLogService _activityLogService;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ILogger<ActivityLogActionFilter> _logger;
 
@@ -48,17 +48,16 @@ namespace MedRecPro.Filters
         /// <summary>
         /// Initializes a new instance of the ActivityLogActionFilter class.
         /// </summary>
-        /// <param name="activityLogService">Service for persisting activity logs.</param>
+        /// <param name="serviceScopeFactory">Factory for creating service scopes for background logging.</param>
         /// <param name="httpContextAccessor">Accessor for HTTP context information.</param>
         /// <param name="logger">Logger for filter-level events and errors.</param>
-        /// <seealso cref="IActivityLogService"/>
         public ActivityLogActionFilter(
-            IActivityLogService activityLogService,
+            IServiceScopeFactory serviceScopeFactory,
             IHttpContextAccessor httpContextAccessor,
             ILogger<ActivityLogActionFilter> logger)
         {
             #region Implementation
-            _activityLogService = activityLogService;
+            _serviceScopeFactory = serviceScopeFactory;
             _httpContextAccessor = httpContextAccessor;
             _logger = logger;
             #endregion
@@ -78,7 +77,8 @@ namespace MedRecPro.Filters
         /// <remarks>
         /// Measures execution time using Stopwatch, captures request/response details,
         /// and handles both successful executions and exceptions. Logging is performed
-        /// asynchronously via fire-and-forget to minimize performance impact.
+        /// asynchronously via fire-and-forget with a new DI scope to prevent disposed
+        /// context issues.
         /// </remarks>
         /// <seealso cref="ActivityLog"/>
         public async Task OnActionExecutionAsync(
@@ -91,12 +91,12 @@ namespace MedRecPro.Filters
 
             // Get user ID (handle both authenticated and anonymous)
             var userIdClaim = httpContext.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-            long userId = 0;
+            long? userId = null;
 
-            // Try to parse user ID, default to 0 for anonymous
-            if (!string.IsNullOrEmpty(userIdClaim))
+            // Only set userId if we have a valid authenticated user
+            if (!string.IsNullOrEmpty(userIdClaim) && long.TryParse(userIdClaim, out var parsedUserId))
             {
-                long.TryParse(userIdClaim, out userId);
+                userId = parsedUserId;
             }
 
             // Execute the action
@@ -107,7 +107,7 @@ namespace MedRecPro.Filters
             // Prepare the activity log
             var log = new ActivityLog
             {
-                UserId = userId,
+                UserId = userId,  // Will be null for anonymous users
                 ActivityType = getActivityType(context, resultContext),
                 ActivityTimestamp = DateTime.UtcNow,
 
@@ -142,12 +142,20 @@ namespace MedRecPro.Filters
             // Set description
             log.Description = $"{log.HttpMethod} {log.ControllerName}/{log.ActionName}";
 
-            // Log asynchronously (fire and forget to not slow down the response)
+            // Log asynchronously with a new scope (fire and forget)
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await _activityLogService.LogActivityAsync(log);
+                    // Create a new scope to get fresh service instances
+                    // This prevents disposed DbContext issues
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        var activityLogService = scope.ServiceProvider
+                            .GetRequiredService<IActivityLogService>();
+
+                        await activityLogService.LogActivityAsync(log);
+                    }
                 }
                 catch (Exception ex)
                 {
