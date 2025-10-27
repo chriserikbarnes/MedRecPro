@@ -38,8 +38,13 @@ bool ignoreEmptyCollections;
 User.SetConfiguration(configuration);
 
 // Access the connection string
+#if DEBUG
 connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
                    ?? builder.Configuration.GetSection("Dev:DB:Connection")?.Value;
+#else
+connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+                    ?? builder.Configuration.GetSection("Prod:DB:Connection")?.Value;
+#endif
 
 if (string.IsNullOrEmpty(connectionString))
 {
