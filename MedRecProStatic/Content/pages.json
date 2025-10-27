@@ -1,0 +1,113 @@
+{
+  "home": {
+    "title": "MedRecPro - SPL Management System",
+    "hero": {
+      "headline": "Structured Product Labeling Made Simple",
+      "subheadline": "Open-source pharmaceutical labeling management system built on FDA and HL7 standards",
+      "ctaText": "Get Started",
+      "ctaLink": "/api/auth/login"
+    },
+    "features": [
+      {
+        "icon": "📋",
+        "title": "SPL Parsing",
+        "description": "Parse and normalize pharmaceutical labeling data according to HL7 standards"
+      },
+      {
+        "icon": "🔍",
+        "title": "Data Analysis",
+        "description": "Comprehensive analysis of drug products, ingredients, and packaging hierarchies"
+      },
+      {
+        "icon": "🔒",
+        "title": "Secure Authentication",
+        "description": "Enterprise-grade security with Microsoft and Google authentication"
+      },
+      {
+        "icon": "⚡",
+        "title": "High Performance",
+        "description": "Optimized batch processing and efficient data structures"
+      }
+    ]
+  },
+  "terms": {
+    "title": "Terms of Service",
+    "lastUpdated": "2025-10-27",
+    "sections": [
+      {
+        "heading": "1. Acceptance of Terms",
+        "content": "By accessing and using MedRecPro, you accept and agree to be bound by the terms and provisions of this agreement."
+      },
+      {
+        "heading": "2. Use License",
+        "content": "MedRecPro is an open-source application for managing pharmaceutical Structured Product Labeling (SPL) data. The software is provided under the MIT License."
+      },
+      {
+        "heading": "3. Data Processing",
+        "content": "MedRecPro processes SPL XML files in accordance with FDA and HL7 specifications. Users are responsible for ensuring compliance with applicable regulations when using this tool."
+      },
+      {
+        "heading": "4. Authentication",
+        "content": "We use Microsoft and Google authentication to provide secure access. Your authentication data is handled in accordance with our Privacy Policy."
+      },
+      {
+        "heading": "5. Open Source",
+        "content": "This software is provided 'as is' without warranty of any kind. The source code is available on GitHub and contributions are welcome under the terms of the MIT License."
+      },
+      {
+        "heading": "6. Regulatory Compliance",
+        "content": "While MedRecPro is designed to work with FDA SPL data, users are responsible for ensuring their use complies with all applicable regulations, including 21 CFR Part 11 if applicable."
+      },
+      {
+        "heading": "7. Contact",
+        "content": "For questions about these terms, please contact: support@medrecpro.com"
+      }
+    ]
+  },
+  "privacy": {
+    "title": "Privacy Policy",
+    "lastUpdated": "2025-10-27",
+    "sections": [
+      {
+        "heading": "1. Information We Collect",
+        "content": "When you authenticate with MedRecPro using Microsoft or Google, we collect your name, email address, and profile information provided by the authentication provider."
+      },
+      {
+        "heading": "2. How We Use Your Information",
+        "content": "We use your information to authenticate and authorize access to the application, maintain user sessions, and improve application functionality."
+      },
+      {
+        "heading": "3. Data Storage",
+        "content": "Your authentication data is stored securely on Microsoft Azure infrastructure in the East US 2 region. We implement industry-standard security measures including encryption at rest and in transit."
+      },
+      {
+        "heading": "4. Third-Party Services",
+        "content": "We use Microsoft and Google authentication services. Please refer to their respective privacy policies: Microsoft Privacy Statement (https://privacy.microsoft.com) and Google Privacy Policy (https://policies.google.com/privacy)."
+      },
+      {
+        "heading": "5. SPL Data Processing",
+        "content": "MedRecPro processes pharmaceutical labeling data you upload or access. This data is processed according to FDA and HL7 specifications. You retain ownership of all data you upload or process through the system."
+      },
+      {
+        "heading": "6. Data Retention",
+        "content": "We retain your authentication information for as long as your account is active. You may request account deletion at any time by contacting support@medrecpro.com."
+      },
+      {
+        "heading": "7. Your Rights",
+        "content": "You have the right to access your personal data, request correction of your data, request deletion of your account, and export your data."
+      },
+      {
+        "heading": "8. Cookies and Tracking",
+        "content": "We use essential cookies for authentication and session management. We do not use advertising or tracking cookies."
+      },
+      {
+        "heading": "9. Security",
+        "content": "We implement industry-standard security measures including HTTPS encryption, secure authentication flows, and regular security audits."
+      },
+      {
+        "heading": "10. Contact Us",
+        "content": "For privacy-related questions, contact: support@medrecpro.com"
+      }
+    ]
+  }
+}

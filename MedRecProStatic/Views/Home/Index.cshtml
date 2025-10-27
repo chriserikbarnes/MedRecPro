@@ -1,0 +1,40 @@
+﻿@using MedRecPro.Static.Models
+@model PageContent
+@{
+    ViewData["Title"] = "Home";
+    var config = ViewBag.Config as SiteConfig;
+}
+
+<div class="hero">
+    <div class="container">
+        <h1>@Model.Hero!.Headline</h1>
+        <p class="lead">@Model.Hero.Subheadline</p>
+        <a href="@Model.Hero.CtaLink" class="btn-cta">@Model.Hero.CtaText</a>
+    </div>
+</div>
+
+<div class="features">
+    <div class="container">
+        <div class="feature-grid">
+            @foreach (var feature in Model.Features!)
+            {
+                <div class="feature-card">
+                    <div class="feature-icon">@feature.Icon</div>
+                    <h3>@feature.Title</h3>
+                    <p>@feature.Description</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<div class="cta-section">
+    <div class="container">
+        <h2>Ready to Get Started?</h2>
+        <p>Sign in with your Microsoft or Google account to access the API</p>
+        <div class="cta-buttons">
+            <a href="@(config?.AuthUrl)/signin-microsoft" class="btn-secondary">Sign in with Microsoft</a>
+            <a href="@(config?.AuthUrl)/signin-google" class="btn-secondary">Sign in with Google</a>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,9 @@
+{
+  "siteName": "MedRecPro",
+  "tagline": "Pharmaceutical Labeling Management System",
+  "apiUrl": "https://medrecpro.com/api",
+  "authUrl": "https://medrecpro.com/api/auth",
+  "swaggerUrl": "https://medrecpro.com/swagger",
+  "contactEmail": "support@medrecpro.com",
+  "lastUpdated": "2025-10-27"
+}

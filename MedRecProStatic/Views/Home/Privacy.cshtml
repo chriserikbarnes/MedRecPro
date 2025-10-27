@@ -1,0 +1,20 @@
+﻿@using MedRecPro.Static.Models
+@model PageContent
+@{
+    ViewData["Title"] = "Privacy Policy";
+}
+
+<div class="legal-page">
+    <div class="container">
+        <h1>@Model.Title</h1>
+        <p class="last-updated">Last updated: @Model.LastUpdated</p>
+        
+        @foreach (var item in Model.Sections)
+        {
+            <section>
+                <h2>@item.Heading</h2>
+                <p>@item.Content</p>
+            </section>
+        }
+    </div>
+</div>

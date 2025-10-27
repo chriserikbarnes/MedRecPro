@@ -1,0 +1,45 @@
+﻿@using MedRecPro.Static.Models
+@{
+    var config = ViewBag.Config as SiteConfig ?? new SiteConfig { SiteName = "MedRecPro" };
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - @config.SiteName</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="container">
+                <a class="navbar-brand" asp-controller="Home" asp-action="Index">@config.SiteName</a>
+                <div class="navbar-menu">
+                    <a asp-controller="Home" asp-action="Index">Home</a>
+                    <a asp-controller="Home" asp-action="Terms">Terms</a>
+                    <a asp-controller="Home" asp-action="Privacy">Privacy</a>
+                    <a href="@config.SwaggerUrl" class="btn-primary">API Docs</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        @RenderBody()
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; @DateTime.Now.Year @config.SiteName - Open Source SPL Management</p>
+            <div class="footer-links">
+                <a asp-controller="Home" asp-action="Terms">Terms</a>
+                <a asp-controller="Home" asp-action="Privacy">Privacy</a>
+                <a href="mailto:@config.ContactEmail">Contact</a>
+            </div>
+        </div>
+    </footer>
+
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
