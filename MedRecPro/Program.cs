@@ -21,11 +21,14 @@ using Microsoft.OpenApi.Models;
 using Newtonsoft.Json;
 using RazorLight;
 using System.Reflection;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 
 string? connectionString;
 string? googleClientId;
 string? googleClientSecret;
+string? microsoftClientId;
+string? microsoftClientSecret;
 
 var builder = WebApplication.CreateBuilder(args);
 var configuration = builder.Configuration;
@@ -54,6 +57,15 @@ builder.Services.Configure<MedRecPro.Models.ComparisonSettings>(builder.Configur
 googleClientId = builder.Configuration["Authentication:Google:ClientId"];
 
 googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"];
+
+microsoftClientId = builder.Configuration["Authentication:Microsoft:ClientId"];
+
+#if DEBUG
+microsoftClientSecret = builder.Configuration["Authentication:Microsoft:ClientSecret:Dev"];
+#else
+microsoftClientSecret = builder.Configuration["Authentication:Microsoft:ClientSecret:Prod"];
+#endif
+
 
 builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSettings"));
 
@@ -185,20 +197,44 @@ builder.Services.AddAuthentication(options =>
     options.DefaultChallengeScheme = IdentityConstants.ApplicationScheme; // Can be overridden by specific challenges
     options.DefaultSignInScheme = IdentityConstants.ExternalScheme; // For external logins
 })
-    .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("BasicAuthentication", o => { /* Configure Basic Auth if needed */ })
-    .AddGoogle(options =>
+.AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("BasicAuthentication", o => { /* Configure Basic Auth if needed */ })
+.AddGoogle(options =>
+{
+    if (string.IsNullOrWhiteSpace(googleClientId) || string.IsNullOrWhiteSpace(googleClientSecret))
     {
-        if (string.IsNullOrWhiteSpace(googleClientId) || string.IsNullOrWhiteSpace(googleClientSecret))
-        {
-            Console.WriteLine("Google ClientId or ClientSecret not configured. Google authentication will be disabled.");
-            return;
-        }
-        options.ClientId = googleClientId;
-        options.ClientSecret = googleClientSecret;
-        options.Scope.Add("profile");
-        options.Scope.Add("email");
-        options.SaveTokens = true;
-    });
+        Console.WriteLine("Google ClientId or ClientSecret not configured. Google authentication will be disabled.");
+        return;
+    }
+    options.ClientId = googleClientId;
+    options.ClientSecret = googleClientSecret;
+    options.Scope.Add("profile");
+    options.Scope.Add("email");
+    options.SaveTokens = true;
+})
+.AddMicrosoftAccount(options =>
+{
+    if (string.IsNullOrWhiteSpace(microsoftClientId) || string.IsNullOrWhiteSpace(microsoftClientSecret))
+    {
+        Console.WriteLine("Microsoft ClientId or ClientSecret not configured. Microsoft authentication will be disabled.");
+        return;
+    }
+    options.ClientId = microsoftClientId;
+    options.ClientSecret = microsoftClientSecret;
+
+    // Clear default scopes and add required ones
+    options.Scope.Clear();
+    options.Scope.Add("openid");      // REQUIRED by Microsoft
+    options.Scope.Add("profile");      // For basic profile info
+    options.Scope.Add("email");        // For email address
+    options.Scope.Add("https://graph.microsoft.com/User.Read");
+
+    options.SaveTokens = true;
+
+    // Optional: Map claims to Identity claims for consistency
+    options.ClaimActions.MapJsonKey(ClaimTypes.NameIdentifier, "id");
+    options.ClaimActions.MapJsonKey(ClaimTypes.Email, "mail");
+    options.ClaimActions.MapJsonKey(ClaimTypes.Name, "displayName");
+});
 #endregion
 
 // Register our custom IPasswordHasher for MedRecPro.Models.User.
@@ -276,7 +312,7 @@ builder.Services.AddSwaggerGen(c =>
     var environment = "Prod";
     var serverName = "ProdHost";
 #endif
-    #endregion
+#endregion
 
     #region demo mode detection
     // Check if demo mode is enabled from configuration
