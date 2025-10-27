@@ -112,16 +112,6 @@ GitHub Actions workflow automatically deploys on push to `main` branch.
 - Mobile-first approach
 - Modern, clean aesthetic
 
-## URL Structure
-
-| Page     | URL               | Description               |
-|------- --|-------------------|------------------------- -|
-| Home     | `/`               | Marketing home page       |
-| Terms    | `/terms`          | Terms of Service          |
-| Privacy  | `/privacy`        | Privacy Policy            |
-| API Docs | `/api/swagger`    | Swagger API documentation |
-| Auth     | `/api/auth/login` | Authentication endpoint   |
-
 ## Features
 
 - ✅ Clean, modern design
@@ -240,4 +230,4 @@ Content changes (JSON files) are especially welcome.
 
 **Version**: 1.0.0-alpha 
 **Last Updated**: October 27, 2025  
-**Status**: alpa-ready
+**Status**: alpha-ready
