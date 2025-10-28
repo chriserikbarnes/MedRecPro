@@ -75,19 +75,25 @@ Security settings including encryption keys should be configured in your user se
 
 ```json
 {
-    "Authentication:Google:ClientSecret" : "your-google-client-secret-here",
-    "Authentication:Google:ClientId" : "your-google-client-id-here",
-    "Security:DB:PKSecret": "your-encryption-key-here",
-    "Dev:DB:Connection": "Server=localhost;Database=MedRecPro;User Id=sa;Password=your_password_here;",
-    "Jwt":{
-        "Key": "your-super-strong-key",
-        "Issuer": "MedRecPro",
-        "Audience": "MedRecUsers",
-        "ExpirationMinutes": 60
-    },
-    "ClaudeApiSettings": {
-        "ApiKey": "your-claude-api-key-here"
-  }
+  "Authentication:Google:ClientSecret": "your-google-client-secret-here",
+  "Authentication:Google:ClientId": "your-google-client-id-here.apps.googleusercontent.com",
+
+  "Authentication:Microsoft:ClientId": "your-microsoft-client/application-id-here",
+  "Authentication:Microsoft:ClientSecret:Dev": your-microsoft-client-secret-here",
+  "Authentication:Microsoft:ClientSecret:Prod": "your-microsoft-client-secret-here",
+  "Authentication:Microsoft:TenantId": "your-microsoft-tenant-here",
+
+  "Security:DB:PKSecret": "your-encryption-key-here", //changing this will break urls/favorites/bookmarks/links user's have created
+ 
+  "Jwt:Key": "your-super-strong-key",
+  "Jwt:Issuer": "MedRecPro",
+  "Jwt:Audience": "MedRecUsers",
+  "Jwt:ExpirationMinutes": 60,
+
+  "ClaudeApiSettings:ApiKey": "your-claude-api-key-here",
+
+  "Dev:DB:Connection": Server=localhost;Database=your-database;User Id=your-user;Password=your-password-here;",
+  "Prod:DB:Connection": "Server=tcp:yourdb.database.windows.net,9999;Initial Catalog=yourdb;Persist Security Info=False;User ID=your-admin;Password=your-password;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
 }
 ```
 
