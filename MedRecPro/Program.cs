@@ -1,4 +1,5 @@
 ﻿
+using Azure.Identity;
 using MedRecPro.Configuration;
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
@@ -30,6 +31,7 @@ string? googleClientSecret;
 string? microsoftClientId;
 string? microsoftClientSecret;
 
+
 var builder = WebApplication.CreateBuilder(args);
 var configuration = builder.Configuration;
 bool ignoreEmptyCollections;
@@ -37,13 +39,26 @@ bool ignoreEmptyCollections;
 // Set the static configuration for User class immediately
 User.SetConfiguration(configuration);
 
+// Key Vault Configuration for Production
+if (builder.Environment.IsProduction())
+{
+    var keyVaultUrl = builder.Configuration["KeyVaultUrl"];
+
+    if (!string.IsNullOrEmpty(keyVaultUrl))
+    {
+        builder.Configuration.AddAzureKeyVault(
+            new Uri(keyVaultUrl),
+            new DefaultAzureCredential());
+    }
+}
+
 // Access the connection string
 #if DEBUG
 connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
                    ?? builder.Configuration.GetSection("Dev:DB:Connection")?.Value;
 #else
 connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-                    ?? builder.Configuration.GetSection("Prod:DB:Connection")?.Value;
+                   ?? builder.Configuration.GetSection("Prod:DB:Connection")?.Value;
 #endif
 
 if (string.IsNullOrEmpty(connectionString))
@@ -752,14 +767,6 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "MedRecPro API V1");
-        c.ConfigObject.AdditionalItems["operationsSorter"] = "method";
-        c.ConfigObject.AdditionalItems["tagsSorter"] = "alpha";
-        c.RoutePrefix = "swagger"; // Access Swagger UI at /swagger
-    });
 }
 else
 {
@@ -767,45 +774,87 @@ else
     app.UseHsts();
 }
 
+app.UseSwagger(c =>
+{
+    c.RouteTemplate = "swagger/{documentName}/swagger.json";
+    c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
+    {
+        // old way - exposes azure host name
+        //swaggerDoc.Servers = new List<OpenApiServer>
+        //{
+        //    new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host.Value}/api" }
+        //};
+
+        new OpenApiServer
+        {
+            Url = "/api",
+            Description = "MedRecPro API"
+        };
+    });
+});
+
+var swaggerdocs = app.Environment.IsDevelopment()
+    ? "/swagger/v1/swagger.json"
+    : "/api/swagger/v1/swagger.json";
+
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint($"{swaggerdocs}", $"MedRecPro API V1");
+    c.ConfigObject.AdditionalItems["operationsSorter"] = "method";
+    c.ConfigObject.AdditionalItems["tagsSorter"] = "alpha";
+    c.RoutePrefix = "swagger"; // Access Swagger UI at /swagger
+});
+
 // Configure static files with CORS for XSL files
 // Configure static files with proper CORS and content types
 // Serve stylesheets from Views/Stylesheets at /stylesheets URL path
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
-        Path.Combine(app.Environment.ContentRootPath, "Views", "Stylesheets")),
-    RequestPath = "/stylesheets",
-    OnPrepareResponse = ctx =>
-    {
-        var path = ctx.File.Name.ToLowerInvariant();
+var stylesheetsPath = Path.Combine(app.Environment.ContentRootPath, "Views", "Stylesheets");
 
-        // Handle XSL files
-        if (path.EndsWith(".xsl"))
+// Only configure if directory exists
+if (Directory.Exists(stylesheetsPath))
+{
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(stylesheetsPath),
+        RequestPath = "/stylesheets",
+        OnPrepareResponse = ctx =>
         {
-            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
-            ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET");
-            ctx.Context.Response.Headers.Append("Content-Type", "application/xslt+xml; charset=utf-8");
+            var path = ctx.File.Name.ToLowerInvariant();
+            // Handle XSL files
+            if (path.EndsWith(".xsl"))
+            {
+                ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+                ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET");
+                ctx.Context.Response.Headers.Append("Content-Type", "application/xslt+xml; charset=utf-8");
+            }
+            // Handle XML files
+            else if (path.EndsWith(".xml"))
+            {
+                ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+                ctx.Context.Response.Headers.Append("Content-Type", "application/xml; charset=utf-8");
+            }
+            // Handle CSS files
+            else if (path.EndsWith(".css"))
+            {
+                ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+                ctx.Context.Response.Headers.Append("Content-Type", "text/css; charset=utf-8");
+            }
         }
-        // Handle XML files
-        else if (path.EndsWith(".xml"))
-        {
-            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
-            ctx.Context.Response.Headers.Append("Content-Type", "application/xml; charset=utf-8");
-        }
-        // Handle CSS files
-        else if (path.EndsWith(".css"))
-        {
-            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
-            ctx.Context.Response.Headers.Append("Content-Type", "text/css; charset=utf-8");
-        }
-    }
-});
+    });
+}
+else
+{
+    // Log warning for debugging, but don't crash the application
+    app.Logger.LogWarning("Stylesheets directory not found at: {Path}. Static file serving for stylesheets will be disabled.", stylesheetsPath);
+}
 
 app.UseHttpsRedirection();
+
 app.UseRouting();
 
 // Authentication & Authorization must come after UseRouting and before UseEndpoints
 app.UseAuthentication(); // Enables authentication capabilities
+
 app.UseAuthorization();  // Enables authorization capabilities
 
 app.MapControllers();
@@ -813,5 +862,16 @@ app.MapControllers();
 Util.Initialize(httpContextAccessor: app.Services.GetRequiredService<IHttpContextAccessor>(),
     encryptionService: app.Services.GetRequiredService<IEncryptionService>(),
     dictionaryUtilityService: app.Services.GetRequiredService<IDictionaryUtilityService>());
+
+#if !DEBUG
+// Add a root endpoint
+app.MapGet("/", () => Results.Ok(new { 
+    name = "MedRecPro API", 
+    version = configuration.GetValue<string>("Version"), 
+    status = "running",
+    swagger = "/swagger",
+    documentation = "https://medrecpro-dxczg5efbaf2aqgv.eastus2-01.azurewebsites.net/api/swagger"
+}));
+#endif
 
 app.Run();

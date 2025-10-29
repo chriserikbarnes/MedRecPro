@@ -32,8 +32,7 @@ namespace MedRecPro.Controllers
     /// <seealso cref="IActivityLogService"/>
     /// <seealso cref="StringCipher"/>
     [ApiController]
-    [Route("api/[controller]")]
-    public class UsersController : ControllerBase
+    public class UsersController : ApiControllerBase
     {
         private readonly StringCipher _stringCipher;
         private readonly IConfiguration _configuration;

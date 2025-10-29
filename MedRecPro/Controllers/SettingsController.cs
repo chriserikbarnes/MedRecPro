@@ -15,8 +15,7 @@ namespace MedRecPro.Controllers
     /// that clients need to adapt their behavior (e.g., demo mode status).
     /// </remarks>
     [ApiController]
-    [Route("api/[controller]")]
-    public class SettingsController : ControllerBase
+    public class SettingsController : ApiControllerBase
     {
         #region fields
 

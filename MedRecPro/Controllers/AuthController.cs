@@ -22,9 +22,8 @@ namespace MedRecPro.Controllers
     /// <seealso cref="User"/>
     /// <seealso cref="Microsoft.AspNetCore.Identity.SignInManager{TUser}"/>
     /// <seealso cref="Microsoft.AspNetCore.Identity.UserManager{TUser}"/>
-    [Route("api/[controller]")]
     [ApiController]
-    public class AuthController : ControllerBase
+    public class AuthController : ApiControllerBase
     {
         #region Fields
         /**************************************************************/

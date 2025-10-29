@@ -1,3 +1,4 @@
+using MedRecPro.Controllers;
 using MedRecPro.Data;
 using MedRecPro.DataAccess; // From LabelDataAccess.cs (Repository)
 using MedRecPro.Helpers;   // From DtoTransformer.cs (DtoTransformer, StringCipher)
@@ -30,8 +31,7 @@ namespace MedRecPro.Api.Controllers
     /// Each section corresponds to a nested class within the Label data model.
     /// </example>
     [ApiController]
-    [Route("api/[controller]")]
-    public class LabelController : ControllerBase
+    public class LabelController : ApiControllerBase
     {
         #region Private Properties
 

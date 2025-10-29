@@ -7,9 +7,13 @@
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>
 		<NoWarn>$(NoWarn);1591</NoWarn>
 		<PreserveCompilationContext>true</PreserveCompilationContext>
+		<PublishDocumentationFile>true</PublishDocumentationFile>
+		<CopyDocumentationFilesFromPackages>true</CopyDocumentationFilesFromPackages>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="AspNet.Security.OAuth.Apple" Version="8.3.0" />
+		<PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.4.0" />
+		<PackageReference Include="Azure.Identity" Version="1.13.2" />
 		<PackageReference Include="Dapper" Version="2.1.66" />
 		<PackageReference Include="Dapper.Contrib" Version="2.0.78" />
 		<PackageReference Include="Google.Apis.Auth.AspNetCore3" Version="1.69.0" />
@@ -45,7 +49,6 @@
 	</ItemGroup>
 	
 	<ItemGroup>
-		
 		<!-- Include for IntelliSense in design-time, exclude during build -->
 		<!-- This blocks build errors when compiling with RazorLight views -->
 		<!-- and allows IntelliSense to work as expected when editing -->
@@ -58,6 +61,11 @@
 		<None Include="Views\SplTemplates\**\*.cshtml">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
-		
+	</ItemGroup>
+	<ItemGroup>
+		<Content Include="Views\Stylesheets\**\*.*">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
 	</ItemGroup>
 </Project>
