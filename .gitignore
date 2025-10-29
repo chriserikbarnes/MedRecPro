@@ -364,4 +364,6 @@ FodyWeavers.xsd
 /.kiro/specs/dosing-specification
 
  # Azure publish profiles and secrets
-   **/Properties/
+/Properties/**
+**/Properties/
+**/Properties/**
