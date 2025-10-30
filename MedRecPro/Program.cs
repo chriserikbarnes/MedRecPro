@@ -326,7 +326,7 @@ builder.Services.AddSwaggerGen(c =>
     var environment = "Prod";
     var serverName = "ProdHost";
 #endif
-#endregion
+    #endregion
 
     #region demo mode detection
     // Check if demo mode is enabled from configuration
@@ -738,17 +738,17 @@ else
 // RazorLight for programmatic templates (after your existing custom services)
 builder.Services.AddSingleton<IRazorLightEngine>(serviceProvider =>
 {
-var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();
+    var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();
 
-return new RazorLightEngineBuilder()
-    .UseFileSystemProject(Path.Combine(environment.ContentRootPath, "Views"))
-    .UseEmbeddedResourcesProject(typeof(Program))
-    .UseMemoryCachingProvider()
-    .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(Program).Assembly.Location))
-    .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(User).Assembly.Location))
-    .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(ApplicationDbContext).Assembly.Location))
-    .EnableDebugMode(environment.IsDevelopment())
-    .Build();
+    return new RazorLightEngineBuilder()
+        .UseFileSystemProject(Path.Combine(environment.ContentRootPath, "Views"))
+        .UseEmbeddedResourcesProject(typeof(Program))
+        .UseMemoryCachingProvider()
+        .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(Program).Assembly.Location))
+        .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(User).Assembly.Location))
+        .AddMetadataReferences(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(ApplicationDbContext).Assembly.Location))
+        .EnableDebugMode(environment.IsDevelopment())
+        .Build();
 });
 
 // View rendering service for ASP.NET Core views
@@ -799,47 +799,61 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = "swagger"; // Access Swagger UI at /swagger
 });
 
-// Configure static files with CORS for XSL files
-// Configure static files with proper CORS and content types
-// Serve stylesheets from Views/Stylesheets at /stylesheets URL path
+// Configure static files with proper CORS and content types for SPL assets
+// Serves from /api/Views/Stylesheets/ as /api/stylesheets/*
 var stylesheetsPath = Path.Combine(app.Environment.ContentRootPath, "Views", "Stylesheets");
 
 // Only configure if directory exists
 if (Directory.Exists(stylesheetsPath))
 {
+    var fileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(stylesheetsPath);
+
+    // --- Primary alias: /api/stylesheets ---
     app.UseStaticFiles(new StaticFileOptions
     {
-        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(stylesheetsPath),
-        RequestPath = "/stylesheets",
+        FileProvider = fileProvider,
+        RequestPath = "/api/stylesheets",
         OnPrepareResponse = ctx =>
         {
-            var path = ctx.File.Name.ToLowerInvariant();
-            // Handle XSL files
-            if (path.EndsWith(".xsl"))
+            var ext = Path.GetExtension(ctx.File.Name).ToLowerInvariant();
+
+            // Allow CORS for browser XSL transforms and JS modules
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, OPTIONS");
+
+            switch (ext)
             {
-                ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
-                ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET");
-                ctx.Context.Response.Headers.Append("Content-Type", "application/xslt+xml; charset=utf-8");
-            }
-            // Handle XML files
-            else if (path.EndsWith(".xml"))
-            {
-                ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
-                ctx.Context.Response.Headers.Append("Content-Type", "application/xml; charset=utf-8");
-            }
-            // Handle CSS files
-            else if (path.EndsWith(".css"))
-            {
-                ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
-                ctx.Context.Response.Headers.Append("Content-Type", "text/css; charset=utf-8");
+                case ".xsl":
+                    ctx.Context.Response.Headers.Append("Content-Type", "application/xslt+xml; charset=utf-8");
+                    break;
+                case ".xml":
+                    ctx.Context.Response.Headers.Append("Content-Type", "application/xml; charset=utf-8");
+                    break;
+                case ".css":
+                    ctx.Context.Response.Headers.Append("Content-Type", "text/css; charset=utf-8");
+                    break;
+                case ".js":
+                    // JS modules need correct MIME type for ES6 import()
+                    ctx.Context.Response.Headers.Append("Content-Type", "application/javascript; charset=utf-8");
+                    break;
             }
         }
     });
-}
-else
-{
-    // Log warning for debugging, but don't crash the application
-    app.Logger.LogWarning("Stylesheets directory not found at: {Path}. Static file serving for stylesheets will be disabled.", stylesheetsPath);
+
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(stylesheetsPath),
+        RequestPath = "/stylesheets"
+    });
+
+    // --- Optional secondary alias: /stylesheets (for legacy URLs) ---
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = fileProvider,
+        RequestPath = "/stylesheets"
+    });
+
+    app.Logger.LogInformation("Static assets served from {Path} at /api/stylesheets and /stylesheets", stylesheetsPath);
 }
 
 app.UseHttpsRedirection();
@@ -859,9 +873,10 @@ Util.Initialize(httpContextAccessor: app.Services.GetRequiredService<IHttpContex
 
 #if !DEBUG
 // Add a root endpoint
-app.MapGet("/", () => Results.Ok(new { 
-    name = "MedRecPro API", 
-    version = configuration.GetValue<string>("Version"), 
+app.MapGet("/", () => Results.Ok(new
+{
+    name = "MedRecPro API",
+    version = configuration.GetValue<string>("Version"),
     status = "running",
     swagger = "/swagger",
     documentation = "https://www.medrecpro.com/api/swagger"

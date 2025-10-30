@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="us-ascii"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
 The contents of this file are subject to the Health Level-7 Public
 License Version 1.0 (the "License"); you may not use this file
@@ -22,26 +22,28 @@ Revision: $Id: spl.xsl,v 1.52 2005/08/26 05:59:26 gschadow Exp $
 
 Revision: $Id: spl-common.xsl,v 2.0 2006/08/18 04:11:00 sbsuggs Exp $
 
+Revision: Path: MedRecPro/Views/Stylesheets/spl.xsl,v 1.3 2012/03/14 21:49:23 gschadow Exp $
+
 -->
-<xsl:transform version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:v3="urn:hl7-org:v3" exclude-result-prefixes="v3 xsl">
-	<xsl:import href="/stylesheets/spl-common.xsl"/>
-	
-	<!-- Where to find JavaScript resources -->
-	<xsl:param name="resourcesdir">/stylesheets/</xsl:param>
-	
-	<!-- Whether to show the clickable XML, set to "/.." instead of "1" to turn off -->
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               xmlns:v3="urn:hl7-org:v3"
+               version="1.0"
+               exclude-result-prefixes="v3 xsl">
+
+	<!-- Use relative import so it resolves under /api/stylesheets -->
+	<xsl:import href="spl-common.xsl"/>
+
+	<!-- Base resource directory, relative to this XSL’s own path -->
+	<xsl:param name="resourcesdir">/api/stylesheets/</xsl:param>
+
+	<!-- Data and rendering options -->
 	<xsl:param name="show-subjects-xml" select="/.."/>
-	
-	<!-- Whether to show the data elements in special tables etc., set to "/.." instead of "1" to turn off -->
 	<xsl:param name="show-data" select="1"/>
-	
-	<!-- This is the CSS link put into the output -->
-	<xsl:param name="css">/stylesheets/spl.css</xsl:param>
-	
-	<!-- Whether to show section numbers, set to 1 to enable and "/.." to turn off-->
+
+	<!-- CSS now relative -->
+	<xsl:param name="css">/api/stylesheets/spl.css</xsl:param>
+
 	<xsl:param name="show-section-numbers" select="/.."/>
-	
-	<!-- Whether to process mixins -->
 	<xsl:param name="process-mixins" select="true()"/>
 	<xsl:param name="core-base-url">http://www.accessdata.fda.gov/spl/core</xsl:param>
 	<xsl:output method="html" version="1.0" encoding="UTF-8" indent="yes"/>
