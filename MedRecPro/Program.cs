@@ -1,4 +1,14 @@
 ﻿
+/**************************************************************/
+/// <summary>
+/// MedRecPro API Application. 
+/// 
+/// IMPORTANT: When deploying to production, the caching settings
+/// at https://dash.cloudflare.com/{secret}/medrecpro.com/caching/configuration must be purged.
+/// Failing to purge will result in errors when loaging swagger docs.
+/// </summary>
+ /**************************************************************/
+
 using Azure.Identity;
 using MedRecPro.Configuration;
 using MedRecPro.Data;
@@ -25,12 +35,13 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 
-string? connectionString;
-string? googleClientId;
-string? googleClientSecret;
-string? microsoftClientId;
-string? microsoftClientSecret;
 
+/**************************************************************/
+string? connectionString = null;
+string? googleClientId = null;
+string? googleClientSecret = null;
+string? microsoftClientId = null;
+string? microsoftClientSecret = null;
 
 var builder = WebApplication.CreateBuilder(args);
 var configuration = builder.Configuration;
@@ -176,15 +187,6 @@ builder.Services.AddIdentity<User, IdentityRole<long>>(options =>
 
 // --- Authentication Configuration ---
 // AddIdentity has already called AddAuthentication() and added cookie schemes.
-// Now we retrieve the builder to add other schemes and further configure cookies.
-// Or, you can use services.ConfigureApplicationCookie for cookie specific settings.
-
-// Option 1: Chaining from services.AddAuthentication() (cleaner if AddIdentity didn't already call it, but it does)
-// builder.Services.AddAuthentication(options => { ... }).AddCookie().AddGoogle()...
-
-// Option 2: Configuring cookies specifically and adding other schemes
-// This approach is often clearer when working with AddIdentity.
-
 builder.Services.ConfigureApplicationCookie(options =>
 {
     // These settings configure the IdentityConstants.ApplicationScheme cookie
@@ -204,11 +206,7 @@ builder.Services.ConfigureApplicationCookie(options =>
     };
 });
 
-// Now, add other authentication schemes like Google and your custom BasicAuthentication.
-// We need to get an AuthenticationBuilder instance. Since AddIdentity calls AddAuthentication,
-// we can call it again but mainly to get the builder for chaining.
-// Alternatively, configure schemes one by one if AddAuthentication() is problematic.
-// Let's try to get the builder and add schemes:
+// Authentication schemes for Google, Microsoft and BasicAuthentication.
 builder.Services.AddAuthentication(options =>
 {
     // Set default schemes if not already adequately set by AddIdentity
@@ -257,12 +255,8 @@ builder.Services.AddAuthentication(options =>
 });
 #endregion
 
-// Register our custom IPasswordHasher for MedRecPro.Models.User.
+// Register  custom IPasswordHasher for MedRecPro.Models.User.
 // AddIdentity<User,...> already registers IPasswordHasher<User>.
-// This line is only needed if your PasswordHasher<User> is a *different* implementation
-// than the one Identity would register by default for your User type.
-// If it's just using the standard Identity password hashing algorithm, this is redundant.
-// Assuming MedRecPro.Models.PasswordHasher<User> is your specific implementation.
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
 // --- Authorization ---
@@ -870,7 +864,7 @@ app.MapGet("/", () => Results.Ok(new {
     version = configuration.GetValue<string>("Version"), 
     status = "running",
     swagger = "/swagger",
-    documentation = "https://medrecpro-dxczg5efbaf2aqgv.eastus2-01.azurewebsites.net/api/swagger"
+    documentation = "https://www.medrecpro.com/api/swagger"
 }));
 #endif
 

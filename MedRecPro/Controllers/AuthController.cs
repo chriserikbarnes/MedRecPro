@@ -31,7 +31,7 @@ namespace MedRecPro.Controllers
         /// ASP.NET Core Identity sign-in manager for handling authentication operations.
         /// </summary>
         private readonly SignInManager<User> _signInManager;
-        
+
         /**************************************************************/
         /// <summary>
         /// ASP.NET Core Identity user manager for user account operations.
@@ -239,21 +239,21 @@ namespace MedRecPro.Controllers
                 // Update existing user if needed
                 user = existingUserByEmail;
                 bool needsUpdate = false;
-                
+
                 // Ensure username is populated
                 if (string.IsNullOrEmpty(user.UserName))
                 {
                     user.UserName = email;
                     needsUpdate = true;
                 }
-                
+
                 // Update display name if different
                 if (user.DisplayName != name)
                 {
                     user.DisplayName = name;
                     needsUpdate = true;
                 }
-                
+
                 identityResult = needsUpdate ? await _userManager.UpdateAsync(user) : IdentityResult.Success;
             }
             #endregion
@@ -320,7 +320,7 @@ namespace MedRecPro.Controllers
                 ?? info.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")
                 ?? info.Principal.FindFirstValue(ClaimTypes.GivenName)
                 ?? info.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname");
-            
+
             // Fallback: extract name from email prefix
             if (string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(email))
             {
@@ -456,8 +456,12 @@ namespace MedRecPro.Controllers
                 });
             }
 
-            // Path to Swagger UI (adjust as needed)
-            var swaggerPath = "/swagger/index.html";
+            // Path to Swagger UI (environment-aware based on build configuration)
+#if DEBUG
+            var swaggerPath = "/swagger/index.html"; // Local development
+#else
+            var swaggerPath = "/api/swagger/index.html"; // Azure production
+#endif
 
             // Configure the redirect URL for after successful external authentication
             var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Auth", new { ReturnUrl = swaggerPath });
@@ -627,7 +631,7 @@ namespace MedRecPro.Controllers
                 // withholding the id value
                 var claims = User.Claims
                     .Select(c => new { c.Type, c.Value })
-                    .Where(d => !string.IsNullOrEmpty(d.Type) 
+                    .Where(d => !string.IsNullOrEmpty(d.Type)
                         && !d.Type.Contains("nameidentifier", StringComparison.CurrentCultureIgnoreCase));
 
                 // Return user information

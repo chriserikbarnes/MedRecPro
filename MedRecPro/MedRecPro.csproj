@@ -5,7 +5,14 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UserSecretsId>63befe8e-22f7-4030-825b-52499ee17e59</UserSecretsId>
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>
-		<NoWarn>$(NoWarn);1591</NoWarn>
+
+		<!-- Suppress missing XML comment warnings and RazorLight warnings -->
+		<!-- The RazorLight files were triggering a complaint about multiple -->
+		<!-- top level statements -->
+		<NoWarn>$(NoWarn);1591;CS8802</NoWarn>
+		<WarningsAsErrors></WarningsAsErrors>
+		<WarningsNotAsErrors>CS8802</WarningsNotAsErrors>
+
 		<PreserveCompilationContext>true</PreserveCompilationContext>
 		<PublishDocumentationFile>true</PublishDocumentationFile>
 		<CopyDocumentationFilesFromPackages>true</CopyDocumentationFilesFromPackages>
