@@ -228,17 +228,29 @@ namespace MedRecPro.Api.Controllers
         {
             #region implementation
 
+            // Construct base URL from current request
+            var request = HttpContext.Request;
+            var baseUrl = $"{request.Scheme}://{request.Host}";
+
             // Replace FDA stylesheet URL with local path
+#if DEBUG
             xmlContent = xmlContent.Replace(
                 "href=\"https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl\"",
                 "href=\"/stylesheets/spl.xsl\"");
 
             // Note: Schema location is NOT replaced - browsers don't fetch XSD files
             // The xsi:schemaLocation remains as FDA URL for validation purposes
+#else
+            xmlContent = xmlContent.Replace(
+               "href=\"https://www.accessdata.fda.gov/spl/stylesheet/spl.xsl\"",
+               $"href=\"{baseUrl}/api/stylesheets/spl.xsl\"");
 
+            // Note: Schema location is NOT replaced - browsers don't fetch XSD files
+            // The xsi:schemaLocation remains as FDA URL for validation purposes
+#endif
             return xmlContent;
 
-            #endregion
+#endregion
         }
 
         /**************************************************************/
