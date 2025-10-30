@@ -109,7 +109,7 @@ MedRecPro is deployed on Azure App Service with Cloudflare as the CDN/DNS provid
 #### 1. Custom Domain Configuration
 
 **Cloudflare DNS Setup:**
-1. Add A records pointing to Azure App Service IP address (20.0.0.1) your root domain:
+1. Add A records pointing to Azure App Service IP address ({20.0.0.1} your IP) root domain:
    - **Type**: A
    - **Name**: @
    - **IPv4 address**:
