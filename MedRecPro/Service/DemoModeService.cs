@@ -64,17 +64,19 @@ namespace MedRecPro.Services
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             string? connectionStringBackup;
+            string? defaultConnectionString;
 
             #region implementation
 
+            defaultConnectionString = _configuration.GetValue<string?>("DefaultConnection");
 #if DEBUG
-            connectionStringBackup = _configuration.GetSection("Dev:DB:Connection");
+            connectionStringBackup = _configuration.GetValue<string?>("Dev:DB:Connection");
 #else
-            connectionStringBackup = _configuration.GetConnectionString("Prod:DB:Connection");
+            connectionStringBackup = _configuration.GetValue<string?>("Prod:DB:Connection");
 #endif
 
             // Load connection string from configuration
-            _connectionString = _configuration.GetConnectionString("DefaultConnection")
+            _connectionString = defaultConnectionString
                    ?? connectionStringBackup
                    ?? throw new InvalidOperationException("DefaultConnection string not found in configuration.");
 

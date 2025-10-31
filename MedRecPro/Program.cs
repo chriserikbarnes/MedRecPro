@@ -63,6 +63,7 @@ if (builder.Environment.IsProduction())
     }
 }
 
+/**************************************************************/
 // Access the connection string
 #if DEBUG
 connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -77,6 +78,7 @@ if (string.IsNullOrEmpty(connectionString))
     throw new InvalidOperationException("Database connection string is not configured.");
 }
 
+/**************************************************************/
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString)
      .LogTo(Console.WriteLine, LogLevel.Error));
@@ -757,6 +759,7 @@ builder.Services.AddScoped<IViewRenderService, ViewRenderService>();
 
 var app = builder.Build();
 
+/**************************************************************/
 // ---Middleware Pipeline---
 if (app.Environment.IsDevelopment())
 {
@@ -768,25 +771,72 @@ else
     app.UseHsts();
 }
 
-app.UseSwagger(c =>
+#pragma warning disable CS1587 // XML comment is not placed on a valid language element
+/**************************************************************/
+/// <summary>
+/// Middleware that injects long-lived cache headers for any <c>swagger.json</c> response.
+/// </summary>
+/// <remarks>
+/// This middleware must appear <b>before</b> <see cref="Microsoft.AspNetCore.Builder.SwaggerBuilderExtensions.UseSwagger"/>
+/// so headers are applied before the Swagger middleware writes its response.
+/// It also logs each hit to <see cref="Microsoft.Extensions.Logging.ILogger"/> so that
+/// Azure App Service log streaming and Application Insights can confirm the optimization
+/// is active in production.
+/// </remarks>
+/// <example>
+/// Response headers applied:
+/// <code>
+/// Cache-Control: public,max-age=86400
+/// Access-Control-Allow-Origin: *
+/// Access-Control-Allow-Methods: GET, OPTIONS
+/// </code>
+/// </example>
+/// <seealso cref="Microsoft.AspNetCore.Builder.WebApplication"/>
+/**************************************************************/
+app.Use(async (context, next) =>
 {
-    c.RouteTemplate = "swagger/{documentName}/swagger.json";
-    c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
+    #region implementation
+    var path = context.Request.Path.Value ?? string.Empty;
+
+    if (path.EndsWith("swagger.json", StringComparison.OrdinalIgnoreCase))
     {
-        // old way - exposes azure host name
-        //swaggerDoc.Servers = new List<OpenApiServer>
-        //{
-        //    new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host.Value}/api" }
-        //};
+        // Log before the response is written so we can track in Azure logs
+        app.Logger.LogInformation(
+            "[SwaggerCacheHeaders] Applying caching headers for {Path} (RequestId={TraceId})",
+            path,
+            context.TraceIdentifier);
 
-        new OpenApiServer
+        context.Response.OnStarting(() =>
         {
-            Url = "/api",
-            Description = "MedRecPro API"
-        };
-    });
-});
+            context.Response.Headers["Cache-Control"] = "public,max-age=86400";
+            context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+            context.Response.Headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
 
+            // Log again when headers are actually attached
+            app.Logger.LogDebug(
+                "[SwaggerCacheHeaders] Headers injected successfully for {Path} at {UtcTime}",
+                path,
+                DateTime.UtcNow.ToString("o"));
+
+            return Task.CompletedTask;
+        });
+    }
+
+    await next();
+
+    // post-processing log for visibility in verbose traces
+    if (path.EndsWith("swagger.json", StringComparison.OrdinalIgnoreCase))
+    {
+        app.Logger.LogInformation(
+            "[SwaggerCacheHeaders] Completed response for {Path} ({StatusCode})",
+            path,
+            context.Response?.StatusCode);
+    }
+    #endregion
+});
+#pragma warning restore CS1587 // XML comment is not placed on a valid language element
+
+/**************************************************************/
 var swaggerdocs = app.Environment.IsDevelopment()
     ? "/swagger/v1/swagger.json"
     : "/api/swagger/v1/swagger.json";
@@ -799,6 +849,7 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = "swagger"; // Access Swagger UI at /swagger
 });
 
+/**************************************************************/
 // Configure static files with proper CORS and content types for SPL assets
 // Serves from /api/Views/Stylesheets/ as /api/stylesheets/*
 var stylesheetsPath = Path.Combine(app.Environment.ContentRootPath, "Views", "Stylesheets");
@@ -856,6 +907,7 @@ if (Directory.Exists(stylesheetsPath))
     app.Logger.LogInformation("Static assets served from {Path} at /api/stylesheets and /stylesheets", stylesheetsPath);
 }
 
+/**************************************************************/
 app.UseHttpsRedirection();
 
 app.UseRouting();
