@@ -79,13 +79,19 @@ namespace MedRecPro.Controllers
             try
             {
                 var demoSettings = _configuration.GetSection("DemoModeSettings");
+                var isAzure = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MedRecPro"));
 
                 var response = new
                 {
                     enabled = demoSettings.GetValue<bool>("Enabled", false),
                     refreshIntervalMinutes = demoSettings.GetValue<int>("RefreshIntervalMinutes", 60),
                     showBanner = demoSettings.GetValue<bool>("ShowDemoModeBanner", true),
-                    autoTruncateOnStartup = demoSettings.GetValue<bool>("AutoTruncateOnStartup", false)
+                    autoTruncateOnStartup = demoSettings.GetValue<bool>("AutoTruncateOnStartup", false),
+                    IsAzure = isAzure,
+                    SiteName = isAzure ? Environment.GetEnvironmentVariable("MedRecPro") : "Local",
+                    Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
+                    CurrentTime = DateTime.UtcNow,
+                    Note = isAzure ? "Running in Azure App Service" : "Running locally"
                 };
 
                 return Ok(response);
