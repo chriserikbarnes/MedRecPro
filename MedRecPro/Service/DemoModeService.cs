@@ -68,9 +68,9 @@ namespace MedRecPro.Services
             #region implementation
 
 #if DEBUG
-            connectionStringBackup = _configuration.GetSection("Dev:DB:Connection")?.Value;
+            connectionStringBackup = _configuration.GetSection("Dev:DB:Connection");
 #else
-            connectionStringBackup = _configuration.GetConnectionString("Prod:DB:Connection")?.Value;
+            connectionStringBackup = _configuration.GetConnectionString("Prod:DB:Connection");
 #endif
 
             // Load connection string from configuration

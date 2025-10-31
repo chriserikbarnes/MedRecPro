@@ -79,7 +79,7 @@ namespace MedRecPro.Controllers
             try
             {
                 var demoSettings = _configuration.GetSection("DemoModeSettings");
-                var isAzure = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MedRecPro"));
+                var isAzure = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEBSITE_SITE_NAME"));
 
                 var response = new
                 {
@@ -88,7 +88,7 @@ namespace MedRecPro.Controllers
                     showBanner = demoSettings.GetValue<bool>("ShowDemoModeBanner", true),
                     autoTruncateOnStartup = demoSettings.GetValue<bool>("AutoTruncateOnStartup", false),
                     IsAzure = isAzure,
-                    SiteName = isAzure ? Environment.GetEnvironmentVariable("MedRecPro") : "Local",
+                    SiteName = isAzure ? Environment.GetEnvironmentVariable("WEBSITE_SITE_NAME") : "Local",
                     Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
                     CurrentTime = DateTime.UtcNow,
                     Note = isAzure ? "Running in Azure App Service" : "Running locally"
