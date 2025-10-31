@@ -60,13 +60,13 @@ namespace MedRecPro.Services
         public DemoModeService(
             ILogger<DemoModeService> logger,
             IConfiguration configuration)
-        {
+        {    
+            #region implementation
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+
             string? connectionStringBackup;
             string? defaultConnectionString;
-
-            #region implementation
 
             defaultConnectionString = _configuration.GetValue<string?>("DefaultConnection");
 #if DEBUG
@@ -232,127 +232,304 @@ namespace MedRecPro.Services
 
         /**************************************************************/
         /// <summary>
-        /// Executes the database truncation operation.
+        /// Executes database truncation operations in demo mode.
+        /// Coordinates the disabling of constraints, table truncation, and constraint re-enabling.
         /// </summary>
-        /// <param name="cancellationToken">Token to monitor for cancellation requests.</param>
-        /// <returns>A task representing the asynchronous truncation operation.</returns>
+        /// <param name="cancellationToken">Cancellation token for the operation.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when database connection fails.</exception>
+        /// <exception cref="SqlException">Thrown when SQL operations fail.</exception>
         /// <remarks>
-        /// This method connects to the database, disables foreign key constraints,
-        /// truncates all tables except those in the preserve list, and re-enables constraints.
-        /// All operations are wrapped in a transaction for safety.
+        /// This method orchestrates the complete truncation process by calling specialized methods
+        /// for each phase of the operation. All operations are performed within the context of
+        /// a single database connection to ensure consistency.
         /// </remarks>
-        /// <seealso cref="buildTruncationScript"/>
+        /// <seealso cref="disableForeignKeyConstraints"/>
+        /// <seealso cref="getTablesToTruncate"/>
+        /// <seealso cref="truncateTable"/>
+        /// <seealso cref="enableForeignKeyConstraints"/>
         private async Task executeTruncation(CancellationToken cancellationToken)
         {
             #region implementation
 
+            string? connectionStringBackup;
+            string? defaultConnectionString;
+
+            defaultConnectionString = _configuration.GetValue<string?>("DefaultConnection");
+#if DEBUG
+            connectionStringBackup = _configuration.GetValue<string?>("Dev:DB:Connection");
+#else
+            connectionStringBackup = _configuration.GetValue<string?>("Prod:DB:Connection");
+#endif
+
+            // Load connection string from configuration
+            var connectionString = defaultConnectionString
+                   ?? connectionStringBackup
+                   ?? throw new InvalidOperationException("DefaultConnection string not found in configuration.");
+
+            await using var connection = new SqlConnection(connectionString);
+
+            await connection.OpenAsync(cancellationToken);
+
             try
             {
-                _logger.LogInformation("Starting scheduled database truncation for demo mode...");
+                // Disable all foreign key constraints before truncation
+                await disableForeignKeyConstraints(connection, cancellationToken);
 
-                // Build the dynamic SQL script
-                var sqlScript = buildTruncationScript();
+                // Get list of tables that should be truncated
+                var tablesToTruncate = await getTablesToTruncate(connection, cancellationToken);
 
-                await using var connection = new SqlConnection(_connectionString);
-                await connection.OpenAsync(cancellationToken);
+                _logger.LogInformation("Found {TableCount} tables to truncate (excluding {PreservedCount} preserved tables)",
+                    tablesToTruncate.Count, _preserveTables?.Count ?? 0);
 
-                await using var command = new SqlCommand(sqlScript, connection)
+                // Truncate each table individually
+                foreach (var (schema, tableName) in tablesToTruncate)
                 {
-                    CommandTimeout = 300 // 5 minutes timeout
-                };
+                    await truncateTable(connection, schema, tableName, cancellationToken);
+                }
 
-                // Execute the truncation script
-                await command.ExecuteNonQueryAsync(cancellationToken);
+                // Re-enable all foreign key constraints after truncation
+                await enableForeignKeyConstraints(connection, cancellationToken);
 
                 _logger.LogInformation("Database truncation completed successfully.");
             }
-            catch (SqlException sqlEx)
+            catch (SqlException ex)
             {
-                _logger.LogError(
-                    sqlEx,
-                    "SQL error occurred during database truncation: {Message}",
-                    sqlEx.Message);
+                _logger.LogError(ex, "SQL error occurred during database truncation: {Message}", ex.Message);
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Unexpected error occurred during database truncation: {Message}",
-                    ex.Message);
+                _logger.LogError(ex, "Unexpected error during database truncation");
+                throw;
             }
-
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Builds the SQL truncation script dynamically based on preserved tables configuration.
+        /// Disables all foreign key constraints in the database.
         /// </summary>
-        /// <returns>A SQL script string that truncates all tables except preserved ones.</returns>
+        /// <param name="connection">The open SQL connection to use.</param>
+        /// <param name="cancellationToken">Cancellation token for the operation.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <exception cref="SqlException">Thrown when the SQL operation fails.</exception>
         /// <remarks>
-        /// The generated script includes transaction management, foreign key constraint handling,
-        /// and conditional logic to skip preserved tables. The script is safe to execute
-        /// multiple times and includes rollback on error.
+        /// Uses dynamic SQL to iterate through all foreign keys in the database and disable them.
+        /// This is necessary before truncating tables that have foreign key relationships.
+        /// The operation is compatible with Azure SQL Database.
         /// </remarks>
+        /// <example>
+        /// await disableForeignKeyConstraints(connection, cancellationToken);
+        /// </example>
+        /// <seealso cref="enableForeignKeyConstraints"/>
         /// <seealso cref="executeTruncation"/>
-        private string buildTruncationScript()
+        private async Task disableForeignKeyConstraints(SqlConnection connection, CancellationToken cancellationToken)
         {
             #region implementation
+            _logger.LogInformation("Disabling all foreign key constraints...");
 
-            var sb = new StringBuilder();
+            // Build dynamic SQL to disable all foreign key constraints
+            var disableConstraintsSql = @"
+                DECLARE @sql NVARCHAR(MAX) = N'';
+                SELECT @sql += N'ALTER TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(parent_object_id)) 
+                            + '.' + QUOTENAME(OBJECT_NAME(parent_object_id)) 
+                            + ' NOCHECK CONSTRAINT ' + QUOTENAME(name) + ';' + CHAR(13)
+                FROM sys.foreign_keys;
+                EXEC sp_executesql @sql;";
 
-            // Build WHERE clause for excluded tables
-            var excludeConditions = _preserveTables
-                .Select(table => $"t.name <> '{table}'")
-                .ToList();
+            await using var command = connection.CreateCommand();
+            command.CommandText = disableConstraintsSql;
+            command.CommandTimeout = 300; // 5 minutes for large databases
+            await command.ExecuteNonQueryAsync(cancellationToken);
 
-            var whereClause = string.Join(" AND ", excludeConditions);
+            _logger.LogDebug("Successfully disabled all foreign key constraints.");
+            #endregion
+        }
 
-            // Build the dynamic SQL script
-            sb.AppendLine("BEGIN TRANSACTION;");
-            sb.AppendLine("BEGIN TRY");
-            sb.AppendLine();
-            sb.AppendLine("    -- Disable all foreign key constraints");
-            sb.AppendLine("    EXEC sp_msforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL';");
-            sb.AppendLine();
-            sb.AppendLine("    -- Truncate tables");
-            sb.AppendLine("    DECLARE @tableName NVARCHAR(MAX);");
-            sb.AppendLine("    DECLARE @schemaName NVARCHAR(MAX);");
-            sb.AppendLine();
-            sb.AppendLine("    DECLARE table_cursor CURSOR FOR");
-            sb.AppendLine("    SELECT s.name, t.name");
-            sb.AppendLine("    FROM sys.tables t");
-            sb.AppendLine("    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id");
-            sb.AppendLine("    WHERE t.type = 'U'");
-            sb.AppendLine($"      AND {whereClause};");
-            sb.AppendLine();
-            sb.AppendLine("    OPEN table_cursor;");
-            sb.AppendLine("    FETCH NEXT FROM table_cursor INTO @schemaName, @tableName;");
-            sb.AppendLine();
-            sb.AppendLine("    WHILE @@FETCH_STATUS = 0");
-            sb.AppendLine("    BEGIN");
-            sb.AppendLine("        DECLARE @fullTableName NVARCHAR(MAX) = QUOTENAME(@schemaName) + '.' + QUOTENAME(@tableName);");
-            sb.AppendLine("        DECLARE @truncateCommand NVARCHAR(MAX) = 'TRUNCATE TABLE ' + @fullTableName;");
-            sb.AppendLine("        EXEC sp_executesql @truncateCommand;");
-            sb.AppendLine("        FETCH NEXT FROM table_cursor INTO @schemaName, @tableName;");
-            sb.AppendLine("    END");
-            sb.AppendLine();
-            sb.AppendLine("    CLOSE table_cursor;");
-            sb.AppendLine("    DEALLOCATE table_cursor;");
-            sb.AppendLine();
-            sb.AppendLine("    -- Re-enable all foreign key constraints");
-            sb.AppendLine("    EXEC sp_msforeachtable 'ALTER TABLE ? WITH CHECK CHECK CONSTRAINT ALL';");
-            sb.AppendLine();
-            sb.AppendLine("    COMMIT TRANSACTION;");
-            sb.AppendLine("END TRY");
-            sb.AppendLine("BEGIN CATCH");
-            sb.AppendLine("    IF @@TRANCOUNT > 0");
-            sb.AppendLine("        ROLLBACK TRANSACTION;");
-            sb.AppendLine("    THROW;");
-            sb.AppendLine("END CATCH;");
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves a list of all user tables in the database excluding preserved tables.
+        /// </summary>
+        /// <param name="connection">The open SQL connection to use.</param>
+        /// <param name="cancellationToken">Cancellation token for the operation.</param>
+        /// <returns>A list of tuples containing schema name and table name pairs.</returns>
+        /// <exception cref="SqlException">Thrown when the SQL operation fails.</exception>
+        /// <remarks>
+        /// Queries the INFORMATION_SCHEMA.TABLES view to get all base tables, then filters out
+        /// tables specified in the _preserveTables collection. This ensures system tables
+        /// and migration history tables are not truncated.
+        /// </remarks>
+        /// <example>
+        /// var tables = await getTablesToTruncate(connection, cancellationToken);
+        /// foreach (var (schema, tableName) in tables)
+        /// {
+        ///     // Process each table
+        /// }
+        /// </example>
+        /// <seealso cref="executeTruncation"/>
+        /// <seealso cref="truncateTable"/>
+        private async Task<List<(string Schema, string TableName)>> getTablesToTruncate(
+            SqlConnection connection,
+            CancellationToken cancellationToken)
+        {
+            #region implementation
+            _logger.LogInformation("Retrieving table list for truncation...");
 
-            return sb.ToString();
+            var getTablesSql = @"
+                SELECT TABLE_SCHEMA, TABLE_NAME 
+                FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_TYPE = 'BASE TABLE'
+                ORDER BY TABLE_NAME";
 
+            var tablesToTruncate = new List<(string Schema, string TableName)>();
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = getTablesSql;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var schema = reader.GetString(0);
+                var tableName = reader.GetString(1);
+
+                // Skip tables that are in the preservation list
+                if (_preserveTables?.Contains(tableName, StringComparer.OrdinalIgnoreCase) != true)
+                {
+                    tablesToTruncate.Add((schema, tableName));
+                }
+            }
+
+            return tablesToTruncate;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Truncates a single table in the database, with fallback to DELETE if truncation fails.
+        /// </summary>
+        /// <param name="connection">The open SQL connection to use.</param>
+        /// <param name="schema">The schema name of the table.</param>
+        /// <param name="tableName">The name of the table to truncate.</param>
+        /// <param name="cancellationToken">Cancellation token for the operation.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <exception cref="SqlException">Thrown when both TRUNCATE and DELETE operations fail.</exception>
+        /// <remarks>
+        /// First attempts to use TRUNCATE TABLE for performance. If that fails due to foreign key
+        /// constraints (SQL error 4712), falls back to DELETE FROM which is slower but works
+        /// with all table configurations.
+        /// </remarks>
+        /// <example>
+        /// await truncateTable(connection, "dbo", "Products", cancellationToken);
+        /// </example>
+        /// <seealso cref="executeTruncation"/>
+        /// <seealso cref="getTablesToTruncate"/>
+        private async Task truncateTable(
+            SqlConnection connection,
+            string schema,
+            string tableName,
+            CancellationToken cancellationToken)
+        {
+            #region implementation
+            try
+            {
+                _logger.LogInformation("Truncating table: {Schema}.{TableName}", schema, tableName);
+
+                await using var command = connection.CreateCommand();
+                command.CommandText = $"TRUNCATE TABLE [{schema}].[{tableName}]";
+                command.CommandTimeout = 60; // 1 minute per table
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqlException ex) when (ex.Number == 4712)
+            {
+                // SQL Error 4712: Cannot truncate table because it's referenced by a foreign key constraint
+                // Fall back to DELETE which works with foreign keys
+                _logger.LogWarning(
+                    "Cannot truncate {Schema}.{TableName} due to foreign key, using DELETE instead",
+                    schema,
+                    tableName);
+
+                await deleteTableContents(connection, schema, tableName, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to truncate table {Schema}.{TableName}", schema, tableName);
+                throw;
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Deletes all contents from a table using DELETE FROM statement.
+        /// </summary>
+        /// <param name="connection">The open SQL connection to use.</param>
+        /// <param name="schema">The schema name of the table.</param>
+        /// <param name="tableName">The name of the table to delete from.</param>
+        /// <param name="cancellationToken">Cancellation token for the operation.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <exception cref="SqlException">Thrown when the DELETE operation fails.</exception>
+        /// <remarks>
+        /// This method is used as a fallback when TRUNCATE TABLE fails due to foreign key constraints.
+        /// DELETE is slower than TRUNCATE but works with all table configurations. Note that DELETE
+        /// does not reset identity columns, unlike TRUNCATE.
+        /// </remarks>
+        /// <seealso cref="truncateTable"/>
+        /// <seealso cref="executeTruncation"/>
+        private async Task deleteTableContents(
+            SqlConnection connection,
+            string schema,
+            string tableName,
+            CancellationToken cancellationToken)
+        {
+            #region implementation
+            _logger.LogDebug("Deleting contents from table: {Schema}.{TableName}", schema, tableName);
+
+            await using var deleteCommand = connection.CreateCommand();
+            deleteCommand.CommandText = $"DELETE FROM [{schema}].[{tableName}]";
+            deleteCommand.CommandTimeout = 120; // 2 minutes for DELETE operations
+            await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Re-enables all foreign key constraints in the database and validates them.
+        /// </summary>
+        /// <param name="connection">The open SQL connection to use.</param>
+        /// <param name="cancellationToken">Cancellation token for the operation.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <exception cref="SqlException">Thrown when the SQL operation fails.</exception>
+        /// <remarks>
+        /// Uses dynamic SQL to iterate through all foreign keys and re-enable them with validation.
+        /// The WITH CHECK CHECK CONSTRAINT syntax both enables the constraint and validates
+        /// existing data against it. This is the final step in the truncation process.
+        /// </remarks>
+        /// <example>
+        /// await enableForeignKeyConstraints(connection, cancellationToken);
+        /// </example>
+        /// <seealso cref="disableForeignKeyConstraints"/>
+        /// <seealso cref="executeTruncation"/>
+        private async Task enableForeignKeyConstraints(SqlConnection connection, CancellationToken cancellationToken)
+        {
+            #region implementation
+            _logger.LogInformation("Re-enabling all foreign key constraints...");
+
+            // Build dynamic SQL to re-enable and validate all foreign key constraints
+            var enableConstraintsSql = @"
+                DECLARE @sql NVARCHAR(MAX) = N'';
+                SELECT @sql += N'ALTER TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(parent_object_id)) 
+                            + '.' + QUOTENAME(OBJECT_NAME(parent_object_id)) 
+                            + ' WITH CHECK CHECK CONSTRAINT ' + QUOTENAME(name) + ';' + CHAR(13)
+                FROM sys.foreign_keys;
+                EXEC sp_executesql @sql;";
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = enableConstraintsSql;
+            command.CommandTimeout = 300; // 5 minutes for constraint validation
+            await command.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogDebug("Successfully re-enabled all foreign key constraints.");
             #endregion
         }
 

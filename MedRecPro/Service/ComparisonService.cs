@@ -290,6 +290,7 @@ namespace MedRecPro.Service
 
                 // Get the complete label DTO structure
                 var completeLabels = await getCompleteLabelDataAsync(documentGuid);
+
                 if (completeLabels == null || !completeLabels.Any())
                 {
                     throw new InvalidOperationException($"Document with GUID {documentGuid} was not found.");

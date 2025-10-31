@@ -834,19 +834,45 @@ app.Use(async (context, next) =>
     }
     #endregion
 });
-#pragma warning restore CS1587 // XML comment is not placed on a valid language element
 
 /**************************************************************/
+
+/// <summary>
+/// Registers Swagger middleware to generate the OpenAPI JSON schema.
+/// </summary>
+/// <remarks>
+/// Do not prefix with "/api" in <see cref="RouteTemplate"/> because the
+/// Azure App Service already hosts the application under "/api".
+/// </remarks>
+/**************************************************************/
+app.UseSwagger(c =>
+{
+    c.RouteTemplate = "swagger/{documentName}/swagger.json";
+
+    c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
+    {
+        swaggerDoc.Servers = new List<OpenApiServer>
+        {
+            new OpenApiServer
+            {
+                Url = "/api",
+                Description = "MedRecPro API"
+            }
+        };
+    });
+});
+#pragma warning restore CS1587 // XML comment is not placed on a valid language element
+
 var swaggerdocs = app.Environment.IsDevelopment()
     ? "/swagger/v1/swagger.json"
     : "/api/swagger/v1/swagger.json";
 
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint($"{swaggerdocs}", $"MedRecPro API V1");
+    c.SwaggerEndpoint(swaggerdocs, "MedRecPro API V1");
     c.ConfigObject.AdditionalItems["operationsSorter"] = "method";
     c.ConfigObject.AdditionalItems["tagsSorter"] = "alpha";
-    c.RoutePrefix = "swagger"; // Access Swagger UI at /swagger
+    c.RoutePrefix = "swagger";
 });
 
 /**************************************************************/
