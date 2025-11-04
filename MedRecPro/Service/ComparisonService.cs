@@ -1,13 +1,8 @@
-﻿using MedRecPro.DataAccess;
-using MedRecPro.Helpers;
+﻿using MedRecPro.Helpers;
 using MedRecPro.Models;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 
 namespace MedRecPro.Service
 {
@@ -73,6 +68,11 @@ namespace MedRecPro.Service
         /// <seealso cref="IServiceProvider"/>
         private readonly IServiceProvider _serviceProvider;
 
+        /// <summary>
+        /// Provider for SPL label generationg services
+        /// </summary>
+        private readonly ISplExportService _splExportService;
+
         #endregion
 
         #region constructor
@@ -102,6 +102,9 @@ namespace MedRecPro.Service
         /// Service provider for resolving additional dependencies such as repositories
         /// during document comparison operations.
         /// </param>
+        /// <param name="splExportService">Service to generate SPL XML render from
+        /// imported XML data
+        /// </param>
         /// <remarks>
         /// This constructor follows dependency injection patterns to ensure loose coupling
         /// and testability. All dependencies are required and validated for null values
@@ -117,7 +120,8 @@ namespace MedRecPro.Service
             SplDataService splDataService,
             IClaudeApiService claudeApiService,
             IOptions<MedRecPro.Models.ComparisonSettings> settings,
-            IServiceProvider serviceProvider)
+            IServiceProvider serviceProvider,
+            ISplExportService splExportService)
         {
             #region implementation
 
@@ -127,6 +131,7 @@ namespace MedRecPro.Service
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
             _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
             _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+            _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService));
 
             #endregion
         }
@@ -288,28 +293,24 @@ namespace MedRecPro.Service
 
                 _logger.LogInformation("Starting document comparison analysis for GUID {DocumentGuid}", documentGuid);
 
-                // Get the complete label DTO structure
-                var completeLabels = await getCompleteLabelDataAsync(documentGuid);
+                // Get the rendered SPL XML
+                string xmlRendering = await _splExportService.ExportDocumentToSplAsync(documentGuid, minify:true);
 
-                if (completeLabels == null || !completeLabels.Any())
+                if (xmlRendering == null || !xmlRendering.Any())
                 {
                     throw new InvalidOperationException($"Document with GUID {documentGuid} was not found.");
                 }
 
-                var labelData = completeLabels.First();
-
                 // Retrieve the SPL data and XML content
-                var splData = await _splDataService.GetSplDataByGuidAsync(documentGuid);
-                if (splData == null || string.IsNullOrEmpty(splData.SplXML))
+                var orginalSplData = await _splDataService.GetSplDataByGuidAsync(documentGuid);
+
+                if (orginalSplData == null || string.IsNullOrEmpty(orginalSplData.SplXML))
                 {
                     throw new InvalidOperationException($"SPL XML data not found for GUID: {documentGuid}");
                 }
 
-                // Convert DTO to JSON for comparison
-                var dtoJson = convertDtoToJson(labelData);
-
                 // Build specialized prompt for document comparison
-                var prompt = buildDocumentComparisonPrompt(splData.SplXML, dtoJson);
+                var prompt = buildDocumentComparisonPrompt(orginalSplData.SplXML, xmlRendering);
 
                 // Perform AI analysis
                 var aiResponse = await _claudeApiService.GenerateDocumentComparisonAsync(prompt);
@@ -706,114 +707,30 @@ namespace MedRecPro.Service
         #endregion
 
         #region private helper methods for document comparison
-
-        /**************************************************************/
-        /// <summary>
-        /// Asynchronously retrieves complete label data structure for the specified document GUID,
-        /// including all related entities and hierarchical relationships for comprehensive analysis.
-        /// </summary>
-        /// <param name="documentGuid">The unique identifier of the document to retrieve.</param>
-        /// <returns>
-        /// A task containing an enumerable collection of complete label data structures,
-        /// or null if no document is found.
-        /// </returns>
-        /// <remarks>
-        /// This method leverages the existing repository infrastructure to obtain the complete
-        /// object graph for a document, ensuring all related data is available for comparison
-        /// analysis. The method reuses existing GetCompleteLabelsAsync functionality.
-        /// </remarks>
-        /// <seealso cref="Label.Document"/>
-        /// <seealso cref="Repository{T}.GetCompleteLabelsAsync(Guid)"/>
-        private async Task<IEnumerable<DocumentDto>?> getCompleteLabelDataAsync(Guid documentGuid)
-        {
-            #region implementation
-
-            try
-            {
-                // Use existing repository infrastructure to get complete label data
-                var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
-                var completeLabels = await documentRepository.GetCompleteLabelsAsync(documentGuid);
-
-                return completeLabels;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving complete label data for document GUID {DocumentGuid}", documentGuid);
-                throw;
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Converts the DTO label data structure to JSON format for standardized comparison
-        /// with the original XML source. This method ensures consistent formatting and
-        /// structure for AI-powered analysis.
-        /// </summary>
-        /// <param name="dtoData">The DTO object structure to convert to JSON.</param>
-        /// <returns>A formatted JSON string representation of the DTO data.</returns>
-        /// <remarks>
-        /// The conversion uses JsonSerializer with specific formatting options to ensure
-        /// consistent output that can be effectively compared with XML source data.
-        /// The formatting includes indentation for readability and null value handling
-        /// appropriate for comparison analysis.
-        /// </remarks>
-        /// <seealso cref="System.Text.Json.JsonSerializer"/>
-        /// <seealso cref="JsonSerializerOptions"/>
-        private string convertDtoToJson(object dtoData)
-        {
-            #region implementation
-
-            try
-            {
-                // Configure JSON serialization options for comparison analysis
-                var options = new JsonSerializerOptions
-                {
-                    WriteIndented = true, // Format for readability in AI analysis
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-                };
-
-                var jsonString = JsonSerializer.Serialize(dtoData, options);
-
-                _logger.LogTrace("Successfully converted DTO to JSON. JSON length: {Length} characters", jsonString.Length);
-
-                return jsonString;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error converting DTO to JSON for comparison");
-                throw;
-            }
-
-            #endregion
-        }
-
+   
         /**************************************************************/
         /// <summary>
         /// Constructs a comprehensive AI-optimized prompt for comparing SPL document XML source
-        /// with DTO JSON representation, requesting structured JSON response for enhanced
+        /// with DTO XML Rendering representation, requesting structured XML Rendering response for enhanced
         /// data processing and user interface integration.
         /// </summary>
         /// <param name="xmlContent">The original SPL XML source content to be analyzed.</param>
-        /// <param name="jsonContent">The DTO JSON representation to compare against the XML.</param>
+        /// <param name="xmlRendering">The DTO XML Rendering representation to compare against the Source XML.</param>
         /// <returns>
-        /// A structured prompt string optimized for Claude AI analysis that requests JSON output
+        /// A structured prompt string optimized for Claude AI analysis that requests XML Rendering output
         /// matching the DocumentComparisonResult model structure for seamless integration.
         /// </returns>
         /// <remarks>
         /// The prompt construction follows medical document analysis best practices while requesting
-        /// structured JSON output instead of markdown text, providing:
-        /// - Clear analysis objectives for SPL data comparison with JSON response format
+        /// structured XML Rendering output instead of markdown text, providing:
+        /// - Clear analysis objectives for SPL data comparison with XML Rendering response format
         /// - Structured output schema matching DocumentComparisonResult model
         /// - Medical terminology context for accurate pharmaceutical analysis
         /// - Specific focus areas for regulatory compliance validation
-        /// - JSON-only response requirements for improved parsing and display
+        /// - XML Rendering-only response requirements for improved parsing and display
         /// </remarks>
         /// <seealso cref="DocumentComparisonResult"/>
-        private string buildDocumentComparisonPrompt(string xmlContent, string jsonContent)
+        private string buildDocumentComparisonPrompt(string xmlContent, string xmlRendering)
         {
             #region implementation
 
@@ -821,11 +738,11 @@ namespace MedRecPro.Service
 
             prompt.AppendLine("# SPL Document XML-to-DTO Transformation Analysis");
             prompt.AppendLine();
-            prompt.AppendLine("Analyze the XML and JSON documents below and provide ONLY a JSON response with the exact structure shown.");
+            prompt.AppendLine("Analyze the Source XML and XML Rendering below and provide ONLY a JSON response with the exact structure shown.");
             prompt.AppendLine();
             prompt.AppendLine("**CRITICAL: Your response must be ONLY the JSON object below. No explanations, no markdown, no additional text.**");
             prompt.AppendLine();
-            prompt.AppendLine("Required JSON structure:");
+            prompt.AppendLine("Required XML Rendering structure:");
             prompt.AppendLine("{");
             prompt.AppendLine("  \"documentGuid\": \"240fa4f4-d357-9079-e063-6394a90a77e2\",");
             prompt.AppendLine("  \"generatedAt\": \"2025-08-12T17:45:00.000Z\",");
@@ -855,7 +772,7 @@ namespace MedRecPro.Service
             prompt.AppendLine("Requirements:");
             prompt.AppendLine("- Each detailedAnalysis array element should be a complete paragraph");
             prompt.AppendLine("- Start each element with the section name followed by colon");
-            prompt.AppendLine("- Compare ALL sections between XML and JSON");
+            prompt.AppendLine("- Compare ALL sections between XML Source and XML Rendering");
             prompt.AppendLine("- Check if ingredient data, product info, warnings, dosage, etc. are preserved");
             prompt.AppendLine("- Each difference should be a specific issue, not entire analysis");
             prompt.AppendLine("- Provide completion percentage 0-100 based on data preservation");
@@ -865,8 +782,8 @@ namespace MedRecPro.Service
             prompt.AppendLine("XML Source:");
             prompt.AppendLine(xmlContent);
             prompt.AppendLine();
-            prompt.AppendLine("JSON Target:");
-            prompt.AppendLine(jsonContent);
+            prompt.AppendLine("XML Rendering:");
+            prompt.AppendLine(xmlRendering);
 
             var promptText = prompt.ToString();
 
@@ -1055,15 +972,15 @@ namespace MedRecPro.Service
             // Split text into sections based on common headers
             var sectionHeaders = new[]
             {
-        "Overall Assessment:",
-        "Completeness Assessment:",
-        "Structural Integrity:",
-        "Data Accuracy:",
-        "Medical Content Validation:",
-        "Regulatory Compliance:",
-        "Impact Assessment:",
-        "Conclusion:"
-    };
+                "Overall Assessment:",
+                "Completeness Assessment:",
+                "Structural Integrity:",
+                "Data Accuracy:",
+                "Medical Content Validation:",
+                "Regulatory Compliance:",
+                "Impact Assessment:",
+                "Conclusion:"
+            };
 
             var sections = new List<string>();
             var currentSection = new StringBuilder();

@@ -28,6 +28,7 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json;
 using RazorLight;
@@ -83,7 +84,14 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString)
      .LogTo(Console.WriteLine, LogLevel.Error));
 
-builder.Services.Configure<ClaudeApiSettings>(builder.Configuration.GetSection("ClaudeApiSettings:ApiKey"));
+builder.Services.Configure<ClaudeApiSettings>(builder.Configuration.GetSection("ClaudeApiSettings"));
+
+#if DEBUG
+// Debug logging
+var apiKey = builder.Configuration["ClaudeApiSettings:ApiKey"];
+Console.WriteLine($"=== DEBUG: ApiKey from config: {(string.IsNullOrEmpty(apiKey) ? "EMPTY/NULL" : "LOADED (length: " + apiKey.Length + ")")}");
+#endif
+
 
 builder.Services.Configure<MedRecPro.Models.ComparisonSettings>(builder.Configuration.GetSection("ComparisonSettings"));
 
@@ -109,11 +117,16 @@ builder.Services.AddHttpContextAccessor();
 // --- Custom Services ---
 builder.Services.AddScoped<UserDataAccess>();
 
-builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>();
+// Configure ClaudeApiService with HttpClient and inject settings
+builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>((serviceProvider, client) =>
+{
+    var settings = serviceProvider.GetRequiredService<IOptions<ClaudeApiSettings>>().Value;
+    client.DefaultRequestHeaders.Add("x-api-key", settings.ApiKey);
+    client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+    client.BaseAddress = new Uri("https://api.anthropic.com/");
+});
 
 builder.Services.AddScoped<IComparisonService, ComparisonService>();
-
-builder.Services.AddScoped<IClaudeApiService, ClaudeApiService>();
 
 builder.Services.AddUserLogger(); // custom service
 
@@ -845,26 +858,40 @@ app.Use(async (context, next) =>
 /// Azure App Service already hosts the application under "/api".
 /// </remarks>
 /**************************************************************/
+
 app.UseSwagger(c =>
 {
     c.RouteTemplate = "swagger/{documentName}/swagger.json";
 
     c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
     {
-        swaggerDoc.Servers = new List<OpenApiServer>
+        swaggerDoc.Servers.Clear();
+
+        // Use RUNTIME environment check, not compile-time #if DEBUG
+        if (app.Environment.IsDevelopment())
         {
-            new OpenApiServer
+            // Development/Debug: Controllers have api/[controller] route
+            swaggerDoc.Servers.Add(new OpenApiServer
+            {
+                Url = $"{httpReq.Scheme}://{httpReq.Host.Value}",
+                Description = "Local Development"
+            });
+        }
+        else
+        {
+            // Production: Virtual application adds /api, controllers have [controller] route
+            swaggerDoc.Servers.Add(new OpenApiServer
             {
                 Url = "/api",
                 Description = "MedRecPro API"
-            }
-        };
+            });
+        }
     });
 });
 #pragma warning restore CS1587 // XML comment is not placed on a valid language element
 
 var swaggerdocs = app.Environment.IsDevelopment()
-    ? "/swagger/v1/swagger.json"
+    ? $"/swagger/v1/swagger.json?v={DateTime.UtcNow.Ticks}" // Cache buster
     : "/api/swagger/v1/swagger.json";
 
 app.UseSwaggerUI(c =>

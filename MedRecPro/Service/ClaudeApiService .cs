@@ -21,9 +21,7 @@ namespace MedRecPro.Service
             _httpClient = httpClient;
             _logger = logger;
             _settings = settings.Value;
-
-            _httpClient.DefaultRequestHeaders.Add("x-api-key", _settings.ApiKey);
-            _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+            _logger.LogInformation($"Claude API Key configured: {!string.IsNullOrEmpty(_settings.ApiKey)}");
         }
 
         /**************************************************************/
