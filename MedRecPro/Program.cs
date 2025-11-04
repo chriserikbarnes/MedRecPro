@@ -362,7 +362,7 @@ builder.Services.AddSwaggerGen(c =>
 {demoModeWarning}
 
 This API provides a REST interface for the SQL Server {environment} environment ({serverName}).
-It is designed to manage Structured Product Labeling (SPL) data based on the ICH7 SPL Implementation Guide (December 2023).
+It is designed to manage Structured Product Labeling (SPL) data based on the FDA SPL Implementation Guide (December 2023).
 Reference: https://www.fda.gov/media/84201/download?attachment
 
 ---
@@ -519,11 +519,11 @@ Each section corresponds to a nested class within the Label data model (e.g., Do
   * **Response:** `200 OK` - Generated SPL XML
 
 ### **Analysis & Comparison**
-* **`POST /api/labels/comparison/analysis/{{documentGuid}}`**: Analyze document against FDA template
+* **`POST /api/labels/comparison/analysis/{{documentGuid}}`**: Queue comparison analysis for database rendered document vs the source XML
   * **Parameters:** `documentGuid` (GUID, path) - Document to analyze
   * **Response:** `202 Accepted` - Returns operation ID for progress tracking
 
-* **`GET /api/labels/comparison/analysis/{{documentGuid}}`**: Get cached analysis results
+* **`GET /api/labels/comparison/analysis/{{documentGuid}}`**: Get analysis results from memory cache
   * **Parameters:** `documentGuid` (GUID, path) - Document identifier
   * **Response:** `200 OK` - Analysis report (if available in cache)
 
