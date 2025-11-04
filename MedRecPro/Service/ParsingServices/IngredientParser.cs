@@ -1,5 +1,6 @@
 ﻿using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
@@ -520,13 +521,23 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="ratioPartEl">The XML element representing either a numerator or denominator.</param>
         /// <param name="translationElementName">The name of the translation element to extract code information from.</param>
         /// <returns>A tuple containing the parsed values.</returns>
+        /// <remarks>
+        /// Uses InvariantCulture to ensure XML decimal values (which always use period as separator) 
+        /// are parsed correctly regardless of server culture settings.
+        /// </remarks>
         /// <seealso cref="Label"/>
         private (decimal? Value, string Unit, string Code, string System, string DisplayName) parseRatioPart(XElement ratioPartEl, string translationElementName)
         {
             #region implementation
-            // Attempt to parse the numeric value from the element
+
+            // Attempt to parse the numeric value from the element using InvariantCulture
+            // XML always uses period as decimal separator, regardless of server locale
             decimal? parsedValue = null;
-            if (decimal.TryParse(ratioPartEl.GetAttrVal(sc.A.Value), out var val))
+
+            if (decimal.TryParse(ratioPartEl.GetAttrVal(sc.A.Value),
+                NumberStyles.Any,
+                CultureInfo.InvariantCulture,
+                out var val))
             {
                 parsedValue = val;
             }

@@ -78,6 +78,23 @@
     else
     {
         <ingredient @Raw(Model.ClassCodeAttribute)>
+            @if (Model.HasQuantity)
+            {
+                <quantity>
+                    <numerator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator) @SplTemplateHelpers.Attribute("unit", ingredient.QuantityNumeratorUnit)>
+                        @if (Model.HasNumeratorTranslation)
+                        {
+                            <translation @SplTemplateHelpers.Attribute("code", ingredient.NumeratorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", ingredient.NumeratorCodeSystem) @SplTemplateHelpers.Attribute("displayName", ingredient.NumeratorDisplayName) @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityNumerator) />
+                        }
+                    </numerator>
+                    <denominator @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator) @SplTemplateHelpers.Attribute("unit", ingredient.QuantityDenominatorUnit)>
+                        @if (Model.HasDenominatorTranslation)
+                        {
+                            <translation @SplTemplateHelpers.Attribute("code", ingredient.DenominatorTranslationCode) @SplTemplateHelpers.Attribute("codeSystem", ingredient.DenominatorCodeSystem) @SplTemplateHelpers.Attribute("displayName", ingredient.DenominatorDisplayName) @SplTemplateHelpers.Attribute("value", Model.FormattedQuantityDenominator) />
+                        }
+                    </denominator>
+                </quantity>
+            }
             <ingredientSubstance>
                 @if (Model.HasSpecifiedSubstances && Model.OrderedSpecifiedSubstances != null)
                 {

@@ -12,7 +12,6 @@ using sc = MedRecPro.Models.SplConstants;
 using c = MedRecPro.Models.Constant;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
-
 namespace MedRecPro.Service.ParsingServices
 {
     /**************************************************************/

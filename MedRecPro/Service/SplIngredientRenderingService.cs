@@ -199,7 +199,7 @@ namespace MedRecPro.Service
             // Extract ProductDto context if available
             ProductDto? productContext = extractProductContext(additionalParams);
 
-            return new IngredientRendering
+            var ingredObj = new IngredientRendering
             {
                 IngredientDto = ingredient,
 
@@ -228,6 +228,8 @@ namespace MedRecPro.Service
                 RequiresReferenceSubstance = RequiresReferenceSubstance(ingredient),
                 PrimaryReferenceSubstance = GetPrimaryReferenceSubstance(ingredient)
             };
+
+            return ingredObj;
 
 
             #endregion

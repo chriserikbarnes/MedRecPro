@@ -7,8 +7,6 @@
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>
 
 		<!-- Suppress missing XML comment warnings and RazorLight warnings -->
-		<!-- The RazorLight files were triggering a complaint about multiple -->
-		<!-- top level statements -->
 		<NoWarn>$(NoWarn);1591;CS8802</NoWarn>
 		<WarningsAsErrors></WarningsAsErrors>
 		<WarningsNotAsErrors>CS8802</WarningsNotAsErrors>
@@ -53,18 +51,14 @@
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
 		<PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
 		<PackageReference Include="System.Runtime.Caching" Version="9.0.4" />
-	</ItemGroup>
-	
-	<ItemGroup>
+
 		<!-- Include for IntelliSense in design-time, exclude during build -->
-		<!-- This blocks build errors when compiling with RazorLight views -->
-		<!-- and allows IntelliSense to work as expected when editing -->
 		<Compile Include="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' == 'true'" />
 		<Compile Remove="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' != 'true'" />
-		
+
 		<!-- Always include as embedded resources for RazorLight -->
 		<EmbeddedResource Include="Views\SplTemplates\**\*.cshtml" />
-		
+
 		<None Include="Views\SplTemplates\**\*.cshtml">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>

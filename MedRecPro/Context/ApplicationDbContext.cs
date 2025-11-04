@@ -70,6 +70,7 @@ namespace MedRecPro.Data
 
             // CONFIGURE SPECIFIC ENTITIES AFTER REFLECTION REGISTRATION
             configureDocumentRelationshipIdentifier(builder);
+            configureDecimalPrecision(builder);
 
             builder.Entity<User>(entity =>
             {
@@ -203,6 +204,135 @@ namespace MedRecPro.Data
                     .HasFilter("[DocumentRelationshipID] IS NOT NULL AND [OrganizationIdentifierID] IS NOT NULL")
                     .HasDatabaseName("UX_DocumentRelationshipIdentifier_Unique");
             });
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Configures decimal precision for all entities with quantity, measurement, and value fields.
+        /// </summary>
+        /// <param name="builder">The model builder to configure.</param>
+        /// <remarks>
+        /// The database schema uses DECIMAL(18, 9) for quantity and measurement fields across multiple entities.
+        /// Without explicit configuration, EF Core defaults to DECIMAL(18, 2), causing precision loss
+        /// during save operations. This method ensures EF Core uses the correct precision for all
+        /// entities that were registered via reflection.
+        /// 
+        /// Entities configured:
+        /// - Ingredient: QuantityNumerator, QuantityDenominator
+        /// - PackagingLevel: QuantityNumerator, QuantityDenominator
+        /// - ProductPart: PartQuantityNumerator
+        /// - Characteristic: ValuePQ_Value, ValueIVLPQ_LowValue, ValueIVLPQ_HighValue
+        /// - Moiety: QuantityNumeratorLowValue, QuantityDenominatorValue
+        /// - DosingSpecification: DoseQuantityValue
+        /// - Requirement: PauseQuantityValue, PeriodValue
+        /// - ObservationCriterion: ToleranceHighValue
+        /// </remarks>
+        /// <seealso cref="LabelContainer.Ingredient"/>
+        /// <seealso cref="LabelContainer.PackagingLevel"/>
+        /// <seealso cref="LabelContainer.ProductPart"/>
+        /// <seealso cref="LabelContainer.Characteristic"/>
+        /// <seealso cref="LabelContainer.Moiety"/>
+        /// <seealso cref="LabelContainer.DosingSpecification"/>
+        /// <seealso cref="LabelContainer.Requirement"/>
+        /// <seealso cref="LabelContainer.ObservationCriterion"/>
+        private void configureDecimalPrecision(ModelBuilder builder)
+        {
+            #region implementation
+
+            // Standard precision for pharmaceutical quantities and measurements
+            const string decimalPrecision = "decimal(18, 9)";
+
+            #region Ingredient
+            // Configure ingredient quantity fields
+            builder.Entity<LabelContainer.Ingredient>(entity =>
+            {
+                entity.Property(e => e.QuantityNumerator)
+                    .HasColumnType(decimalPrecision);
+
+                entity.Property(e => e.QuantityDenominator)
+                    .HasColumnType(decimalPrecision);
+            });
+            #endregion
+
+            #region PackagingLevel
+            // Configure packaging quantity fields
+            builder.Entity<LabelContainer.PackagingLevel>(entity =>
+            {
+                entity.Property(e => e.QuantityNumerator)
+                    .HasColumnType(decimalPrecision);
+
+                entity.Property(e => e.QuantityDenominator)
+                    .HasColumnType(decimalPrecision);
+            });
+            #endregion
+
+            #region ProductPart
+            // Configure product part quantity fields (for kit components)
+            builder.Entity<LabelContainer.ProductPart>(entity =>
+            {
+                entity.Property(e => e.PartQuantityNumerator)
+                    .HasColumnType(decimalPrecision);
+            });
+            #endregion
+
+            #region Characteristic
+            // Configure characteristic value fields (product/package/moiety characteristics)
+            builder.Entity<LabelContainer.Characteristic>(entity =>
+            {
+                entity.Property(e => e.ValuePQ_Value)
+                    .HasColumnType(decimalPrecision);
+
+                entity.Property(e => e.ValueIVLPQ_LowValue)
+                    .HasColumnType(decimalPrecision);
+
+                entity.Property(e => e.ValueIVLPQ_HighValue)
+                    .HasColumnType(decimalPrecision);
+            });
+            #endregion
+
+            #region Moiety
+            // Configure moiety quantity fields (substance indexing)
+            builder.Entity<LabelContainer.Moiety>(entity =>
+            {
+                entity.Property(e => e.QuantityNumeratorLowValue)
+                    .HasColumnType(decimalPrecision);
+
+                entity.Property(e => e.QuantityDenominatorValue)
+                    .HasColumnType(decimalPrecision);
+            });
+            #endregion
+
+            #region DosingSpecification
+            // Configure dosing specification quantity fields
+            builder.Entity<LabelContainer.DosingSpecification>(entity =>
+            {
+                entity.Property(e => e.DoseQuantityValue)
+                    .HasColumnType(decimalPrecision);
+            });
+            #endregion
+
+            #region Requirement
+            // Configure requirement timing and period fields (REMS)
+            builder.Entity<LabelContainer.Requirement>(entity =>
+            {
+                entity.Property(e => e.PauseQuantityValue)
+                    .HasColumnType(decimalPrecision);
+
+                entity.Property(e => e.PeriodValue)
+                    .HasColumnType(decimalPrecision);
+            });
+            #endregion
+
+            #region ObservationCriterion
+            // Configure observation criterion tolerance fields
+            builder.Entity<LabelContainer.ObservationCriterion>(entity =>
+            {
+                entity.Property(e => e.ToleranceHighValue)
+                    .HasColumnType(decimalPrecision);
+            });
+            #endregion
+
+            #endregion
         }
     }
 }
