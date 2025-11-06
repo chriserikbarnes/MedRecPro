@@ -57,16 +57,51 @@ namespace MedRecPro.Service.ParsingServices
     {
         #region implementation
 
+        private IServiceProvider? _serviceProvider;
+
         /// <summary>
         /// Gets or sets the sequence number for the current parsing operation.
         /// </summary>
         public int SeqNumber { get; set; } = 0;
 
         /// <summary>
+        /// Gets a value indicating whether bulk database operations should be used.
+        /// </summary>
+        /// <remarks>
+        /// This value is populated from FeatureFlags:UseBulkOperations in appsettings.json
+        /// when ServiceProvider is set. Defaults to false if not configured.
+        /// </remarks>
+        public bool UseBulkOperations { get; private set; }
+
+        /// <summary>
         /// Gets or sets the service provider for dependency injection.
         /// </summary>
+        /// <remarks>
+        /// When set, automatically populates feature flags from configuration.
+        /// </remarks>
         /// <seealso cref="Label"/>
-        public IServiceProvider? ServiceProvider { get; set; }
+        public IServiceProvider? ServiceProvider
+        {
+            get => _serviceProvider;
+            set
+            {
+                _serviceProvider = value;
+
+                #region implementation
+
+                // Auto-populate feature flags when ServiceProvider is set
+                if (_serviceProvider != null)
+                {
+                    var configuration = _serviceProvider.GetService<IConfiguration>();
+                    if (configuration != null)
+                    {
+                        UseBulkOperations = configuration.GetValue<bool>("FeatureFlags:UseBulkOperations", false);
+                    }
+                }
+
+                #endregion
+            }
+        }
 
         /// <summary>
         /// Gets or sets the logger instance for recording parsing events and errors.

@@ -195,6 +195,7 @@ namespace MedRecPro.Controllers
                     exportEnabled = featureFlagsSection.GetValue<bool>("SplExportEnabled", true),
                     comparisonAnalysis = featureFlagsSection.GetValue<bool>("ComparisonAnalysisEnabled", true),
                     backgroundProcessing = featureFlagsSection.GetValue<bool>("BackgroundProcessingEnabled", true),
+                    databaseBulkProcessing = featureFlagsSection.GetValue<bool?>("UseBulkOperations", true),
                     activityTracking = featureFlagsSection.GetValue<bool>("ActivityTrackingEnabled", true),
                     caching = _configuration.GetValue<bool>("ComparisonSettings:EnableCaching", true),
                     fileStorage = _configuration.GetSection("FileStorageSettings").Exists(),
