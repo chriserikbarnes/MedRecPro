@@ -10,6 +10,7 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
+using System.Linq;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 namespace MedRecPro.Service.ParsingServices
@@ -44,6 +45,66 @@ namespace MedRecPro.Service.ParsingServices
         /// Media parser for handling multimedia content within text blocks.
         /// </summary>
         private readonly SectionMediaParser _mediaParser;
+
+        #region Data Transfer Objects for Bulk Operations
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object representing a table column parsed from XML.
+        /// Used for in-memory collection before bulk database operations.
+        /// </summary>
+        /// <seealso cref="TextTableColumn"/>
+        /// <seealso cref="Label"/>
+        private class TableColumnDto
+        {
+            public int SequenceNumber { get; set; }
+            public int? ColGroupSequenceNumber { get; set; }
+            public string? ColGroupStyleCode { get; set; }
+            public string? ColGroupAlign { get; set; }
+            public string? ColGroupVAlign { get; set; }
+            public string? Width { get; set; }
+            public string? Align { get; set; }
+            public string? VAlign { get; set; }
+            public string? StyleCode { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object representing a table row parsed from XML.
+        /// Contains row metadata and a list of associated cell DTOs.
+        /// Used for in-memory collection before bulk database operations.
+        /// </summary>
+        /// <seealso cref="TextTableRow"/>
+        /// <seealso cref="TableCellDto"/>
+        /// <seealso cref="Label"/>
+        private class TableRowDto
+        {
+            public string RowGroupType { get; set; } = string.Empty;
+            public int SequenceNumber { get; set; }
+            public string? StyleCode { get; set; }
+            public List<TableCellDto> Cells { get; set; } = new();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object representing a table cell parsed from XML.
+        /// Used for in-memory collection before bulk database operations.
+        /// </summary>
+        /// <seealso cref="TextTableCell"/>
+        /// <seealso cref="Label"/>
+        private class TableCellDto
+        {
+            public string CellType { get; set; } = string.Empty;
+            public int SequenceNumber { get; set; }
+            public string? CellText { get; set; }
+            public int? RowSpan { get; set; }
+            public int? ColSpan { get; set; }
+            public string? StyleCode { get; set; }
+            public string? Align { get; set; }
+            public string? VAlign { get; set; }
+        }
+
+        #endregion
 
         /**************************************************************/
         /// <summary>
@@ -875,23 +936,565 @@ namespace MedRecPro.Service.ParsingServices
 
         #endregion
 
-        #region Table Processing Methods
+        #region Table Processing Methods (Deprecated/Refactored for bulk inserts)
+
+        ///**************************************************************/
+        ///// <summary>
+        ///// Parses a [table] element, creating the main TextTable record, column definitions,
+        ///// and then delegating the parsing of its header, body, and footer rows.
+        ///// </summary>
+        ///// <param name="tableEl">The XElement representing the [table] element.</param>
+        ///// <param name="sectionTextContentId">The ID of the parent SectionTextContent record (where ContentType='Table'). Each table has its own SectionTextContent record, so this ID uniquely identifies this specific table.</param>
+        ///// <param name="context">The current parsing context.</param>
+        ///// <returns>A task that resolves to the total number of table, column, row, and cell entities created.</returns>
+        ///// <remarks>
+        ///// This method expects a one-to-one relationship between SectionTextContent (ContentType='Table') and TextTable.
+        ///// Each table element in the SPL creates a separate SectionTextContent record, which then gets one TextTable record.
+        ///// </remarks>
+        ///// <seealso cref="TextTable"/>
+        ///// <seealso cref="TextTableColumn"/>
+        ///// <seealso cref="SectionTextContent"/>
+        ///// <seealso cref="SplParseContext"/>
+        ///// <seealso cref="XElementExtensions"/>
+        ///// <seealso cref="ApplicationDbContext"/>
+        ///// <seealso cref="Label"/>
+        //private async Task<int> getOrCreateTextTableAndChildrenAsync(
+        //    XElement tableEl,
+        //    int sectionTextContentId,
+        //    SplParseContext context)
+        //{
+        //    #region implementation
+        //    int createdCount = 0;
+
+        //    // Validate all required input parameters and context dependencies
+        //    if (tableEl == null || sectionTextContentId <= 0 || context?.ServiceProvider == null)
+        //    {
+        //        return 0;
+        //    }
+
+        //    // Get database context and repository for table operations
+        //    var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        //    var tableRepo = context.GetRepository<TextTable>();
+        //    var tableDbSet = dbContext.Set<TextTable>();
+
+        //    // Find or Create the TextTable record
+        //    // Note: SectionTextContentID uniquely identifies this table because each table element
+        //    // creates its own SectionTextContent record with ContentType='Table'
+        //    var textTable = await tableDbSet.FirstOrDefaultAsync(t => t.SectionTextContentID == sectionTextContentId);
+
+        //    if (textTable == null)
+        //    {
+        //        // Extract caption if present
+        //        var captionEl = tableEl.SplElement(sc.E.Caption);
+        //        string? captionText = null;
+        //        if (captionEl != null)
+        //        {
+        //            // Get caption content preserving inner formatting
+        //            captionText = captionEl.GetSplHtml(stripNamespaces: true);
+        //        }
+
+        //        // Create new table entity with metadata about structure and styling
+        //        textTable = new TextTable
+        //        {
+        //            SectionTextContentID = sectionTextContentId,
+        //            SectionTableLink = tableEl.Attribute(sc.A.ID)?.Value,
+        //            Width = tableEl.Attribute(sc.A.Width)?.Value,
+        //            Caption = captionText,
+        //            HasHeader = tableEl.SplElement(sc.E.Thead) != null,
+        //            HasFooter = tableEl.SplElement(sc.E.Tfoot) != null
+        //        };
+
+        //        // Persist new table to database
+        //        await tableRepo.CreateAsync(textTable);
+        //        createdCount++;
+        //    }
+
+        //    // Validate table creation was successful before proceeding
+        //    if (textTable.TextTableID == null)
+        //    {
+        //        context.Logger?.LogError("Failed to create or retrieve TextTable for SectionTextContentID {id}", sectionTextContentId);
+        //        return createdCount;
+        //    }
+
+        //    // Parse column definitions before processing rows
+        //    createdCount += await parseAndCreateColumnsAsync(tableEl, textTable.TextTableID.Value, context);
+
+        //    // Process table header section if present
+        //    var theadEl = tableEl.SplElement(sc.E.Thead);
+        //    if (theadEl != null)
+        //    {
+        //        createdCount += await parseAndCreateRowsAsync(theadEl, textTable.TextTableID.Value, "Header", context);
+        //    }
+
+        //    // Process table body section if present
+        //    var tbodyEl = tableEl.SplElement(sc.E.Tbody);
+        //    if (tbodyEl != null)
+        //    {
+        //        createdCount += await parseAndCreateRowsAsync(tbodyEl, textTable.TextTableID.Value, "Body", context);
+        //    }
+
+        //    // Process table footer section if present
+        //    var tfootEl = tableEl.SplElement(sc.E.Tfoot);
+        //    if (tfootEl != null)
+        //    {
+        //        createdCount += await parseAndCreateRowsAsync(tfootEl, textTable.TextTableID.Value, "Footer", context);
+        //    }
+
+        //    return createdCount;
+        //    #endregion
+        //}
+
+        ///**************************************************************/
+        ///// <summary>
+        ///// Parses and creates TextTableColumn entities from [col] and [colgroup] elements in a table.
+        ///// Handles both standalone [col] elements and [col] elements nested within [colgroup].
+        ///// </summary>
+        ///// <param name="tableEl">The XElement representing the [table] element to parse.</param>
+        ///// <param name="textTableId">The foreign key ID linking columns to their parent TextTable.</param>
+        ///// <param name="context">The SPL parse context containing database services and repositories.</param>
+        ///// <returns>
+        ///// The total count of newly created TextTableColumn entities.
+        ///// Returns 0 if context is invalid or no columns are found.
+        ///// </returns>
+        ///// <remarks>
+        ///// Per Section 2.2.2.5 of SPL Implementation Guide:
+        ///// - [colgroup] elements are optional and uncommon but must be supported
+        ///// - [col] elements can exist standalone or within [colgroup]
+        ///// - [colgroup] attributes provide defaults that individual [col] can override
+        ///// - Column width, alignment, and styleCode attributes must be preserved
+        ///// 
+        ///// Parsing Logic:
+        ///// 1. First processes all [colgroup] elements and their child [col] elements
+        ///// 2. Then processes standalone [col] elements not within any [colgroup]
+        ///// 3. Maintains sequence numbering across both types for proper rendering order
+        ///// 
+        ///// Backwards Compatibility:
+        ///// - Tables without [colgroup] work identically to previous implementation
+        ///// - ColGroupSequenceNumber remains null for standalone columns
+        ///// </remarks>
+        ///// <example>
+        ///// XML with colgroup:
+        ///// &lt;table&gt;
+        /////   &lt;colgroup align="center" styleCode="Rrule"&gt;
+        /////     &lt;col width="20%" /&gt;
+        /////     &lt;col width="30%" align="left" /&gt;
+        /////   &lt;/colgroup&gt;
+        /////   &lt;col width="50%" /&gt;
+        ///// &lt;/table&gt;
+        ///// 
+        ///// Results in 3 columns:
+        ///// - Column 1: In colgroup #1, inherits center align and Rrule styleCode, 20% width
+        ///// - Column 2: In colgroup #1, overrides with left align, keeps Rrule styleCode, 30% width
+        ///// - Column 3: Standalone (no colgroup), 50% width
+        ///// </example>
+        ///// <seealso cref="TextTableColumn"/>
+        ///// <seealso cref="TextTable"/>
+        ///// <seealso cref="SplParseContext"/>
+        ///// <seealso cref="XElementExtensions"/>
+        ///// <seealso cref="ApplicationDbContext"/>
+        ///// <seealso cref="Label"/>
+        //private async Task<int> parseAndCreateColumnsAsync(
+        //    XElement tableEl,
+        //    int textTableId,
+        //    SplParseContext context)
+        //{
+        //    #region implementation
+
+        //    int createdCount = 0;
+
+        //    // Validate required context dependencies for database operations
+        //    if (context == null || context.ServiceProvider == null)
+        //        return 0;
+
+        //    // Get database context and repository for column operations
+        //    var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        //    var columnRepo = context.GetRepository<TextTableColumn>();
+        //    var columnDbSet = dbContext.Set<TextTableColumn>();
+
+        //    // Initialize sequence number for maintaining column order across the entire table
+        //    int overallSeqNum = 1;
+
+        //    // Track colgroup sequence for identifying which columns belong to which colgroup
+        //    int colgroupSeqNum = 1;
+
+        //    #region process colgroup elements
+
+        //    // Extract all colgroup elements to process columns within groups first
+        //    var colgroupElements = tableEl.Elements(ns + sc.E.Colgroup).ToList();
+
+        //    // Check if any colgroup elements exist
+        //    if (colgroupElements.Any())
+        //        // Process each colgroup and its child col elements
+        //        foreach (var colgroupEl in colgroupElements)
+        //        {
+        //            // Extract colgroup-level attributes that serve as defaults for child columns
+        //            var colgroupStyleCode = colgroupEl.Attribute(sc.A.StyleCode)?.Value;
+        //            var colgroupAlign = colgroupEl.Attribute(sc.A.Align)?.Value;
+        //            var colgroupVAlign = colgroupEl.Attribute(sc.A.VAlign)?.Value;
+
+        //            // Extract all col elements within this colgroup
+        //            var colElementsInGroup = colgroupEl.Elements(ns + sc.E.Col).ToList();
+
+        //            // Process each column definition within the colgroup
+        //            foreach (var colEl in colElementsInGroup)
+        //            {
+        //                // Create column entity with colgroup context
+        //                var createdCol = await createColumnEntityAsync(
+        //                    columnDbSet,
+        //                    columnRepo,
+        //                    textTableId,
+        //                    overallSeqNum,
+        //                    colEl,
+        //                    colgroupSeqNum,
+        //                    colgroupStyleCode,
+        //                    colgroupAlign,
+        //                    colgroupVAlign);
+
+        //                // Track creation and increment sequence for next column
+        //                if (createdCol)
+        //                {
+        //                    createdCount++;
+        //                }
+        //                overallSeqNum++;
+        //            }
+
+        //            // Increment colgroup sequence for next colgroup
+        //            colgroupSeqNum++;
+        //        }
+
+        //    #endregion
+
+        //    #region process standalone col elements
+
+        //    // Extract standalone col elements (those directly under table, not in colgroup)
+        //    var standaloneColElements = tableEl.Elements(ns + sc.E.Col).ToList();
+
+        //    // Check if any standalone col elements exist
+        //    if (standaloneColElements.Any())
+        //        // Process each standalone column definition
+        //        foreach (var colEl in standaloneColElements)
+        //        {
+        //            // Create column entity without colgroup context (all colgroup params null)
+        //            var createdCol = await createColumnEntityAsync(
+        //                columnDbSet,
+        //                columnRepo,
+        //                textTableId,
+        //                overallSeqNum,
+        //                colEl,
+        //                colgroupSequence: null,
+        //                colgroupStyleCode: null,
+        //                colgroupAlign: null,
+        //                colgroupVAlign: null);
+
+        //            // Track creation and increment sequence for next column
+        //            if (createdCol)
+        //            {
+        //                createdCount++;
+        //            }
+        //            overallSeqNum++;
+        //        }
+
+        //    #endregion
+
+        //    return createdCount;
+
+        //    #endregion
+        //}
+
+        ///**************************************************************/
+        ///// <summary>
+        ///// Creates a single TextTableColumn entity from a [col] element, optionally with colgroup context.
+        ///// Checks for existing columns to avoid duplicates before creating new entities.
+        ///// </summary>
+        ///// <param name="columnDbSet">The DbSet for querying existing TextTableColumn entities.</param>
+        ///// <param name="columnRepo">The repository for creating new TextTableColumn entities.</param>
+        ///// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
+        ///// <param name="sequenceNumber">The overall sequence number for this column within the table.</param>
+        ///// <param name="colElement">The XElement representing the [col] element to parse.</param>
+        ///// <param name="colgroupSequence">
+        ///// The colgroup sequence number if this column is within a [colgroup], null otherwise.
+        ///// </param>
+        ///// <param name="colgroupStyleCode">
+        ///// The styleCode attribute from parent [colgroup], null if standalone or not specified.
+        ///// </param>
+        ///// <param name="colgroupAlign">
+        ///// The align attribute from parent [colgroup], null if standalone or not specified.
+        ///// </param>
+        ///// <param name="colgroupVAlign">
+        ///// The valign attribute from parent [colgroup], null if standalone or not specified.
+        ///// </param>
+        ///// <returns>
+        ///// True if a new column entity was created, false if column already existed.
+        ///// </returns>
+        ///// <remarks>
+        ///// Individual [col] attributes always take precedence over [colgroup] attributes.
+        ///// When both are present, the column-level value is stored in the direct property
+        ///// (Width, Align, VAlign, StyleCode) while colgroup-level values are stored in
+        ///// ColGroup* properties for reference.
+        ///// 
+        ///// During rendering, the GetEffective* methods can be used to retrieve the
+        ///// appropriate value considering both levels.
+        ///// </remarks>
+        ///// <seealso cref="TextTableColumn"/>
+        ///// <seealso cref="parseAndCreateColumnsAsync"/>
+        ///// <seealso cref="Label"/>
+        //private async Task<bool> createColumnEntityAsync(
+        //    DbSet<TextTableColumn> columnDbSet,
+        //    Repository<TextTableColumn> columnRepo,
+        //    int textTableId,
+        //    int sequenceNumber,
+        //    XElement colElement,
+        //    int? colgroupSequence,
+        //    string? colgroupStyleCode,
+        //    string? colgroupAlign,
+        //    string? colgroupVAlign)
+        //{
+        //    #region implementation
+
+        //    // Check for existing column to avoid duplicates based on table and sequence
+        //    var existingCol = await columnDbSet.FirstOrDefaultAsync(c =>
+        //        c.TextTableID == textTableId &&
+        //        c.SequenceNumber == sequenceNumber);
+
+        //    // Skip creation if column already exists at this position
+        //    if (existingCol != null)
+        //        return false;
+
+        //    // Extract individual col element attributes
+        //    var colWidth = colElement.Attribute(sc.A.Width)?.Value;
+        //    var colAlign = colElement.Attribute(sc.A.Align)?.Value;
+        //    var colVAlign = colElement.Attribute(sc.A.VAlign)?.Value;
+        //    var colStyleCode = colElement.Attribute(sc.A.StyleCode)?.Value;
+
+        //    // Build new column entity with all extracted attributes
+        //    var newColumn = new TextTableColumn
+        //    {
+        //        // Core identification fields
+        //        TextTableID = textTableId,
+        //        SequenceNumber = sequenceNumber,
+
+        //        // Colgroup membership and inherited attributes
+        //        ColGroupSequenceNumber = colgroupSequence,
+        //        ColGroupStyleCode = colgroupStyleCode,
+        //        ColGroupAlign = colgroupAlign,
+        //        ColGroupVAlign = colgroupVAlign,
+
+        //        // Individual col element attributes (these take precedence)
+        //        Width = colWidth,
+        //        Align = colAlign,
+        //        VAlign = colVAlign,
+        //        StyleCode = colStyleCode
+        //    };
+
+        //    // Persist new column to database
+        //    await columnRepo.CreateAsync(newColumn);
+
+        //    return true;
+
+        //    #endregion
+        //}
+
+        ///**************************************************************/
+        ///// <summary>
+        ///// Parses all rows ([tr]) within a given table group ([thead], [tbody], [tfoot]),
+        ///// creating TextTableRow records and delegating cell parsing.
+        ///// </summary>
+        ///// <param name="rowGroupEl">The XElement for the group (e.g., [tbody]).</param>
+        ///// <param name="textTableId">The database ID of the parent TextTable.</param>
+        ///// <param name="rowGroupType">The type of group: 'Header', 'Body', or 'Footer'.</param>
+        ///// <param name="context">The current parsing context.</param>
+        ///// <returns>A task that resolves to the total number of row and cell entities created.</returns>
+        ///// <seealso cref="TextTableRow"/>
+        ///// <seealso cref="TextTable"/>
+        ///// <seealso cref="SplParseContext"/>
+        ///// <seealso cref="XElementExtensions"/>
+        ///// <seealso cref="ApplicationDbContext"/>
+        ///// <seealso cref="Label"/>
+        //private async Task<int> parseAndCreateRowsAsync(
+        //    XElement rowGroupEl,
+        //    int textTableId,
+        //    string rowGroupType,
+        //    SplParseContext context)
+        //{
+        //    #region implementation
+        //    int createdCount = 0;
+
+        //    // Validate required context dependencies for database operations
+        //    if (context == null || context.ServiceProvider == null)
+        //        return 0;
+
+        //    // Get database context and repository for table row operations
+        //    var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        //    var rowRepo = context.GetRepository<TextTableRow>();
+        //    var rowDbSet = dbContext.Set<TextTableRow>();
+
+        //    // Extract all table row elements from the current group
+        //    var rowElements = rowGroupEl.SplElements(sc.E.Tr).ToList();
+
+        //    // Initialize sequence number for maintaining row order within group
+        //    int seqNum = 1;
+
+        //    // Process each row element within the table group
+        //    foreach (var rowEl in rowElements)
+        //    {
+        //        // Check for existing row to avoid duplicates based on table, group type, and sequence
+        //        var existingRow = await rowDbSet.FirstOrDefaultAsync(r =>
+        //            r.TextTableID == textTableId &&
+        //            r.RowGroupType == rowGroupType &&
+        //            r.SequenceNumber == seqNum);
+
+        //        TextTableRow textTableRow;
+
+        //        // Use existing row if found, otherwise create new one
+        //        if (existingRow != null)
+        //        {
+        //            textTableRow = existingRow;
+        //        }
+        //        else
+        //        {
+        //            // Create new table row entity with group classification and styling
+        //            textTableRow = new TextTableRow
+        //            {
+        //                TextTableID = textTableId,
+        //                RowGroupType = rowGroupType, // 'Header', 'Body', or 'Footer'
+        //                SequenceNumber = seqNum,
+        //                StyleCode = rowEl.Attribute(sc.A.StyleCode)?.Value
+        //            };
+
+        //            // Persist new row to database
+        //            await rowRepo.CreateAsync(textTableRow);
+        //            createdCount++;
+        //        }
+
+        //        // Process cells within this row if row was successfully created/retrieved
+        //        if (textTableRow.TextTableRowID.HasValue)
+        //        {
+        //            // Delegate cell parsing and accumulate created cell count
+        //            createdCount += await parseAndCreateCellsAsync(rowEl, textTableRow.TextTableRowID.Value, context);
+        //        }
+
+        //        // Increment sequence for next row in group
+        //        seqNum++;
+        //    }
+        //    return createdCount;
+        //    #endregion
+        //}
+
+        ///**************************************************************/
+        ///// <summary>
+        ///// Parses all cells ([td], [th]) within a given table row ([tr]), creating
+        ///// TextTableCell records. It skips empty cells and maintains correct sequencing.
+        ///// </summary>
+        ///// <param name="rowEl">The XElement for the table row ([tr]).</param>
+        ///// <param name="textTableRowId">The database ID of the parent TextTableRow.</param>
+        ///// <param name="context">The current parsing context.</param>
+        ///// <returns>A task that resolves to the number of TextTableCell entities created.</returns>
+        ///// <seealso cref="TextTableCell"/>
+        ///// <seealso cref="TextTableRow"/>
+        ///// <seealso cref="SplParseContext"/>
+        ///// <seealso cref="XElementExtensions"/>
+        ///// <seealso cref="ApplicationDbContext"/>
+        ///// <seealso cref="Label"/>
+        //private async Task<int> parseAndCreateCellsAsync(
+        //    XElement rowEl,
+        //    int textTableRowId,
+        //    SplParseContext context)
+        //{
+        //    #region implementation
+        //    int createdCount = 0;
+
+        //    // Validate required context dependencies for database operations
+        //    if (context == null || context.ServiceProvider == null)
+        //        return 0;
+
+        //    // Get database context and repository for table cell operations
+        //    var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        //    var cellRepo = context.GetRepository<TextTableCell>();
+        //    var cellDbSet = dbContext.Set<TextTableCell>();
+
+        //    // Process both <th> and <td> elements in document order.
+        //    // Extract both header and data cells while preserving their sequence
+        //    var cellElements = rowEl.Elements()
+        //        .Where(e => e.Name.LocalName == sc.E.Th || e.Name.LocalName == sc.E.Td)
+        //        .ToList();
+
+        //    // Initialize sequence number for maintaining cell order within row
+        //    int seqNum = 1;
+
+        //    // Process each cell element and create database entities
+        //    foreach (var cellEl in cellElements)
+        //    {
+
+        //        // Check for existing cell to avoid duplicates based on row and sequence
+        //        var existingCell = await cellDbSet.FirstOrDefaultAsync(c =>
+        //            c.TextTableRowID == textTableRowId &&
+        //            c.SequenceNumber == seqNum);
+
+        //        // Create new cell if none exists at this position
+        //        if (existingCell == null)
+        //        {
+        //            // Safely parse integer attributes
+        //            // Extract rowspan and colspan attributes with safe parsing
+        //            _ = int.TryParse(cellEl.Attribute(sc.A.Rowspan)?.Value, out int rs);
+        //            _ = int.TryParse(cellEl.Attribute(sc.A.Colspan)?.Value, out int cs);
+
+        //            // Build new table cell entity with all extracted attributes
+        //            var newCell = new TextTableCell
+        //            {
+        //                TextTableRowID = textTableRowId,
+        //                CellType = cellEl.Name.LocalName, // "th" or "td"
+        //                SequenceNumber = seqNum,
+        //                CellText = cellEl.GetSplHtml(stripNamespaces: true),
+        //                RowSpan = rs > 0 ? rs : null, // Only store valid span values
+        //                ColSpan = cs > 0 ? cs : null, // Only store valid span values
+        //                StyleCode = cellEl.Attribute(sc.A.StyleCode)?.Value,
+        //                Align = cellEl.Attribute(sc.A.Align)?.Value,
+        //                VAlign = cellEl.Attribute(sc.A.VAlign)?.Value
+        //            };
+
+        //            // Persist new cell to database
+        //            await cellRepo.CreateAsync(newCell);
+        //            createdCount++;
+        //        }
+
+        //        // Increment sequence for next cell regardless of creation status
+        //        seqNum++;
+        //    }
+        //    return createdCount;
+        //    #endregion
+        //}
+
+        #endregion
+
+        #region Table Processing Methods - Bulk Operations Refactor
 
         /**************************************************************/
         /// <summary>
-        /// Parses a [table] element, creating the main TextTable record, column definitions,
-        /// and then delegating the parsing of its header, body, and footer rows.
+        /// Parses a [table] element using bulk operations pattern. Collects all table data into memory,
+        /// deduplicates against existing entities, then performs batch inserts for optimal performance.
         /// </summary>
         /// <param name="tableEl">The XElement representing the [table] element.</param>
         /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record (where ContentType='Table'). Each table has its own SectionTextContent record, so this ID uniquely identifies this specific table.</param>
         /// <param name="context">The current parsing context.</param>
         /// <returns>A task that resolves to the total number of table, column, row, and cell entities created.</returns>
         /// <remarks>
+        /// This method implements the bulk operations pattern to minimize database round-trips:
+        /// 1. Parse entire table structure into memory (DTOs)
+        /// 2. Query for existing entities in bulk (one query per entity type)
+        /// 3. Build HashSet lookups for O(1) duplicate detection
+        /// 4. Create missing entities in batch operations
+        /// 
+        /// Performance Impact:
+        /// - Before: N database calls (one per entity)
+        /// - After: 4 queries + 4 bulk inserts (one per entity type)
+        /// 
         /// This method expects a one-to-one relationship between SectionTextContent (ContentType='Table') and TextTable.
         /// Each table element in the SPL creates a separate SectionTextContent record, which then gets one TextTable record.
         /// </remarks>
         /// <seealso cref="TextTable"/>
         /// <seealso cref="TextTableColumn"/>
+        /// <seealso cref="TextTableRow"/>
+        /// <seealso cref="TextTableCell"/>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XElementExtensions"/>
@@ -911,41 +1514,79 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
             }
 
-            // Get database context and repository for table operations
+            // Get database context for bulk operations
             var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var tableRepo = context.GetRepository<TextTable>();
-            var tableDbSet = dbContext.Set<TextTable>();
 
-            // Find or Create the TextTable record
-            // Note: SectionTextContentID uniquely identifies this table because each table element
-            // creates its own SectionTextContent record with ContentType='Table'
-            var textTable = await tableDbSet.FirstOrDefaultAsync(t => t.SectionTextContentID == sectionTextContentId);
+            #region parse table structure into memory
 
-            if (textTable == null)
+            // Parse table metadata
+            var captionEl = tableEl.SplElement(sc.E.Caption);
+            string? captionText = captionEl?.GetSplHtml(stripNamespaces: true);
+
+            var tableData = new
             {
-                // Extract caption if present
-                var captionEl = tableEl.SplElement(sc.E.Caption);
-                string? captionText = null;
-                if (captionEl != null)
-                {
-                    // Get caption content preserving inner formatting
-                    captionText = captionEl.GetSplHtml(stripNamespaces: true);
-                }
+                SectionTextContentID = sectionTextContentId,
+                SectionTableLink = tableEl.Attribute(sc.A.ID)?.Value,
+                Width = tableEl.Attribute(sc.A.Width)?.Value,
+                Caption = captionText,
+                HasHeader = tableEl.SplElement(sc.E.Thead) != null,
+                HasFooter = tableEl.SplElement(sc.E.Tfoot) != null
+            };
 
-                // Create new table entity with metadata about structure and styling
+            // Parse all column definitions into memory
+            var columnDtos = parseColumnsToMemory(tableEl);
+
+            // Parse all rows and cells into memory
+            var rowDtos = new List<TableRowDto>();
+
+            var theadEl = tableEl.SplElement(sc.E.Thead);
+            if (theadEl != null)
+            {
+                rowDtos.AddRange(parseRowsToMemory(theadEl, "Header"));
+            }
+
+            var tbodyEl = tableEl.SplElement(sc.E.Tbody);
+            if (tbodyEl != null)
+            {
+                rowDtos.AddRange(parseRowsToMemory(tbodyEl, "Body"));
+            }
+
+            var tfootEl = tableEl.SplElement(sc.E.Tfoot);
+            if (tfootEl != null)
+            {
+                rowDtos.AddRange(parseRowsToMemory(tfootEl, "Footer"));
+            }
+
+            #endregion
+
+            #region check existing entities and create missing
+
+            // Check for existing TextTable
+            var textTableDbSet = dbContext.Set<TextTable>();
+            var existingTable = await textTableDbSet
+                .FirstOrDefaultAsync(t => t.SectionTextContentID == sectionTextContentId);
+
+            TextTable textTable;
+            if (existingTable == null)
+            {
+                // Create new table entity
                 textTable = new TextTable
                 {
-                    SectionTextContentID = sectionTextContentId,
-                    SectionTableLink = tableEl.Attribute(sc.A.ID)?.Value,
-                    Width = tableEl.Attribute(sc.A.Width)?.Value,
-                    Caption = captionText,
-                    HasHeader = tableEl.SplElement(sc.E.Thead) != null,
-                    HasFooter = tableEl.SplElement(sc.E.Tfoot) != null
+                    SectionTextContentID = tableData.SectionTextContentID,
+                    SectionTableLink = tableData.SectionTableLink,
+                    Width = tableData.Width,
+                    Caption = tableData.Caption,
+                    HasHeader = tableData.HasHeader,
+                    HasFooter = tableData.HasFooter
                 };
 
-                // Persist new table to database
-                await tableRepo.CreateAsync(textTable);
+                textTableDbSet.Add(textTable);
+                await dbContext.SaveChangesAsync(); // Need ID for foreign keys
                 createdCount++;
+            }
+            else
+            {
+                textTable = existingTable;
             }
 
             // Validate table creation was successful before proceeding
@@ -955,29 +1596,15 @@ namespace MedRecPro.Service.ParsingServices
                 return createdCount;
             }
 
-            // Parse column definitions before processing rows
-            createdCount += await parseAndCreateColumnsAsync(tableEl, textTable.TextTableID.Value, context);
+            int tableId = textTable.TextTableID.Value;
 
-            // Process table header section if present
-            var theadEl = tableEl.SplElement(sc.E.Thead);
-            if (theadEl != null)
-            {
-                createdCount += await parseAndCreateRowsAsync(theadEl, textTable.TextTableID.Value, "Header", context);
-            }
+            // Bulk create columns
+            createdCount += await bulkCreateColumnsAsync(dbContext, tableId, columnDtos);
 
-            // Process table body section if present
-            var tbodyEl = tableEl.SplElement(sc.E.Tbody);
-            if (tbodyEl != null)
-            {
-                createdCount += await parseAndCreateRowsAsync(tbodyEl, textTable.TextTableID.Value, "Body", context);
-            }
+            // Bulk create rows and cells
+            createdCount += await bulkCreateRowsAndCellsAsync(dbContext, tableId, rowDtos);
 
-            // Process table footer section if present
-            var tfootEl = tableEl.SplElement(sc.E.Tfoot);
-            if (tfootEl != null)
-            {
-                createdCount += await parseAndCreateRowsAsync(tfootEl, textTable.TextTableID.Value, "Footer", context);
-            }
+            #endregion
 
             return createdCount;
             #endregion
@@ -985,15 +1612,12 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses and creates TextTableColumn entities from [col] and [colgroup] elements in a table.
+        /// Parses all column definitions from a table element into memory without database operations.
         /// Handles both standalone [col] elements and [col] elements nested within [colgroup].
         /// </summary>
         /// <param name="tableEl">The XElement representing the [table] element to parse.</param>
-        /// <param name="textTableId">The foreign key ID linking columns to their parent TextTable.</param>
-        /// <param name="context">The SPL parse context containing database services and repositories.</param>
         /// <returns>
-        /// The total count of newly created TextTableColumn entities.
-        /// Returns 0 if context is invalid or no columns are found.
+        /// A list of TableColumnDto objects representing all columns in document order.
         /// </returns>
         /// <remarks>
         /// Per Section 2.2.2.5 of SPL Implementation Guide:
@@ -1006,400 +1630,400 @@ namespace MedRecPro.Service.ParsingServices
         /// 1. First processes all [colgroup] elements and their child [col] elements
         /// 2. Then processes standalone [col] elements not within any [colgroup]
         /// 3. Maintains sequence numbering across both types for proper rendering order
-        /// 
-        /// Backwards Compatibility:
-        /// - Tables without [colgroup] work identically to previous implementation
-        /// - ColGroupSequenceNumber remains null for standalone columns
         /// </remarks>
-        /// <example>
-        /// XML with colgroup:
-        /// &lt;table&gt;
-        ///   &lt;colgroup align="center" styleCode="Rrule"&gt;
-        ///     &lt;col width="20%" /&gt;
-        ///     &lt;col width="30%" align="left" /&gt;
-        ///   &lt;/colgroup&gt;
-        ///   &lt;col width="50%" /&gt;
-        /// &lt;/table&gt;
-        /// 
-        /// Results in 3 columns:
-        /// - Column 1: In colgroup #1, inherits center align and Rrule styleCode, 20% width
-        /// - Column 2: In colgroup #1, overrides with left align, keeps Rrule styleCode, 30% width
-        /// - Column 3: Standalone (no colgroup), 50% width
-        /// </example>
         /// <seealso cref="TextTableColumn"/>
-        /// <seealso cref="TextTable"/>
-        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="TableColumnDto"/>
         /// <seealso cref="XElementExtensions"/>
-        /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private async Task<int> parseAndCreateColumnsAsync(
-            XElement tableEl,
-            int textTableId,
-            SplParseContext context)
+        private List<TableColumnDto> parseColumnsToMemory(XElement tableEl)
         {
             #region implementation
 
-            int createdCount = 0;
-
-            // Validate required context dependencies for database operations
-            if (context == null || context.ServiceProvider == null)
-                return 0;
-
-            // Get database context and repository for column operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var columnRepo = context.GetRepository<TextTableColumn>();
-            var columnDbSet = dbContext.Set<TextTableColumn>();
-
-            // Initialize sequence number for maintaining column order across the entire table
+            var columnDtos = new List<TableColumnDto>();
             int overallSeqNum = 1;
-
-            // Track colgroup sequence for identifying which columns belong to which colgroup
             int colgroupSeqNum = 1;
 
             #region process colgroup elements
 
-            // Extract all colgroup elements to process columns within groups first
             var colgroupElements = tableEl.Elements(ns + sc.E.Colgroup).ToList();
 
-            // Check if any colgroup elements exist
-            if (colgroupElements.Any())
-                // Process each colgroup and its child col elements
-                foreach (var colgroupEl in colgroupElements)
+            foreach (var colgroupEl in colgroupElements)
+            {
+                // Extract colgroup-level attributes that serve as defaults for child columns
+                var colgroupStyleCode = colgroupEl.Attribute(sc.A.StyleCode)?.Value;
+                var colgroupAlign = colgroupEl.Attribute(sc.A.Align)?.Value;
+                var colgroupVAlign = colgroupEl.Attribute(sc.A.VAlign)?.Value;
+
+                var colElementsInGroup = colgroupEl.Elements(ns + sc.E.Col).ToList();
+
+                foreach (var colEl in colElementsInGroup)
                 {
-                    // Extract colgroup-level attributes that serve as defaults for child columns
-                    var colgroupStyleCode = colgroupEl.Attribute(sc.A.StyleCode)?.Value;
-                    var colgroupAlign = colgroupEl.Attribute(sc.A.Align)?.Value;
-                    var colgroupVAlign = colgroupEl.Attribute(sc.A.VAlign)?.Value;
-
-                    // Extract all col elements within this colgroup
-                    var colElementsInGroup = colgroupEl.Elements(ns + sc.E.Col).ToList();
-
-                    // Process each column definition within the colgroup
-                    foreach (var colEl in colElementsInGroup)
+                    columnDtos.Add(new TableColumnDto
                     {
-                        // Create column entity with colgroup context
-                        var createdCol = await createColumnEntityAsync(
-                            columnDbSet,
-                            columnRepo,
-                            textTableId,
-                            overallSeqNum,
-                            colEl,
-                            colgroupSeqNum,
-                            colgroupStyleCode,
-                            colgroupAlign,
-                            colgroupVAlign);
+                        SequenceNumber = overallSeqNum,
+                        ColGroupSequenceNumber = colgroupSeqNum,
+                        ColGroupStyleCode = colgroupStyleCode,
+                        ColGroupAlign = colgroupAlign,
+                        ColGroupVAlign = colgroupVAlign,
+                        Width = colEl.Attribute(sc.A.Width)?.Value,
+                        Align = colEl.Attribute(sc.A.Align)?.Value,
+                        VAlign = colEl.Attribute(sc.A.VAlign)?.Value,
+                        StyleCode = colEl.Attribute(sc.A.StyleCode)?.Value
+                    });
 
-                        // Track creation and increment sequence for next column
-                        if (createdCol)
-                        {
-                            createdCount++;
-                        }
-                        overallSeqNum++;
-                    }
-
-                    // Increment colgroup sequence for next colgroup
-                    colgroupSeqNum++;
+                    overallSeqNum++;
                 }
+
+                colgroupSeqNum++;
+            }
 
             #endregion
 
             #region process standalone col elements
 
-            // Extract standalone col elements (those directly under table, not in colgroup)
             var standaloneColElements = tableEl.Elements(ns + sc.E.Col).ToList();
 
-            // Check if any standalone col elements exist
-            if (standaloneColElements.Any())
-                // Process each standalone column definition
-                foreach (var colEl in standaloneColElements)
-                {
-                    // Create column entity without colgroup context (all colgroup params null)
-                    var createdCol = await createColumnEntityAsync(
-                        columnDbSet,
-                        columnRepo,
-                        textTableId,
-                        overallSeqNum,
-                        colEl,
-                        colgroupSequence: null,
-                        colgroupStyleCode: null,
-                        colgroupAlign: null,
-                        colgroupVAlign: null);
-
-                    // Track creation and increment sequence for next column
-                    if (createdCol)
-                    {
-                        createdCount++;
-                    }
-                    overallSeqNum++;
-                }
-
-            #endregion
-
-            return createdCount;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Creates a single TextTableColumn entity from a [col] element, optionally with colgroup context.
-        /// Checks for existing columns to avoid duplicates before creating new entities.
-        /// </summary>
-        /// <param name="columnDbSet">The DbSet for querying existing TextTableColumn entities.</param>
-        /// <param name="columnRepo">The repository for creating new TextTableColumn entities.</param>
-        /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
-        /// <param name="sequenceNumber">The overall sequence number for this column within the table.</param>
-        /// <param name="colElement">The XElement representing the [col] element to parse.</param>
-        /// <param name="colgroupSequence">
-        /// The colgroup sequence number if this column is within a [colgroup], null otherwise.
-        /// </param>
-        /// <param name="colgroupStyleCode">
-        /// The styleCode attribute from parent [colgroup], null if standalone or not specified.
-        /// </param>
-        /// <param name="colgroupAlign">
-        /// The align attribute from parent [colgroup], null if standalone or not specified.
-        /// </param>
-        /// <param name="colgroupVAlign">
-        /// The valign attribute from parent [colgroup], null if standalone or not specified.
-        /// </param>
-        /// <returns>
-        /// True if a new column entity was created, false if column already existed.
-        /// </returns>
-        /// <remarks>
-        /// Individual [col] attributes always take precedence over [colgroup] attributes.
-        /// When both are present, the column-level value is stored in the direct property
-        /// (Width, Align, VAlign, StyleCode) while colgroup-level values are stored in
-        /// ColGroup* properties for reference.
-        /// 
-        /// During rendering, the GetEffective* methods can be used to retrieve the
-        /// appropriate value considering both levels.
-        /// </remarks>
-        /// <seealso cref="TextTableColumn"/>
-        /// <seealso cref="parseAndCreateColumnsAsync"/>
-        /// <seealso cref="Label"/>
-        private async Task<bool> createColumnEntityAsync(
-            DbSet<TextTableColumn> columnDbSet,
-            Repository<TextTableColumn> columnRepo,
-            int textTableId,
-            int sequenceNumber,
-            XElement colElement,
-            int? colgroupSequence,
-            string? colgroupStyleCode,
-            string? colgroupAlign,
-            string? colgroupVAlign)
-        {
-            #region implementation
-
-            // Check for existing column to avoid duplicates based on table and sequence
-            var existingCol = await columnDbSet.FirstOrDefaultAsync(c =>
-                c.TextTableID == textTableId &&
-                c.SequenceNumber == sequenceNumber);
-
-            // Skip creation if column already exists at this position
-            if (existingCol != null)
-                return false;
-
-            // Extract individual col element attributes
-            var colWidth = colElement.Attribute(sc.A.Width)?.Value;
-            var colAlign = colElement.Attribute(sc.A.Align)?.Value;
-            var colVAlign = colElement.Attribute(sc.A.VAlign)?.Value;
-            var colStyleCode = colElement.Attribute(sc.A.StyleCode)?.Value;
-
-            // Build new column entity with all extracted attributes
-            var newColumn = new TextTableColumn
+            foreach (var colEl in standaloneColElements)
             {
-                // Core identification fields
-                TextTableID = textTableId,
-                SequenceNumber = sequenceNumber,
+                columnDtos.Add(new TableColumnDto
+                {
+                    SequenceNumber = overallSeqNum,
+                    ColGroupSequenceNumber = null,
+                    ColGroupStyleCode = null,
+                    ColGroupAlign = null,
+                    ColGroupVAlign = null,
+                    Width = colEl.Attribute(sc.A.Width)?.Value,
+                    Align = colEl.Attribute(sc.A.Align)?.Value,
+                    VAlign = colEl.Attribute(sc.A.VAlign)?.Value,
+                    StyleCode = colEl.Attribute(sc.A.StyleCode)?.Value
+                });
 
-                // Colgroup membership and inherited attributes
-                ColGroupSequenceNumber = colgroupSequence,
-                ColGroupStyleCode = colgroupStyleCode,
-                ColGroupAlign = colgroupAlign,
-                ColGroupVAlign = colgroupVAlign,
+                overallSeqNum++;
+            }
 
-                // Individual col element attributes (these take precedence)
-                Width = colWidth,
-                Align = colAlign,
-                VAlign = colVAlign,
-                StyleCode = colStyleCode
-            };
+            #endregion
 
-            // Persist new column to database
-            await columnRepo.CreateAsync(newColumn);
-
-            return true;
+            return columnDtos;
 
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Parses all rows ([tr]) within a given table group ([thead], [tbody], [tfoot]),
-        /// creating TextTableRow records and delegating cell parsing.
+        /// Parses all rows and their cells from a table group element into memory without database operations.
+        /// Processes [thead], [tbody], or [tfoot] elements, extracting all [tr] rows and their [td]/[th] cells.
         /// </summary>
         /// <param name="rowGroupEl">The XElement for the group (e.g., [tbody]).</param>
-        /// <param name="textTableId">The database ID of the parent TextTable.</param>
         /// <param name="rowGroupType">The type of group: 'Header', 'Body', or 'Footer'.</param>
-        /// <param name="context">The current parsing context.</param>
-        /// <returns>A task that resolves to the total number of row and cell entities created.</returns>
+        /// <returns>
+        /// A list of TableRowDto objects containing row metadata and their associated cell DTOs.
+        /// </returns>
+        /// <remarks>
+        /// This method performs pure XML parsing without any database operations, enabling
+        /// bulk processing later. All row and cell attributes are preserved for database persistence.
+        /// </remarks>
+        /// <seealso cref="TableRowDto"/>
+        /// <seealso cref="TableCellDto"/>
         /// <seealso cref="TextTableRow"/>
-        /// <seealso cref="TextTable"/>
-        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="TextTableCell"/>
         /// <seealso cref="XElementExtensions"/>
-        /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private async Task<int> parseAndCreateRowsAsync(
-            XElement rowGroupEl,
-            int textTableId,
-            string rowGroupType,
-            SplParseContext context)
+        private List<TableRowDto> parseRowsToMemory(XElement rowGroupEl, string rowGroupType)
         {
             #region implementation
-            int createdCount = 0;
 
-            // Validate required context dependencies for database operations
-            if (context == null || context.ServiceProvider == null)
-                return 0;
-
-            // Get database context and repository for table row operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var rowRepo = context.GetRepository<TextTableRow>();
-            var rowDbSet = dbContext.Set<TextTableRow>();
-
-            // Extract all table row elements from the current group
+            var rowDtos = new List<TableRowDto>();
             var rowElements = rowGroupEl.SplElements(sc.E.Tr).ToList();
+            int rowSeqNum = 1;
 
-            // Initialize sequence number for maintaining row order within group
-            int seqNum = 1;
-
-            // Process each row element within the table group
             foreach (var rowEl in rowElements)
             {
-                // Check for existing row to avoid duplicates based on table, group type, and sequence
-                var existingRow = await rowDbSet.FirstOrDefaultAsync(r =>
-                    r.TextTableID == textTableId &&
-                    r.RowGroupType == rowGroupType &&
-                    r.SequenceNumber == seqNum);
+                // Parse all cells for this row
+                var cellDtos = new List<TableCellDto>();
+                var cellElements = rowEl.Elements()
+                    .Where(e => e.Name.LocalName == sc.E.Th || e.Name.LocalName == sc.E.Td)
+                    .ToList();
 
-                TextTableRow textTableRow;
-
-                // Use existing row if found, otherwise create new one
-                if (existingRow != null)
+                int cellSeqNum = 1;
+                foreach (var cellEl in cellElements)
                 {
-                    textTableRow = existingRow;
-                }
-                else
-                {
-                    // Create new table row entity with group classification and styling
-                    textTableRow = new TextTableRow
-                    {
-                        TextTableID = textTableId,
-                        RowGroupType = rowGroupType, // 'Header', 'Body', or 'Footer'
-                        SequenceNumber = seqNum,
-                        StyleCode = rowEl.Attribute(sc.A.StyleCode)?.Value
-                    };
-
-                    // Persist new row to database
-                    await rowRepo.CreateAsync(textTableRow);
-                    createdCount++;
-                }
-
-                // Process cells within this row if row was successfully created/retrieved
-                if (textTableRow.TextTableRowID.HasValue)
-                {
-                    // Delegate cell parsing and accumulate created cell count
-                    createdCount += await parseAndCreateCellsAsync(rowEl, textTableRow.TextTableRowID.Value, context);
-                }
-
-                // Increment sequence for next row in group
-                seqNum++;
-            }
-            return createdCount;
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Parses all cells ([td], [th]) within a given table row ([tr]), creating
-        /// TextTableCell records. It skips empty cells and maintains correct sequencing.
-        /// </summary>
-        /// <param name="rowEl">The XElement for the table row ([tr]).</param>
-        /// <param name="textTableRowId">The database ID of the parent TextTableRow.</param>
-        /// <param name="context">The current parsing context.</param>
-        /// <returns>A task that resolves to the number of TextTableCell entities created.</returns>
-        /// <seealso cref="TextTableCell"/>
-        /// <seealso cref="TextTableRow"/>
-        /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="XElementExtensions"/>
-        /// <seealso cref="ApplicationDbContext"/>
-        /// <seealso cref="Label"/>
-        private async Task<int> parseAndCreateCellsAsync(
-            XElement rowEl,
-            int textTableRowId,
-            SplParseContext context)
-        {
-            #region implementation
-            int createdCount = 0;
-
-            // Validate required context dependencies for database operations
-            if (context == null || context.ServiceProvider == null)
-                return 0;
-
-            // Get database context and repository for table cell operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var cellRepo = context.GetRepository<TextTableCell>();
-            var cellDbSet = dbContext.Set<TextTableCell>();
-
-            // Process both <th> and <td> elements in document order.
-            // Extract both header and data cells while preserving their sequence
-            var cellElements = rowEl.Elements()
-                .Where(e => e.Name.LocalName == sc.E.Th || e.Name.LocalName == sc.E.Td)
-                .ToList();
-
-            // Initialize sequence number for maintaining cell order within row
-            int seqNum = 1;
-
-            // Process each cell element and create database entities
-            foreach (var cellEl in cellElements)
-            {
-
-                // Check for existing cell to avoid duplicates based on row and sequence
-                var existingCell = await cellDbSet.FirstOrDefaultAsync(c =>
-                    c.TextTableRowID == textTableRowId &&
-                    c.SequenceNumber == seqNum);
-
-                // Create new cell if none exists at this position
-                if (existingCell == null)
-                {
-                    // Safely parse integer attributes
                     // Extract rowspan and colspan attributes with safe parsing
                     _ = int.TryParse(cellEl.Attribute(sc.A.Rowspan)?.Value, out int rs);
                     _ = int.TryParse(cellEl.Attribute(sc.A.Colspan)?.Value, out int cs);
 
-                    // Build new table cell entity with all extracted attributes
-                    var newCell = new TextTableCell
+                    cellDtos.Add(new TableCellDto
                     {
-                        TextTableRowID = textTableRowId,
-                        CellType = cellEl.Name.LocalName, // "th" or "td"
-                        SequenceNumber = seqNum,
+                        CellType = cellEl.Name.LocalName,
+                        SequenceNumber = cellSeqNum,
                         CellText = cellEl.GetSplHtml(stripNamespaces: true),
-                        RowSpan = rs > 0 ? rs : null, // Only store valid span values
-                        ColSpan = cs > 0 ? cs : null, // Only store valid span values
+                        RowSpan = rs > 0 ? rs : null,
+                        ColSpan = cs > 0 ? cs : null,
                         StyleCode = cellEl.Attribute(sc.A.StyleCode)?.Value,
                         Align = cellEl.Attribute(sc.A.Align)?.Value,
                         VAlign = cellEl.Attribute(sc.A.VAlign)?.Value
-                    };
+                    });
 
-                    // Persist new cell to database
-                    await cellRepo.CreateAsync(newCell);
-                    createdCount++;
+                    cellSeqNum++;
                 }
 
-                // Increment sequence for next cell regardless of creation status
-                seqNum++;
+                rowDtos.Add(new TableRowDto
+                {
+                    RowGroupType = rowGroupType,
+                    SequenceNumber = rowSeqNum,
+                    StyleCode = rowEl.Attribute(sc.A.StyleCode)?.Value,
+                    Cells = cellDtos
+                });
+
+                rowSeqNum++;
             }
+
+            return rowDtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of TextTableColumn entities, checking for existing columns
+        /// and creating only missing ones in a single batch operation.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
+        /// <param name="columnDtos">The list of column DTOs parsed from XML.</param>
+        /// <returns>
+        /// The count of newly created TextTableColumn entities.
+        /// </returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// 1. Single query to fetch all existing columns for this table
+        /// 2. Build HashSet of existing (TableId, SequenceNumber) pairs for O(1) lookup
+        /// 3. Filter DTOs to only those not already in database
+        /// 4. Single bulk insert for all new columns
+        /// 
+        /// This reduces N database calls to 2 calls regardless of column count.
+        /// </remarks>
+        /// <seealso cref="TextTableColumn"/>
+        /// <seealso cref="TableColumnDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> bulkCreateColumnsAsync(
+            ApplicationDbContext dbContext,
+            int textTableId,
+            List<TableColumnDto> columnDtos)
+        {
+            #region implementation
+
+            if (!columnDtos.Any())
+                return 0;
+
+            // Query all existing columns for this table in one call
+            var columnDbSet = dbContext.Set<TextTableColumn>();
+            var existingColumns = await columnDbSet
+                .Where(c => c.TextTableID == textTableId)
+                .Select(c => new { c.TextTableID, c.SequenceNumber })
+                .ToListAsync();
+
+            // Build HashSet for O(1) existence checking
+            // Filter nulls if TextTableID or SequenceNumber are nullable in your schema
+            var existingKeys = new HashSet<(int TableId, int SeqNum)>(
+                existingColumns
+                    .Where(c => c.TextTableID.HasValue && c.SequenceNumber.HasValue)
+                    .Select(c => (c.TextTableID!.Value, c.SequenceNumber!.Value))
+            );
+
+            // Filter to only columns that don't exist yet
+            var newColumns = columnDtos
+                .Where(dto => !existingKeys.Contains((textTableId, dto.SequenceNumber)))
+                .Select(dto => new TextTableColumn
+                {
+                    TextTableID = textTableId,
+                    SequenceNumber = dto.SequenceNumber,
+                    ColGroupSequenceNumber = dto.ColGroupSequenceNumber,
+                    ColGroupStyleCode = dto.ColGroupStyleCode,
+                    ColGroupAlign = dto.ColGroupAlign,
+                    ColGroupVAlign = dto.ColGroupVAlign,
+                    Width = dto.Width,
+                    Align = dto.Align,
+                    VAlign = dto.VAlign,
+                    StyleCode = dto.StyleCode
+                })
+                .ToList();
+
+            if (newColumns.Any())
+            {
+                // Bulk insert all new columns in one operation
+                columnDbSet.AddRange(newColumns);
+                await dbContext.SaveChangesAsync();
+            }
+
+            return newColumns.Count;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of TextTableRow and TextTableCell entities, checking for existing
+        /// entities and creating only missing ones in batch operations.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
+        /// <param name="rowDtos">The list of row DTOs (including cell DTOs) parsed from XML.</param>
+        /// <returns>
+        /// The count of newly created TextTableRow and TextTableCell entities.
+        /// </returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// 1. Single query to fetch all existing rows for this table
+        /// 2. Build HashSet of existing (TableId, GroupType, SeqNum) tuples for O(1) lookup
+        /// 3. Filter DTOs to only rows not already in database
+        /// 4. Single bulk insert for all new rows
+        /// 5. Single query to fetch all existing cells for this table
+        /// 6. Build HashSet of existing (RowId, SeqNum) pairs
+        /// 7. Single bulk insert for all new cells
+        /// 
+        /// This reduces potentially thousands of database calls to 4 calls total.
+        /// </remarks>
+        /// <seealso cref="TextTableRow"/>
+        /// <seealso cref="TextTableCell"/>
+        /// <seealso cref="TableRowDto"/>
+        /// <seealso cref="TableCellDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> bulkCreateRowsAndCellsAsync(
+            ApplicationDbContext dbContext,
+            int textTableId,
+            List<TableRowDto> rowDtos)
+        {
+            #region implementation
+
+            int createdCount = 0;
+
+            if (!rowDtos.Any())
+                return 0;
+
+            #region bulk create rows
+
+            var rowDbSet = dbContext.Set<TextTableRow>();
+
+            // Query all existing rows for this table in one call
+            var existingRows = await rowDbSet
+                .Where(r => r.TextTableID == textTableId)
+                .Select(r => new { r.TextTableID, r.RowGroupType, r.SequenceNumber, r.TextTableRowID })
+                .ToListAsync();
+
+            // Build HashSet for O(1) existence checking
+            // Filter nulls if properties are nullable in your schema
+            var existingRowKeys = new HashSet<(int TableId, string GroupType, int SeqNum)>(
+                existingRows
+                    .Where(r => r.TextTableID.HasValue && r.RowGroupType != null && r.SequenceNumber.HasValue)
+                    .Select(r => (r.TextTableID!.Value, r.RowGroupType!, r.SequenceNumber!.Value))
+            );
+
+            // Filter to only rows that don't exist yet
+            var newRows = rowDtos
+                .Where(dto => !existingRowKeys.Contains((textTableId, dto.RowGroupType, dto.SequenceNumber)))
+                .Select(dto => new TextTableRow
+                {
+                    TextTableID = textTableId,
+                    RowGroupType = dto.RowGroupType,
+                    SequenceNumber = dto.SequenceNumber,
+                    StyleCode = dto.StyleCode
+                })
+                .ToList();
+
+            if (newRows.Any())
+            {
+                // Bulk insert all new rows in one operation
+                rowDbSet.AddRange(newRows);
+                await dbContext.SaveChangesAsync(); // Need IDs for cells
+                createdCount += newRows.Count;
+            }
+
+            #endregion
+
+            #region build row lookup dictionary
+
+            // Re-query all rows to get complete set with IDs (including newly created)
+            var allRows = await rowDbSet
+                .Where(r => r.TextTableID == textTableId)
+                .Select(r => new { r.TextTableID, r.RowGroupType, r.SequenceNumber, r.TextTableRowID })
+                .ToListAsync();
+
+            // Build lookup dictionary for linking cells to rows
+            // Filter to ensure all key components are non-null
+            var rowLookup = allRows
+                .Where(r => r.TextTableID.HasValue
+                    && r.RowGroupType != null
+                    && r.SequenceNumber.HasValue
+                    && r.TextTableRowID.HasValue)
+                .ToDictionary(
+                    r => (r.TextTableID!.Value, r.RowGroupType!, r.SequenceNumber!.Value),
+                    r => r.TextTableRowID!.Value
+                );
+
+            #endregion
+
+            #region bulk create cells
+
+            var cellDbSet = dbContext.Set<TextTableCell>();
+
+            // Query all existing cells for this table's rows in one call
+            var rowIds = rowLookup.Values.ToList();
+            var existingCells = await cellDbSet
+                .Where(c => c.TextTableRowID.HasValue && rowIds.Contains(c.TextTableRowID.Value))
+                .Select(c => new { c.TextTableRowID, c.SequenceNumber })
+                .ToListAsync();
+
+            // Build HashSet for O(1) existence checking
+            // Filter nulls if properties are nullable in your schema
+            var existingCellKeys = new HashSet<(int RowId, int SeqNum)>(
+                existingCells
+                    .Where(c => c.TextTableRowID.HasValue && c.SequenceNumber.HasValue)
+                    .Select(c => (c.TextTableRowID!.Value, c.SequenceNumber!.Value))
+            );
+
+            // Flatten all cells from all rows and link to their row IDs
+            var newCells = new List<TextTableCell>();
+            foreach (var rowDto in rowDtos)
+            {
+                var rowKey = (textTableId, rowDto.RowGroupType, rowDto.SequenceNumber);
+                if (!rowLookup.TryGetValue(rowKey, out int rowId))
+                    continue; // Skip if row doesn't exist (shouldn't happen)
+
+                foreach (var cellDto in rowDto.Cells)
+                {
+                    // Only create cell if it doesn't already exist
+                    if (!existingCellKeys.Contains((rowId, cellDto.SequenceNumber)))
+                    {
+                        newCells.Add(new TextTableCell
+                        {
+                            TextTableRowID = rowId,
+                            CellType = cellDto.CellType,
+                            SequenceNumber = cellDto.SequenceNumber,
+                            CellText = cellDto.CellText,
+                            RowSpan = cellDto.RowSpan,
+                            ColSpan = cellDto.ColSpan,
+                            StyleCode = cellDto.StyleCode,
+                            Align = cellDto.Align,
+                            VAlign = cellDto.VAlign
+                        });
+                    }
+                }
+            }
+
+            if (newCells.Any())
+            {
+                // Bulk insert all new cells in one operation
+                cellDbSet.AddRange(newCells);
+                await dbContext.SaveChangesAsync();
+                createdCount += newCells.Count;
+            }
+
+            #endregion
+
             return createdCount;
+
             #endregion
         }
 
