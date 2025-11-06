@@ -619,6 +619,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="section">The Section entity to populate with effectiveTime data.</param>
         private static void parseEffectiveTime(XElement xEl, Section section)
         {
+            #region implementation
+
             var effectiveTimeEl = xEl.GetSplElement(sc.E.EffectiveTime);
 
             if (effectiveTimeEl == null)
@@ -657,7 +659,9 @@ namespace MedRecPro.Service.ParsingServices
             else
             {
                 section.EffectiveTime = DateTime.MinValue;
-            }
+            } 
+
+            #endregion
         }
 
         /**************************************************************/
