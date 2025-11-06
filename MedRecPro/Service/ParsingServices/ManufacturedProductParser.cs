@@ -255,26 +255,10 @@ namespace MedRecPro.Service.ParsingServices
                     // Store the previous product context to restore later
                     context.CurrentProduct = product;
 
-                    // Create ingredient parser for delegated parsing of child ingredients
+                    // --- PARSE INGREDIENTS
                     var ingredientParser = new IngredientParser();
-
-                    // Find all possible ingredient elements across different SPL naming conventions
-                    // SPL documents may use ingredient, activeIngredient, or inactiveIngredient
-                    var ingredientElements = mmEl.SplFindIngredients(excludingFieldsContaining: "substance");
-
-                    reportProgress?.Invoke($"Starting Ingredient Level XML Elements {context.FileNameInZip}");
-
-                    context.SeqNumber = 0; // Reset sequence number for ingredients
-
-                    // Process each ingredient element found
-                    foreach (var ingredientEl in ingredientElements)
-                    {
-                        // The ingredient element itself might have a classCode like 'ACTIB' or 'IACT'
-                        // which the ingredient parser can use for classification
-                        var ingredientResult = await ingredientParser.ParseAsync(ingredientEl, context, reportProgress);
-                        result.MergeFrom(ingredientResult); // Aggregate results from ingredient parsing
-                        context.SeqNumber++; // Increment sequence for next ingredient
-                    }
+                    var ingredientResult = await ingredientParser.ParseAsync(mmEl, context, reportProgress);
+                    result.MergeFrom(ingredientResult); // Aggregate results from ingredient parsing
 
                     // Restore the previous product context to avoid side effects on other parsers
                     context.CurrentProduct = oldProduct;
