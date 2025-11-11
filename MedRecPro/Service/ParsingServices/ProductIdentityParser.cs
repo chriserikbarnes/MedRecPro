@@ -11,6 +11,8 @@ using c = MedRecPro.Models.Constant;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using static MedRecPro.Models.Label;
+using MedRecPro.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -79,23 +81,33 @@ namespace MedRecPro.Service.ParsingServices
             }
             var product = context.CurrentProduct;
 
-            // --- PARSE EQUIVALENT ENTITIES ---
-            var equivCount = await parseAndSaveEquivalentEntitiesAsync(element, product, context);
-            result.ProductElementsCreated += equivCount;
+            if (context.UseBulkOperations)
+            {
+                // Bulk operation mode - process all product identity elements in one go
+                result = await parseProductIdentityBulk(element, product, context, reportProgress);
+            }
+            else
+            {
+                // Non-bulk mode - process each product identity element individually
+                // --- PARSE EQUIVALENT ENTITIES ---
+                var equivCount = await parseAndSaveEquivalentEntitiesAsync(element, product, context);
+                result.ProductElementsCreated += equivCount;
 
-            // --- PARSE IDENTIFIER ENTITIES ---
-            var idResult = await parseAndSaveProductIdentifiersAsync(element, product, context, reportProgress);
-            result.MergeFrom(idResult);
+                // --- PARSE IDENTIFIER ENTITIES ---
+                var idResult = await parseAndSaveProductIdentifiersAsync(element, product, context, reportProgress);
+                result.MergeFrom(idResult);
 
-            // --- PARSE SPECIALIZED KINDS ---
-            // The document type code is needed for business rule validation.
-            var kindCount = await parseAndSaveSpecializedKindsAsync(element, product, context, context.Document?.DocumentCode);
-            result.ProductElementsCreated += kindCount;
+                // --- PARSE SPECIALIZED KINDS ---
+                // The document type code is needed for business rule validation.
+                var kindCount = await parseAndSaveSpecializedKindsAsync(element, product, context, context.Document?.DocumentCode);
+                result.ProductElementsCreated += kindCount;
+            }
 
             return result;
             #endregion
         }
 
+        #region Product Parsing - Individual Operations (N + 1)
         /**************************************************************/
         /// <summary>
         /// Parses and creates EquivalentEntity records from the manufacturedProduct XML element.
@@ -475,6 +487,511 @@ namespace MedRecPro.Service.ParsingServices
             return createdCount;
             #endregion
         }
+        #endregion
+
+        #region Product Parsing - Bulk Operations
+
+        /**************************************************************/
+        /// <summary>
+        /// Data transfer object for EquivalentEntity during bulk operations.
+        /// </summary>
+        /// <seealso cref="EquivalentEntity"/>
+        /// <seealso cref="Label"/>
+        private class EquivalentEntityDto
+        {
+            #region implementation
+            public string? EquivalenceCode { get; set; }
+            public string? EquivalenceCodeSystem { get; set; }
+            public string? DefiningMaterialKindCode { get; set; }
+            public string? DefiningMaterialKindSystem { get; set; }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data transfer object for ProductIdentifier during bulk operations.
+        /// </summary>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="Label"/>
+        private class ProductIdentifierDto
+        {
+            #region implementation
+            public string? IdentifierType { get; set; }
+            public string? IdentifierValue { get; set; }
+            public string? IdentifierSystemOID { get; set; }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data transfer object for SpecializedKind during bulk operations.
+        /// </summary>
+        /// <seealso cref="SpecializedKind"/>
+        /// <seealso cref="Label"/>
+        private class SpecializedKindDto
+        {
+            #region implementation
+            public string? KindCode { get; set; }
+            public string? KindCodeSystem { get; set; }
+            public string? KindDisplayName { get; set; }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes all product identity elements using bulk operations for optimal performance.
+        /// </summary>
+        /// <param name="element">The XElement representing the product section to parse.</param>
+        /// <param name="product">The Product entity to associate identities with.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <returns>A SplParseResult indicating the success status and the count of created entities.</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: (3 entity types × 2) × N items × 45ms = ~270ms per item on Azure
+        /// - After: (3 entity types × 2) × 45ms = ~270ms total
+        /// Parses all three identity types (EquivalentEntity, ProductIdentifier, SpecializedKind) in bulk.
+        /// </remarks>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseProductIdentityBulk(
+            XElement element,
+            Product product,
+            SplParseContext context,
+            Action<string>? reportProgress)
+        {
+            #region implementation
+            var result = new SplParseResult();
+
+            if (context?.ServiceProvider == null || product?.ProductID == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Invalid context or product for bulk operations.");
+                return result;
+            }
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Process Equivalent Entities
+            var equivCount = await bulkCreateEquivalentEntitiesAsync(element, product.ProductID.Value, dbContext, context);
+            result.ProductElementsCreated += equivCount;
+
+            // Process Product Identifiers
+            var idCount = await bulkCreateProductIdentifiersAsync(element, product.ProductID.Value, dbContext, context, reportProgress);
+            result.ProductElementsCreated += idCount;
+
+            // Process Specialized Kinds
+            var kindCount = await bulkCreateSpecializedKindsAsync(
+                element,
+                product.ProductID.Value,
+                dbContext,
+                context,
+                context.Document?.DocumentCode);
+            result.ProductElementsCreated += kindCount;
+
+            return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and creates EquivalentEntity records using bulk operations pattern.
+        /// </summary>
+        /// <param name="mmEl">The manufacturedProduct or manufacturedMedicine XElement.</param>
+        /// <param name="productId">The ID of the Product entity to link equivalence relationships to.</param>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="context">The parsing context for logging.</param>
+        /// <returns>The number of EquivalentEntity records created.</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per entity)
+        /// - After: 2 database calls (one query + one insert)
+        /// Collects all equivalent entities into memory, deduplicates against existing entities,
+        /// then performs batch insert for optimal performance.
+        /// </remarks>
+        /// <seealso cref="EquivalentEntity"/>
+        /// <seealso cref="EquivalentEntityDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> bulkCreateEquivalentEntitiesAsync(
+            XElement mmEl,
+            int productId,
+            ApplicationDbContext dbContext,
+            SplParseContext context)
+        {
+            #region implementation
+
+            var dtos = new List<EquivalentEntityDto>();
+
+            // Find all <asEquivalentEntity> descendants
+            foreach (var equivEl in mmEl.Descendants(ns + sc.E.AsEquivalentEntity))
+            {
+                // Only process if classCode is "EQUIV" or not specified
+                var classCode = equivEl.GetAttrVal("classCode");
+                if (!string.IsNullOrEmpty(classCode) && !string.Equals(classCode, "EQUIV", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // --- Equivalence code and system from <code> child ---
+                var codeEl = equivEl.GetSplElement(sc.E.Code);
+                string? equivalenceCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+                string? equivalenceCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
+
+                // --- Defining material kind (referenced product) ---
+                var definingMatEl = equivEl.GetSplElement(sc.E.DefiningMaterialKind);
+                var definingMatCodeEl = definingMatEl?.GetSplElement(sc.E.Code);
+                string? definingMaterialKindCode = definingMatCodeEl?.GetAttrVal(sc.A.CodeValue);
+                string? definingMaterialKindSystem = definingMatCodeEl?.GetAttrVal(sc.A.CodeSystem);
+
+                // If nothing meaningful, skip
+                if (string.IsNullOrWhiteSpace(equivalenceCode) &&
+                    string.IsNullOrWhiteSpace(definingMaterialKindCode))
+                    continue;
+
+                dtos.Add(new EquivalentEntityDto
+                {
+                    EquivalenceCode = equivalenceCode,
+                    EquivalenceCodeSystem = equivalenceCodeSystem,
+                    DefiningMaterialKindCode = definingMaterialKindCode,
+                    DefiningMaterialKindSystem = definingMaterialKindSystem
+                });
+            }
+
+            if (!dtos.Any())
+                return 0;
+
+            var dbSet = dbContext.Set<EquivalentEntity>();
+
+            // Query existing entities for this product
+            var existing = await dbSet
+                .Where(e => e.ProductID == productId)
+                .Select(e => new
+                {
+                    e.EquivalenceCode,
+                    e.EquivalenceCodeSystem,
+                    e.DefiningMaterialKindCode,
+                    e.DefiningMaterialKindSystem
+                })
+                .ToListAsync();
+
+            // Build composite key set for deduplication
+            var existingKeys = new HashSet<(string?, string?, string?, string?)>(
+                existing.Select(e => (
+                    e.EquivalenceCode,
+                    e.EquivalenceCodeSystem,
+                    e.DefiningMaterialKindCode,
+                    e.DefiningMaterialKindSystem
+                ))
+            );
+
+            // Filter to only new entities
+            var newEntities = dtos
+                .Where(dto => !existingKeys.Contains((
+                    dto.EquivalenceCode,
+                    dto.EquivalenceCodeSystem,
+                    dto.DefiningMaterialKindCode,
+                    dto.DefiningMaterialKindSystem
+                )))
+                .Select(dto => new EquivalentEntity
+                {
+                    ProductID = productId,
+                    EquivalenceCode = dto.EquivalenceCode,
+                    EquivalenceCodeSystem = dto.EquivalenceCodeSystem,
+                    DefiningMaterialKindCode = dto.DefiningMaterialKindCode,
+                    DefiningMaterialKindSystem = dto.DefiningMaterialKindSystem
+                })
+                .ToList();
+
+            if (newEntities.Any())
+            {
+                dbSet.AddRange(newEntities);
+                await dbContext.SaveChangesAsync();
+            }
+
+            return newEntities.Count;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and creates ProductIdentifier records using bulk operations pattern.
+        /// </summary>
+        /// <param name="mmEl">The manufacturedProduct or manufacturedMedicine XElement.</param>
+        /// <param name="productId">The ID of the Product entity to associate identifiers with.</param>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="context">The parsing context for logging.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <returns>The number of ProductIdentifier records created.</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per identifier)
+        /// - After: 2 database calls (one query + one insert)
+        /// Collects all product identifiers into memory, deduplicates against existing entities,
+        /// then performs batch insert for optimal performance.
+        /// </remarks>
+        /// <seealso cref="ProductIdentifier"/>
+        /// <seealso cref="ProductIdentifierDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> bulkCreateProductIdentifiersAsync(
+            XElement mmEl,
+            int productId,
+            ApplicationDbContext dbContext,
+            SplParseContext context,
+            Action<string>? reportProgress)
+        {
+            #region implementation
+
+            var dtos = new List<ProductIdentifierDto>();
+
+            // --- PARSE <id> ELEMENTS ---
+            foreach (var idEl in mmEl.SplElements(sc.E.Id))
+            {
+                var root = idEl.GetAttrVal(sc.A.Root);
+                var extension = idEl.GetAttrVal(sc.A.Extension);
+
+                if (string.IsNullOrWhiteSpace(root))
+                    continue;
+
+                var idType = inferIdentifierType(root);
+
+                dtos.Add(new ProductIdentifierDto
+                {
+                    IdentifierType = idType,
+                    IdentifierValue = extension,
+                    IdentifierSystemOID = root
+                });
+            }
+
+            // --- PARSE <asEntityWithGeneric> / <genericMedicine> / <id> ---
+            var genericMedicineEl = mmEl
+                .GetSplElement(sc.E.AsEntityWithGeneric)?
+                .GetSplElement(sc.E.GenericMedicine);
+
+            if (genericMedicineEl != null)
+            {
+                foreach (var idEl in genericMedicineEl.SplElements(sc.E.Id))
+                {
+                    var root = idEl.GetAttrVal(sc.A.Root);
+                    var extension = idEl.GetAttrVal(sc.A.Extension);
+
+                    if (string.IsNullOrWhiteSpace(root))
+                        continue;
+
+                    var idType = inferIdentifierType(root);
+
+                    dtos.Add(new ProductIdentifierDto
+                    {
+                        IdentifierType = idType,
+                        IdentifierValue = extension,
+                        IdentifierSystemOID = root
+                    });
+                }
+            }
+
+            // --- PARSE <code> ELEMENTS (NDC, GTIN, etc.) ---
+            foreach (var codeEl in mmEl.SplElements(sc.E.Code))
+            {
+                var codeValue = codeEl.GetAttrVal(sc.A.CodeValue);
+                var codeSystem = codeEl.GetAttrVal(sc.A.CodeSystem);
+
+                if (string.IsNullOrWhiteSpace(codeValue) || string.IsNullOrWhiteSpace(codeSystem))
+                    continue;
+
+                var idType = inferIdentifierType(codeSystem);
+
+                dtos.Add(new ProductIdentifierDto
+                {
+                    IdentifierType = idType,
+                    IdentifierValue = codeValue,
+                    IdentifierSystemOID = codeSystem
+                });
+            }
+
+            if (!dtos.Any())
+                return 0;
+
+            var dbSet = dbContext.Set<ProductIdentifier>();
+
+            // Query existing identifiers for this product
+            var existing = await dbSet
+                .Where(i => i.ProductID == productId)
+                .Select(i => new { i.IdentifierSystemOID, i.IdentifierValue })
+                .ToListAsync();
+
+            // Build composite key set for deduplication
+            var existingKeys = new HashSet<(string?, string?)>(
+                existing.Select(i => (i.IdentifierSystemOID, i.IdentifierValue))
+            );
+
+            // Filter to only new identifiers
+            var newIdentifiers = dtos
+                .Where(dto => !existingKeys.Contains((dto.IdentifierSystemOID, dto.IdentifierValue)))
+                .Select(dto => new ProductIdentifier
+                {
+                    ProductID = productId,
+                    IdentifierType = dto.IdentifierType,
+                    IdentifierValue = dto.IdentifierValue,
+                    IdentifierSystemOID = dto.IdentifierSystemOID
+                })
+                .ToList();
+
+            if (newIdentifiers.Any())
+            {
+                dbSet.AddRange(newIdentifiers);
+                await dbContext.SaveChangesAsync();
+            }
+
+            return newIdentifiers.Count;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses, validates, and creates SpecializedKind records using bulk operations pattern.
+        /// </summary>
+        /// <param name="mmEl">The manufacturedProduct XML element containing specialized kind information.</param>
+        /// <param name="productId">The ID of the Product entity to associate specialized kinds with.</param>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="context">The parsing context for logging and validation.</param>
+        /// <param name="documentTypeCode">The document type code used for business rule validation.</param>
+        /// <returns>The number of SpecializedKind records successfully created after validation.</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per kind)
+        /// - After: 2 database calls (one query + one insert)
+        ///
+        /// This method performs a multi-step process:
+        /// 1. Parses all SpecializedKind entities from XML into DTOs
+        /// 2. Validates them against cosmetic category mutual exclusion business rules
+        /// 3. Checks for existing kinds in database (bulk query)
+        /// 4. Bulk inserts only new, validated kinds
+        ///
+        /// Uses SpecializedKindValidator to enforce SPL Implementation Guide 3.4.3 rules.
+        /// </remarks>
+        /// <seealso cref="SpecializedKind"/>
+        /// <seealso cref="SpecializedKindDto"/>
+        /// <seealso cref="SpecializedKindValidatorService"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> bulkCreateSpecializedKindsAsync(
+            XElement mmEl,
+            int productId,
+            ApplicationDbContext dbContext,
+            SplParseContext context,
+            string? documentTypeCode)
+        {
+            #region implementation
+
+            if (mmEl == null
+                || context == null
+                || context.Logger == null
+                || context.ServiceProvider == null)
+            {
+                return 0;
+            }
+
+            var dtos = new List<SpecializedKindDto>();
+
+            // Parse ALL SpecializedKind entities from XML
+            foreach (var asSpecializedKindEl in mmEl.SplElements(sc.E.AsSpecializedKind))
+            {
+                // Navigate to the code element within the specialized kind structure
+                var codeEl = asSpecializedKindEl
+                    .GetSplElement(sc.E.GeneralizedMaterialKind)?
+                    .GetSplElement(sc.E.Code);
+
+                if (codeEl == null)
+                {
+                    context?.Logger?.LogWarning("No <code> found under <generalizedMaterialKind> in <asSpecializedKind>; skipping.");
+                    continue;
+                }
+
+                // Extract and clean the code attributes
+                var kindCode = codeEl.GetAttrVal(sc.A.CodeValue)?.Trim();
+                var kindCodeSystem = codeEl.GetAttrVal(sc.A.CodeSystem)?.Trim();
+                var kindDisplayName = codeEl.GetAttrVal(sc.A.DisplayName)?.Trim();
+
+                // Validate required fields are present
+                if (string.IsNullOrWhiteSpace(kindCode) || string.IsNullOrWhiteSpace(kindCodeSystem))
+                {
+                    context?.Logger?.LogWarning("Missing code or codeSystem in <asSpecializedKind>/<code>; skipping.");
+                    continue;
+                }
+
+                dtos.Add(new SpecializedKindDto
+                {
+                    KindCode = kindCode,
+                    KindCodeSystem = kindCodeSystem,
+                    KindDisplayName = kindDisplayName
+                });
+            }
+
+            if (!dtos.Any())
+                return 0;
+
+            // Convert DTOs to entities for validation
+            var allKinds = dtos.Select(dto => new SpecializedKind
+            {
+                ProductID = productId,
+                KindCode = dto.KindCode,
+                KindCodeSystem = dto.KindCodeSystem,
+                KindDisplayName = dto.KindDisplayName
+            }).ToList();
+
+            // Validate with business rules for mutually exclusive cosmetic codes
+            var validatedKinds = SpecializedKindValidatorService.ValidateCosmeticCategoryRules(
+                allKinds,
+                documentTypeCode,
+                context.Logger,
+                out var rejectedKinds
+            );
+
+            if (!validatedKinds.Any())
+                return 0;
+
+            var dbSet = dbContext.Set<SpecializedKind>();
+
+            // Query existing specialized kinds for this product
+            var existing = await dbSet
+                .Where(k => k.ProductID == productId)
+                .Select(k => new { k.KindCode, k.KindCodeSystem })
+                .ToListAsync();
+
+            // Build composite key set for deduplication
+            var existingKeys = new HashSet<(string?, string?)>(
+                existing.Select(k => (k.KindCode, k.KindCodeSystem))
+            );
+
+            // Filter to only new kinds
+            var newKinds = validatedKinds
+                .Where(kind => !existingKeys.Contains((kind.KindCode, kind.KindCodeSystem)))
+                .ToList();
+
+            if (newKinds.Any())
+            {
+                dbSet.AddRange(newKinds);
+                await dbContext.SaveChangesAsync();
+
+                // Log each created kind
+                foreach (var kind in newKinds)
+                {
+                    context.Logger?.LogInformation(
+                        $"Created SpecializedKind: code={kind.KindCode}, codeSystem={kind.KindCodeSystem}, displayName={kind.KindDisplayName} for ProductID {productId}"
+                    );
+                }
+            }
+
+            return newKinds.Count;
+
+            #endregion
+        }
+
+        #endregion
     }
 }
 
