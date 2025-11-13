@@ -120,6 +120,14 @@ namespace MedRecPro.Service.ParsingServices
                 // Update the parsing context with the newly created structuredBody
                 context.StructuredBody = structuredBody;
 
+                var parentSectionResult = await _sectionParser.ParseAsync(element,
+                  context,
+                  reportProgress,
+                  isParentCallingForAllSubElements: true);
+
+                result.MergeFrom(parentSectionResult);
+
+
                 // Navigate through the SPL hierarchy to find section elements
                 // Path: structuredBody/component/section
                 var sectionElements = element.SplElements(sc.E.Component, sc.E.Section);

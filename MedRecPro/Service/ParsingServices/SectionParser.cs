@@ -10,6 +10,7 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
+using static System.Collections.Specialized.BitVector32;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 
@@ -106,6 +107,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="xEl">The XElement representing the section element to parse.</param>
         /// <param name="context">The current parsing context containing the structuredBody to link sections to.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
         /// <example>
         /// <code>
@@ -137,7 +139,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement xEl,
             SplParseContext context,
-            Action<string>? reportProgress = null)
+            Action<string>? reportProgress = null,
+            bool isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();
@@ -171,7 +174,11 @@ namespace MedRecPro.Service.ParsingServices
                     result.Errors.Add("Failed to create and save the Section entity.");
                     return result;
                 }
+
                 result.SectionsCreated++;
+
+                if(section.HasValue)
+                    result = await buildSectionContent(xEl, context, reportProgress, result, section.Value);
 
                 // 2. Set context for child parsers and ensure it's restored
                 // Manage parsing context state to provide section context to child parsers
@@ -214,7 +221,6 @@ namespace MedRecPro.Service.ParsingServices
                         var toleranceResult = await _toleranceParser.ParseAsync(xEl, context, reportProgress);
                         result.MergeFrom(toleranceResult);
                     }
-
 
                     // Parse warning letter information if this is a warning letter alert section 
                     var warningLetterResult = await parseWarningLetterContentAsync(xEl, context, reportProgress);
@@ -268,6 +274,96 @@ namespace MedRecPro.Service.ParsingServices
         }
 
         #region Core Section Processing Methods
+
+        /**************************************************************/
+        private async Task<SplParseResult> buildSectionContent(XElement sectionEl, 
+            SplParseContext context, 
+            Action<string>? reportProgress,
+            SplParseResult result,
+            Label.Section section)
+        {
+            #region implementation
+
+            // Set context for child parsers and ensure it's restored
+            // Manage parsing context state to provide section context to child parsers
+            var oldSection = context.CurrentSection;
+            context.CurrentSection = section;
+
+            try
+            {
+                // Before parsing products, check if this section requires a DocumentRelationship context.
+                var docRelResult = await parseDocumentRelationshipAsync(sectionEl, context, reportProgress);
+                result.MergeFrom(docRelResult);
+
+                // Related docs for index files
+                var docLevelRelatedDocResult = await parseDocumentLevelRelatedDocumentsAsync(context);
+                result.MergeFrom(docLevelRelatedDocResult);
+
+                // 3. Delegate to specialized parsers for different aspects of section processing
+
+                // Parse media elements (observation media, rendered media) NOTE: this must
+                // precede contentParser.
+                var mediaResult = await _mediaParser.ParseAsync(sectionEl, context, reportProgress);
+                result.MergeFrom(mediaResult);
+
+                // Parse the content within this section (text, highlights, etc.)
+                var contentResult = await _contentParser.ParseAsync(sectionEl, context, reportProgress);
+                result.MergeFrom(contentResult);
+
+                // Parse section hierarchies and child sections
+                var hierarchyResult = await _hierarchyParser.ParseAsync(sectionEl, context, reportProgress);
+                result.MergeFrom(hierarchyResult);
+
+                // Parse indexing information (pharmacologic classes, billing units, etc.)
+                var indexingResult = await _indexingParser.ParseAsync(sectionEl, context, reportProgress);
+                result.MergeFrom(indexingResult);
+
+                // Parse tolerance specifications and observation criteria for 40 CFR 180 documents
+                // Check if this section contains tolerance specification elements
+                if (containsToleranceSpecifications(sectionEl))
+                {
+                    var toleranceResult = await _toleranceParser.ParseAsync(sectionEl, context, reportProgress);
+                    result.MergeFrom(toleranceResult);
+                }
+
+                // Parse warning letter information if this is a warning letter alert section 
+                var warningLetterResult = await parseWarningLetterContentAsync(sectionEl, context, reportProgress);
+                result.MergeFrom(warningLetterResult);
+
+                // Parse compliance actions for this section
+                var complianceResult = await parseComplianceActionsAsync(sectionEl, context, reportProgress);
+                result.MergeFrom(complianceResult);
+
+                // Parse certification links if this is a certification section
+                if (context.CurrentSection?.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE)
+                {
+                    var certificationResult = await parseCertificationLinksAsync(sectionEl, context, reportProgress);
+                    result.MergeFrom(certificationResult);
+                }
+
+                // 4. Parse the associated manufactured product, if it exists
+                // Process product information contained within the section
+                var productResult = await parseManufacturedProductsAsync(sectionEl, context, reportProgress);
+                result.MergeFrom(productResult);
+
+                // 5. Parse REMS protocols if applicable
+                // Check if this section contains REMS protocol elements
+                if (containsRemsProtocols(sectionEl))
+                {
+                    var remsParser = new REMSParser();
+                    var remsResult = await remsParser.ParseAsync(sectionEl, context, reportProgress);
+                    result.MergeFrom(remsResult);
+                }
+            }
+            finally
+            {
+                // Restore the context to prevent side effects for sibling or parent parsers
+                context.CurrentSection = oldSection;
+            }
+
+            return result;
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>

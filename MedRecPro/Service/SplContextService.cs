@@ -40,6 +40,20 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseResult"/>
         Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress);
 
+        /**************************************************************/
+        /// <summary>
+        /// Parses the specified XML element asynchronously within the given context.
+        /// </summary>
+        /// <param name="element">The XML element to parse from the SPL document.</param>
+        /// <param name="context">The parsing context containing shared state and dependencies.</param>
+        /// <param name="reportProgress">Reporter for progress</param>
+        /// <param name="isParentCallingForAllSubElements">Indicates if the parent is calling for all sub-elements i.e. the outer xElement that requires a forEach loop</param>
+        /// <returns>A task representing the asynchronous parsing operation with the parse result.</returns>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress, bool isParentCallingForAllSubElements);
+
     }
 
     /**************************************************************/
@@ -242,7 +256,7 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
 
             // Attempt to resolve the repository from the service container
-            var repo = ServiceProvider.GetService<Repository<T>>();
+            var repo = ServiceProvider?.GetService<Repository<T>>();
 
             // Throw descriptive error if repository cannot be resolved
             if (repo == null)
@@ -268,6 +282,7 @@ namespace MedRecPro.Service.ParsingServices
         public void UpdateFileResult(SplParseResult parseResult)
         {
             #region implementation
+            FileResult = FileResult ?? new SplFileImportResult();
 
             // Aggregate entity creation counts
             FileResult.DocumentsCreated += parseResult.DocumentsCreated;
