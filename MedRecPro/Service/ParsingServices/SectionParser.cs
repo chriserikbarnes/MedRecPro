@@ -11,6 +11,7 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
 using AngleSharp.Dom;
+using System.Data;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 
@@ -103,6 +104,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Parses a section element from an SPL document, creating the section entity
         /// and orchestrating specialized parsers for different aspects of section processing.
+        /// Routes to either bulk operations or single-call implementation based on context configuration.
         /// </summary>
         /// <param name="xEl">The XElement representing the section element to parse.</param>
         /// <param name="context">The current parsing context containing the structuredBody to link sections to.</param>
@@ -129,6 +131,9 @@ namespace MedRecPro.Service.ParsingServices
         /// 5. Delegates indexing processing to SectionIndexingParser
         /// 6. Handles product parsing and REMS protocol detection
         /// 7. Aggregates results from all specialized parsers
+        /// 
+        /// Routes between bulk operations (optimized for large documents) and single-call operations (simpler logic).
+        /// Bulk operations reduce database calls from N to 2-3 per entity type.
         /// </remarks>
         /// <seealso cref="Section"/>
         /// <seealso cref="SplParseContext"/>
@@ -144,6 +149,7 @@ namespace MedRecPro.Service.ParsingServices
            )
         {
             #region implementation
+
             var result = new SplParseResult();
 
             // Validate parsing context to ensure all required dependencies are available
@@ -167,12 +173,23 @@ namespace MedRecPro.Service.ParsingServices
                     // Path: structuredBody/component/section
                     var sectionElements = xEl.SplElements(sc.E.Component, sc.E.Section);
 
-                    // Process each section element found within component wrappers
+                    // Process sections based on bulk operations flag
                     if (sectionElements != null && sectionElements.Any())
-                        foreach (var sectionEl in sectionElements)
+                    {
+                        if (context.UseBulkOperations)
                         {
-                            result.MergeFrom(await parseSectionAsync_singleCalls(sectionEl, context, reportProgress, result));
+                            // Bulk operation mode - process all section elements in one go
+                            result = await parseSectionAsync_bulkCalls(sectionElements.ToList(), context, reportProgress);
                         }
+                        else
+                        {
+                            // Non-bulk mode - process each section element individually
+                            foreach (var sectionEl in sectionElements)
+                            {
+                                result.MergeFrom(await parseSectionAsync_singleCalls(sectionEl, context, reportProgress, result));
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -188,16 +205,32 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return result;
+
             #endregion
         }
 
+        #region Section Processing Methods - Single Operations (N + 1)
 
         /**************************************************************/
+        /// <summary>
+        /// Parses a single section element using individual database operations.
+        /// </summary>
+        /// <param name="xEl">The XElement representing the section to parse.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="result">The result object to accumulate parsing results.</param>
+        /// <returns>A SplParseResult indicating the success status and metrics.</returns>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
         async Task<SplParseResult> parseSectionAsync_singleCalls(XElement xEl,
            SplParseContext context,
            Action<string>? reportProgress,
            SplParseResult result)
         {
+            #region implementation
 
             if (xEl == null)
             {
@@ -231,6 +264,8 @@ namespace MedRecPro.Service.ParsingServices
                 $"{result.SectionsCreated} sections for {context.FileNameInZip}");
 
             return result;
+
+            #endregion
         }
 
         /**************************************************************/
@@ -282,7 +317,498 @@ namespace MedRecPro.Service.ParsingServices
                 return null;
             }
             #endregion
+        } 
+
+        #endregion
+
+        #region Section Processing Methods - Bulk Operations
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses multiple section elements using bulk operations pattern. Collects all sections into memory,
+        /// deduplicates against existing entities, then performs batch insert for optimal performance.
+        /// </summary>
+        /// <param name="sectionElements">The list of XElements representing section elements to parse.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <returns>A SplParseResult indicating the success status and metrics for all sections processed.</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per section)
+        /// - After: 2 queries + 2 inserts (one per entity type)
+        /// This method processes sections in bulk to minimize database round-trips and improve performance
+        /// for documents with many sections.
+        /// </remarks>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private async Task<SplParseResult> parseSectionAsync_bulkCalls(
+            List<XElement> sectionElements,
+            SplParseContext context,
+            Action<string>? reportProgress)
+        {
+            #region implementation
+            var result = new SplParseResult();
+
+            // Validate inputs
+            if (!validateBulkSectionInputs(sectionElements, context))
+            {
+                result.Success = false;
+                result.Errors.Add("Invalid inputs for bulk section processing.");
+                return result;
+            }
+
+            try
+            {
+                reportProgress?.Invoke($"Starting bulk section parsing for {sectionElements.Count} sections in {context.FileNameInZip}");
+
+                var dbContext = context.ServiceProvider!.GetRequiredService<ApplicationDbContext>();
+
+                #region parse sections structure into memory
+
+                var sectionDtos = parseSectionsToMemory(sectionElements, context);
+
+                #endregion
+
+                #region bulk create sections
+
+                var createdSections = await bulkCreateSectionsAsync(dbContext, sectionDtos, context);
+                result.SectionsCreated = createdSections.Count;
+
+                #endregion
+
+                #region process section content for all sections
+
+                foreach (var kvp in createdSections)
+                {
+                    var sectionEl = kvp.Key;
+                    var section = kvp.Value;
+
+                    if (section?.SectionID != null)
+                    {
+                        result.MergeFrom(await buildSectionContent(sectionEl, context, reportProgress, result, section));
+                    }
+                }
+
+                #endregion
+
+                reportProgress?.Invoke($"Bulk section parsing completed: {result.SectionsCreated} sections, " +
+                    $"{result.SectionAttributesCreated} attributes for {context.FileNameInZip}");
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Errors.Add($"An unexpected error occurred during bulk section parsing: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error in bulk section processing for {FileName}", context.FileNameInZip);
+            }
+
+            return result;
+            #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates the input parameters for bulk section processing.
+        /// </summary>
+        /// <param name="sectionElements">The list of section XElements to validate.</param>
+        /// <param name="context">The parsing context to validate.</param>
+        /// <returns>True if all inputs are valid, false otherwise.</returns>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private static bool validateBulkSectionInputs(List<XElement>? sectionElements, SplParseContext context)
+        {
+            #region implementation
+            // Check for null or invalid parameters
+            return sectionElements != null &&
+                   sectionElements.Any() &&
+                   context?.ServiceProvider != null &&
+                   context?.StructuredBody?.StructuredBodyID != null;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all section elements into memory without database operations.
+        /// Extracts section metadata and creates DTO objects for bulk processing.
+        /// </summary>
+        /// <param name="sectionElements">The list of XElements representing sections to parse.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A list of tuples containing XElement and corresponding SectionDto for each section.</returns>
+        /// <seealso cref="SectionDto"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private List<(XElement Element, SectionDto Dto)> parseSectionsToMemory(
+            List<XElement> sectionElements,
+            SplParseContext context)
+        {
+            #region implementation
+
+            var sectionDtos = new List<(XElement, SectionDto)>();
+            int? documentID = context.Document?.DocumentID ?? 0;
+            int structuredBodyID = context.StructuredBody!.StructuredBodyID!.Value;
+
+            foreach (var xEl in sectionElements)
+            {
+                if (xEl == null)
+                    continue;
+
+                try
+                {
+                    // Extract section metadata from XML element
+                    var dto = new SectionDto
+                    {
+                        DocumentID = documentID,
+                        StructuredBodyID = structuredBodyID,
+                        SectionLinkGUID = xEl.GetAttrVal(sc.A.ID),
+                        SectionGUID = Util.ParseNullableGuid(xEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root) ?? string.Empty) ?? Guid.Empty,
+                        SectionCode = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
+                        SectionCodeSystem = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem),
+                        SectionCodeSystemName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystemName),
+                        SectionDisplayName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName) ?? string.Empty,
+                        Title = xEl.GetSplElementVal(sc.E.Title)?.Trim()
+                    };
+
+                    // Parse effective time into DTO
+                    parseSectionEffectiveTimeToDto(xEl, dto);
+
+                    sectionDtos.Add((xEl, dto));
+                }
+                catch (Exception ex)
+                {
+                    context?.Logger?.LogWarning(ex, "Error parsing section element to memory, skipping section");
+                }
+            }
+
+            return sectionDtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the effective time element from a section XElement into a SectionDto.
+        /// Handles both simple value and low/high range structures.
+        /// </summary>
+        /// <param name="xEl">The XElement representing the section.</param>
+        /// <param name="dto">The SectionDto to populate with effective time data.</param>
+        /// <seealso cref="SectionDto"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Util"/>
+        /// <seealso cref="Label"/>
+        private static void parseSectionEffectiveTimeToDto(XElement xEl, SectionDto dto)
+        {
+            #region implementation
+
+            var effectiveTimeEl = xEl.GetSplElement(sc.E.EffectiveTime);
+            if (effectiveTimeEl == null)
+            {
+                dto.EffectiveTime = DateTime.MinValue;
+                return;
+            }
+
+            // Check for simple value attribute first
+            var simpleValue = effectiveTimeEl.GetAttrVal(sc.A.Value);
+            if (!string.IsNullOrEmpty(simpleValue))
+            {
+                dto.EffectiveTime = Util.ParseNullableDateTime(simpleValue) ?? DateTime.MinValue;
+                return;
+            }
+
+            // Check for low/high structure
+            var lowEl = effectiveTimeEl.GetSplElement(sc.E.Low);
+            var highEl = effectiveTimeEl.GetSplElement(sc.E.High);
+
+            if (lowEl != null || highEl != null)
+            {
+                // Parse low boundary
+                dto.EffectiveTimeLow = lowEl != null
+                    ? Util.ParseNullableDateTime(lowEl.GetAttrVal(sc.A.Value) ?? string.Empty)
+                    : null;
+
+                // Parse high boundary  
+                dto.EffectiveTimeHigh = highEl != null
+                    ? Util.ParseNullableDateTime(highEl.GetAttrVal(sc.A.Value) ?? string.Empty)
+                    : null;
+
+                // Set the main EffectiveTime to the low value for backward compatibility
+                dto.EffectiveTime = dto.EffectiveTimeLow ?? DateTime.MinValue;
+            }
+            else
+            {
+                dto.EffectiveTime = DateTime.MinValue;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of Section entities, checking for existing sections
+        /// and creating only missing ones in a single batch operation.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="sectionDtos">The list of tuples containing XElements and section DTOs parsed from XML.</param>
+        /// <param name="context">The current parsing context for logging.</param>
+        /// <returns>A dictionary mapping XElements to their corresponding created or existing Section entities.</returns>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="SectionDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<Dictionary<XElement, Section>> bulkCreateSectionsAsync(
+            ApplicationDbContext dbContext,
+            List<(XElement Element, SectionDto Dto)> sectionDtos,
+            SplParseContext context)
+        {
+            #region implementation
+
+            var resultMap = new Dictionary<XElement, Section>();
+
+            if (!sectionDtos.Any())
+                return resultMap;
+
+            var sectionDbSet = dbContext.Set<Section>();
+            int structuredBodyID = context.StructuredBody!.StructuredBodyID!.Value;
+
+            // Query existing sections for this structured body
+            var existingSections = await sectionDbSet
+                .Where(s => s.StructuredBodyID == structuredBodyID)
+                .Select(s => new {
+                    s.SectionID,
+                    s.SectionLinkGUID,
+                    s.SectionGUID,
+                    s.SectionCode,
+                    s.Title
+                })
+                .ToListAsync();
+
+            // Create lookup for existing sections by key attributes
+            var existingLookup = new Dictionary<string, int>();
+            foreach (var existing in existingSections)
+            {
+                // Use combination of key attributes to identify duplicates
+                var key = createSectionLookupKey(
+                    existing.SectionLinkGUID,
+                    existing.SectionGUID,
+                    existing.SectionCode,
+                    existing.Title);
+
+                if (!string.IsNullOrEmpty(key) && existing.SectionID.HasValue)
+                {
+                    existingLookup[key] = existing.SectionID.Value;
+                }
+            }
+
+            // Identify new sections that don't exist in database
+            var newSections = new List<Section>();
+            var newSectionElements = new List<XElement>();
+
+            foreach (var (element, dto) in sectionDtos)
+            {
+                var lookupKey = createSectionLookupKey(
+                    dto.SectionLinkGUID,
+                    dto.SectionGUID,
+                    dto.SectionCode,
+                    dto.Title);
+
+                if (!string.IsNullOrEmpty(lookupKey) && existingLookup.ContainsKey(lookupKey))
+                {
+                    // Section already exists, retrieve it for content processing
+                    var existingSectionId = existingLookup[lookupKey];
+                    var existingSection = await sectionDbSet.FindAsync(existingSectionId);
+                    if (existingSection != null)
+                    {
+                        resultMap[element] = existingSection;
+                    }
+                }
+                else
+                {
+                    // Create new section entity from DTO
+                    var newSection = createSectionFromDto(dto);
+                    newSections.Add(newSection);
+                    newSectionElements.Add(element);
+                }
+            }
+
+            // Bulk insert new sections
+            if (newSections.Any())
+            {
+                sectionDbSet.AddRange(newSections);
+                await dbContext.SaveChangesAsync();
+
+                // Map newly created sections to their elements
+                for (int i = 0; i < newSections.Count; i++)
+                {
+                    if (newSections[i].SectionID > 0)
+                    {
+                        resultMap[newSectionElements[i]] = newSections[i];
+                    }
+                }
+            }
+
+            return resultMap;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a lookup key for section deduplication based on key identifying attributes.
+        /// </summary>
+        /// <param name="sectionLinkGUID">The section link GUID attribute.</param>
+        /// <param name="sectionGUID">The section GUID.</param>
+        /// <param name="sectionCode">The section code.</param>
+        /// <param name="title">The section title.</param>
+        /// <returns>A string key for lookup, or null if insufficient data to create key.</returns>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="Label"/>
+        private static string? createSectionLookupKey(
+            string? sectionLinkGUID,
+            Guid? sectionGUID,
+            string? sectionCode,
+            string? title)
+        {
+            #region implementation
+
+            // Prefer SectionLinkGUID as primary identifier
+            if (!string.IsNullOrWhiteSpace(sectionLinkGUID))
+            {
+                return $"LINK:{sectionLinkGUID}";
+            }
+
+            // Fall back to SectionGUID if available
+            if (sectionGUID.HasValue && sectionGUID != Guid.Empty)
+            {
+                return $"GUID:{sectionGUID}";
+            }
+
+            // Use combination of code and title as last resort
+            if (!string.IsNullOrWhiteSpace(sectionCode) && !string.IsNullOrWhiteSpace(title))
+            {
+                return $"CODE_TITLE:{sectionCode}:{title}";
+            }
+
+            // Unable to create reliable key
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a new Section entity from a SectionDto object.
+        /// </summary>
+        /// <param name="dto">The SectionDto containing section metadata.</param>
+        /// <returns>A new Section entity with populated properties.</returns>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="SectionDto"/>
+        /// <seealso cref="Label"/>
+        private static Section createSectionFromDto(SectionDto dto)
+        {
+            #region implementation
+
+            var section = new Section
+            {
+                DocumentID = dto.DocumentID,
+                StructuredBodyID = dto.StructuredBodyID,
+                SectionLinkGUID = dto.SectionLinkGUID,
+                SectionGUID = dto.SectionGUID,
+                SectionCode = dto.SectionCode,
+                SectionCodeSystem = dto.SectionCodeSystem,
+                SectionCodeSystemName = dto.SectionCodeSystemName,
+                SectionDisplayName = dto.SectionDisplayName,
+                Title = dto.Title,
+                EffectiveTime = dto.EffectiveTime,
+                EffectiveTimeLow = dto.EffectiveTimeLow,
+                EffectiveTimeHigh = dto.EffectiveTimeHigh
+            };
+
+            return section;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Supporting Classes
+
+        /**************************************************************/
+        /// <summary>
+        /// Data transfer object for Section entity used in bulk operations.
+        /// Contains all metadata needed to create a Section without database dependencies.
+        /// </summary>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="Label"/>
+        private class SectionDto
+        {
+            /// <summary>
+            /// Gets or sets the document ID foreign key.
+            /// </summary>
+            public int? DocumentID { get; set; }
+
+            /// <summary>
+            /// Gets or sets the structured body ID foreign key.
+            /// </summary>
+            public int StructuredBodyID { get; set; }
+
+            /// <summary>
+            /// Gets or sets the section link GUID attribute from XML.
+            /// </summary>
+            public string? SectionLinkGUID { get; set; }
+
+            /// <summary>
+            /// Gets or sets the section GUID identifier.
+            /// </summary>
+            public Guid SectionGUID { get; set; }
+
+            /// <summary>
+            /// Gets or sets the section code value.
+            /// </summary>
+            public string? SectionCode { get; set; }
+
+            /// <summary>
+            /// Gets or sets the section code system.
+            /// </summary>
+            public string? SectionCodeSystem { get; set; }
+
+            /// <summary>
+            /// Gets or sets the section code system name.
+            /// </summary>
+            public string? SectionCodeSystemName { get; set; }
+
+            /// <summary>
+            /// Gets or sets the section display name.
+            /// </summary>
+            public string SectionDisplayName { get; set; } = string.Empty;
+
+            /// <summary>
+            /// Gets or sets the section title.
+            /// </summary>
+            public string? Title { get; set; }
+
+            /// <summary>
+            /// Gets or sets the effective time value.
+            /// </summary>
+            public DateTime? EffectiveTime { get; set; }
+
+            /// <summary>
+            /// Gets or sets the effective time low value.
+            /// </summary>
+            public DateTime? EffectiveTimeLow { get; set; }
+
+            /// <summary>
+            /// Gets or sets the effective time high value.
+            /// </summary>
+            public DateTime? EffectiveTimeHigh { get; set; }
+        }
+
+        #endregion
 
         #region Core Section Processing Methods
 
