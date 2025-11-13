@@ -186,14 +186,14 @@ namespace MedRecPro.Service.ParsingServices
                             // Non-bulk mode - process each section element individually
                             foreach (var sectionEl in sectionElements)
                             {
-                                result.MergeFrom(await parseSectionAsync_singleCalls(sectionEl, context, reportProgress, result));
+                                result.MergeFrom(await parseSectionAsync_singleCalls(sectionEl, context, reportProgress));
                             }
                         }
                     }
                 }
                 else
                 {
-                    result = await parseSectionAsync_singleCalls(xEl, context, reportProgress, result);
+                    result = await parseSectionAsync_singleCalls(xEl, context, reportProgress);
                 }
             }
             catch (Exception ex)
@@ -218,7 +218,6 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="xEl">The XElement representing the section to parse.</param>
         /// <param name="context">The current parsing context.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
-        /// <param name="result">The result object to accumulate parsing results.</param>
         /// <returns>A SplParseResult indicating the success status and metrics.</returns>
         /// <seealso cref="Section"/>
         /// <seealso cref="SplParseContext"/>
@@ -227,10 +226,11 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         async Task<SplParseResult> parseSectionAsync_singleCalls(XElement xEl,
            SplParseContext context,
-           Action<string>? reportProgress,
-           SplParseResult result)
+           Action<string>? reportProgress)
         {
             #region implementation
+
+            var result = new SplParseResult();
 
             if (xEl == null)
             {
@@ -247,6 +247,7 @@ namespace MedRecPro.Service.ParsingServices
             // 1. Create the core Section entity from the XML element
             // Parse section metadata and persist the primary section entity
             var section = await createAndSaveSectionAsync(xEl, context);
+
             if (section?.SectionID == null)
             {
                 result.Success = false;
@@ -257,7 +258,7 @@ namespace MedRecPro.Service.ParsingServices
             result.SectionsCreated++;
 
             if (section != null)
-                result.MergeFrom(await buildSectionContent(xEl, context, reportProgress, result, section));
+                result.MergeFrom(await buildSectionContent(xEl, context, reportProgress, section));
 
             // Report parsing completion for monitoring purposes
             reportProgress?.Invoke($"Section completed: {result.SectionAttributesCreated} attributes, " +
@@ -317,7 +318,7 @@ namespace MedRecPro.Service.ParsingServices
                 return null;
             }
             #endregion
-        } 
+        }
 
         #endregion
 
@@ -388,7 +389,7 @@ namespace MedRecPro.Service.ParsingServices
 
                     if (section?.SectionID != null)
                     {
-                        result.MergeFrom(await buildSectionContent(sectionEl, context, reportProgress, result, section));
+                        result.MergeFrom(await buildSectionContent(sectionEl, context, reportProgress, section));
                     }
                 }
 
@@ -579,7 +580,8 @@ namespace MedRecPro.Service.ParsingServices
             // Query existing sections for this structured body
             var existingSections = await sectionDbSet
                 .Where(s => s.StructuredBodyID == structuredBodyID)
-                .Select(s => new {
+                .Select(s => new
+                {
                     s.SectionID,
                     s.SectionLinkGUID,
                     s.SectionGUID,
@@ -873,10 +875,11 @@ namespace MedRecPro.Service.ParsingServices
         private async Task<SplParseResult> buildSectionContent(XElement sectionEl,
             SplParseContext context,
             Action<string>? reportProgress,
-            SplParseResult result,
             Label.Section section)
         {
             #region implementation
+
+            var result = new SplParseResult();
 
             // Set context for child parsers and ensure it's restored
             // Manage parsing context state to provide section context to child parsers

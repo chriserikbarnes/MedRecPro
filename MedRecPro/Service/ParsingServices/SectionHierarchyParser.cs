@@ -61,10 +61,14 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The XElement representing the section to parse for hierarchy.</param>
         /// <param name="context">The current parsing context containing section information.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements"></param>
         /// <returns>A SplParseResult indicating the success status and hierarchy elements created.</returns>
         /// <seealso cref="parseChildSectionsAsync"/>
         /// <seealso cref="getOrCreateSectionHierarchiesAsync"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
+        public async Task<SplParseResult> ParseAsync(XElement element, 
+            SplParseContext context, 
+            Action<string>? reportProgress = null, 
+            bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();
@@ -244,6 +248,56 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
+        #region Section Hierarchy Processing - Feature Switched Entry
+
+        /**************************************************************/
+        /// <summary>
+        /// Feature-switched entry point for finding or creating SectionHierarchy records.
+        /// Routes to either bulk operations or single-call implementation based on context configuration.
+        /// </summary>
+        /// <param name="parentSectionEl">The XElement for the parent [section].</param>
+        /// <param name="parentSectionId">The SectionID of the parent section (already saved).</param>
+        /// <param name="context">Parsing context for repo/db access and configuration flags.</param>
+        /// <returns>List of SectionHierarchy objects (created or found).</returns>
+        /// <remarks>
+        /// Routes between bulk operations (optimized for large hierarchies) and single-call operations (simpler logic).
+        /// Bulk operations reduce database calls from N to 2-3 per hierarchy tree.
+        /// </remarks>
+        /// <seealso cref="SectionHierarchy"/>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<List<SectionHierarchy>> getOrCreateSectionHierarchiesAsync(
+            XElement parentSectionEl,
+            int parentSectionId,
+            SplParseContext context)
+        {
+            #region implementation
+
+            if (context.UseBulkOperations)
+            {
+                return await getOrCreateSectionHierarchiesAsync_bulkCalls(
+                    parentSectionEl,
+                    parentSectionId,
+                    context);
+            }
+            else
+            {
+                return await getOrCreateSectionHierarchiesAsync_singleCalls(
+                    parentSectionEl,
+                    parentSectionId,
+                    context);
+            }
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Section Hierarchy Processing - Individual Operations (N + 1)
+
         /**************************************************************/
         /// <summary>
         /// Finds or creates SectionHierarchy records for all child sections nested under a parent section.
@@ -259,7 +313,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElementExtensions"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private async Task<List<SectionHierarchy>> getOrCreateSectionHierarchiesAsync(
+        private async Task<List<SectionHierarchy>> getOrCreateSectionHierarchiesAsync_singleCalls(
             XElement parentSectionEl,
             int parentSectionId,
             SplParseContext context)
@@ -357,5 +411,318 @@ namespace MedRecPro.Service.ParsingServices
             return hierarchies;
             #endregion
         }
+
+        #endregion
+
+        #region Section Hierarchy Processing - Bulk Operations
+
+        /**************************************************************/
+        /// <summary>
+        /// Orchestrates the bulk creation of SectionHierarchy records.
+        /// Coordinates parsing, querying, and creation operations through focused helper methods.
+        /// </summary>
+        /// <param name="parentSectionEl">The XElement for the parent [section].</param>
+        /// <param name="parentSectionId">The SectionID of the parent section (already saved).</param>
+        /// <param name="context">Parsing context for repo/db access and configuration.</param>
+        /// <returns>List of SectionHierarchy objects (created or found).</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one query per child section + one per hierarchy check)
+        /// - After: 2 queries + 1 bulk insert (all sections, all hierarchies, batch create)
+        /// Expected improvement: 30-100x faster for documents with many nested sections.
+        /// </remarks>
+        /// <seealso cref="SectionHierarchy"/>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<List<SectionHierarchy>> getOrCreateSectionHierarchiesAsync_bulkCalls(
+            XElement parentSectionEl,
+            int parentSectionId,
+            SplParseContext context)
+        {
+            #region implementation
+
+            var hierarchies = new List<SectionHierarchy>();
+
+            // Validate required input parameters
+            if (parentSectionEl == null || parentSectionId <= 0)
+                return hierarchies;
+
+            // Validate required context dependencies
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+                return hierarchies;
+
+            try
+            {
+                #region orchestration
+
+                // Get the DocumentID from context for section lookups
+                int documentId = context.Document?.DocumentID ?? 0;
+
+                // Get database context for bulk operations
+                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+                // Step 1: Parse child section GUIDs from XML into memory
+                var hierarchyDtos = parseChildSectionsToMemory(parentSectionEl);
+                if (!hierarchyDtos.Any())
+                    return hierarchies;
+
+                // Step 2: Bulk query database for child sections and enrich DTOs with IDs
+                var validDtos = await bulkQueryAndEnrichChildSectionsAsync(
+                    dbContext,
+                    hierarchyDtos,
+                    documentId);
+                if (!validDtos.Any())
+                    return hierarchies;
+
+                // Step 3: Query existing hierarchies and add to result
+                var existingHierarchies = await bulkQueryExistingHierarchiesAsync(
+                    dbContext,
+                    parentSectionId,
+                    validDtos);
+                hierarchies.AddRange(existingHierarchies);
+
+                // Step 4: Bulk create missing hierarchies and add to result
+                var newHierarchies = await bulkCreateNewHierarchiesAsync(
+                    dbContext,
+                    parentSectionId,
+                    validDtos,
+                    existingHierarchies);
+                hierarchies.AddRange(newHierarchies);
+
+                #endregion
+            }
+            catch (Exception ex)
+            {
+                context?.Logger?.LogError(ex, "Error creating section hierarchies in bulk for parent {ParentSectionId}", parentSectionId);
+            }
+
+            return hierarchies;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk query for child sections and enriches DTOs with database IDs.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying.</param>
+        /// <param name="hierarchyDtos">The list of hierarchy DTOs parsed from XML.</param>
+        /// <param name="documentId">The document ID to filter sections.</param>
+        /// <returns>A list of DTOs enriched with database IDs.</returns>
+        /// <seealso cref="SectionHierarchyDto"/>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<List<SectionHierarchyDto>> bulkQueryAndEnrichChildSectionsAsync(
+            ApplicationDbContext dbContext,
+            List<SectionHierarchyDto> hierarchyDtos,
+            int documentId)
+        {
+            #region implementation
+
+            // Extract all child GUIDs for batch query
+            var childGuids = hierarchyDtos.Select(dto => dto.ChildGuid).ToList();
+
+            // Query all child sections at once
+            var childSections = await dbContext.Set<Section>()
+                .Where(s => s.SectionGUID.HasValue && childGuids.Contains(s.SectionGUID.Value) && s.DocumentID == documentId)
+                .Select(s => new { s.SectionGUID, s.SectionID })
+                .ToListAsync();
+
+            // Create lookup dictionary for fast access
+            var guidToIdMap = childSections
+                .Where(s => s.SectionID.HasValue && s.SectionGUID.HasValue)
+                .ToDictionary(s => s.SectionGUID!.Value, s => s.SectionID!.Value);
+
+            // Enrich DTOs with database IDs
+            foreach (var dto in hierarchyDtos)
+            {
+                if (guidToIdMap.TryGetValue(dto.ChildGuid, out var childId))
+                {
+                    dto.ChildSectionId = childId;
+                }
+            }
+
+            // Filter to only valid DTOs with database IDs
+            return hierarchyDtos
+                .Where(dto => dto.ChildSectionId.HasValue)
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk query to retrieve all existing hierarchy relationships
+        /// for the parent section and its children.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying.</param>
+        /// <param name="parentSectionId">The parent section ID.</param>
+        /// <param name="validDtos">The list of valid hierarchy DTOs with database IDs.</param>
+        /// <returns>A list of existing SectionHierarchy entities.</returns>
+        /// <seealso cref="SectionHierarchy"/>
+        /// <seealso cref="SectionHierarchyDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<List<SectionHierarchy>> bulkQueryExistingHierarchiesAsync(
+            ApplicationDbContext dbContext,
+            int parentSectionId,
+            List<SectionHierarchyDto> validDtos)
+        {
+            #region implementation
+
+            // Extract all child section IDs for batch query
+            var childSectionIds = validDtos
+                .Where(dto => dto.ChildSectionId.HasValue)
+                .Select(dto => dto.ChildSectionId!.Value)
+                .ToList();
+
+            // Query all existing hierarchies at once
+            return await dbContext.Set<SectionHierarchy>()
+                .Where(h => h.ParentSectionID == parentSectionId &&
+                           childSectionIds.Contains(h.ChildSectionID!.Value))
+                .ToListAsync();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of new SectionHierarchy entities that don't already exist.
+        /// Deduplicates against existing hierarchies before inserting.
+        /// </summary>
+        /// <param name="dbContext">The database context for persisting entities.</param>
+        /// <param name="parentSectionId">The parent section ID.</param>
+        /// <param name="validDtos">The list of valid hierarchy DTOs to create.</param>
+        /// <param name="existingHierarchies">The list of existing hierarchies to exclude.</param>
+        /// <returns>A list of newly created SectionHierarchy entities.</returns>
+        /// <seealso cref="SectionHierarchy"/>
+        /// <seealso cref="SectionHierarchyDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<List<SectionHierarchy>> bulkCreateNewHierarchiesAsync(
+            ApplicationDbContext dbContext,
+            int parentSectionId,
+            List<SectionHierarchyDto> validDtos,
+            List<SectionHierarchy> existingHierarchies)
+        {
+            #region implementation
+
+            // Create hashset of existing child section IDs for fast lookup
+            var existingChildIds = new HashSet<int>(
+                existingHierarchies
+                    .Where(h => h.ChildSectionID.HasValue)
+                    .Select(h => h.ChildSectionID!.Value)
+            );
+
+            // Filter to only DTOs that don't have existing hierarchies
+            var newHierarchies = validDtos
+                .Where(dto => dto.ChildSectionId.HasValue &&
+                             !existingChildIds.Contains(dto.ChildSectionId.Value))
+                .Select(dto => new SectionHierarchy
+                {
+                    ParentSectionID = parentSectionId,
+                    ChildSectionID = dto.ChildSectionId!.Value,
+                    SequenceNumber = dto.SequenceNumber
+                })
+                .ToList();
+
+            // Bulk insert new hierarchies if any exist
+            if (newHierarchies.Any())
+            {
+                var hierarchyDbSet = dbContext.Set<SectionHierarchy>();
+                hierarchyDbSet.AddRange(newHierarchies);
+                await dbContext.SaveChangesAsync();
+            }
+
+            return newHierarchies;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses child section elements into memory DTOs without database operations.
+        /// </summary>
+        /// <param name="parentSectionEl">The parent section XElement containing child sections.</param>
+        /// <returns>A list of SectionHierarchyDto objects with GUIDs and sequence numbers.</returns>
+        /// <seealso cref="SectionHierarchyDto"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private List<SectionHierarchyDto> parseChildSectionsToMemory(XElement parentSectionEl)
+        {
+            #region implementation
+
+            var hierarchyDtos = new List<SectionHierarchyDto>();
+
+            // Find all direct <component><section> children of this parent section, preserving order
+            // Extract nested child sections while maintaining their XML document order
+            var childSectionEls = parentSectionEl.SplElements(sc.E.Component)
+                .Select(comp => comp.SplElement(sc.E.Section))
+                .Where(childSec => childSec != null)
+                .ToList();
+
+            // Initialize sequence number for maintaining child section order
+            int seqNum = 1;
+
+            foreach (var childSectionEl in childSectionEls)
+            {
+                if (childSectionEl == null)
+                    continue;
+
+                // Extract the unique identifier for the child section from XML
+                var childSectionGuidStr = childSectionEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root);
+
+                if (Guid.TryParse(childSectionGuidStr, out var childSectionGuid) && childSectionGuid != Guid.Empty)
+                {
+                    hierarchyDtos.Add(new SectionHierarchyDto
+                    {
+                        ChildGuid = childSectionGuid,
+                        SequenceNumber = seqNum
+                    });
+
+                    seqNum++;
+                }
+            }
+
+            return hierarchyDtos;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Helper Classes
+
+        /**************************************************************/
+        /// <summary>
+        /// Data transfer object for section hierarchy information during bulk processing.
+        /// Contains the child section GUID, database ID, and sequence number.
+        /// </summary>
+        /// <seealso cref="SectionHierarchy"/>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="Label"/>
+        private class SectionHierarchyDto
+        {
+            /// <summary>
+            /// The GUID of the child section from the XML document.
+            /// </summary>
+            public Guid ChildGuid { get; set; }
+
+            /// <summary>
+            /// The database ID of the child section (populated after bulk query).
+            /// </summary>
+            public int? ChildSectionId { get; set; }
+
+            /// <summary>
+            /// The sequence number indicating the order of this child section.
+            /// </summary>
+            public int SequenceNumber { get; set; }
+        }
+
+        #endregion
     }
 }
