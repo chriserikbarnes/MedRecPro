@@ -61,6 +61,7 @@ namespace MedRecPro.Controllers
         /// <param name="signInManager">The ASP.NET Core Identity sign-in manager.</param>
         /// <param name="userManager">The ASP.NET Core Identity user manager.</param>
         /// <param name="logger">Logger for logging information and errors.</param>
+        /// <param name="configuration"></param>
         public AuthController(SignInManager<User> signInManager, UserManager<User> userManager, ILogger<AuthController> logger, IConfiguration configuration)
         {
             #region implementation

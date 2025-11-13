@@ -63,6 +63,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="context">The current parsing context containing the product to link ingredients to.</param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements"></param>
         /// <example>
         /// <code>
         /// var parser = new IngredientParser();
@@ -91,7 +92,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement mmEl,
         SplParseContext context,
-        Action<string>? reportProgress)
+        Action<string>? reportProgress, 
+        bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();
@@ -135,6 +137,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="manufacturedProdEl">The XElement containing ingredient elements to process.</param>
         /// <param name="context">The current parsing context containing database access services.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A task that resolves to a SplParseResult indicating success and the count of created entities.</returns>
         /// <remarks>
         /// Performance Pattern: N+1 database calls (6-11 calls per ingredient).
@@ -153,7 +156,7 @@ namespace MedRecPro.Service.ParsingServices
         private async Task<SplParseResult> parseIngredientElementsAsync_singleCalls(
             XElement manufacturedProdEl,
             SplParseContext context,
-            Action<string>? reportProgress)
+            Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
 
@@ -1337,6 +1340,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="manufacturedProdEl">The XElement containing all ingredient elements to process.</param>
         /// <param name="context">The current parsing context containing database access services.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A task that resolves to a SplParseResult indicating success and the count of created entities.</returns>
         /// <remarks>
         /// Performance Pattern:
@@ -1358,7 +1362,7 @@ namespace MedRecPro.Service.ParsingServices
         private async Task<SplParseResult> parseIngredientElementsAsync_bulkCalls(
             XElement manufacturedProdEl,
             SplParseContext context,
-            Action<string>? reportProgress)
+            Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
 
@@ -1460,6 +1464,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="manufacturedProdEl">The XElement containing ingredient elements.</param>
         /// <param name="context">The current parsing context.</param>
         /// <param name="reportProgress">Optional progress reporting action.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A list of IngredientDto objects with all parsed data.</returns>
         /// <remarks>
         /// This pure parsing method extracts all ingredient data including:
@@ -1476,7 +1481,7 @@ namespace MedRecPro.Service.ParsingServices
         private List<IngredientDto> parseIngredientsToMemory(
             XElement manufacturedProdEl,
             SplParseContext context,
-            Action<string>? reportProgress)
+            Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
 

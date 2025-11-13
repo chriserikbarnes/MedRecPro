@@ -54,6 +54,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The XElement representing the document section to parse.</param>
         /// <param name="context">The current parsing context that will be updated with the created document.</param>
         /// <param name="reportProgress">Progress delegate reporter</param>
+        /// <param name="isParentCallingForAllSubElements"></param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
         /// <example>
         /// <code>
@@ -79,7 +80,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Document"/>
         /// <seealso cref="XElement"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

@@ -10,7 +10,7 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
-using static System.Collections.Specialized.BitVector32;
+using AngleSharp.Dom;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 
@@ -140,7 +140,8 @@ namespace MedRecPro.Service.ParsingServices
         public async Task<SplParseResult> ParseAsync(XElement xEl,
             SplParseContext context,
             Action<string>? reportProgress = null,
-            bool isParentCallingForAllSubElements = false)
+            bool? isParentCallingForAllSubElements = false
+           )
         {
             #region implementation
             var result = new SplParseResult();
@@ -160,106 +161,23 @@ namespace MedRecPro.Service.ParsingServices
                     return result;
                 }
 
-                // Report parsing start for monitoring and debugging purposes
-                reportProgress?.Invoke($"Starting Section parsing for " +
-                    $"{xEl?.GetSplElement(sc.E.Title)?.Value?.Replace("\t", " ") ?? xEl?.Name.LocalName ?? "Undefined"}, " +
-                    $"file: {context.FileNameInZip}");
-
-                // 1. Create the core Section entity from the XML element
-                // Parse section metadata and persist the primary section entity
-                var section = await createAndSaveSectionAsync(xEl, context);
-                if (section?.SectionID == null)
+                if (isParentCallingForAllSubElements ?? false)
                 {
-                    result.Success = false;
-                    result.Errors.Add("Failed to create and save the Section entity.");
-                    return result;
+                    // Navigate through the SPL hierarchy to find section elements
+                    // Path: structuredBody/component/section
+                    var sectionElements = xEl.SplElements(sc.E.Component, sc.E.Section);
+
+                    // Process each section element found within component wrappers
+                    if (sectionElements != null && sectionElements.Any())
+                        foreach (var sectionEl in sectionElements)
+                        {
+                            result.MergeFrom(await parseSectionAsync_singleCalls(sectionEl, context, reportProgress, result));
+                        }
                 }
-
-                result.SectionsCreated++;
-
-                if(section.HasValue)
-                    result = await buildSectionContent(xEl, context, reportProgress, result, section.Value);
-
-                // 2. Set context for child parsers and ensure it's restored
-                // Manage parsing context state to provide section context to child parsers
-                var oldSection = context.CurrentSection;
-                context.CurrentSection = section;
-
-                try
+                else
                 {
-                    // Before parsing products, check if this section requires a DocumentRelationship context.
-                    var docRelResult = await parseDocumentRelationshipAsync(xEl, context, reportProgress);
-                    result.MergeFrom(docRelResult);
-
-                    // Related docs for index files
-                    var docLevelRelatedDocResult = await parseDocumentLevelRelatedDocumentsAsync(context);
-                    result.MergeFrom(docLevelRelatedDocResult);
-
-                    // 3. Delegate to specialized parsers for different aspects of section processing
-
-                    // Parse media elements (observation media, rendered media) NOTE: this must
-                    // precede contentParser.
-                    var mediaResult = await _mediaParser.ParseAsync(xEl, context, reportProgress);
-                    result.MergeFrom(mediaResult);
-
-                    // Parse the content within this section (text, highlights, etc.)
-                    var contentResult = await _contentParser.ParseAsync(xEl, context, reportProgress);
-                    result.MergeFrom(contentResult);
-
-                    // Parse section hierarchies and child sections
-                    var hierarchyResult = await _hierarchyParser.ParseAsync(xEl, context, reportProgress);
-                    result.MergeFrom(hierarchyResult);
-
-                    // Parse indexing information (pharmacologic classes, billing units, etc.)
-                    var indexingResult = await _indexingParser.ParseAsync(xEl, context, reportProgress);
-                    result.MergeFrom(indexingResult);
-
-                    // Parse tolerance specifications and observation criteria for 40 CFR 180 documents
-                    // Check if this section contains tolerance specification elements
-                    if (containsToleranceSpecifications(xEl))
-                    {
-                        var toleranceResult = await _toleranceParser.ParseAsync(xEl, context, reportProgress);
-                        result.MergeFrom(toleranceResult);
-                    }
-
-                    // Parse warning letter information if this is a warning letter alert section 
-                    var warningLetterResult = await parseWarningLetterContentAsync(xEl, context, reportProgress);
-                    result.MergeFrom(warningLetterResult);
-
-                    // Parse compliance actions for this section
-                    var complianceResult = await parseComplianceActionsAsync(xEl, context, reportProgress);
-                    result.MergeFrom(complianceResult);
-
-                    // Parse certification links if this is a certification section
-                    if (context.CurrentSection?.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE)
-                    {
-                        var certificationResult = await parseCertificationLinksAsync(xEl, context, reportProgress);
-                        result.MergeFrom(certificationResult);
-                    }
-
-                    // 4. Parse the associated manufactured product, if it exists
-                    // Process product information contained within the section
-                    var productResult = await parseManufacturedProductsAsync(xEl, context, reportProgress);
-                    result.MergeFrom(productResult); 
-
-                    // 5. Parse REMS protocols if applicable
-                    // Check if this section contains REMS protocol elements
-                    if (containsRemsProtocols(xEl))
-                    {
-                        var remsParser = new REMSParser();
-                        var remsResult = await remsParser.ParseAsync(xEl, context, reportProgress);
-                        result.MergeFrom(remsResult);
-                    }
+                    result = await parseSectionAsync_singleCalls(xEl, context, reportProgress, result);
                 }
-                finally
-                {
-                    // Restore the context to prevent side effects for sibling or parent parsers
-                    context.CurrentSection = oldSection;
-                }
-
-                // Report parsing completion for monitoring purposes
-                reportProgress?.Invoke($"Section completed: {result.SectionAttributesCreated} attributes, " +
-                    $"{result.SectionsCreated} sections for {context.FileNameInZip}");
             }
             catch (Exception ex)
             {
@@ -273,11 +191,161 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
+
+        /**************************************************************/
+        async Task<SplParseResult> parseSectionAsync_singleCalls(XElement xEl,
+           SplParseContext context,
+           Action<string>? reportProgress,
+           SplParseResult result)
+        {
+
+            if (xEl == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Invalid section element provided for parsing.");
+                return result;
+            }
+
+            // Report parsing start for monitoring and debugging purposes
+            reportProgress?.Invoke($"Starting Section parsing for " +
+                $"{xEl?.GetSplElement(sc.E.Title)?.Value?.Replace("\t", " ") ?? xEl?.Name.LocalName ?? "Undefined"}, " +
+                $"file: {context.FileNameInZip}");
+
+            // 1. Create the core Section entity from the XML element
+            // Parse section metadata and persist the primary section entity
+            var section = await createAndSaveSectionAsync(xEl, context);
+            if (section?.SectionID == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Failed to create and save the Section entity.");
+                return result;
+            }
+
+            result.SectionsCreated++;
+
+            if (section != null)
+                result.MergeFrom(await buildSectionContent(xEl, context, reportProgress, result, section));
+
+            // Report parsing completion for monitoring purposes
+            reportProgress?.Invoke($"Section completed: {result.SectionAttributesCreated} attributes, " +
+                $"{result.SectionsCreated} sections for {context.FileNameInZip}");
+
+            return result;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a new Section entity from the given XML element and saves it to the database.
+        /// Extracts section metadata including GUID, codes, title, and effective time.
+        /// </summary>
+        /// <param name="xEl">The XElement representing the section.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>The created and saved Section entity, or null if creation failed.</returns>
+        /// <seealso cref="Section"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private async Task<Section?> createAndSaveSectionAsync(XElement xEl, SplParseContext context)
+        {
+            #region implementation
+            try
+            {
+                int? documentID = context.Document?.DocumentID ?? 0;
+
+                // Build section entity with extracted metadata from XML attributes and elements
+                var section = new Section
+                {
+                    DocumentID = documentID,
+                    StructuredBodyID = context.StructuredBody!.StructuredBodyID!.Value,
+                    SectionLinkGUID = xEl.GetAttrVal(sc.A.ID),
+                    SectionGUID = Util.ParseNullableGuid(xEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root) ?? string.Empty) ?? Guid.Empty,
+                    SectionCode = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
+                    SectionCodeSystem = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem),
+                    SectionCodeSystemName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystemName),
+                    SectionDisplayName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName) ?? string.Empty,
+                    Title = xEl.GetSplElementVal(sc.E.Title)?.Trim()
+                };
+
+                // Enhanced EffectiveTime parsing to handle both simple and complex structures
+                parseEffectiveTime(xEl, section);
+
+                // Persist section to database using repository pattern
+                var sectionRepo = context.GetRepository<Section>();
+                await sectionRepo.CreateAsync(section);
+
+                // Return section if successfully created with valid ID
+                return section.SectionID > 0 ? section : null;
+            }
+            catch (Exception ex)
+            {
+                context?.Logger?.LogError(ex, "Error creating section entity");
+                return null;
+            }
+            #endregion
+        }
+
         #region Core Section Processing Methods
 
         /**************************************************************/
-        private async Task<SplParseResult> buildSectionContent(XElement sectionEl, 
-            SplParseContext context, 
+        /// <summary>
+        /// Builds the content and child elements for a section by orchestrating specialized parsers
+        /// to process different aspects of the section's data including media, content, hierarchies,
+        /// indexing, products, and REMS protocols.
+        /// </summary>
+        /// <param name="sectionEl">The XElement representing the section element to build content for.</param>
+        /// <param name="context">The current parsing context containing the structuredBody and document information.</param>
+        /// <param name="reportProgress">Optional action to report progress during content building.</param>
+        /// <param name="result">The SplParseResult to merge child parsing results into.</param>
+        /// <param name="section">The Section entity that has been created and saved to the database.</param>
+        /// <returns>A SplParseResult aggregating the results from all specialized content parsers.</returns>
+        /// <example>
+        /// <code>
+        /// var result = new SplParseResult();
+        /// var section = new Label.Section { SectionID = 123, HasValue = true };
+        /// var contentResult = await buildSectionContent(sectionElement, parseContext, null, result, section);
+        /// if (contentResult.Success)
+        /// {
+        ///     Console.WriteLine($"Content attributes: {contentResult.SectionAttributesCreated}");
+        ///     Console.WriteLine($"Media elements: {contentResult.MediaObservationsCreated}");
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method temporarily sets the CurrentSection in the parsing context to ensure all child
+        /// parsers have access to the correct section context. The original context is always restored
+        /// in the finally block to prevent side effects.
+        /// 
+        /// The method orchestrates the following specialized parsers in sequence:
+        /// 1. DocumentRelationship parser - Establishes document relationship context
+        /// 2. Document-level related documents parser - Processes index file relationships
+        /// 3. SectionMediaParser - Processes observation media and rendered media elements
+        /// 4. SectionContentParser - Processes text content, highlights, and formatting
+        /// 5. SectionHierarchyParser - Processes child sections and hierarchical structure
+        /// 6. SectionIndexingParser - Processes pharmacologic classes and billing units
+        /// 7. ToleranceParser - Conditionally processes 40 CFR 180 tolerance specifications
+        /// 8. Warning letter parser - Processes warning letter alert content
+        /// 9. Compliance actions parser - Processes regulatory compliance actions
+        /// 10. Certification links parser - Conditionally processes blanket certification links
+        /// 11. ManufacturedProductParser - Processes product information within the section
+        /// 12. REMSParser - Conditionally processes REMS protocol elements
+        /// 
+        /// Media parsing must precede content parsing to ensure media references are available
+        /// when processing content elements.
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="Label.Section"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="SectionMediaParser"/>
+        /// <seealso cref="SectionContentParser"/>
+        /// <seealso cref="SectionHierarchyParser"/>
+        /// <seealso cref="SectionIndexingParser"/>
+        /// <seealso cref="ToleranceSpecificationParser"/>
+        /// <seealso cref="ManufacturedProductParser"/>
+        /// <seealso cref="REMSParser"/>
+        /// <seealso cref="XElement"/>
+        private async Task<SplParseResult> buildSectionContent(XElement sectionEl,
+            SplParseContext context,
             Action<string>? reportProgress,
             SplParseResult result,
             Label.Section section)
@@ -658,57 +726,6 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Creates a new Section entity from the given XML element and saves it to the database.
-        /// Extracts section metadata including GUID, codes, title, and effective time.
-        /// </summary>
-        /// <param name="xEl">The XElement representing the section.</param>
-        /// <param name="context">The current parsing context.</param>
-        /// <returns>The created and saved Section entity, or null if creation failed.</returns>
-        /// <seealso cref="Section"/>
-        /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="XElementExtensions"/>
-        /// <seealso cref="Label"/>
-        private async Task<Section?> createAndSaveSectionAsync(XElement xEl, SplParseContext context)
-        {
-            #region implementation
-            try
-            {
-                int? documentID = context.Document?.DocumentID ?? 0;
-
-                // Build section entity with extracted metadata from XML attributes and elements
-                var section = new Section
-                {
-                    DocumentID = documentID,
-                    StructuredBodyID = context.StructuredBody!.StructuredBodyID!.Value,
-                    SectionLinkGUID = xEl.GetAttrVal(sc.A.ID),
-                    SectionGUID = Util.ParseNullableGuid(xEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root) ?? string.Empty) ?? Guid.Empty,
-                    SectionCode = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeValue),
-                    SectionCodeSystem = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystem),
-                    SectionCodeSystemName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.CodeSystemName),
-                    SectionDisplayName = xEl.GetSplElementAttrVal(sc.E.Code, sc.A.DisplayName) ?? string.Empty,
-                    Title = xEl.GetSplElementVal(sc.E.Title)?.Trim()
-                };
-
-                // Enhanced EffectiveTime parsing to handle both simple and complex structures
-                parseEffectiveTime(xEl, section);
-
-                // Persist section to database using repository pattern
-                var sectionRepo = context.GetRepository<Section>();
-                await sectionRepo.CreateAsync(section);
-
-                // Return section if successfully created with valid ID
-                return section.SectionID > 0 ? section : null;
-            }
-            catch (Exception ex)
-            {
-                context?.Logger?.LogError(ex, "Error creating section entity");
-                return null;
-            }
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Parses effectiveTime element handling both simple value and low/high range structures.
         /// </summary>
         /// <param name="xEl">The section XElement containing effectiveTime information.</param>
@@ -755,7 +772,7 @@ namespace MedRecPro.Service.ParsingServices
             else
             {
                 section.EffectiveTime = DateTime.MinValue;
-            } 
+            }
 
             #endregion
         }

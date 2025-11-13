@@ -34,25 +34,12 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The XML element to parse from the SPL document.</param>
         /// <param name="context">The parsing context containing shared state and dependencies.</param>
         /// <param name="reportProgress">Reporter for progress</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A task representing the asynchronous parsing operation with the parse result.</returns>
         /// <seealso cref="Label"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseResult"/>
-        Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress);
-
-        /**************************************************************/
-        /// <summary>
-        /// Parses the specified XML element asynchronously within the given context.
-        /// </summary>
-        /// <param name="element">The XML element to parse from the SPL document.</param>
-        /// <param name="context">The parsing context containing shared state and dependencies.</param>
-        /// <param name="reportProgress">Reporter for progress</param>
-        /// <param name="isParentCallingForAllSubElements">Indicates if the parent is calling for all sub-elements i.e. the outer xElement that requires a forEach loop</param>
-        /// <returns>A task representing the asynchronous parsing operation with the parse result.</returns>
-        /// <seealso cref="Label"/>
-        /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="SplParseResult"/>
-        Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress, bool isParentCallingForAllSubElements);
+        Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false);
 
     }
 

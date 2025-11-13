@@ -57,6 +57,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The XElement representing the structuredBody element to parse.</param>
         /// <param name="context">The current parsing context containing the document to link the structuredBody to.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
         /// <example>
         /// <code>
@@ -85,7 +86,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="StructuredBody"/>
         /// <seealso cref="SectionParser"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();
@@ -123,23 +124,10 @@ namespace MedRecPro.Service.ParsingServices
                 var parentSectionResult = await _sectionParser.ParseAsync(element,
                   context,
                   reportProgress,
-                  isParentCallingForAllSubElements: true);
+                  isParentCallingForAllSubElements: true
+                  );
 
                 result.MergeFrom(parentSectionResult);
-
-
-                // Navigate through the SPL hierarchy to find section elements
-                // Path: structuredBody/component/section
-                var sectionElements = element.SplElements(sc.E.Component, sc.E.Section);
-
-                // Process each section element found within component wrappers
-                if (sectionElements != null && sectionElements.Any())
-                    foreach (var sectionEl in sectionElements)
-                    {
-                        // Delegate section parsing to the specialized section parser
-                        var sectionResult = await _sectionParser.ParseAsync(sectionEl, context, reportProgress);
-                        result.MergeFrom(sectionResult); // Aggregate results from section parsing
-                    }
 
                 reportProgress?.Invoke($"Completed Structured Body XML Elements {context.FileNameInZip}");
             }

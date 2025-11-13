@@ -43,6 +43,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The parent XElement containing one or more <![CDATA[<subjectOf><document>]]> structures.</param>
         /// <param name="context">The current parsing context, used to access the current section and parent entities.</param>
         /// <param name="reportProgress">Optional action to report progress.</param>
+        /// <param name="isParentCallingForAllSubElements"></param>
         /// <returns>A SplParseResult indicating success and the number of documents created.</returns>
         /// <example>
         /// <code>
@@ -58,7 +59,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XElement"/>
         /// <seealso cref="Label"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

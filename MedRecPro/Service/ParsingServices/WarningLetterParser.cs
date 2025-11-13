@@ -69,6 +69,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The XElement representing the section to parse for warning letter content.</param>
         /// <param name="context">The current parsing context containing section information.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A SplParseResult indicating the success status and warning letter elements created.</returns>
         /// <example>
         /// <code>
@@ -90,7 +91,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="WarningLetterProductInfo"/>
         /// <seealso cref="WarningLetterDate"/>
         /// <seealso cref="Label"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

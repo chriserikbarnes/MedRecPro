@@ -173,12 +173,12 @@ namespace MedRecPro.Service
             var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
             int resolvedCount = 0;
 
-            if(dbContext == null) return 0;
+            if (dbContext == null) return 0;
 
             // Get all unresolved facility links for this document
             var unresolvedLinks = await dbContext.Set<FacilityProductLink>()
                 .Include(fl => fl.DocumentRelationship)
-                .Where(fl => !fl.IsResolved 
+                .Where(fl => !fl.IsResolved
                     && fl.DocumentRelationship != null
                     && context != null
                     && context.Document != null
@@ -283,8 +283,8 @@ namespace MedRecPro.Service
         /// <seealso cref="SplFileImportResult"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XDocument"/>
-        public async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent, 
-            string fileNameInZip, 
+        public async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent,
+            string fileNameInZip,
             Action<string>? reportProgress = null)
         {
             #region implementation

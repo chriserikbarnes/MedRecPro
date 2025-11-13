@@ -61,6 +61,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The XElement to parse for marketing status information.</param>
         /// <param name="context">The current parsing context containing product and packaging level information.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A SplParseResult indicating the success status and count of created MarketingStatus entities.</returns>
         /// <remarks>
         /// This method serves as the main entry point for marketing status parsing. It processes marketing acts
@@ -82,7 +83,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="MarketingStatus"/>
         /// <seealso cref="Label"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

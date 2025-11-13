@@ -46,6 +46,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="element">The parent XElement, typically [subjectOf], which contains the [action] element.</param>
         /// <param name="context">The current parsing context, which provides foreign key context (e.g., PackageIdentifierID).</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <param name="reportProgress">Optional action to report progress.</param>
         /// <returns>A SplParseResult indicating success and any errors encountered.</returns>
         /// <example>
@@ -61,7 +62,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElement"/>
         /// <seealso cref="Util"/>
         /// <seealso cref="Label"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

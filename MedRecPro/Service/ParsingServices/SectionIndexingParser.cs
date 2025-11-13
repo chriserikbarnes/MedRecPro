@@ -146,13 +146,14 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The XElement representing the section to parse for indexing.</param>
         /// <param name="context">The current parsing context containing section and document information.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A SplParseResult indicating the success status and indexing elements created.</returns>
         /// <seealso cref="parseAndSaveIdentifiedSubstancesAsync"/>
         /// <seealso cref="parseAndSaveBillingUnitIndexAsync"/>
         /// <seealso cref="parseAndSaveProductConceptsAsync"/>
         /// <seealso cref="parseAndSaveDrugInteractionsAsync"/>
         /// <seealso cref="parseAndSaveNCTLinksAsync"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

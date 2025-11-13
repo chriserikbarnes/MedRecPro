@@ -42,8 +42,9 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="subjectEl">The [subject] XElement of the section.</param>
         /// <param name="context">The current parsing context.</param>
         /// <param name="reportProgress">Optional action to report progress.</param>
+        /// <param name="isParentCallingForAllSubElements"></param>
         /// <returns>A SplParseResult. The created DocumentRelationship is set on the context.</returns>
-        public async Task<SplParseResult> ParseAsync(XElement subjectEl, SplParseContext context, Action<string>? reportProgress)
+        public async Task<SplParseResult> ParseAsync(XElement subjectEl, SplParseContext context, Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

@@ -83,6 +83,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="xEl">The XElement representing the section containing REMS protocol elements.</param>
         /// <param name="context">The current parsing context containing the section to link REMS entities to.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A SplParseResult indicating the success status and counts of entities created.</returns>
         /// <example>
         /// <code>
@@ -115,7 +116,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseAsync(XElement xEl,
             SplParseContext context,
-            Action<string>? reportProgress = null)
+            Action<string>? reportProgress = null,
+            bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

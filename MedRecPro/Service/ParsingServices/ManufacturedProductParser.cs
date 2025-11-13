@@ -45,68 +45,69 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <seealso cref="MedRecPro.Models.Constant"/>
         private static readonly XNamespace ns = c.XML_NAMESPACE;
-        #endregion
+		#endregion
 
-        /**************************************************************/
-        /// <summary>
-        /// Parses a manufacturedProduct element from an SPL document, creating the product entity
-        /// and orchestrating the parsing of its associated ingredients.
-        /// </summary>
-        /// <param name="element">The XElement representing the manufacturedProduct section to parse.</param>
-        /// <param name="context">The current parsing context containing the section to link products to.</param>
-        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
-        /// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
-        /// <example>
-        /// <code>
-        /// var parser = new ManufacturedProductParser();
-        /// var result = await parser.ParseAsync(productElement, parseContext);
-        /// if (result.Success)
-        /// {
-        ///     Console.WriteLine($"Products created: {result.ProductsCreated}");
-        ///     Console.WriteLine($"Ingredients created: {result.IngredientsCreated}");
-        /// }
-        /// </code>
-        /// </example>
-        /// <remarks>
-        /// This method performs the following operations:
-        /// 1. Validates that a section context exists
-        /// 2. Handles SPL structural variations (manufacturedMedicine nesting)
-        /// 3. Extracts product metadata and creates the Product entity
-        /// 4. Sets up context for ingredient parsing
-        /// 5. Delegates ingredient parsing to specialized parsers
-        /// 6. Aggregates results from all child parsers
-        /// 7. Restores context to prevent side effects
-        /// 
-        /// The method supports multiple ingredient element types and maintains proper context
-        /// isolation to ensure thread safety and predictable behavior.
-        /// </remarks>
-        /// <seealso cref="AdditionalIdentifier"/>
-        /// <seealso cref="ApplicationDbContext"/>
-        /// <seealso cref="Characteristic"/> 
-        /// <seealso cref="EquivalentEntity"/>
-        /// <seealso cref="GenericMedicine"/>
-        /// <seealso cref="Ingredient"/>
-        /// <seealso cref="IngredientParser"/>
-        /// <seealso cref="Label"/>
-        /// <seealso cref="MarketingCategory"/>
-        /// <seealso cref="MarketingStatus"/>
-        /// <seealso cref="PackageIdentifier"/>
-        /// <seealso cref="PackagingHierarchy"/>
-        /// <seealso cref="PackagingLevel"/>
-        /// <seealso cref="PartOfAssembly"/>
-        /// <seealso cref="Policy"/>
-        /// <seealso cref="Product"/>
-        /// <seealso cref="ProductIdentifier"/>
-        /// <seealso cref="ProductPart"/>
-        /// <seealso cref="ProductRouteOfAdministration"/>
-        /// <seealso cref="ProductWebLink"/>
-        /// <seealso cref="ResponsiblePersonLink"/>
-        /// <seealso cref="SpecializedKind"/>  
-        /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="SplParseResult"/>
-        /// <seealso cref="XElement"/>
-        /// <seealso cref="XElementExtensions"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
+		/**************************************************************/
+		/// <summary>
+		/// Parses a manufacturedProduct element from an SPL document, creating the product entity
+		/// and orchestrating the parsing of its associated ingredients.
+		/// </summary>
+		/// <param name="element">The XElement representing the manufacturedProduct section to parse.</param>
+		/// <param name="context">The current parsing context containing the section to link products to.</param>
+		/// <param name="reportProgress">Optional action to report progress during parsing.</param>
+		/// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
+		/// <returns>A SplParseResult indicating the success status and any errors encountered during parsing.</returns>
+		/// <example>
+		/// <code>
+		/// var parser = new ManufacturedProductParser();
+		/// var result = await parser.ParseAsync(productElement, parseContext);
+		/// if (result.Success)
+		/// {
+		///     Console.WriteLine($"Products created: {result.ProductsCreated}");
+		///     Console.WriteLine($"Ingredients created: {result.IngredientsCreated}");
+		/// }
+		/// </code>
+		/// </example>
+		/// <remarks>
+		/// This method performs the following operations:
+		/// 1. Validates that a section context exists
+		/// 2. Handles SPL structural variations (manufacturedMedicine nesting)
+		/// 3. Extracts product metadata and creates the Product entity
+		/// 4. Sets up context for ingredient parsing
+		/// 5. Delegates ingredient parsing to specialized parsers
+		/// 6. Aggregates results from all child parsers
+		/// 7. Restores context to prevent side effects
+		/// 
+		/// The method supports multiple ingredient element types and maintains proper context
+		/// isolation to ensure thread safety and predictable behavior.
+		/// </remarks>
+		/// <seealso cref="AdditionalIdentifier"/>
+		/// <seealso cref="ApplicationDbContext"/>
+		/// <seealso cref="Characteristic"/> 
+		/// <seealso cref="EquivalentEntity"/>
+		/// <seealso cref="GenericMedicine"/>
+		/// <seealso cref="Ingredient"/>
+		/// <seealso cref="IngredientParser"/>
+		/// <seealso cref="Label"/>
+		/// <seealso cref="MarketingCategory"/>
+		/// <seealso cref="MarketingStatus"/>
+		/// <seealso cref="PackageIdentifier"/>
+		/// <seealso cref="PackagingHierarchy"/>
+		/// <seealso cref="PackagingLevel"/>
+		/// <seealso cref="PartOfAssembly"/>
+		/// <seealso cref="Policy"/>
+		/// <seealso cref="Product"/>
+		/// <seealso cref="ProductIdentifier"/>
+		/// <seealso cref="ProductPart"/>
+		/// <seealso cref="ProductRouteOfAdministration"/>
+		/// <seealso cref="ProductWebLink"/>
+		/// <seealso cref="ResponsiblePersonLink"/>
+		/// <seealso cref="SpecializedKind"/>  
+		/// <seealso cref="SplParseContext"/>
+		/// <seealso cref="SplParseResult"/>
+		/// <seealso cref="XElement"/>
+		/// <seealso cref="XElementExtensions"/>
+		public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

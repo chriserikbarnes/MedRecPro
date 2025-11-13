@@ -64,7 +64,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>A SplParseResult indicating the success status and hierarchy elements created.</returns>
         /// <seealso cref="parseChildSectionsAsync"/>
         /// <seealso cref="getOrCreateSectionHierarchiesAsync"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

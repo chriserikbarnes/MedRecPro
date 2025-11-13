@@ -53,6 +53,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="element">The XElement (e.g., manufacturedProduct) containing the business operations.</param>
         /// <param name="context">The current parsing context, which must contain the CurrentProduct and Document.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements"></param>
         /// <returns>A SplParseResult indicating the success status and the count of created entities.</returns>
         /// <remarks>
         /// This is the main entry point for the parser. It validates the context and then calls the
@@ -62,7 +63,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="XElement"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress)
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();

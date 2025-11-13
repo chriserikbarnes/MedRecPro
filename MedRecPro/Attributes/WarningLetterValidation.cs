@@ -303,7 +303,7 @@ namespace MedRecPro.Models.Validation
                 }
             }
 
-            return ValidationResult.Success;
+            return ValidationResult.Success!;
             #endregion
         }
 
@@ -320,7 +320,7 @@ namespace MedRecPro.Models.Validation
             #region implementation
             if (string.IsNullOrWhiteSpace(ndcCode))
             {
-                return ValidationResult.Success; // Skip empty codes
+                return ValidationResult.Success!; // Skip empty codes
             }
 
             // 21.2.2.8 - Code has two segments separated by a hyphen
@@ -351,7 +351,7 @@ namespace MedRecPro.Models.Validation
                 return new ValidationResult($"NDC/NHRIC code '{ndcCode}' must follow the pattern 4-4, 5-4, or 5-3 but found {labelerLength}-{productLength} (SPL IG 21.2.2.10).");
             }
 
-            return ValidationResult.Success;
+            return ValidationResult.Success!;
             #endregion
         }
         #endregion
@@ -446,7 +446,7 @@ namespace MedRecPro.Models.Validation
                 return new ValidationResult($"Warning letter {dateType} must be within a reasonable range.");
             }
 
-            return ValidationResult.Success;
+            return ValidationResult.Success!;
             #endregion
         }
         #endregion
