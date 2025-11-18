@@ -14,7 +14,6 @@ using AngleSharp.Dom;
 using System.Data;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
-
 namespace MedRecPro.Service.ParsingServices
 {
     /**************************************************************/
@@ -380,18 +379,92 @@ namespace MedRecPro.Service.ParsingServices
 
                 #endregion
 
-                #region process section content for all sections
+                #region DEPRICATED process section content for all sections. Handled with phased parsing now.
 
-                foreach (var kvp in createdSections)
-                {
-                    var sectionEl = kvp.Key;
-                    var section = kvp.Value;
+                //foreach (var kvp in createdSections)
+                //{
+                //    var sectionEl = kvp.Key;
+                //    var section = kvp.Value;
 
-                    if (section?.SectionID != null)
+                //    if (section?.SectionID != null)
+                //    {
+                //        result.MergeFrom(await buildSectionContent(sectionEl, context, reportProgress, section));
+                //    }
+                //}
+
+                #endregion
+
+                #region process section content for all sections - phased approach
+
+                // Phase 1: Document relationships and related documents
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) =>
                     {
-                        result.MergeFrom(await buildSectionContent(sectionEl, context, reportProgress, section));
-                    }
-                }
+                        var phaseResult = new SplParseResult();
+                        var docRelResult = await parseDocumentRelationshipAsync(sectionEl, ctx, progress);
+                        phaseResult.MergeFrom(docRelResult);
+                        var docLevelRelatedDocResult = await parseDocumentLevelRelatedDocumentsAsync(ctx);
+                        phaseResult.MergeFrom(docLevelRelatedDocResult);
+                        return phaseResult;
+                    },
+                    result);
+
+                // Phase 2: Media parsing (must precede content parsing)
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await _mediaParser.ParseAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 3: Content parsing (depends on media)
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await _contentParser.ParseAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 4: Hierarchy parsing
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await _hierarchyParser.ParseAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 5: Indexing parsing
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await _indexingParser.ParseAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 6: Tolerance specifications (conditional)
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await _toleranceParser.ParseAsync(sectionEl, ctx, progress),
+                    result,
+                    sectionFilter: (sectionEl, section) => containsToleranceSpecifications(sectionEl));
+
+                // Phase 7: Warning letters
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await parseWarningLetterContentAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 8: Compliance actions
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await parseComplianceActionsAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 9: Certification links (conditional)
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await parseCertificationLinksAsync(sectionEl, ctx, progress),
+                    result,
+                    sectionFilter: (sectionEl, section) => section.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE);
+
+                // Phase 10: Manufactured products
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await parseManufacturedProductsAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 11: REMS protocols (conditional)
+                await executeParserPhaseAsync(createdSections, context, reportProgress,
+                    async (sectionEl, ctx, progress) =>
+                    {
+                        var remsParser = new REMSParser();
+                        return await remsParser.ParseAsync(sectionEl, ctx, progress);
+                    },
+                    result,
+                    sectionFilter: (sectionEl, section) => containsRemsProtocols(sectionEl));
 
                 #endregion
 
@@ -1660,6 +1733,65 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Helper method to execute a parser operation across all sections in a single phase.
+        /// This enables batching of database operations by parser type rather than by section.
+        /// </summary>
+        /// <param name="createdSections">Dictionary mapping section XElements to their created Section entities.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <param name="reportProgress">Optional progress reporting action.</param>
+        /// <param name="parseOperation">The async operation to execute for each section.</param>
+        /// <param name="result">The result object to merge parse results into.</param>
+        /// <param name="sectionFilter">Optional filter to determine which sections should be processed.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <remarks>
+        /// This helper reduces code duplication and ensures consistent context management
+        /// across all parser phases. Each phase processes ALL sections before moving to the next,
+        /// allowing parsers to implement bulk operations internally.
+        /// </remarks>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="Label.Section"/>
+        private async Task executeParserPhaseAsync(
+            Dictionary<XElement, Label.Section> createdSections,
+            SplParseContext context,
+            Action<string>? reportProgress,
+            Func<XElement, SplParseContext, Action<string>?, Task<SplParseResult>> parseOperation,
+            SplParseResult result,
+            Func<XElement, Label.Section, bool>? sectionFilter = null)
+        {
+            #region implementation
+
+            foreach (var kvp in createdSections)
+            {
+                var sectionEl = kvp.Key;
+                var section = kvp.Value;
+
+                // Skip if section is invalid or doesn't pass filter
+                if (section?.SectionID == null)
+                    continue;
+
+                if (sectionFilter != null && !sectionFilter(sectionEl, section))
+                    continue;
+
+                // Set section context and ensure it's restored
+                var oldSection = context.CurrentSection;
+                context.CurrentSection = section;
+
+                try
+                {
+                    var parseResult = await parseOperation(sectionEl, context, reportProgress);
+                    result.MergeFrom(parseResult);
+                }
+                finally
+                {
+                    context.CurrentSection = oldSection;
+                }
+            }
+
+            #endregion
+        }
         #endregion
     }
 }

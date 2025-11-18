@@ -225,6 +225,15 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
+        /// Public method for setting the UseBulkOperations flag.
+        ///</summary>
+        public void SetBulkOperationsFlag(bool value)
+        {
+            UseBulkOperations = value;
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Resolves a repository instance for the specified entity type.
         /// </summary>
         /// <typeparam name="T">The entity type for which to resolve a repository.</typeparam>

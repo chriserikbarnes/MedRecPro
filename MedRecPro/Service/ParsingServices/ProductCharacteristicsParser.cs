@@ -134,6 +134,13 @@ namespace MedRecPro.Service.ParsingServices
             SplParseContext context)
         {
             #region implementation
+
+            // Feature flag routing: use bulk operations if enabled
+            if (context.UseBulkOperations)
+            {
+                return await parseAndSaveCharacteristicsAsync_bulkCalls(parentEl, product, context);
+            }
+
             int count = 0;
             var repo = context.GetRepository<Characteristic>();
 
@@ -153,7 +160,6 @@ namespace MedRecPro.Service.ParsingServices
             return count;
             #endregion
         }
-
         /**************************************************************/
         /// <summary>
         /// Parses characteristics directly from subjectOf/characteristic structures under the given element.
@@ -614,6 +620,7 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
+
         /**************************************************************/
         /// <summary>
         /// Parses and saves all AdditionalIdentifier entities under [asIdentifiedEntity classCode="IDENT"] nodes for a given product.
@@ -637,6 +644,13 @@ namespace MedRecPro.Service.ParsingServices
             SplParseContext context)
         {
             #region implementation
+
+            // Feature flag routing: use bulk operations if enabled
+            if (context.UseBulkOperations)
+            {
+                return await parseAndSaveAdditionalIdentifiersAsync_bulkCalls(parentEl, product, context);
+            }
+
             int count = 0;
             var repo = context.GetRepository<AdditionalIdentifier>();
 
@@ -712,6 +726,13 @@ namespace MedRecPro.Service.ParsingServices
             SplParseContext context)
         {
             #region implementation
+
+            // Feature flag routing: use bulk operations if enabled
+            if (context.UseBulkOperations)
+            {
+                return await parseAndSaveProductRoutesOfAdministrationAsync_bulkCalls(parentEl, product, context);
+            }
+
             int count = 0;
             var repo = context.GetRepository<ProductRouteOfAdministration>();
 
@@ -757,5 +778,757 @@ namespace MedRecPro.Service.ParsingServices
             return count;
             #endregion
         }
+
+        #region Characteristic Processing Methods - Bulk Operations
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all Characteristic entities using bulk operations pattern. Collects all characteristics 
+        /// into memory, deduplicates against existing entities, then performs batch insert for optimal performance.
+        /// </summary>
+        /// <param name="parentEl">XElement (usually [manufacturedProduct] or [partProduct]) to scan for characteristics.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of Characteristic records created.</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per characteristic)
+        /// - After: 1 query + 1 insert
+        /// </remarks>
+        /// <seealso cref="Characteristic"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="PackagingLevel"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveCharacteristicsAsync_bulkCalls(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // Validate required dependencies
+            if (context == null || context.ServiceProvider == null || context.Logger == null || product.ProductID == null)
+                return createdCount;
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            int? packagingLevelId = context.CurrentPackagingLevel?.PackagingLevelID;
+
+            #region parse characteristics structure into memory
+
+            var characteristicDtos = parseCharacteristicsToMemory(parentEl, product, packagingLevelId);
+
+            #endregion
+
+            #region check existing entities and create missing
+
+            createdCount += await bulkCreateCharacteristicsAsync(dbContext, product.ProductID.Value, characteristicDtos, context);
+
+            #endregion
+
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all characteristics from a parent element into memory without database operations.
+        /// </summary>
+        /// <param name="element">The XElement to search for subjectOf/characteristic structures.</param>
+        /// <param name="product">The Product entity associated with these characteristics.</param>
+        /// <param name="packagingLevelId">Optional PackagingLevelID for package-level characteristics.</param>
+        /// <returns>A list of CharacteristicDto objects representing all characteristics with content.</returns>
+        /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private List<CharacteristicDto> parseCharacteristicsToMemory(XElement element, Product product, int? packagingLevelId)
+        {
+            #region implementation
+
+            var dtos = new List<CharacteristicDto>();
+
+            foreach (var subjOf in element.SplElements(sc.E.SubjectOf))
+            {
+                foreach (var charEl in subjOf.SplElements(sc.E.Characteristic))
+                {
+                    if (charEl == null)
+                        continue;
+
+                    // Parse Characteristic code & codeSystem
+                    var codeEl = charEl.GetSplElement(sc.E.Code);
+                    string? charCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+                    string? charCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
+                    string? originalText = charEl
+                        ?.GetSplElement(sc.E.Value)
+                        ?.GetSplElement(sc.E.OriginalText)
+                        ?.Value;
+
+                    // Parse <value> node and its type
+                    var valueEl = charEl.GetSplElement(sc.E.Value);
+                    string? valueType = valueEl?.GetXsiType();
+
+                    // Initialize all possible value fields
+                    decimal? valuePQ_Value = null;
+                    string? valuePQ_Unit = null;
+                    int? valueINT = null;
+                    string? valueNullFlavor = null;
+                    string? valueCV_Code = null;
+                    string? valueCV_CodeSystem = null;
+                    string? valueCV_DisplayName = null;
+                    string? valueST = null;
+                    bool? valueBL = null;
+                    decimal? valueIVLPQ_LowValue = null;
+                    string? valueIVLPQ_LowUnit = null;
+                    decimal? valueIVLPQ_HighValue = null;
+                    string? valueIVLPQ_HighUnit = null;
+                    string? valueED_MediaType = null;
+                    string? valueED_FileName = null;
+
+                    // Parse based on xsi:type
+                    if (!string.IsNullOrWhiteSpace(valueType))
+                    {
+                        switch (valueType.ToUpperInvariant())
+                        {
+                            case "PQ":
+                            case "REAL":
+                                if (valueEl != null)
+                                {
+                                    var valueAttr = valueEl.GetAttrVal(sc.A.Value);
+                                    valuePQ_Value = valueAttr != null ? Util.ParseNullableDecimal(valueAttr) : null;
+                                    valuePQ_Unit = valueEl.GetAttrVal(sc.A.Unit);
+                                }
+                                break;
+
+                            case "INT":
+                                if (valueEl != null)
+                                {
+                                    valueNullFlavor = valueEl.GetAttrVal(sc.A.NullFlavor);
+                                    var intAttr = valueEl.GetAttrVal(sc.A.Value);
+                                    valueINT = intAttr != null ? Util.ParseNullableInt(intAttr) : null;
+                                }
+                                break;
+
+                            case "CV":
+                            case "CE":
+                                valueCV_Code = valueEl?.GetAttrVal(sc.A.CodeValue);
+                                valueCV_CodeSystem = valueEl?.GetAttrVal(sc.A.CodeSystem);
+                                valueCV_DisplayName = valueEl?.GetAttrVal(sc.A.DisplayName);
+                                break;
+
+                            case "ST":
+                                valueCV_Code = valueEl?.GetAttrVal(sc.A.CodeValue);
+                                valueCV_CodeSystem = valueEl?.GetAttrVal(sc.A.CodeSystem);
+                                valueST = valueEl?.Value;
+                                break;
+
+                            case "IVL_PQ":
+                                var lowEl = valueEl?.GetSplElement(sc.E.Low);
+                                if (lowEl != null)
+                                {
+                                    var lowValueAttr = lowEl.GetAttrVal(sc.A.Value);
+                                    valueIVLPQ_LowValue = lowValueAttr != null ? Util.ParseNullableDecimal(lowValueAttr) : null;
+                                    valueIVLPQ_LowUnit = lowEl.GetAttrVal(sc.A.Unit);
+                                }
+
+                                var highEl = valueEl?.GetSplElement(sc.E.High);
+                                if (highEl != null)
+                                {
+                                    var highValueAttr = highEl.GetAttrVal(sc.A.Value);
+                                    valueIVLPQ_HighValue = highValueAttr != null ? Util.ParseNullableDecimal(highValueAttr) : null;
+                                    valueIVLPQ_HighUnit = highEl.GetAttrVal(sc.A.Unit);
+                                }
+                                break;
+
+                            case "ED":
+                                valueED_MediaType = valueEl?.GetAttrVal(sc.A.MediaType);
+                                valueED_FileName = valueEl?.GetAttrVal(sc.A.DisplayName);
+                                break;
+
+                            case "BL":
+                                if (valueEl != null)
+                                {
+                                    var boolAttr = valueEl.GetAttrVal(sc.A.Value);
+                                    valueBL = boolAttr != null ? Util.ParseNullableBoolWithStringValue(boolAttr) : null;
+                                }
+                                break;
+                        }
+                    }
+
+                    dtos.Add(new CharacteristicDto
+                    {
+                        PackagingLevelID = packagingLevelId,
+                        CharacteristicCode = charCode,
+                        CharacteristicCodeSystem = charCodeSystem,
+                        OriginalText = originalText,
+                        ValueType = valueType,
+                        ValuePQ_Value = valuePQ_Value,
+                        ValuePQ_Unit = valuePQ_Unit,
+                        ValueINT = valueINT,
+                        ValueCV_Code = valueCV_Code,
+                        ValueCV_CodeSystem = valueCV_CodeSystem,
+                        ValueCV_DisplayName = valueCV_DisplayName,
+                        ValueST = valueST,
+                        ValueBL = valueBL,
+                        ValueIVLPQ_LowValue = valueIVLPQ_LowValue,
+                        ValueIVLPQ_LowUnit = valueIVLPQ_LowUnit,
+                        ValueIVLPQ_HighValue = valueIVLPQ_HighValue,
+                        ValueIVLPQ_HighUnit = valueIVLPQ_HighUnit,
+                        ValueED_MediaType = valueED_MediaType,
+                        ValueED_FileName = valueED_FileName,
+                        ValueNullFlavor = valueNullFlavor
+                    });
+                }
+            }
+
+            return dtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of Characteristic entities, checking for existing characteristics
+        /// and creating only missing ones in a single batch operation.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="productId">The foreign key ID of the parent Product.</param>
+        /// <param name="characteristicDtos">The list of characteristic DTOs parsed from XML.</param>
+        /// <param name="context">The parsing context for logging.</param>
+        /// <returns>The count of newly created Characteristic entities.</returns>
+        /// <seealso cref="Characteristic"/>
+        /// <seealso cref="CharacteristicDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> bulkCreateCharacteristicsAsync(
+            ApplicationDbContext dbContext,
+            int productId,
+            List<CharacteristicDto> characteristicDtos,
+            SplParseContext context)
+        {
+            #region implementation
+
+            if (!characteristicDtos.Any())
+                return 0;
+
+            var characteristicDbSet = dbContext.Set<Characteristic>();
+
+            // Get existing characteristics for this product
+            var existingCharacteristics = await characteristicDbSet
+                .Where(c => c.ProductID == productId)
+                .Select(c => new
+                {
+                    c.PackagingLevelID,
+                    c.CharacteristicCode,
+                    c.ValueType,
+                    c.ValueCV_Code,
+                    c.ValueST,
+                    c.ValuePQ_Value,
+                    c.ValuePQ_Unit,
+                    c.ValueINT,
+                    c.ValueBL,
+                    c.ValueED_MediaType,
+                    c.ValueED_CDATAContent,
+                    c.ValueNullFlavor,
+                    c.OriginalText
+                })
+                .ToListAsync();
+
+            // Build HashSet for deduplication using comprehensive key
+            var existingKeys = new HashSet<CharacteristicKey>(
+                existingCharacteristics.Select(c => new CharacteristicKey
+                {
+                    CharacteristicCode = c.CharacteristicCode ?? string.Empty,
+                    ValueType = c.ValueType ?? string.Empty,
+                    ValueCV_Code = c.ValueCV_Code ?? string.Empty,
+                    ValueST = c.ValueST ?? string.Empty,
+                    ValuePQ_Value = c.ValuePQ_Value,
+                    ValuePQ_Unit = c.ValuePQ_Unit ?? string.Empty,
+                    ValueINT = c.ValueINT,
+                    ValueBL = c.ValueBL,
+                    ValueED_MediaType = c.ValueED_MediaType ?? string.Empty,
+                    ValueED_CDATAContent = c.ValueED_CDATAContent ?? string.Empty,
+                    ValueNullFlavor = c.ValueNullFlavor ?? string.Empty,
+                    OriginalText = c.OriginalText ?? string.Empty
+                })
+            );
+
+            // Filter to only new characteristics
+            var newCharacteristics = characteristicDtos
+                .Where(dto =>
+                {
+                    var key = new CharacteristicKey
+                    {
+                        CharacteristicCode = dto.CharacteristicCode ?? string.Empty,
+                        ValueType = dto.ValueType ?? string.Empty,
+                        ValueCV_Code = dto.ValueCV_Code ?? string.Empty,
+                        ValueST = dto.ValueST ?? string.Empty,
+                        ValuePQ_Value = dto.ValuePQ_Value,
+                        ValuePQ_Unit = dto.ValuePQ_Unit ?? string.Empty,
+                        ValueINT = dto.ValueINT,
+                        ValueBL = dto.ValueBL,
+                        ValueED_MediaType = dto.ValueED_MediaType ?? string.Empty,
+                        ValueED_CDATAContent = string.Empty, // Not in DTO
+                        ValueNullFlavor = dto.ValueNullFlavor ?? string.Empty,
+                        OriginalText = dto.OriginalText ?? string.Empty
+                    };
+                    return !existingKeys.Contains(key);
+                })
+                .Select(dto => new Characteristic
+                {
+                    ProductID = productId,
+                    PackagingLevelID = dto.PackagingLevelID,
+                    CharacteristicCode = dto.CharacteristicCode,
+                    CharacteristicCodeSystem = dto.CharacteristicCodeSystem,
+                    OriginalText = dto.OriginalText,
+                    ValueType = dto.ValueType,
+                    ValuePQ_Value = dto.ValuePQ_Value,
+                    ValuePQ_Unit = dto.ValuePQ_Unit,
+                    ValueINT = dto.ValueINT,
+                    ValueCV_Code = dto.ValueCV_Code,
+                    ValueCV_CodeSystem = dto.ValueCV_CodeSystem,
+                    ValueCV_DisplayName = dto.ValueCV_DisplayName,
+                    ValueST = dto.ValueST,
+                    ValueBL = dto.ValueBL,
+                    ValueIVLPQ_LowValue = dto.ValueIVLPQ_LowValue,
+                    ValueIVLPQ_LowUnit = dto.ValueIVLPQ_LowUnit,
+                    ValueIVLPQ_HighValue = dto.ValueIVLPQ_HighValue,
+                    ValueIVLPQ_HighUnit = dto.ValueIVLPQ_HighUnit,
+                    ValueED_MediaType = dto.ValueED_MediaType,
+                    ValueED_FileName = dto.ValueED_FileName,
+                    ValueNullFlavor = dto.ValueNullFlavor
+                })
+                .ToList();
+
+            if (newCharacteristics.Any())
+            {
+                characteristicDbSet.AddRange(newCharacteristics);
+                await dbContext.SaveChangesAsync();
+                context.Logger?.LogInformation($"Bulk created {newCharacteristics.Count} characteristics for ProductID={productId}");
+            }
+
+            return newCharacteristics.Count;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Additional Identifier Processing Methods - Bulk Operations
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all AdditionalIdentifier entities using bulk operations pattern. Collects all identifiers 
+        /// into memory, deduplicates against existing entities, then performs batch insert for optimal performance.
+        /// </summary>
+        /// <param name="parentEl">XElement (usually [manufacturedProduct], [partProduct], or [product]) to scan for additional identifiers.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of AdditionalIdentifier records created.</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per identifier)
+        /// - After: 1 query + 1 insert
+        /// </remarks>
+        /// <seealso cref="AdditionalIdentifier"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveAdditionalIdentifiersAsync_bulkCalls(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // Validate required dependencies
+            if (context == null || context.ServiceProvider == null || context.Logger == null || product.ProductID == null)
+                return createdCount;
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            #region parse identifiers structure into memory
+
+            var identifierDtos = parseAdditionalIdentifiersToMemory(parentEl);
+
+            #endregion
+
+            #region check existing entities and create missing
+
+            createdCount += await bulkCreateAdditionalIdentifiersAsync(dbContext, product.ProductID.Value, identifierDtos, context);
+
+            #endregion
+
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all additional identifiers from a parent element into memory without database operations.
+        /// </summary>
+        /// <param name="parentEl">The XElement to search for asIdentifiedEntity elements.</param>
+        /// <returns>A list of AdditionalIdentifierDto objects representing all valid identifiers.</returns>
+        /// <seealso cref="AdditionalIdentifierDto"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private List<AdditionalIdentifierDto> parseAdditionalIdentifiersToMemory(XElement parentEl)
+        {
+            #region implementation
+
+            var dtos = new List<AdditionalIdentifierDto>();
+
+            foreach (var idEnt in parentEl.SplElements(sc.E.AsIdentifiedEntity))
+            {
+                string? classCode = idEnt.GetAttrVal(sc.A.ClassCode);
+                if (!string.Equals(classCode, "IDENT", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var idEl = idEnt.GetSplElement(sc.E.Id);
+                string? identifierValue = idEl?.GetAttrVal(sc.A.Extension);
+                string? identifierRootOID = idEl?.GetAttrVal(sc.A.Root);
+
+                var codeEl = idEnt.GetSplElement(sc.E.Code);
+                string? typeCode = codeEl?.GetAttrVal(sc.A.CodeValue);
+                string? typeCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
+                string? typeDisplayName = codeEl?.GetAttrVal(sc.A.DisplayName);
+
+                // Validate code system
+                if (string.IsNullOrWhiteSpace(typeCodeSystem) ||
+                    typeCodeSystem != "2.16.840.1.113883.3.26.1.1")
+                    continue;
+
+                // Validate identifier values
+                if (string.IsNullOrWhiteSpace(identifierValue) || string.IsNullOrWhiteSpace(identifierRootOID))
+                    continue;
+
+                // Validate recognized types
+                bool recognized = typeCode == "C99286" || typeCode == "C99285" || typeCode == "C99287";
+                if (!recognized)
+                    continue;
+
+                dtos.Add(new AdditionalIdentifierDto
+                {
+                    IdentifierTypeCode = typeCode,
+                    IdentifierTypeCodeSystem = typeCodeSystem,
+                    IdentifierTypeDisplayName = typeDisplayName,
+                    IdentifierValue = identifierValue,
+                    IdentifierRootOID = identifierRootOID
+                });
+            }
+
+            return dtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of AdditionalIdentifier entities, checking for existing identifiers
+        /// and creating only missing ones in a single batch operation.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="productId">The foreign key ID of the parent Product.</param>
+        /// <param name="identifierDtos">The list of identifier DTOs parsed from XML.</param>
+        /// <param name="context">The parsing context for logging.</param>
+        /// <returns>The count of newly created AdditionalIdentifier entities.</returns>
+        /// <seealso cref="AdditionalIdentifier"/>
+        /// <seealso cref="AdditionalIdentifierDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> bulkCreateAdditionalIdentifiersAsync(
+            ApplicationDbContext dbContext,
+            int productId,
+            List<AdditionalIdentifierDto> identifierDtos,
+            SplParseContext context)
+        {
+            #region implementation
+
+            if (!identifierDtos.Any())
+                return 0;
+
+            var identifierDbSet = dbContext.Set<AdditionalIdentifier>();
+
+            // Get existing identifiers for this product
+            var existingIdentifiers = await identifierDbSet
+                .Where(i => i.ProductID == productId)
+                .Select(i => new { i.IdentifierTypeCode, i.IdentifierValue, i.IdentifierRootOID })
+                .ToListAsync();
+
+            // Build HashSet for deduplication using composite key
+            var existingKeys = new HashSet<(string TypeCode, string Value, string RootOID)>(
+                existingIdentifiers
+                    .Where(i => i.IdentifierTypeCode != null && i.IdentifierValue != null && i.IdentifierRootOID != null)
+                    .Select(i => (i.IdentifierTypeCode!, i.IdentifierValue!, i.IdentifierRootOID!))
+            );
+
+            // Filter to only new identifiers
+            var newIdentifiers = identifierDtos
+                .Where(dto =>
+                    dto.IdentifierTypeCode != null &&
+                    dto.IdentifierValue != null &&
+                    dto.IdentifierRootOID != null &&
+                    !existingKeys.Contains((dto.IdentifierTypeCode, dto.IdentifierValue, dto.IdentifierRootOID)))
+                .Select(dto => new AdditionalIdentifier
+                {
+                    ProductID = productId,
+                    IdentifierTypeCode = dto.IdentifierTypeCode,
+                    IdentifierTypeCodeSystem = dto.IdentifierTypeCodeSystem,
+                    IdentifierTypeDisplayName = dto.IdentifierTypeDisplayName,
+                    IdentifierValue = dto.IdentifierValue,
+                    IdentifierRootOID = dto.IdentifierRootOID
+                })
+                .ToList();
+
+            if (newIdentifiers.Any())
+            {
+                identifierDbSet.AddRange(newIdentifiers);
+                await dbContext.SaveChangesAsync();
+                context.Logger?.LogInformation($"Bulk created {newIdentifiers.Count} additional identifiers for ProductID={productId}");
+            }
+
+            return newIdentifiers.Count;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Product Route of Administration Processing Methods - Bulk Operations
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses and saves all ProductRouteOfAdministration entities using bulk operations pattern. Collects all routes 
+        /// into memory, deduplicates against existing entities, then performs batch insert for optimal performance.
+        /// </summary>
+        /// <param name="parentEl">XElement (usually [manufacturedProduct] or [part]) to scan for routes of administration.</param>
+        /// <param name="product">The Product entity associated.</param>
+        /// <param name="context">The parsing context (repo, logger, etc).</param>
+        /// <returns>The count of ProductRouteOfAdministration records created.</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per route)
+        /// - After: 1 query + 1 insert
+        /// </remarks>
+        /// <seealso cref="ProductRouteOfAdministration"/>
+        /// <seealso cref="Product"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> parseAndSaveProductRoutesOfAdministrationAsync_bulkCalls(
+            XElement parentEl,
+            Product product,
+            SplParseContext context)
+        {
+            #region implementation
+            int createdCount = 0;
+
+            // Validate required dependencies
+            if (context == null || context.ServiceProvider == null || context.Logger == null || product.ProductID == null)
+                return createdCount;
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            #region parse routes structure into memory
+
+            var routeDtos = parseProductRoutesOfAdministrationToMemory(parentEl);
+
+            #endregion
+
+            #region check existing entities and create missing
+
+            createdCount += await bulkCreateProductRoutesOfAdministrationAsync(dbContext, product.ProductID.Value, routeDtos, context);
+
+            #endregion
+
+            return createdCount;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all product routes of administration from a parent element into memory without database operations.
+        /// </summary>
+        /// <param name="parentEl">The XElement to search for consumedIn/substanceAdministration/routeCode structures.</param>
+        /// <returns>A list of ProductRouteOfAdministrationDto objects representing all valid routes.</returns>
+        /// <seealso cref="ProductRouteOfAdministrationDto"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        private List<ProductRouteOfAdministrationDto> parseProductRoutesOfAdministrationToMemory(XElement parentEl)
+        {
+            #region implementation
+
+            var dtos = new List<ProductRouteOfAdministrationDto>();
+
+            foreach (var consumedInEl in parentEl.SplElements(sc.E.ConsumedIn))
+            {
+                foreach (var substAdminEl in consumedInEl.SplElements(sc.E.SubstanceAdministration))
+                {
+                    var routeCodeEl = substAdminEl.GetSplElement(sc.E.RouteCode);
+
+                    if (routeCodeEl == null)
+                        continue;
+
+                    string? routeCode = routeCodeEl.GetAttrVal(sc.A.CodeValue);
+                    string? routeCodeSystem = routeCodeEl.GetAttrVal(sc.A.CodeSystem);
+                    string? displayName = routeCodeEl.GetAttrVal(sc.A.DisplayName);
+                    string? nullFlavor = routeCodeEl.GetAttrVal(sc.A.NullFlavor);
+
+                    // Validate code system when nullFlavor is not present
+                    if (string.IsNullOrWhiteSpace(nullFlavor))
+                    {
+                        if (routeCodeSystem != "2.16.840.1.113883.3.26.1.1")
+                            continue;
+                    }
+
+                    dtos.Add(new ProductRouteOfAdministrationDto
+                    {
+                        RouteCode = routeCode,
+                        RouteCodeSystem = routeCodeSystem,
+                        RouteDisplayName = displayName,
+                        RouteNullFlavor = nullFlavor
+                    });
+                }
+            }
+
+            return dtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of ProductRouteOfAdministration entities, checking for existing routes
+        /// and creating only missing ones in a single batch operation.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="productId">The foreign key ID of the parent Product.</param>
+        /// <param name="routeDtos">The list of route DTOs parsed from XML.</param>
+        /// <param name="context">The parsing context for logging.</param>
+        /// <returns>The count of newly created ProductRouteOfAdministration entities.</returns>
+        /// <seealso cref="ProductRouteOfAdministration"/>
+        /// <seealso cref="ProductRouteOfAdministrationDto"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private async Task<int> bulkCreateProductRoutesOfAdministrationAsync(
+            ApplicationDbContext dbContext,
+            int productId,
+            List<ProductRouteOfAdministrationDto> routeDtos,
+            SplParseContext context)
+        {
+            #region implementation
+
+            if (!routeDtos.Any())
+                return 0;
+
+            var routeDbSet = dbContext.Set<ProductRouteOfAdministration>();
+
+            // Get existing routes for this product
+            var existingRoutes = await routeDbSet
+                .Where(r => r.ProductID == productId)
+                .Select(r => new { r.RouteCode, r.RouteCodeSystem, r.RouteNullFlavor })
+                .ToListAsync();
+
+            // Build HashSet for deduplication using composite key
+            var existingKeys = new HashSet<(string? RouteCode, string? RouteCodeSystem, string? NullFlavor)>(
+                existingRoutes.Select(r => (r.RouteCode, r.RouteCodeSystem, r.RouteNullFlavor))
+            );
+
+            // Filter to only new routes
+            var newRoutes = routeDtos
+                .Where(dto => !existingKeys.Contains((dto.RouteCode, dto.RouteCodeSystem, dto.RouteNullFlavor)))
+                .Select(dto => new ProductRouteOfAdministration
+                {
+                    ProductID = productId,
+                    RouteCode = dto.RouteCode,
+                    RouteCodeSystem = dto.RouteCodeSystem,
+                    RouteDisplayName = dto.RouteDisplayName,
+                    RouteNullFlavor = dto.RouteNullFlavor
+                })
+                .ToList();
+
+            if (newRoutes.Any())
+            {
+                routeDbSet.AddRange(newRoutes);
+                await dbContext.SaveChangesAsync();
+                context.Logger?.LogInformation($"Bulk created {newRoutes.Count} product routes of administration for ProductID={productId}");
+            }
+
+            return newRoutes.Count;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region DTO Classes
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object for Characteristic entity used during bulk operations.
+        /// Contains all necessary fields for creating Characteristic records without entity tracking overhead.
+        /// </summary>
+        /// <seealso cref="Characteristic"/>
+        /// <seealso cref="Label"/>
+        private class CharacteristicDto
+        {
+            public int? PackagingLevelID { get; set; }
+            public string? CharacteristicCode { get; set; }
+            public string? CharacteristicCodeSystem { get; set; }
+            public string? OriginalText { get; set; }
+            public string? ValueType { get; set; }
+            public decimal? ValuePQ_Value { get; set; }
+            public string? ValuePQ_Unit { get; set; }
+            public int? ValueINT { get; set; }
+            public string? ValueCV_Code { get; set; }
+            public string? ValueCV_CodeSystem { get; set; }
+            public string? ValueCV_DisplayName { get; set; }
+            public string? ValueST { get; set; }
+            public bool? ValueBL { get; set; }
+            public decimal? ValueIVLPQ_LowValue { get; set; }
+            public string? ValueIVLPQ_LowUnit { get; set; }
+            public decimal? ValueIVLPQ_HighValue { get; set; }
+            public string? ValueIVLPQ_HighUnit { get; set; }
+            public string? ValueED_MediaType { get; set; }
+            public string? ValueED_FileName { get; set; }
+            public string? ValueNullFlavor { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object for AdditionalIdentifier entity used during bulk operations.
+        /// Contains all necessary fields for creating AdditionalIdentifier records without entity tracking overhead.
+        /// </summary>
+        /// <seealso cref="AdditionalIdentifier"/>
+        /// <seealso cref="Label"/>
+        private class AdditionalIdentifierDto
+        {
+            public string? IdentifierTypeCode { get; set; }
+            public string? IdentifierTypeCodeSystem { get; set; }
+            public string? IdentifierTypeDisplayName { get; set; }
+            public string? IdentifierValue { get; set; }
+            public string? IdentifierRootOID { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object for ProductRouteOfAdministration entity used during bulk operations.
+        /// Contains all necessary fields for creating ProductRouteOfAdministration records without entity tracking overhead.
+        /// </summary>
+        /// <seealso cref="ProductRouteOfAdministration"/>
+        /// <seealso cref="Label"/>
+        private class ProductRouteOfAdministrationDto
+        {
+            public string? RouteCode { get; set; }
+            public string? RouteCodeSystem { get; set; }
+            public string? RouteDisplayName { get; set; }
+            public string? RouteNullFlavor { get; set; }
+        }
+
+        #endregion
     }
 }

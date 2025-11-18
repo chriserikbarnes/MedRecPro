@@ -154,8 +154,11 @@ namespace MedRecPro.Service
 
         #endregion
 
-
         private readonly ApplicationDbContext _dbContext;
+
+        private readonly IConfiguration _configuration;
+
+        private static bool useExpandedDebugLog;
 
         #region constructors
 
@@ -164,10 +167,14 @@ namespace MedRecPro.Service
         /// Initializes a new instance of the TextContentRenderingService class.
         /// </summary>
         /// <param name="dbContext">The database context for accessing observation media data.</param>
+        /// <param name="configuration"></param>
         /// <exception cref="ArgumentNullException">Thrown if dbContext is null.</exception>
-        public TextContentRenderingService(ApplicationDbContext dbContext)
+        public TextContentRenderingService(ApplicationDbContext dbContext, IConfiguration configuration)
         {
             _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+            _configuration = configuration ?? throw new ArgumentException(nameof(configuration));
+
+            useExpandedDebugLog = _configuration.GetValue<bool>("FeatureFlags:UseEnhancedDebugging");
         }
 
         #endregion
@@ -213,15 +220,19 @@ namespace MedRecPro.Service
             #region implementation
 
 #if DEBUG
-            Debug.WriteLine($"=== PrepareTextContentForRendering ===");
-            Debug.WriteLine($"TextContents count: {textContents?.Count() ?? 0}");
-            Debug.WriteLine($"ObservationMedia count: {observationMedia?.Count() ?? 0}");
-
-            if (observationMedia?.Any() == true)
+            if (useExpandedDebugLog)
             {
-                foreach (var om in observationMedia)
+
+                Debug.WriteLine($"=== PrepareTextContentForRendering ===");
+                Debug.WriteLine($"TextContents count: {textContents?.Count() ?? 0}");
+                Debug.WriteLine($"ObservationMedia count: {observationMedia?.Count() ?? 0}");
+
+                if (observationMedia?.Any() == true)
                 {
-                    Debug.WriteLine($"  ObservationMedia: ID={om.ObservationMediaID}, MediaID={om.MediaID}");
+                    foreach (var om in observationMedia)
+                    {
+                        Debug.WriteLine($"  ObservationMedia: ID={om.ObservationMediaID}, MediaID={om.MediaID}");
+                    }
                 }
             }
 #endif
@@ -237,32 +248,38 @@ namespace MedRecPro.Service
                 foreach (var content in orderedContent)
                 {
 #if DEBUG
-                    Debug.WriteLine($"\nProcessing TextContent ID={content.SectionTextContentID}");
-                    Debug.WriteLine($"  ContentType: {content.ContentType}");
-                    Debug.WriteLine($"  SequenceNumber: {content.SequenceNumber}");
-                    Debug.WriteLine($"  RenderedMedias count: {content.RenderedMedias?.Count ?? 0}");
-
-                    if (content.RenderedMedias?.Any() == true)
+                    if (useExpandedDebugLog)
                     {
-                        foreach (var rm in content.RenderedMedias)
+                        Debug.WriteLine($"\nProcessing TextContent ID={content.SectionTextContentID}");
+                        Debug.WriteLine($"  ContentType: {content.ContentType}");
+                        Debug.WriteLine($"  SequenceNumber: {content.SequenceNumber}");
+                        Debug.WriteLine($"  RenderedMedias count: {content.RenderedMedias?.Count ?? 0}");
+
+                        if (content.RenderedMedias?.Any() == true)
                         {
-                            Debug.WriteLine($"    RenderedMedia: ID={rm.RenderedMediaID}, ObsMediaID={rm.ObservationMediaID}");
+                            foreach (var rm in content.RenderedMedias)
+                            {
+                                Debug.WriteLine($"    RenderedMedia: ID={rm.RenderedMediaID}, ObsMediaID={rm.ObservationMediaID}");
+                            }
                         }
                     }
 #endif
                     var renderedContent = prepareTextContentItemForRendering(content, observationMedia);
 #if DEBUG
-                    Debug.WriteLine($"  Result:");
-                    Debug.WriteLine($"    RenderingAction: {renderedContent.RenderingAction}");
-                    Debug.WriteLine($"    HasRenderedMedia: {renderedContent.HasRenderedMedia}");
-                    Debug.WriteLine($"    ReferencedObjectId: {renderedContent.ReferencedObjectId ?? "NULL"}");
-                    Debug.WriteLine($"    ResolvedMediaIds count: {renderedContent.ResolvedMediaIds?.Count() ?? 0}");
-
-                    if (renderedContent.ResolvedMediaIds?.Any() == true)
+                    if (useExpandedDebugLog)
                     {
-                        foreach (var mediaId in renderedContent.ResolvedMediaIds)
+                        Debug.WriteLine($"  Result:");
+                        Debug.WriteLine($"    RenderingAction: {renderedContent.RenderingAction}");
+                        Debug.WriteLine($"    HasRenderedMedia: {renderedContent.HasRenderedMedia}");
+                        Debug.WriteLine($"    ReferencedObjectId: {renderedContent.ReferencedObjectId ?? "NULL"}");
+                        Debug.WriteLine($"    ResolvedMediaIds count: {renderedContent.ResolvedMediaIds?.Count() ?? 0}");
+
+                        if (renderedContent.ResolvedMediaIds?.Any() == true)
                         {
-                            Debug.WriteLine($"      Resolved MediaID: {mediaId}");
+                            foreach (var mediaId in renderedContent.ResolvedMediaIds)
+                            {
+                                Debug.WriteLine($"      Resolved MediaID: {mediaId}");
+                            }
                         }
                     }
 #endif
@@ -270,7 +287,11 @@ namespace MedRecPro.Service
                 }
             }
 
-            Debug.WriteLine($"=== End PrepareTextContentForRendering ===\n");
+            if (useExpandedDebugLog)
+            {
+                Debug.WriteLine($"=== End PrepareTextContentForRendering ===\n");
+            }
+
             return renderedContents;
 
             #endregion
@@ -769,17 +790,23 @@ namespace MedRecPro.Service
             #region implementation
 
 #if DEBUG
-            Debug.WriteLine($"  === resolveRenderedMediaReferences ===");
-            Debug.WriteLine($"    RenderedMedias count: {renderedMedias?.Count() ?? 0}");
-            Debug.WriteLine($"    ObservationMedia count: {observationMedia?.Count() ?? 0}");
+            if (useExpandedDebugLog)
+            {
+                Debug.WriteLine($"  === resolveRenderedMediaReferences ===");
+                Debug.WriteLine($"    RenderedMedias count: {renderedMedias?.Count() ?? 0}");
+                Debug.WriteLine($"    ObservationMedia count: {observationMedia?.Count() ?? 0}");
+            }
 #endif
             var resolvedMediaIds = new List<string>();
 
             if (renderedMedias?.Any() != true || observationMedia?.Any() != true)
             {
 #if DEBUG
-                Debug.WriteLine($"    Early return: Missing data");
-                Debug.WriteLine($"  === End resolveRenderedMediaReferences ===");
+                if (useExpandedDebugLog)
+                {
+                    Debug.WriteLine($"    Early return: Missing data");
+                    Debug.WriteLine($"  === End resolveRenderedMediaReferences ===");
+                }
 #endif
                 return resolvedMediaIds;
             }
@@ -789,13 +816,19 @@ namespace MedRecPro.Service
             foreach (var renderedMedia in orderedRenderedMedia)
             {
 #if DEBUG
-                Debug.WriteLine($"    Processing RenderedMedia ID={renderedMedia.RenderedMediaID}");
-                Debug.WriteLine($"      ObservationMediaID: {renderedMedia.ObservationMediaID}");
+                if (useExpandedDebugLog)
+                {
+                    Debug.WriteLine($"    Processing RenderedMedia ID={renderedMedia.RenderedMediaID}");
+                    Debug.WriteLine($"      ObservationMediaID: {renderedMedia.ObservationMediaID}");
+                }
 #endif
                 if (renderedMedia.ObservationMediaID == null)
                 {
 #if DEBUG
-                    Debug.WriteLine($"      Skipping: ObservationMediaID is null");
+                    if (useExpandedDebugLog)
+                    {
+                        Debug.WriteLine($"      Skipping: ObservationMediaID is null");
+                    }
 #endif
                     continue;
                 }
@@ -805,30 +838,42 @@ namespace MedRecPro.Service
                 );
 
 #if DEBUG
-                Debug.WriteLine($"      Matching ObservationMedia found: {matchingObservationMedia != null}");
-
-                if (matchingObservationMedia != null)
+                if (useExpandedDebugLog)
                 {
-                    Debug.WriteLine($"        ObservationMedia.MediaID: {matchingObservationMedia.MediaID ?? "NULL"}");
+                    Debug.WriteLine($"      Matching ObservationMedia found: {matchingObservationMedia != null}");
+
+                    if (matchingObservationMedia != null)
+                    {
+                        Debug.WriteLine($"        ObservationMedia.MediaID: {matchingObservationMedia.MediaID ?? "NULL"}");
+                    }
                 }
 #endif
                 if (!string.IsNullOrWhiteSpace(matchingObservationMedia?.MediaID))
                 {
                     resolvedMediaIds.Add(matchingObservationMedia.MediaID);
 #if DEBUG
-                    Debug.WriteLine($"      Added MediaID: {matchingObservationMedia.MediaID}");
+                    if (useExpandedDebugLog)
+                    {
+                        Debug.WriteLine($"      Added MediaID: {matchingObservationMedia.MediaID}");
+                    }
 #endif
                 }
                 else
                 {
 #if DEBUG
-                    Debug.WriteLine($"      Skipping: MediaID is null or whitespace");
+                    if (useExpandedDebugLog)
+                    {
+                        Debug.WriteLine($"      Skipping: MediaID is null or whitespace");
+                    }
 #endif
                 }
             }
 #if DEBUG
-            Debug.WriteLine($"    Total resolved: {resolvedMediaIds.Count}");
-            Debug.WriteLine($"  === End resolveRenderedMediaReferences ===");
+            if (useExpandedDebugLog)
+            {
+                Debug.WriteLine($"    Total resolved: {resolvedMediaIds.Count}");
+                Debug.WriteLine($"  === End resolveRenderedMediaReferences ===");
+            }
 #endif
 
             return resolvedMediaIds;
