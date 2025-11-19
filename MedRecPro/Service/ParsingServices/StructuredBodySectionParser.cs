@@ -45,7 +45,7 @@ namespace MedRecPro.Service.ParsingServices
         /**************************************************************/
         public StructuredBodySectionParser(SectionParser? sectionParser = null)
         {
-            _sectionParser = sectionParser?? new SectionParser();
+            _sectionParser = sectionParser ?? new SectionParser();
         }
         #endregion
 
@@ -86,7 +86,10 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="StructuredBody"/>
         /// <seealso cref="SectionParser"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
+        public async Task<SplParseResult> ParseAsync(XElement element,
+            SplParseContext context,
+            Action<string>? reportProgress = null,
+            bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();
@@ -120,6 +123,35 @@ namespace MedRecPro.Service.ParsingServices
 
                 // Update the parsing context with the newly created structuredBody
                 context.StructuredBody = structuredBody;
+
+                // CRITICAL: Perform section discovery if staged bulk operations are enabled
+                // This must happen HERE (not in SectionParser) because this is the only place
+                // where we have the complete structuredBody element. When SectionParser is called
+                // recursively through SectionHierarchyParser, it only has a child section elements.
+                if (context.UseBulkStaging)
+                {
+                    context.Logger?.LogInformation("Starting section discovery for staged bulk operations");
+                    reportProgress?.Invoke("Discovering all sections (Pass 1)...");
+
+                    var discovery = XElementExtensions.DiscoverAllSections(element, context.Logger);
+
+                    if (discovery != null && discovery.AllSections.Any())
+                    {
+                        context.Logger?.LogInformation(
+                            "Section discovery complete: {SectionCount} sections at {MaxLevel} nesting levels",
+                            discovery.AllSections.Count,
+                            discovery.AllSections.Any() ? discovery.AllSections.Max(s => s.NestingLevel) + 1 : 0);
+
+                        // Store discovery results in context for use by all section parsing operations
+                        context.SectionDiscovery = discovery;
+
+                        reportProgress?.Invoke($"Discovered {discovery.AllSections.Count} sections. Ready for bulk processing...");
+                    }
+                    else
+                    {
+                        context.Logger?.LogWarning("No sections discovered during Pass 1");
+                    }
+                }
 
                 var parentSectionResult = await _sectionParser.ParseAsync(element,
                   context,
