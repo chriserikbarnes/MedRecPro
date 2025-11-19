@@ -1132,7 +1132,7 @@ namespace MedRecPro.Api.Controllers
         /// This endpoint delegates the comparison analysis to the ComparisonService, which handles:
         /// - Retrieving the complete label DTO structure from the database
         /// - Finding the corresponding SplData record containing original XML
-        /// - Converting the DTO to JSON for standardized comparison
+        /// - Converting the DTO > JSON > Rendered SPL for comparison with original
         /// - Using Claude AI to perform intelligent difference analysis
         /// - Parsing AI response into structured comparison results
         /// 
