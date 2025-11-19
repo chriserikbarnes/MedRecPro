@@ -197,6 +197,7 @@ namespace MedRecPro.Controllers
                     backgroundProcessing = featureFlagsSection.GetValue<bool>("BackgroundProcessingEnabled", true),
                     databaseBulkProcessing = featureFlagsSection.GetValue<bool?>("UseBulkOperations", true),
                     activityTracking = featureFlagsSection.GetValue<bool>("ActivityTrackingEnabled", true),
+                    enhancedDebugging = featureFlagsSection.GetValue<bool>("UseEnhancedDebugging", true),
                     caching = _configuration.GetValue<bool>("ComparisonSettings:EnableCaching", true),
                     fileStorage = _configuration.GetSection("FileStorageSettings").Exists(),
                     razorTemplates = _configuration.GetSection("RazorLight").Exists()

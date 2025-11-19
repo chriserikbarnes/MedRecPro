@@ -81,7 +81,7 @@ namespace MedRecPro.Service
             #region Implementation
             try
             {
-                var logginEnabled = _configuration.GetValue<bool>("FeatureFlags:BackgroundProcessingEnabled", true);
+                var logginEnabled = _configuration.GetValue<bool>("FeatureFlags:ActivityTrackingEnabled", true);
 
                 if (!logginEnabled)
                 {
