@@ -34,6 +34,7 @@ namespace MedRecPro.Service
     public class SplXmlParser
     {
         #region implementation
+
         /// <summary>
         /// Service provider for creating scoped repositories and accessing dependency injection services.
         /// </summary>

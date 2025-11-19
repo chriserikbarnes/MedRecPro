@@ -325,6 +325,139 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
+        #region Organization/Author Parsing - - Feature Switched Entry
+
+        /**************************************************************/
+        /// <summary>
+        /// Feature-switched entry point for parsing named entities (DBAs).
+        /// Routes to either bulk operations or single-call implementation based on context configuration.
+        /// </summary>
+        /// <param name="orgElement">The XElement representing [assignedOrganization] or similar.</param>
+        /// <param name="organizationId">The parent OrganizationID.</param>
+        /// <param name="context">The parsing context containing configuration flags.</param>
+        /// <returns>List of NamedEntity (both created and found).</returns>
+        /// <remarks>
+        /// Routes between bulk operations (optimized for large datasets) and single-call operations (simpler logic).
+        /// Bulk operations reduce database calls from N to 2 per entity type.
+        /// </remarks>
+        /// <seealso cref="NamedEntity"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<NamedEntity>> getOrCreateNamedEntitiesAsync(
+            XElement orgElement,
+            int organizationId,
+            SplParseContext context)
+        {
+            #region implementation
+
+            if (context.UseBulkOperations)
+            {
+                return await getOrCreateNamedEntitiesAsync_bulkCalls(
+                    orgElement,
+                    organizationId,
+                    context);
+            }
+            else
+            {
+                return await getOrCreateNamedEntitiesAsync_singleCalls(
+                    orgElement,
+                    organizationId,
+                    context);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Feature-switched entry point for parsing organization identifiers.
+        /// Routes to either bulk operations or single-call implementation based on context configuration.
+        /// </summary>
+        /// <param name="orgElement">The XElement representing [representedOrganization] or [assignedOrganization].</param>
+        /// <param name="organizationId">The parent OrganizationID.</param>
+        /// <param name="context">The parsing context containing configuration flags.</param>
+        /// <returns>List of OrganizationIdentifier (both created and found).</returns>
+        /// <remarks>
+        /// Routes between bulk operations (optimized for large datasets) and single-call operations (simpler logic).
+        /// Bulk operations reduce database calls from N to 2 per entity type.
+        /// </remarks>
+        /// <seealso cref="OrganizationIdentifier"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<OrganizationIdentifier>> getOrCreateOrganizationIdentifierAsync(
+            XElement orgElement,
+            int organizationId,
+            SplParseContext context)
+        {
+            #region implementation
+
+            if (context.UseBulkOperations)
+            {
+                return await getOrCreateOrganizationIdentifierAsync_bulkCalls(
+                    orgElement,
+                    organizationId,
+                    context);
+            }
+            else
+            {
+                return await getOrCreateOrganizationIdentifierAsync_singleCalls(
+                    orgElement,
+                    organizationId,
+                    context);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Feature-switched entry point for parsing organization telecoms.
+        /// Routes to either bulk operations or single-call implementation based on context configuration.
+        /// </summary>
+        /// <param name="parentEl">XElement containing [telecom] elements.</param>
+        /// <param name="organizationId">Owning OrganizationID.</param>
+        /// <param name="context">The parsing context containing configuration flags.</param>
+        /// <returns>Count of new Telecoms created and linked.</returns>
+        /// <remarks>
+        /// Routes between bulk operations (optimized for large datasets) and single-call operations (simpler logic).
+        /// Bulk operations reduce database calls from N to 2 per entity type.
+        /// </remarks>
+        /// <seealso cref="Telecom"/>
+        /// <seealso cref="OrganizationTelecom"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="Label"/>
+        private static async Task<int> parseAndSaveOrganizationTelecomsAsync(
+            XElement parentEl,
+            int organizationId,
+            SplParseContext context)
+        {
+            #region implementation
+
+            if (context.UseBulkOperations)
+            {
+                return await parseAndSaveOrganizationTelecomsAsync_bulkCalls(
+                    parentEl,
+                    organizationId,
+                    context);
+            }
+            else
+            {
+                return await parseAndSaveOrganizationTelecomsAsync_singleCalls(
+                    parentEl,
+                    organizationId,
+                    context);
+            }
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Organization/Author Parsing - Individual Operations (N + 1)
+
         /**************************************************************/
         /// <summary>
         /// Links the author organization's identifiers to a top-level DocumentRelationship.
@@ -829,7 +962,8 @@ namespace MedRecPro.Service.ParsingServices
             orgCount++;
 
             // Process organization attributes
-            if (childOrgEl != null) {
+            if (childOrgEl != null)
+            {
                 await processOrganizationAttributesAsync(childOrgEl, childOrg.OrganizationID.Value, context);
 
                 await linkIdentifiersToRelationshipAsync(
@@ -1230,7 +1364,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private static async Task<List<NamedEntity>> getOrCreateNamedEntitiesAsync(
+        private static async Task<List<NamedEntity>> getOrCreateNamedEntitiesAsync_singleCalls(
             XElement orgElement,
             int organizationId,
             SplParseContext context)
@@ -1316,7 +1450,6 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
-
         /**************************************************************/
         /// <summary>
         /// Finds or creates OrganizationIdentifier(s) for all [id] elements under the orgElement.
@@ -1341,7 +1474,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Organization"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        private static async Task<List<OrganizationIdentifier>> getOrCreateOrganizationIdentifierAsync(
+        private static async Task<List<OrganizationIdentifier>> getOrCreateOrganizationIdentifierAsync_singleCalls(
             XElement orgElement,
             int organizationId,
             SplParseContext context)
@@ -1553,7 +1686,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private static async Task<int> parseAndSaveOrganizationTelecomsAsync(
+        private static async Task<int> parseAndSaveOrganizationTelecomsAsync_singleCalls(
             XElement parentEl,
             int organizationId,
             SplParseContext context)
@@ -2386,5 +2519,658 @@ namespace MedRecPro.Service.ParsingServices
             return (newDocAuthor, true);
             #endregion
         }
+
+        #endregion
+
+        #region Bulk Operations - Organization Telecoms
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses organization telecoms using bulk operations pattern. Collects all telecom elements into memory,
+        /// deduplicates against existing entities, then performs batch insert for optimal performance.
+        /// </summary>
+        /// <param name="parentEl">XElement containing [telecom] elements.</param>
+        /// <param name="organizationId">Owning OrganizationID.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>Count of new Telecoms created and linked.</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per telecom)
+        /// - After: 2 queries + 2 inserts (one per entity type)
+        /// </remarks>
+        /// <seealso cref="Telecom"/>
+        /// <seealso cref="OrganizationTelecom"/>
+        /// <seealso cref="Label"/>
+        private static async Task<int> parseAndSaveOrganizationTelecomsAsync_bulkCalls(
+            XElement parentEl,
+            int organizationId,
+            SplParseContext context)
+        {
+            #region implementation
+
+            // Find all direct <telecom> children elements
+            var telecomEls = parentEl.SplElements(sc.E.Telecom).ToList();
+            if (telecomEls == null || !telecomEls.Any())
+                return 0;
+
+            // Validate required context dependencies
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+                return 0;
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            //parse telecoms into memory
+            var telecomDtos = parseTelecomsToMemory(telecomEls, context.Logger);
+
+            //bulk query and create telecoms
+            int createdCount = await bulkCreateTelecomsAsync(dbContext, organizationId, telecomDtos);
+
+            return createdCount;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all telecom elements into memory without database operations.
+        /// </summary>
+        /// <param name="telecomEls">List of telecom XElements to parse.</param>
+        /// <param name="logger">Logger for validation warnings.</param>
+        /// <returns>A list of TelecomDto objects representing valid telecoms.</returns>
+        /// <seealso cref="TelecomDto"/>
+        /// <seealso cref="Label"/>
+        private static List<TelecomDto> parseTelecomsToMemory(List<XElement> telecomEls, ILogger logger)
+        {
+            #region implementation
+
+            var dtos = new List<TelecomDto>();
+
+            foreach (var telecomEl in telecomEls)
+            {
+                var value = telecomEl.Attribute("value")?.Value?.Trim();
+                if (string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                // Determine telecom type: "tel", "mailto", "fax"
+                string? telecomType = null;
+                if (value.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)) telecomType = "tel";
+                else if (value.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) telecomType = "mailto";
+                else if (value.StartsWith("fax:", StringComparison.OrdinalIgnoreCase)) telecomType = "fax";
+                else continue; // skip unsupported telecom types
+
+                // Validation (same as single-call version)
+                if (telecomType == "tel" || telecomType == "fax")
+                {
+                    var number = value.Substring(value.IndexOf(':') + 1);
+                    if (!number.StartsWith("+") || number.Any(char.IsLetter) || number.Contains(" "))
+                    {
+                        logger?.LogWarning("Invalid {TelecomType} format: {Value}", telecomType, value);
+                    }
+                }
+                else if (telecomType == "mailto")
+                {
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(value.Substring(7), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+                    {
+                        logger?.LogWarning("Invalid email address: {Value}", value);
+                    }
+                }
+
+                dtos.Add(new TelecomDto
+                {
+                    TelecomType = telecomType,
+                    TelecomValue = value
+                });
+            }
+
+            return dtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of Telecom and OrganizationTelecom entities,
+        /// checking for existing telecoms and creating only missing ones in batch operations.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="organizationId">The organization ID to link telecoms to.</param>
+        /// <param name="telecomDtos">The list of telecom DTOs parsed from XML.</param>
+        /// <returns>The count of newly created Telecom entities.</returns>
+        /// <seealso cref="Telecom"/>
+        /// <seealso cref="OrganizationTelecom"/>
+        /// <seealso cref="TelecomDto"/>
+        /// <seealso cref="Label"/>
+        private static async Task<int> bulkCreateTelecomsAsync(
+            ApplicationDbContext dbContext,
+            int organizationId,
+            List<TelecomDto> telecomDtos)
+        {
+            #region implementation
+
+            if (!telecomDtos.Any())
+                return 0;
+
+            int createdCount = 0;
+
+            // Get distinct telecom values (case-insensitive)
+            var distinctValues = telecomDtos
+                .Select(dto => dto.TelecomValue.ToLower())
+                .Distinct()
+                .ToList();
+
+            var telecomDbSet = dbContext.Set<Telecom>();
+
+            // Bulk query existing telecoms (case-insensitive comparison)
+            var existingTelecoms = await telecomDbSet
+                .Where(t => !string.IsNullOrWhiteSpace(t.TelecomValue) 
+                    && distinctValues.Contains(t.TelecomValue.ToLower()))
+                .ToListAsync();
+
+            // Create HashSet for fast lookups (case-insensitive)
+            var existingValues = new HashSet<string>(
+                existingTelecoms
+                    .Where(t => !string.IsNullOrWhiteSpace(t.TelecomValue))
+                    .Select(t => t.TelecomValue!.ToLower()),
+                StringComparer.OrdinalIgnoreCase
+            );
+
+            // Find telecoms that need to be created
+            var newTelecoms = telecomDtos
+                .Where(dto => !existingValues.Contains(dto.TelecomValue))
+                .GroupBy(dto => dto.TelecomValue.ToLower())
+                .Select(g => g.First()) // Take first of each unique value
+                .Select(dto => new Telecom
+                {
+                    TelecomType = dto.TelecomType,
+                    TelecomValue = dto.TelecomValue
+                })
+                .ToList();
+
+            // Bulk insert new telecoms
+            if (newTelecoms.Any())
+            {
+                telecomDbSet.AddRange(newTelecoms);
+                await dbContext.SaveChangesAsync();
+                createdCount = newTelecoms.Count;
+            }
+
+            // Re-query all telecoms to get IDs (including newly created ones)
+            var allTelecoms = await telecomDbSet
+                .Where(t => !string.IsNullOrWhiteSpace(t.TelecomValue) 
+                    && distinctValues.Contains(t.TelecomValue.ToLower()))
+                .ToListAsync();
+
+            // Build lookup dictionary for TelecomID by value (case-insensitive)
+            var telecomLookup = allTelecoms
+                .Where(t => !string.IsNullOrWhiteSpace(t.TelecomValue) 
+                    && t.TelecomID.HasValue)
+                .ToDictionary(
+                    t => t.TelecomValue!.ToLower(),
+                    t => t.TelecomID!.Value,
+                StringComparer.OrdinalIgnoreCase
+            );
+
+            // Query existing links for this organization
+            var orgTelecomDbSet = dbContext.Set<OrganizationTelecom>();
+            var existingLinks = await orgTelecomDbSet
+                .Where(ot => ot.OrganizationID == organizationId)
+                .Select(ot => new { ot.OrganizationID, ot.TelecomID })
+                .ToListAsync();
+
+            var existingLinkKeys = new HashSet<(int OrgId, int TelecomId)>(
+                existingLinks
+                    .Where(l => l.OrganizationID.HasValue && l.TelecomID.HasValue)
+                    .Select(l => (l.OrganizationID!.Value, l.TelecomID!.Value))
+            );
+
+            // Create missing links
+            var newLinks = telecomDtos
+                .Select(dto => new
+                {
+                    dto.TelecomValue,
+                    TelecomId = telecomLookup.ContainsKey(dto.TelecomValue.ToLower())
+                        ? telecomLookup[dto.TelecomValue.ToLower()]
+                        : (int?)null
+                })
+                .Where(x => x.TelecomId.HasValue)
+                .Where(x => !existingLinkKeys.Contains((organizationId, x.TelecomId!.Value)))
+                .Select(x => new OrganizationTelecom
+                {
+                    OrganizationID = organizationId,
+                    TelecomID = x.TelecomId!.Value
+                })
+                .Distinct()
+                .ToList();
+
+            if (newLinks.Any())
+            {
+                orgTelecomDbSet.AddRange(newLinks);
+                await dbContext.SaveChangesAsync();
+            }
+
+            return createdCount;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Bulk Operations - Organization Identifiers
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses organization identifiers using bulk operations pattern. Collects all identifier elements into memory,
+        /// deduplicates against existing entities, then performs batch insert for optimal performance.
+        /// </summary>
+        /// <param name="orgElement">The XElement representing [representedOrganization] or [assignedOrganization].</param>
+        /// <param name="organizationId">The parent OrganizationID.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>List of OrganizationIdentifier (both created and found).</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per identifier)
+        /// - After: 1 query + 1 insert
+        /// </remarks>
+        /// <seealso cref="OrganizationIdentifier"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<OrganizationIdentifier>> getOrCreateOrganizationIdentifierAsync_bulkCalls(
+            XElement orgElement,
+            int organizationId,
+            SplParseContext context)
+        {
+            #region implementation
+
+            var identifiers = new List<OrganizationIdentifier>();
+
+            // Validate input parameters before proceeding
+            if (orgElement == null || organizationId <= 0)
+                return identifiers;
+
+            // Validate required context before proceeding
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+                return identifiers;
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            #region parse identifiers into memory
+
+            var identifierDtos = parseOrganizationIdentifiersToMemory(orgElement, context.Logger);
+
+            #endregion
+
+            #region bulk query and create identifiers
+
+            identifiers = await bulkCreateOrganizationIdentifiersAsync(
+                dbContext,
+                organizationId,
+                identifierDtos);
+
+            #endregion
+
+            return identifiers;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all organization identifier elements into memory without database operations.
+        /// </summary>
+        /// <param name="orgElement">The XElement containing [id] elements.</param>
+        /// <param name="logger">Logger for validation warnings.</param>
+        /// <returns>A list of OrganizationIdentifierDto objects representing valid identifiers.</returns>
+        /// <seealso cref="OrganizationIdentifierDto"/>
+        /// <seealso cref="Label"/>
+        private static List<OrganizationIdentifierDto> parseOrganizationIdentifiersToMemory(
+            XElement orgElement,
+            ILogger logger)
+        {
+            #region implementation
+
+            var dtos = new List<OrganizationIdentifierDto>();
+
+            // Find all direct [id] children
+            foreach (var idEl in orgElement.SplElements(sc.E.Id))
+            {
+                // Extract OID attributes (both required per spec)
+                var oidRoot = idEl.Attribute(sc.A.Root)?.Value?.Trim();
+                var oidExtension = idEl.Attribute(sc.A.Extension)?.Value?.Trim();
+
+                // Skip if missing required OID components
+                if (string.IsNullOrWhiteSpace(oidRoot) || string.IsNullOrWhiteSpace(oidExtension))
+                {
+                    logger?.LogWarning("Skipping identifier with missing root or extension");
+                    continue;
+                }
+
+                // Infer identifier type from OID root
+                var identifierType = inferIdentifierTypeFromOid(oidRoot);
+
+                // Special validation for DUNS numbers (must be 9 digits)
+                if (identifierType == "DUNS")
+                {
+                    // Remove any hyphens or spaces for validation
+                    var cleanedValue = oidExtension.Replace("-", "").Replace(" ", "");
+                    // DUNS must be exactly 9 digits
+                    if (cleanedValue.Length != 9 || !cleanedValue.All(char.IsDigit))
+                    {
+                        logger?.LogWarning(
+                            "Invalid DUNS format: {Value}. DUNS must be 9 digits.",
+                            oidExtension);
+                        continue; // Skip invalid DUNS entries
+                    }
+                }
+
+                dtos.Add(new OrganizationIdentifierDto
+                {
+                    IdentifierType = identifierType,
+                    IdentifierValue = oidExtension,
+                    IdentifierSystemOID = oidRoot
+                });
+            }
+
+            return dtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of OrganizationIdentifier entities,
+        /// checking for existing identifiers and creating only missing ones in a single batch operation.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="organizationId">The organization ID to associate identifiers with.</param>
+        /// <param name="identifierDtos">The list of identifier DTOs parsed from XML.</param>
+        /// <returns>List of all OrganizationIdentifier entities (existing and newly created).</returns>
+        /// <seealso cref="OrganizationIdentifier"/>
+        /// <seealso cref="OrganizationIdentifierDto"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<OrganizationIdentifier>> bulkCreateOrganizationIdentifiersAsync(
+            ApplicationDbContext dbContext,
+            int organizationId,
+            List<OrganizationIdentifierDto> identifierDtos)
+        {
+            #region implementation
+
+            var allIdentifiers = new List<OrganizationIdentifier>();
+
+            if (!identifierDtos.Any())
+                return allIdentifiers;
+
+            var identifierDbSet = dbContext.Set<OrganizationIdentifier>();
+
+            // Query existing identifiers for this organization
+            var existingIdentifiers = await identifierDbSet
+                .Where(i => i.OrganizationID == organizationId)
+                .Select(i => new { i.IdentifierValue, i.IdentifierSystemOID })
+                .ToListAsync();
+
+            // Create HashSet for fast lookups using composite key
+            var existingKeys = new HashSet<(string Value, string Oid)>(
+                existingIdentifiers
+                    .Where(i => i.IdentifierValue != null && i.IdentifierSystemOID != null)
+                    .Select(i => (i.IdentifierValue!, i.IdentifierSystemOID!))
+            );
+
+            // Find identifiers that need to be created
+            var newIdentifiers = identifierDtos
+                .Where(dto => !existingKeys.Contains((dto.IdentifierValue, dto.IdentifierSystemOID)))
+                .Select(dto => new OrganizationIdentifier
+                {
+                    OrganizationID = organizationId,
+                    IdentifierType = dto.IdentifierType,
+                    IdentifierValue = dto.IdentifierValue,
+                    IdentifierSystemOID = dto.IdentifierSystemOID
+                })
+                .ToList();
+
+            // Bulk insert new identifiers
+            if (newIdentifiers.Any())
+            {
+                identifierDbSet.AddRange(newIdentifiers);
+                await dbContext.SaveChangesAsync();
+            }
+
+            // Re-query all identifiers for this organization to return complete list
+            allIdentifiers = await identifierDbSet
+                .Where(i => i.OrganizationID == organizationId)
+                .ToListAsync();
+
+            return allIdentifiers;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Bulk Operations - Named Entities
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses named entities using bulk operations pattern. Collects all named entity elements into memory,
+        /// deduplicates against existing entities, then performs batch insert for optimal performance.
+        /// </summary>
+        /// <param name="orgElement">The XElement representing [assignedOrganization] or similar.</param>
+        /// <param name="organizationId">The parent OrganizationID.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <returns>List of NamedEntity (both created and found).</returns>
+        /// <remarks>
+        /// Performance Pattern:
+        /// - Before: N database calls (one per named entity)
+        /// - After: 1 query + 1 insert
+        /// </remarks>
+        /// <seealso cref="NamedEntity"/>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<NamedEntity>> getOrCreateNamedEntitiesAsync_bulkCalls(
+            XElement orgElement,
+            int organizationId,
+            SplParseContext context)
+        {
+            #region implementation
+
+            var entities = new List<NamedEntity>();
+
+            // Validate required input parameters
+            if (orgElement == null || organizationId <= 0)
+                return entities;
+
+            // Validate required context dependencies
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+                return entities;
+
+            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            #region parse named entities into memory
+
+            var namedEntityDtos = parseNamedEntitiesToMemory(orgElement);
+
+            #endregion
+
+            #region bulk query and create named entities
+
+            entities = await bulkCreateNamedEntitiesAsync(
+                dbContext,
+                organizationId,
+                namedEntityDtos);
+
+            #endregion
+
+            return entities;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all named entity elements into memory without database operations.
+        /// </summary>
+        /// <param name="orgElement">The XElement containing [asNamedEntity] elements.</param>
+        /// <returns>A list of NamedEntityDto objects representing valid named entities.</returns>
+        /// <seealso cref="NamedEntityDto"/>
+        /// <seealso cref="Label"/>
+        private static List<NamedEntityDto> parseNamedEntitiesToMemory(XElement orgElement)
+        {
+            #region implementation
+
+            var dtos = new List<NamedEntityDto>();
+
+            // Find all <asNamedEntity> elements (direct children of org)
+            foreach (var asNamedEntityEl in orgElement.SplElements(sc.E.AsNamedEntity))
+            {
+                // Extract entity type code information from the code element
+                var codeEl = asNamedEntityEl.SplElement(sc.E.Code);
+                var entityTypeCode = codeEl?.Attribute(sc.A.CodeValue)?.Value?.Trim();
+                var entityTypeCodeSystem = codeEl?.Attribute(sc.A.CodeSystem)?.Value?.Trim();
+                var entityTypeDisplayName = codeEl?.Attribute(sc.A.DisplayName)?.Value?.Trim();
+
+                // Skip entries without proper coding
+                if (string.IsNullOrWhiteSpace(entityTypeCode) || string.IsNullOrWhiteSpace(entityTypeCodeSystem))
+                    continue;
+
+                // Only process entities from the standard healthcare code system
+                if (entityTypeCodeSystem != "2.16.840.1.113883.3.26.1.1")
+                    continue;
+
+                // Extract the entity name which is mandatory for DBA entries
+                var entityName = asNamedEntityEl.SplElement(sc.E.Name)?.Value?.Trim();
+                if (string.IsNullOrWhiteSpace(entityName))
+                    continue;
+
+                // Extract optional suffix used in specific workflow scenarios
+                var entitySuffix = asNamedEntityEl.SplElement(sc.E.Suffix)?.Value?.Trim();
+
+                dtos.Add(new NamedEntityDto
+                {
+                    EntityTypeCode = entityTypeCode,
+                    EntityTypeCodeSystem = entityTypeCodeSystem,
+                    EntityTypeDisplayName = entityTypeDisplayName,
+                    EntityName = entityName,
+                    EntitySuffix = entitySuffix
+                });
+            }
+
+            return dtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs bulk creation of NamedEntity entities,
+        /// checking for existing named entities and creating only missing ones in a single batch operation.
+        /// </summary>
+        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="organizationId">The organization ID to associate named entities with.</param>
+        /// <param name="namedEntityDtos">The list of named entity DTOs parsed from XML.</param>
+        /// <returns>List of all NamedEntity entities (existing and newly created).</returns>
+        /// <seealso cref="NamedEntity"/>
+        /// <seealso cref="NamedEntityDto"/>
+        /// <seealso cref="Label"/>
+        private static async Task<List<NamedEntity>> bulkCreateNamedEntitiesAsync(
+            ApplicationDbContext dbContext,
+            int organizationId,
+            List<NamedEntityDto> namedEntityDtos)
+        {
+            #region implementation
+
+            var allEntities = new List<NamedEntity>();
+
+            if (!namedEntityDtos.Any())
+                return allEntities;
+
+            var entityDbSet = dbContext.Set<NamedEntity>();
+
+            // Query existing named entities for this organization
+            var existingEntities = await entityDbSet
+                .Where(e => e.OrganizationID == organizationId)
+                .Select(e => new { e.EntityName, e.EntityTypeCode, e.EntitySuffix })
+                .ToListAsync();
+
+            // Create HashSet for fast lookups using composite key
+            var existingKeys = new HashSet<(string Name, string TypeCode, string? Suffix)>(
+                existingEntities
+                    .Where(e => e.EntityName != null && e.EntityTypeCode != null)
+                    .Select(e => (e.EntityName!, e.EntityTypeCode!, e.EntitySuffix))
+            );
+
+            // Find named entities that need to be created
+            var newEntities = namedEntityDtos
+                .Where(dto => !existingKeys.Contains((dto.EntityName, dto.EntityTypeCode, dto.EntitySuffix)))
+                .Select(dto => new NamedEntity
+                {
+                    OrganizationID = organizationId,
+                    EntityTypeCode = dto.EntityTypeCode,
+                    EntityTypeCodeSystem = dto.EntityTypeCodeSystem,
+                    EntityTypeDisplayName = dto.EntityTypeDisplayName,
+                    EntityName = dto.EntityName,
+                    EntitySuffix = dto.EntitySuffix
+                })
+                .ToList();
+
+            // Bulk insert new named entities
+            if (newEntities.Any())
+            {
+                entityDbSet.AddRange(newEntities);
+                await dbContext.SaveChangesAsync();
+            }
+
+            // Re-query all named entities for this organization to return complete list
+            allEntities = await entityDbSet
+                .Where(e => e.OrganizationID == organizationId)
+                .ToListAsync();
+
+            return allEntities;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region DTOs for Bulk Operations
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object for Telecom information during parsing.
+        /// </summary>
+        /// <seealso cref="Telecom"/>
+        /// <seealso cref="Label"/>
+        private class TelecomDto
+        {
+            public string TelecomType { get; set; } = string.Empty;
+            public string TelecomValue { get; set; } = string.Empty;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object for OrganizationIdentifier information during parsing.
+        /// </summary>
+        /// <seealso cref="OrganizationIdentifier"/>
+        /// <seealso cref="Label"/>
+        private class OrganizationIdentifierDto
+        {
+            public string IdentifierType { get; set; } = string.Empty;
+            public string IdentifierValue { get; set; } = string.Empty;
+            public string IdentifierSystemOID { get; set; } = string.Empty;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object for NamedEntity information during parsing.
+        /// </summary>
+        /// <seealso cref="NamedEntity"/>
+        /// <seealso cref="Label"/>
+        private class NamedEntityDto
+        {
+            public string EntityTypeCode { get; set; } = string.Empty;
+            public string? EntityTypeCodeSystem { get; set; }
+            public string? EntityTypeDisplayName { get; set; }
+            public string EntityName { get; set; } = string.Empty;
+            public string? EntitySuffix { get; set; }
+        }
+
+        #endregion
     }
 }
