@@ -1,5 +1,4 @@
-﻿
-using System.Xml.Linq;
+﻿using System.Xml.Linq;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using static MedRecPro.Models.Label;
@@ -56,7 +55,7 @@ namespace MedRecPro.Service.ParsingServices
     /// <seealso cref="SplFileImportResult"/>
     public class SplParseContext
     {
-        #region implementation
+        #region properties
 
         private IServiceProvider? _serviceProvider;
 
@@ -73,6 +72,24 @@ namespace MedRecPro.Service.ParsingServices
         /// when ServiceProvider is set. Defaults to false if not configured.
         /// </remarks>
         public bool UseBulkOperations { get; private set; }
+
+        /// <summary>
+        /// Gets a value indicating whether staged bulk operations should be used.
+        /// When enabled, section discovery happens first, then all sections are processed
+        /// in flat bulk operations without recursive orchestration.
+        /// </summary>
+        /// <remarks>
+        /// This value is populated from FeatureFlags:UseBulkStaging in appsettings.json
+        /// when ServiceProvider is set. Defaults to false if not configured.
+        /// Requires UseBulkOperations to also be enabled.
+        /// </remarks>
+        public bool UseBulkStaging { get; private set; }
+
+        /// <summary>
+        /// Contains the results of section discovery if UseBulkStaging is enabled.
+        /// Populated during Pass 1 (discovery), consumed during Pass 2 (processing).
+        /// </summary>
+        public SectionDiscoveryResult? SectionDiscovery { get; set; }
 
         /// <summary>
         /// Gets or sets the service provider for dependency injection.
@@ -97,6 +114,7 @@ namespace MedRecPro.Service.ParsingServices
                     if (configuration != null)
                     {
                         UseBulkOperations = configuration.GetValue<bool>("FeatureFlags:UseBulkOperations", false);
+                        UseBulkStaging = configuration.GetValue<bool>("FeatureFlags:UseBulkStaging", false);
                     }
                 }
 
@@ -230,6 +248,15 @@ namespace MedRecPro.Service.ParsingServices
         public void SetBulkOperationsFlag(bool value)
         {
             UseBulkOperations = value;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Public method for setting the UseBulkOperations flag.
+        ///</summary>
+        public void SetBulkStagingFlag(bool value)
+        {
+            UseBulkStaging = value;
         }
 
         /**************************************************************/
@@ -463,6 +490,115 @@ namespace MedRecPro.Service.ParsingServices
 
             #endregion
         }
+    }
+
+    #endregion
+
+    #region Section Discovery Data Structures
+
+    /**************************************************************/
+    /// <summary>
+    /// Data Transfer Object representing a discovered section during XML traversal.
+    /// Contains all section metadata parsed from XML before database operations.
+    /// </summary>
+    /// <seealso cref="Label.Section"/>
+    public class SectionDiscoveryDto
+    {
+        /// <summary>
+        /// The unique identifier GUID from the section's id@root attribute.
+        /// </summary>
+        public Guid SectionGuid { get; set; }
+
+        /// <summary>
+        /// The code value from the section's code element.
+        /// </summary>
+        public string? SectionCode { get; set; }
+
+        /// <summary>
+        /// The code system from the section's code element.
+        /// </summary>
+        public string? SectionCodeSystem { get; set; }
+
+        /// <summary>
+        /// The display name from the section's code element.
+        /// </summary>
+        public string? SectionCodeDisplayName { get; set; }
+
+        /// <summary>
+        /// The section title text.
+        /// </summary>
+        public string? SectionTitle { get; set; }
+
+        /// <summary>
+        /// The nesting depth of this section (root sections = 0).
+        /// </summary>
+        public int NestingLevel { get; set; }
+
+        /// <summary>
+        /// The parent section's GUID, if this is a child section.
+        /// </summary>
+        public Guid? ParentSectionGuid { get; set; }
+
+        /// <summary>
+        /// The XElement for this section (for Phase 2 content parsing).
+        /// </summary>
+        public XElement SourceElement { get; set; } = null!;
+
+        /// <summary>
+        /// The database ID once the section is created (populated during Phase 2).
+        /// </summary>
+        public int? SectionID { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Data Transfer Object representing a discovered section hierarchy relationship.
+    /// </summary>
+    /// <seealso cref="Label.SectionHierarchy"/>
+    public class SectionHierarchyDiscoveryDto
+    {
+        /// <summary>
+        /// The GUID of the parent section.
+        /// </summary>
+        public Guid ParentSectionGuid { get; set; }
+
+        /// <summary>
+        /// The GUID of the child section.
+        /// </summary>
+        public Guid ChildSectionGuid { get; set; }
+
+        /// <summary>
+        /// The sequence number of this child within the parent.
+        /// </summary>
+        public int SequenceNumber { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Contains the complete results of section discovery traversal.
+    /// Stored in SplParseContext for use during bulk processing phases.
+    /// </summary>
+    public class SectionDiscoveryResult
+    {
+        /// <summary>
+        /// All sections discovered at all nesting levels, in document order.
+        /// </summary>
+        public List<SectionDiscoveryDto> AllSections { get; set; } = new();
+
+        /// <summary>
+        /// All hierarchy relationships discovered during traversal.
+        /// </summary>
+        public List<SectionHierarchyDiscoveryDto> AllHierarchies { get; set; } = new();
+
+        /// <summary>
+        /// Quick lookup: GUID → SectionDiscoveryDto
+        /// </summary>
+        public Dictionary<Guid, SectionDiscoveryDto> SectionsByGuid { get; set; } = new();
+
+        /// <summary>
+        /// Quick lookup: GUID → Database Section ID (populated during bulk creation)
+        /// </summary>
+        public Dictionary<Guid, int> SectionIdsByGuid { get; set; } = new();
     }
 
     #endregion

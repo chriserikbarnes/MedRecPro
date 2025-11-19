@@ -319,6 +319,7 @@ namespace MedRecPro.Service
             // Get configuration from ROOT provider before creating scope
             var rootConfig = _serviceProvider.GetRequiredService<IConfiguration>();
             var useBulkOps = rootConfig.GetValue<bool>("FeatureFlags:UseBulkOperations", false);
+            var useStaging = rootConfig.GetValue<bool>("FeatureFlags:UseBulkStaging", false);
 
             // Use a single scope for the entire file to process it as a single transaction.
             using var scope = _serviceProvider.CreateScope();
@@ -335,6 +336,7 @@ namespace MedRecPro.Service
 
             // Manually set feature flag
             context.SetBulkOperationsFlag(useBulkOps);
+            context.SetBulkStagingFlag(useStaging);
 
             try
             {

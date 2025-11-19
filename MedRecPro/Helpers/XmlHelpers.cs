@@ -1,4 +1,6 @@
 ﻿using MedRecPro.Models;
+using MedRecPro.Service.ParsingServices;
+using Microsoft.Extensions.Logging;
 using System.Xml.Linq;
 using static MedRecPro.Models.Label;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
@@ -1353,6 +1355,184 @@ namespace MedRecPro.Helpers
             return int.TryParse(attributeValue, out int result) ? result : null;
             #endregion
         }
+
+        #region Section Discovery Methods for Staged Bulk Operations
+
+        /**************************************************************/
+        /// <summary>
+        /// Discovers all sections at all nesting levels by recursively traversing the section tree.
+        /// This is Phase 1 of staged bulk operations - pure XML parsing with no database operations.
+        /// </summary>
+        /// <param name="structuredBodyEl">The structuredBody XElement containing root sections.</param>
+        /// <param name="logger">Optional logger for diagnostic information.</param>
+        /// <returns>
+        /// A SectionDiscoveryResult containing all discovered sections, hierarchies, and lookup maps.
+        /// </returns>
+        /// <remarks>
+        /// This method performs a complete depth-first traversal of the section tree, collecting
+        /// all section metadata and hierarchy relationships into memory before any database operations.
+        /// Uses the existing XmlHelpers extension methods and SplConstants for consistency.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var structuredBody = documentEl.SplElement(sc.E.StructuredBody);
+        /// var discovery = XElementExtensions.DiscoverAllSections(structuredBody, logger);
+        /// // discovery.AllSections contains every section at every nesting level
+        /// </code>
+        /// </example>
+        /// <seealso cref="SectionDiscoveryResult"/>
+        /// <seealso cref="SectionDiscoveryDto"/>
+        /// <seealso cref="discoverSectionsRecursively"/>
+        public static SectionDiscoveryResult DiscoverAllSections(
+            XElement structuredBodyEl,
+            ILogger? logger = null)
+        {
+            #region implementation
+
+            var result = new SectionDiscoveryResult();
+
+            if (structuredBodyEl == null)
+            {
+                logger?.LogWarning("DiscoverAllSections called with null structuredBody element");
+                return result;
+            }
+
+            logger?.LogInformation("Starting section discovery traversal");
+
+            // Find all root-level component/section pairs
+            var rootSectionEls = structuredBodyEl
+                .SplElements(sc.E.Component)
+                .Select(comp => comp.SplElement(sc.E.Section))
+                .Where(sec => sec != null)
+                .ToList();
+
+            logger?.LogInformation("Found {Count} root sections to traverse", rootSectionEls.Count);
+
+            // Recursively discover each root section and its descendants
+            foreach (var rootSectionEl in rootSectionEls)
+            {
+                if (rootSectionEl == null) continue;
+
+                discoverSectionsRecursively(
+                    sectionEl: rootSectionEl,
+                    parentGuid: null,
+                    nestingLevel: 0,
+                    result: result,
+                    logger: logger);
+            }
+
+            // Build lookup dictionaries for fast access during Phase 2
+            result.SectionsByGuid = result.AllSections.ToDictionary(s => s.SectionGuid, s => s);
+
+            logger?.LogInformation(
+                "Section discovery complete: {SectionCount} sections, {HierarchyCount} hierarchies discovered",
+                result.AllSections.Count,
+                result.AllHierarchies.Count);
+
+            return result;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recursively discovers a section and all its child sections, building a flat list.
+        /// This is the core recursive traversal method for section discovery.
+        /// </summary>
+        /// <param name="sectionEl">The XElement representing the current section.</param>
+        /// <param name="parentGuid">The GUID of the parent section (null for root sections).</param>
+        /// <param name="nestingLevel">The current nesting depth (0 for root sections).</param>
+        /// <param name="result">The discovery result object to populate.</param>
+        /// <param name="logger">Optional logger for diagnostic information.</param>
+        /// <remarks>
+        /// This method:
+        /// 1. Parses the current section's metadata to a DTO
+        /// 2. Adds it to the flat list of all sections
+        /// 3. Creates hierarchy relationship DTO if not a root section
+        /// 4. Recursively discovers all child sections
+        /// 
+        /// Uses SplConstants (sc.E) and XmlHelpers extension methods for consistency.
+        /// NO database operations occur during this traversal.
+        /// </remarks>
+        /// <seealso cref="SectionDiscoveryDto"/>
+        /// <seealso cref="SectionHierarchyDiscoveryDto"/>
+        /// <seealso cref="DiscoverAllSections"/>
+        private static void discoverSectionsRecursively(
+            XElement sectionEl,
+            Guid? parentGuid,
+            int nestingLevel,
+            SectionDiscoveryResult result,
+            ILogger? logger)
+        {
+            #region implementation
+
+            // Parse section GUID from id@root attribute
+            var sectionGuidStr = sectionEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root);
+            if (!Guid.TryParse(sectionGuidStr, out var sectionGuid) || sectionGuid == Guid.Empty)
+            {
+                logger?.LogWarning("Section missing valid GUID, skipping: {SectionTitle}",
+                    sectionEl.GetSplElementVal(sc.E.Title));
+                return;
+            }
+
+            // Parse section metadata
+            var codeEl = sectionEl.SplElement(sc.E.Code);
+            var sectionDto = new SectionDiscoveryDto
+            {
+                SectionGuid = sectionGuid,
+                SectionCode = codeEl?.GetAttrVal(sc.A.CodeValue),
+                SectionCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem),
+                SectionCodeDisplayName = codeEl?.GetAttrVal(sc.A.DisplayName),
+                SectionTitle = sectionEl.GetSplElementVal(sc.E.Title),
+                NestingLevel = nestingLevel,
+                ParentSectionGuid = parentGuid,
+                SourceElement = sectionEl
+            };
+
+            // Add to flat list
+            result.AllSections.Add(sectionDto);
+
+            logger?.LogDebug("Discovered section: {Title} (Level {Level}, GUID {Guid})",
+                sectionDto.SectionTitle, nestingLevel, sectionGuid);
+
+            // Create hierarchy relationship if this is a child section
+            if (parentGuid.HasValue)
+            {
+                var hierarchyDto = new SectionHierarchyDiscoveryDto
+                {
+                    ParentSectionGuid = parentGuid.Value,
+                    ChildSectionGuid = sectionGuid,
+                    SequenceNumber = result.AllHierarchies
+                        .Count(h => h.ParentSectionGuid == parentGuid.Value) + 1
+                };
+
+                result.AllHierarchies.Add(hierarchyDto);
+            }
+
+            // Find all direct child sections using SplElements pattern
+            var childSectionEls = sectionEl
+                .SplElements(sc.E.Component)
+                .Select(comp => comp.SplElement(sc.E.Section))
+                .Where(childSec => childSec != null)
+                .ToList();
+
+            // Recurse into each child section
+            foreach (var childSectionEl in childSectionEls)
+            {
+                if (childSectionEl == null) continue;
+
+                discoverSectionsRecursively(
+                    sectionEl: childSectionEl,
+                    parentGuid: sectionGuid,
+                    nestingLevel: nestingLevel + 1,
+                    result: result,
+                    logger: logger);
+            }
+
+            #endregion
+        }
+
+        #endregion
 
     }
 }
