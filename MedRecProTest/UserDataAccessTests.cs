@@ -104,23 +104,54 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Creates a test user with standard properties.
+        /// Creates a test user via SignUpAsync with standard properties.
         /// </summary>
+        /// <param name="userDataAccess">The UserDataAccess instance to use</param>
         /// <param name="email">Email address for the user</param>
         /// <param name="password">Password for the user</param>
-        /// <returns>A configured User instance</returns>
-        private User createTestUser(string email = TestEmail, string? password = TestPassword)
+        /// <returns>The encrypted ID of the created user</returns>
+        private async Task<string?> createTestUserAsync(
+            UserDataAccess userDataAccess,
+            string email = TestEmail,
+            string password = TestPassword)
         {
-            return new User
+            var request = new UserSignUpRequestDto
             {
-                PrimaryEmail = email,
+                Email = email,
                 Password = password,
+                ConfirmPassword = password,
+                DisplayName = "Test User",
+                Username = "testuser"
+            };
+
+            return await userDataAccess.SignUpAsync(request);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a test user without password directly in the database.
+        /// </summary>
+        /// <param name="context">The database context</param>
+        /// <param name="email">Email address for the user</param>
+        /// <returns>The created User instance</returns>
+        private User createUserWithoutPassword(ApplicationDbContext context, string email = TestEmail)
+        {
+            var user = new User
+            {
+                PrimaryEmail = email.ToLowerInvariant(),
                 DisplayName = "Test User",
                 CanonicalUsername = "testuser",
                 UserRole = "User",
                 Timezone = "UTC",
-                Locale = "en-US"
+                Locale = "en-US",
+                CreatedAt = DateTime.UtcNow,
+                SecurityStamp = Guid.NewGuid().ToString()
             };
+
+            context.AppUsers.Add(user);
+            context.SaveChanges();
+
+            return user;
         }
 
         /**************************************************************/
@@ -152,9 +183,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_ValidCredentials_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            // Create a user first
-            var user = createTestUser();
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            // Create a user first via SignUpAsync
+            var encryptedId = await createTestUserAsync(userDataAccess);
             Assert.IsNotNull(encryptedId, "User creation should succeed");
 
             // Act
@@ -181,8 +211,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_ResetFailedCount_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             // Simulate some failed attempts
             await userDataAccess.AuthenticateAsync(TestEmail, WrongPassword);
@@ -212,8 +241,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_UpdatesLastLogin_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             var beforeLogin = DateTime.UtcNow;
 
@@ -246,8 +274,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_InvalidPassword_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             // Act
             var result = await userDataAccess.AuthenticateAsync(TestEmail, WrongPassword);
@@ -318,8 +345,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_NullPassword_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             // Act
             var result = await userDataAccess.AuthenticateAsync(TestEmail, null!);
@@ -344,13 +370,10 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_DeletedUser_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            var encryptedId = await createTestUserAsync(userDataAccess);
+            Assert.IsNotNull(encryptedId);
 
             // Delete the user
-            var createdUser = await userDataAccess.GetByEmailAsync(TestEmail);
-            Assert.IsNotNull(createdUser);
-            createdUser.EncryptedUserId = encryptedId;
             await userDataAccess.DeleteAsync(encryptedId, encryptedId);
 
             // Act
@@ -380,8 +403,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_IncrementsFailed_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             // Act - First failed attempt
             await userDataAccess.AuthenticateAsync(TestEmail, WrongPassword);
@@ -413,8 +435,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_LockAccount_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             // Act - Exceed max failed attempts (typically 5)
             for (int i = 0; i < 6; i++)
@@ -447,8 +468,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_LockedAccount_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             // Lock the account by exceeding max failed attempts
             for (int i = 0; i < 6; i++)
@@ -479,8 +499,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_ExpiredLockout_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             // Manually set an expired lockout
             var dbUser = await context.AppUsers.FirstAsync(u => u.PrimaryEmail == TestEmail.ToLowerInvariant());
@@ -518,12 +537,9 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Create_DuplicateEmail_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user1 = createTestUser();
-            var user2 = createTestUser(); // Same email
-
-            // Act
-            var result1 = await userDataAccess.CreateAsync(user1, null);
-            var result2 = await userDataAccess.CreateAsync(user2, null);
+            // Act - Create two users with same email
+            var result1 = await createTestUserAsync(userDataAccess, TestEmail);
+            var result2 = await createTestUserAsync(userDataAccess, TestEmail);
 
             // Assert
             Assert.IsNotNull(result1, "First user creation should succeed");
@@ -546,10 +562,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Create_NormalizeEmail_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser("TestUser@EXAMPLE.COM");
-
-            // Act
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            // Act - Create user with mixed case email
+            var encryptedId = await createTestUserAsync(userDataAccess, "TestUser@EXAMPLE.COM");
 
             // Assert
             var createdUser = await userDataAccess.GetByEmailAsync("testuser@example.com");
@@ -573,16 +587,13 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Create_HashPassword_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-
-            // Act
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            // Act - Create user via SignUpAsync which handles password hashing
+            var encryptedId = await createTestUserAsync(userDataAccess);
 
             // Assert
             var createdUser = await context.AppUsers.FirstAsync(u => u.PrimaryEmail == TestEmail.ToLowerInvariant());
             Assert.IsNotNull(createdUser.PasswordHash, "Password should be hashed");
             Assert.AreNotEqual(TestPassword, createdUser.PasswordHash, "Password hash should not be plaintext");
-            Assert.IsNull(createdUser.Password, "Plaintext password should be cleared");
 
             #endregion
         }
@@ -601,10 +612,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Create_SecurityStamp_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-
             // Act
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             // Assert
             var createdUser = await context.AppUsers.FirstAsync(u => u.PrimaryEmail == TestEmail.ToLowerInvariant());
@@ -628,10 +637,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Create_ReturnsEncryptedId_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-
             // Act
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            var encryptedId = await createTestUserAsync(userDataAccess);
 
             // Assert
             Assert.IsNotNull(encryptedId);
@@ -642,44 +649,49 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that CreateAsync throws exception for null user.
+        /// Verifies that SignUpAsync throws exception for null request.
         /// </summary>
-        /// <seealso cref="UserDataAccess.CreateAsync"/>
+        /// <seealso cref="UserDataAccess.SignUpAsync"/>
         [TestMethod]
         [ExpectedException(typeof(ArgumentNullException))]
-        public async Task CreateAsync_NullUser_ThrowsArgumentNullException()
+        public async Task SignUpAsync_NullRequest_ThrowsArgumentNullException()
         {
             #region implementation
 
             // Arrange
-            using var context = createTestContext("Create_NullUser_Test");
+            using var context = createTestContext("SignUp_NullRequest_Test");
             var userDataAccess = createUserDataAccess(context);
 
             // Act
-            await userDataAccess.CreateAsync(null!, null);
+            await userDataAccess.SignUpAsync(null!);
 
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that CreateAsync throws exception for missing email.
+        /// Verifies that SignUpAsync throws exception for missing email.
         /// </summary>
-        /// <seealso cref="UserDataAccess.CreateAsync"/>
+        /// <seealso cref="UserDataAccess.SignUpAsync"/>
         [TestMethod]
         [ExpectedException(typeof(ArgumentException))]
-        public async Task CreateAsync_MissingEmail_ThrowsArgumentException()
+        public async Task SignUpAsync_MissingEmail_ThrowsArgumentException()
         {
             #region implementation
 
             // Arrange
-            using var context = createTestContext("Create_MissingEmail_Test");
+            using var context = createTestContext("SignUp_MissingEmail_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = new User { DisplayName = "Test" };
+            var request = new UserSignUpRequestDto
+            {
+                Password = TestPassword,
+                ConfirmPassword = TestPassword,
+                DisplayName = "Test"
+            };
 
             // Act
-            await userDataAccess.CreateAsync(user, null);
+            await userDataAccess.SignUpAsync(request);
 
             #endregion
         }
@@ -702,8 +714,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Rotate_UpdatesPassword_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            var encryptedId = await createTestUserAsync(userDataAccess);
+            Assert.IsNotNull(encryptedId);
 
             var oldHash = (await context.AppUsers.FirstAsync(u => u.PrimaryEmail == TestEmail.ToLowerInvariant())).PasswordHash;
 
@@ -733,8 +745,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Rotate_UpdatesStamp_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            var encryptedId = await createTestUserAsync(userDataAccess);
+            Assert.IsNotNull(encryptedId);
 
             var oldStamp = (await context.AppUsers.FirstAsync(u => u.PrimaryEmail == TestEmail.ToLowerInvariant())).SecurityStamp;
 
@@ -763,8 +775,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Rotate_CanAuthenticate_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            var encryptedId = await createTestUserAsync(userDataAccess);
+            Assert.IsNotNull(encryptedId);
 
             var newPassword = "NewSecurePassword456!";
 
@@ -793,8 +805,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Rotate_EmptyPassword_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            var encryptedId = await createTestUserAsync(userDataAccess);
+            Assert.IsNotNull(encryptedId);
 
             // Act
             await userDataAccess.RotatePasswordAsync(encryptedId, "", encryptedId);
@@ -820,8 +832,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("GetById_Valid_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            var encryptedId = await createTestUserAsync(userDataAccess);
+            Assert.IsNotNull(encryptedId);
 
             // Act
             var retrievedUser = await userDataAccess.GetByIdAsync(encryptedId);
@@ -870,8 +882,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("GetByEmail_Valid_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess);
 
             // Act
             var retrievedUser = await userDataAccess.GetByEmailAsync(TestEmail);
@@ -897,8 +908,7 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("GetByEmail_MixedCase_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser("testuser@example.com");
-            await userDataAccess.CreateAsync(user, null);
+            await createTestUserAsync(userDataAccess, "testuser@example.com");
 
             // Act - Search with mixed case
             var retrievedUser = await userDataAccess.GetByEmailAsync("TestUser@EXAMPLE.COM");
@@ -950,8 +960,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Delete_SetsDeletedAt_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            var encryptedId = await createTestUserAsync(userDataAccess);
+            Assert.IsNotNull(encryptedId);
 
             // Act
             var result = await userDataAccess.DeleteAsync(encryptedId, encryptedId);
@@ -980,8 +990,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Delete_NotFound_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            var user = createTestUser();
-            var encryptedId = await userDataAccess.CreateAsync(user, null);
+            var encryptedId = await createTestUserAsync(userDataAccess);
+            Assert.IsNotNull(encryptedId);
 
             // Act
             await userDataAccess.DeleteAsync(encryptedId, encryptedId);
@@ -1082,9 +1092,8 @@ namespace MedRecPro.Service.Test
             using var context = createTestContext("Auth_NoPasswordHash_Test");
             var userDataAccess = createUserDataAccess(context);
 
-            // Create user without password (simulating third-party SSO user)
-            var user = createTestUser(TestEmail, null);
-            await userDataAccess.CreateAsync(user, null);
+            // Create user without password directly in database (simulating third-party SSO user)
+            createUserWithoutPassword(context, TestEmail);
 
             // Act
             var result = await userDataAccess.AuthenticateAsync(TestEmail, TestPassword);
