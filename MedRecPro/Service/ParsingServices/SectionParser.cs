@@ -172,17 +172,17 @@ namespace MedRecPro.Service.ParsingServices
                     // Path: structuredBody/component/section
                     var sectionElements = xEl.SplElements(sc.E.Component, sc.E.Section);
 
-                    // Process sections based on feature flags - three-mode routing
-                    if (sectionElements != null && sectionElements.Any())
+                    if (context.UseBulkStaging)
                     {
-                        if (context.UseBulkStaging)
-                        {
-                            // Mode 3: Staged bulk operations (discovery + flat processing)
-                            // Enables the most optimized path with single XML traversal and flat bulk operations
-                            // Pass the structuredBody element (xEl) so discovery can traverse entire tree
-                            result = await parseAsync_StagedBulk(xEl, context, reportProgress);
-                        }
-                        else if (context.UseBulkOperations)
+                        // Mode 3: Staged bulk operations (discovery + flat processing)
+                        // Enables the most optimized path with single XML traversal and flat bulk operations
+                        // Pass the structuredBody element (xEl) so discovery can traverse entire tree
+                        result = await parseAsync_StagedBulk(xEl, context, reportProgress);
+                    }
+                    // Process sections based on feature flags - three-mode routing
+                    else if (sectionElements != null && sectionElements.Any())
+                    {
+                        if (context.UseBulkOperations)
                         {
                             // Mode 2: Nested bulk operations (current working path)
                             // Uses bulk operations at each nesting level with recursive orchestration
@@ -911,10 +911,7 @@ namespace MedRecPro.Service.ParsingServices
                     context.Logger?.LogError("Section creation failed, aborting staged bulk processing");
                     return result;
                 }
-
-                context.Logger?.LogInformation(
-                    "Section creation complete: {Count} sections created",
-                    result.SectionsCreated);
+                context.Logger?.LogInformation("Section creation complete: {Count} sections", result.SectionsCreated);
 
                 // Task 5.2: Bulk create all hierarchies ✅
                 reportProgress?.Invoke("Creating hierarchies (Pass 2b)...");
@@ -922,32 +919,31 @@ namespace MedRecPro.Service.ParsingServices
 
                 if (!result.Success)
                 {
-                    context.Logger?.LogError("Hierarchy creation failed, aborting staged bulk processing");
-                    return result;
+                    context.Logger?.LogError("Hierarchy creation failed");
                 }
                 context.Logger?.LogInformation("Hierarchy creation complete");
 
-                // Task 5.3: Process content for all sections ✅
-                reportProgress?.Invoke("Processing content (Pass 2c)...");
-                await bulkProcessAllContentAsync(discovery, context, result, reportProgress);
+                // Phase 1: Document relationships and related documents
+                reportProgress?.Invoke("Processing document relationships (Pass 2c)...");
+                await bulkProcessDocumentRelationshipsAsync(discovery, context, result, reportProgress);
+                context.Logger?.LogInformation("Document relationships complete");
 
-                if (!result.Success)
-                {
-                    context.Logger?.LogError("Content processing failed, aborting staged bulk processing");
-                    return result;
-                }
+                // Phase 2: Media parsing (must precede content parsing)
+                reportProgress?.Invoke("Processing media (Pass 2d)...");
+                await bulkProcessAllMediaAsync(discovery, context, result, reportProgress);
+                context.Logger?.LogInformation("Media processing complete");
+
+                // Task 5.3: Bulk process all content (depends on media) ✅
+                reportProgress?.Invoke("Processing content (Pass 2e)...");
+                await bulkProcessAllContentAsync(discovery, context, result, reportProgress);
                 context.Logger?.LogInformation("Content processing complete");
 
-                // TODO: Implement remaining bulk processing methods:
-                // Task 5.4: await bulkProcessAllMediaAsync(discovery, context, result, reportProgress);
-                // Task 5.5: await bulkProcessAllIndexingAsync(discovery, context, result, reportProgress);
+                // Phases 5-11: Remaining operations
+                reportProgress?.Invoke("Processing remaining operations (Pass 2f)...");
+                await bulkProcessRemainingOperationsAsync(discovery, context, result, reportProgress);
+                context.Logger?.LogInformation("Remaining operations complete");
 
-                // TEMPORARY: Media and indexing will be skipped for now
-                context.Logger?.LogWarning(
-                    "Tasks 5.4-5.5 not yet implemented. " +
-                    "Media and indexing will be skipped for now.");
-
-                reportProgress?.Invoke($"Staged bulk processing complete: {result.SectionsCreated} sections created");
+                reportProgress?.Invoke($"Staged bulk processing complete: {result.SectionsCreated} sections, {result.SectionAttributesCreated} attributes");
 
 
             }
@@ -1839,6 +1835,317 @@ namespace MedRecPro.Service.ParsingServices
                 result.Success = false;
                 result.Errors.Add($"Bulk content processing failed: {ex.Message}");
                 context?.Logger?.LogError(ex, "Error in bulkProcessAllContentAsync");
+            }
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Task 5.x Downstream Items
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 1: Processes document relationships and related documents for all discovered sections.
+        /// Must be executed before media parsing.
+        /// </summary>
+        /// <param name="discovery">Section discovery results containing all sections.</param>
+        /// <param name="context">Parsing context with service provider and configuration.</param>
+        /// <param name="result">Parse result to accumulate metrics and errors.</param>
+        /// <param name="reportProgress">Optional progress reporting callback.</param>
+        /// <returns>Task representing the async processing operation.</returns>
+        /// <remarks>
+        /// Processes document-level relationships that may be referenced by other parsers.
+        /// </remarks>
+        /// <seealso cref="SectionDiscoveryResult"/>
+        /// <seealso cref="parseDocumentRelationshipAsync"/>
+        /// <seealso cref="parseDocumentLevelRelatedDocumentsAsync"/>
+        /// <seealso cref="Label"/>
+        private async Task bulkProcessDocumentRelationshipsAsync(
+            SectionDiscoveryResult discovery,
+            SplParseContext context,
+            SplParseResult result,
+            Action<string>? reportProgress)
+        {
+            #region implementation
+
+            try
+            {
+                if (discovery == null || !discovery.AllSections.Any())
+                {
+                    return;
+                }
+
+                context.Logger?.LogInformation("Starting document relationships processing");
+                int sectionsProcessed = 0;
+
+                foreach (var sectionDto in discovery.AllSections)
+                {
+                    if (!sectionDto.SectionID.HasValue)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        // Create Section entity from discovery DTO (no database query needed)
+                        var section = new Section
+                        {
+                            SectionID = sectionDto.SectionID.Value,
+                            SectionGUID = sectionDto.SectionGuid,
+                            SectionCode = sectionDto.SectionCode,
+                            SectionCodeSystem = sectionDto.SectionCodeSystem,
+                            SectionDisplayName = sectionDto.SectionCodeDisplayName,
+                            Title = sectionDto.SectionTitle,
+                            DocumentID = context.Document?.DocumentID,
+                            StructuredBodyID = context.StructuredBody?.StructuredBodyID
+                        };
+
+                        context.CurrentSection = section;
+
+                        var docRelResult = await parseDocumentRelationshipAsync(sectionDto.SourceElement, context, reportProgress);
+                        result.MergeFrom(docRelResult);
+
+                        var docLevelRelatedDocResult = await parseDocumentLevelRelatedDocumentsAsync(context);
+                        result.MergeFrom(docLevelRelatedDocResult);
+
+                        sectionsProcessed++;
+
+                        if (sectionsProcessed % 10 == 0)
+                        {
+                            reportProgress?.Invoke($"Document relationships: {sectionsProcessed}/{discovery.AllSections.Count}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        context.Logger?.LogError(ex, "Error processing document relationships for section {SectionGuid}", sectionDto.SectionGuid);
+                        result.Errors.Add($"Document relationships failed for section {sectionDto.SectionGuid}: {ex.Message}");
+                    }
+                }
+
+                context.Logger?.LogInformation("Document relationships processing complete: {Count} sections", sectionsProcessed);
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Errors.Add($"Document relationships processing failed: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error in bulkProcessDocumentRelationshipsAsync");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2: Processes media references for all discovered sections.
+        /// Must be executed before content parsing since content may reference media.
+        /// </summary>
+        /// <param name="discovery">Section discovery results containing all sections.</param>
+        /// <param name="context">Parsing context with service provider and configuration.</param>
+        /// <param name="result">Parse result to accumulate metrics and errors.</param>
+        /// <param name="reportProgress">Optional progress reporting callback.</param>
+        /// <returns>Task representing the async processing operation.</returns>
+        /// <remarks>
+        /// Media parsing must precede content parsing as content elements may reference media entities.
+        /// </remarks>
+        /// <seealso cref="SectionDiscoveryResult"/>
+        /// <seealso cref="SectionMediaParser"/>
+        /// <seealso cref="Label"/>
+        private async Task bulkProcessAllMediaAsync(
+            SectionDiscoveryResult discovery,
+            SplParseContext context,
+            SplParseResult result,
+            Action<string>? reportProgress)
+        {
+            #region implementation
+
+            try
+            {
+                if (discovery == null || !discovery.AllSections.Any())
+                {
+                    return;
+                }
+
+                context.Logger?.LogInformation("Starting media processing for {Count} sections", discovery.AllSections.Count);
+                int sectionsProcessed = 0;
+
+                foreach (var sectionDto in discovery.AllSections)
+                {
+                    if (!sectionDto.SectionID.HasValue)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        // Create Section entity from discovery DTO (no database query needed)
+                        var section = new Section
+                        {
+                            SectionID = sectionDto.SectionID.Value,
+                            SectionGUID = sectionDto.SectionGuid,
+                            SectionCode = sectionDto.SectionCode,
+                            SectionCodeSystem = sectionDto.SectionCodeSystem,
+                            SectionDisplayName = sectionDto.SectionCodeDisplayName,
+                            Title = sectionDto.SectionTitle,
+                            DocumentID = context.Document?.DocumentID,
+                            StructuredBodyID = context.StructuredBody?.StructuredBodyID
+                        };
+
+                        context.CurrentSection = section;
+
+                        var mediaResult = await _mediaParser.ParseAsync(sectionDto.SourceElement, context, reportProgress);
+                        result.MergeFrom(mediaResult);
+
+                        sectionsProcessed++;
+
+                        if (sectionsProcessed % 10 == 0)
+                        {
+                            reportProgress?.Invoke($"Media processing: {sectionsProcessed}/{discovery.AllSections.Count}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        context.Logger?.LogError(ex, "Error processing media for section {SectionGuid}", sectionDto.SectionGuid);
+                        result.Errors.Add($"Media processing failed for section {sectionDto.SectionGuid}: {ex.Message}");
+                    }
+                }
+
+                context.Logger?.LogInformation("Media processing complete: {Count} sections", sectionsProcessed);
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Errors.Add($"Media processing failed: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error in bulkProcessAllMediaAsync");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes remaining section operations after content and hierarchy are complete.
+        /// Handles indexing, tolerance specs, warning letters, compliance, certification, products, and REMS.
+        /// </summary>
+        /// <param name="discovery">Section discovery results containing all sections.</param>
+        /// <param name="context">Parsing context with service provider and configuration.</param>
+        /// <param name="result">Parse result to accumulate metrics and errors.</param>
+        /// <param name="reportProgress">Optional progress reporting callback.</param>
+        /// <returns>Task representing the async processing operation.</returns>
+        /// <remarks>
+        /// Processes phases 5-11 from the bulk operations pipeline:
+        /// - Phase 5: Indexing parsing
+        /// - Phase 6: Tolerance specifications (conditional)
+        /// - Phase 7: Warning letters
+        /// - Phase 8: Compliance actions
+        /// - Phase 9: Certification links (conditional)
+        /// - Phase 10: Manufactured products
+        /// - Phase 11: REMS protocols (conditional)
+        /// </remarks>
+        /// <seealso cref="SectionDiscoveryResult"/>
+        /// <seealso cref="Label"/>
+        private async Task bulkProcessRemainingOperationsAsync(
+            SectionDiscoveryResult discovery,
+            SplParseContext context,
+            SplParseResult result,
+            Action<string>? reportProgress)
+        {
+            #region implementation
+
+            try
+            {
+                if (discovery == null || !discovery.AllSections.Any())
+                {
+                    return;
+                }
+
+                context.Logger?.LogInformation("Starting remaining operations for {Count} sections", discovery.AllSections.Count);
+                int sectionsProcessed = 0;
+
+                foreach (var sectionDto in discovery.AllSections)
+                {
+                    if (!sectionDto.SectionID.HasValue)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        // Create Section entity from discovery DTO (no database query needed)
+                        var section = new Section
+                        {
+                            SectionID = sectionDto.SectionID.Value,
+                            SectionGUID = sectionDto.SectionGuid,
+                            SectionCode = sectionDto.SectionCode,
+                            SectionCodeSystem = sectionDto.SectionCodeSystem,
+                            SectionDisplayName = sectionDto.SectionCodeDisplayName,
+                            Title = sectionDto.SectionTitle,
+                            DocumentID = context.Document?.DocumentID,
+                            StructuredBodyID = context.StructuredBody?.StructuredBodyID
+                        };
+
+                        context.CurrentSection = section;
+                        var sectionEl = sectionDto.SourceElement;
+
+                        // Phase 5: Indexing parsing
+                        var indexingResult = await _indexingParser.ParseAsync(sectionEl, context, reportProgress);
+                        result.MergeFrom(indexingResult);
+
+                        // Phase 6: Tolerance specifications (conditional)
+                        if (containsToleranceSpecifications(sectionEl))
+                        {
+                            var toleranceResult = await _toleranceParser.ParseAsync(sectionEl, context, reportProgress);
+                            result.MergeFrom(toleranceResult);
+                        }
+
+                        // Phase 7: Warning letters
+                        var warningLetterResult = await parseWarningLetterContentAsync(sectionEl, context, reportProgress);
+                        result.MergeFrom(warningLetterResult);
+
+                        // Phase 8: Compliance actions
+                        var complianceResult = await parseComplianceActionsAsync(sectionEl, context, reportProgress);
+                        result.MergeFrom(complianceResult);
+
+                        // Phase 9: Certification links (conditional)
+                        if (section.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE)
+                        {
+                            var certificationResult = await parseCertificationLinksAsync(sectionEl, context, reportProgress);
+                            result.MergeFrom(certificationResult);
+                        }
+
+                        // Phase 10: Manufactured products
+                        var productResult = await parseManufacturedProductsAsync(sectionEl, context, reportProgress);
+                        result.MergeFrom(productResult);
+
+                        // Phase 11: REMS protocols (conditional)
+                        if (containsRemsProtocols(sectionEl))
+                        {
+                            var remsParser = new REMSParser();
+                            var remsResult = await remsParser.ParseAsync(sectionEl, context, reportProgress);
+                            result.MergeFrom(remsResult);
+                        }
+
+                        sectionsProcessed++;
+
+                        if (sectionsProcessed % 10 == 0)
+                        {
+                            reportProgress?.Invoke($"Remaining operations: {sectionsProcessed}/{discovery.AllSections.Count}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        context.Logger?.LogError(ex, "Error processing remaining operations for section {SectionGuid}", sectionDto.SectionGuid);
+                        result.Errors.Add($"Remaining operations failed for section {sectionDto.SectionGuid}: {ex.Message}");
+                    }
+                }
+
+                context.Logger?.LogInformation("Remaining operations complete: {Count} sections", sectionsProcessed);
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Errors.Add($"Remaining operations failed: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error in bulkProcessRemainingOperationsAsync");
             }
 
             #endregion
