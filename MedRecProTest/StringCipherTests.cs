@@ -63,7 +63,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(originalText, TestPassphrase, StringCipher.EncryptionStrength.Fast);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);
 
             // Assert
             Assert.AreEqual(originalText, decrypted, "Decrypted text should match original");
@@ -90,7 +90,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(userId, TestPassphrase, StringCipher.EncryptionStrength.Fast);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(userId, decrypted, "Decrypted ID should match original");
@@ -144,7 +144,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(originalText, TestPassphrase, StringCipher.EncryptionStrength.Strong);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(originalText, decrypted, "Decrypted text should match original");
@@ -169,7 +169,7 @@ namespace MedRecPro.Service.Test
 
             // Act - No strength parameter defaults to Strong
             var encrypted = StringCipher.Encrypt(originalText, TestPassphrase);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.IsTrue(encrypted.StartsWith("S-"), "Default encryption should use Strong mode (S- prefix)");
@@ -199,7 +199,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(specialText, TestPassphrase, StringCipher.EncryptionStrength.Strong);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(specialText, decrypted, "Special characters should be preserved");
@@ -224,7 +224,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(unicodeText, TestPassphrase, StringCipher.EncryptionStrength.Strong);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(unicodeText, decrypted, "Unicode characters should be preserved");
@@ -249,7 +249,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(medicalText, TestPassphrase, StringCipher.EncryptionStrength.Strong);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(medicalText, decrypted, "Medical terminology should be preserved");
@@ -278,7 +278,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(emptyText, TestPassphrase, StringCipher.EncryptionStrength.Fast);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(emptyText, decrypted, "Empty string should be preserved");
@@ -303,7 +303,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(singleChar, TestPassphrase, StringCipher.EncryptionStrength.Fast);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(singleChar, decrypted, "Single character should be preserved");
@@ -328,7 +328,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(longText, TestPassphrase, StringCipher.EncryptionStrength.Strong);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(longText, decrypted, "Long string should be preserved");
@@ -390,7 +390,7 @@ namespace MedRecPro.Service.Test
             var cipher = createCipher();
 
             // Act
-            cipher.Decrypt(null!, TestPassphrase);
+            TextUtil.Decrypt(null!, TestPassphrase);
 
             #endregion
         }
@@ -411,7 +411,7 @@ namespace MedRecPro.Service.Test
             var encrypted = StringCipher.Encrypt("test", TestPassphrase);
 
             // Act
-            cipher.Decrypt(encrypted, null!);
+            encrypted.Decrypt(null!);
 
             #endregion
         }
@@ -436,7 +436,7 @@ namespace MedRecPro.Service.Test
             var encrypted = StringCipher.Encrypt("test", TestPassphrase);
 
             // Act - Should throw CryptographicException
-            cipher.Decrypt(encrypted, WrongPassphrase);
+            encrypted.Decrypt(WrongPassphrase);
 
             #endregion
         }
@@ -458,7 +458,7 @@ namespace MedRecPro.Service.Test
             var corrupted = encrypted.Substring(0, encrypted.Length / 2) + "CORRUPTED";
 
             // Act - Should throw CryptographicException
-            cipher.Decrypt(corrupted, TestPassphrase);
+            corrupted.Decrypt(TestPassphrase);
 
             #endregion
         }
@@ -481,7 +481,7 @@ namespace MedRecPro.Service.Test
             var truncated = "F-ABC";
 
             // Act - Should throw CryptographicException due to insufficient length
-            cipher.Decrypt(truncated, TestPassphrase);
+            truncated.Decrypt(TestPassphrase);
 
             #endregion
         }
@@ -522,7 +522,7 @@ namespace MedRecPro.Service.Test
             // This tests the code path, not necessarily successful decryption
             try
             {
-                cipher.Decrypt(legacyFormat, TestPassphrase);
+                legacyFormat.Decrypt(TestPassphrase);
                 // If it succeeds, the legacy path was taken
             }
             catch (CryptographicException)
@@ -597,7 +597,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(originalText, TestPassphrase, StringCipher.EncryptionStrength.Fast);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(originalText, decrypted, "Fast mode decryption should work correctly");
@@ -625,7 +625,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encrypted = StringCipher.Encrypt(originalText, TestPassphrase, StringCipher.EncryptionStrength.Strong);
-            var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+            var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
             Assert.AreEqual(originalText, decrypted, "Strong mode decryption should work correctly");
@@ -663,7 +663,7 @@ namespace MedRecPro.Service.Test
             foreach (var original in testValues)
             {
                 var encrypted = StringCipher.Encrypt(original, TestPassphrase, StringCipher.EncryptionStrength.Fast);
-                var decrypted = cipher.Decrypt(encrypted, TestPassphrase);
+                var decrypted = encrypted.Decrypt(TestPassphrase);;
                 Assert.AreEqual(original, decrypted, $"Value '{original}' should be preserved");
             }
 
@@ -744,10 +744,10 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encryptedFast = StringCipher.Encrypt(originalText, TestPassphrase, StringCipher.EncryptionStrength.Fast);
-            var decrypted = cipher.Decrypt(encryptedFast, TestPassphrase);
+            var decryptedFast = encryptedFast.Decrypt(TestPassphrase);
 
             // Assert
-            Assert.AreEqual(originalText, decrypted);
+            Assert.AreEqual(originalText, decryptedFast);
             Assert.IsTrue(encryptedFast.StartsWith("F-"));
 
             #endregion
@@ -770,7 +770,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             var encryptedStrong = StringCipher.Encrypt(originalText, TestPassphrase, StringCipher.EncryptionStrength.Strong);
-            var decrypted = cipher.Decrypt(encryptedStrong, TestPassphrase);
+            var decrypted = encryptedStrong.Decrypt(TestPassphrase);
 
             // Assert
             Assert.AreEqual(originalText, decrypted);
