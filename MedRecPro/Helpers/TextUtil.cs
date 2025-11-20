@@ -140,18 +140,22 @@ namespace MedRecPro.Helpers
         public static string? Decrypt(this string text, string key)
         {
             #region implementation
-            try
+
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(key))
             {
-                return new StringCipher().Decrypt(text, key);
+                throw new ArgumentNullException("TextUtil.Decrypt: text or key is null or empty");
             }
-            catch (Exception e)
-            {
-                ErrorHelper.AddErrorMsg($"TextUtil.Decrypt: {e.Message}");
-                return null;
-            }
+
+            string ret = new StringCipher().Decrypt(text, key);
+
+            if (string.IsNullOrEmpty(ret))
+                throw new System.Security.Cryptography.CryptographicException("TextUtil.Decrypt: Decryption returned null or empty string.");
+
+            return ret;
+
             #endregion
         }
-    
+
         /******************************************************/
         public static bool IsValidEmail(string email)
         {
