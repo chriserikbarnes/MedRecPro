@@ -224,8 +224,17 @@ namespace MedRecPro.Helpers
             ArgumentNullException.ThrowIfNull(passPhrase);
             ArgumentNullException.ThrowIfNull(iterations);
 
-            // Decode the base64 encrypted data
-            byte[] cipherTextBytesWithSaltAndIv = TextUtil.FromUrlSafeBase64StringManual(cipherTextWithSaltAndIvBase64);
+            byte[] cipherTextBytesWithSaltAndIv;
+
+            try
+            {
+                // Decode the base64 encrypted data
+                cipherTextBytesWithSaltAndIv = TextUtil.FromUrlSafeBase64StringManual(cipherTextWithSaltAndIvBase64);
+            }
+            catch (FormatException ex)
+            {
+                throw new CryptographicException("Invalid ciphertext format. The data could not be decoded.", ex);
+            }
 
             // Performance: Use ReadOnlySpan to avoid allocations for slicing until necessary.
             ReadOnlySpan<byte> fullCipherSpan = cipherTextBytesWithSaltAndIv;
