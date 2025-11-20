@@ -196,6 +196,7 @@ namespace MedRecPro.Controllers
                     comparisonAnalysis = featureFlagsSection.GetValue<bool>("ComparisonAnalysisEnabled", true),
                     backgroundProcessing = featureFlagsSection.GetValue<bool>("BackgroundProcessingEnabled", true),
                     databaseBulkProcessing = featureFlagsSection.GetValue<bool?>("UseBulkOperations", true),
+                    databaseStaging = featureFlagsSection.GetValue<bool?>("UseBulkStaging", true),
                     activityTracking = featureFlagsSection.GetValue<bool>("ActivityTrackingEnabled", true),
                     enhancedDebugging = featureFlagsSection.GetValue<bool>("UseEnhancedDebugging", true),
                     caching = _configuration.GetValue<bool>("ComparisonSettings:EnableCaching", true),

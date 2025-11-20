@@ -131,6 +131,46 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
+        /// Validates the parsing context to ensure it's properly initialized.
+        /// Checks for required dependencies and structured body context.
+        /// This overload creates and returns the result object via out parameter.
+        /// </summary>
+        /// <param name="context">The parsing context to validate.</param>
+        /// <param name="resultIn">The passed result</param>
+        /// <param name="result">The created result object with validation errors if any.</param>
+        /// <returns>True if the context is valid; otherwise, false.</returns>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="Label"/>
+        protected bool validateContext(SplParseContext context, SplParseResult resultIn, out SplParseResult result)
+        {
+            #region implementation
+
+            result = resultIn ?? new SplParseResult();
+
+            // Validate logger availability for error reporting and debugging
+            if (context?.Logger == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Parsing context or its logger is null.");
+                return false;
+            }
+
+            // Validate structured body context for section association
+            if (context.StructuredBody?.StructuredBodyID == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Cannot parse section because no structuredBody context exists.");
+                return false;
+            }
+
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Determines the identifier type classification based on the OID system.
         /// </summary>
         /// <param name="oidSystem">The OID system string from the code element.</param>
@@ -1150,6 +1190,68 @@ namespace MedRecPro.Service.ParsingServices
             public DateTime? EffectiveTimeHigh { get; set; }
         }
 
+        #endregion
+
+        #region Core Section Processing Methods
+        /**************************************************************/
+        /// <summary>
+        /// Helper method to execute a parser operation across all sections in a single phase.
+        /// This enables batching of database operations by parser type rather than by section.
+        /// </summary>
+        /// <param name="createdSections">Dictionary mapping section XElements to their created Section entities.</param>
+        /// <param name="context">The parsing context.</param>
+        /// <param name="reportProgress">Optional progress reporting action.</param>
+        /// <param name="parseOperation">The async operation to execute for each section.</param>
+        /// <param name="result">The result object to merge parse results into.</param>
+        /// <param name="sectionFilter">Optional filter to determine which sections should be processed.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <remarks>
+        /// This helper reduces code duplication and ensures consistent context management
+        /// across all parser phases. Each phase processes ALL sections before moving to the next,
+        /// allowing parsers to implement bulk operations internally.
+        /// </remarks>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="Label.Section"/>
+        protected async Task executeParserPhaseAsync(
+            Dictionary<XElement, Label.Section> createdSections,
+            SplParseContext context,
+            Action<string>? reportProgress,
+            Func<XElement, SplParseContext, Action<string>?, Task<SplParseResult>> parseOperation,
+            SplParseResult result,
+            Func<XElement, Label.Section, bool>? sectionFilter = null)
+        {
+            #region implementation
+
+            foreach (var kvp in createdSections)
+            {
+                var sectionEl = kvp.Key;
+                var section = kvp.Value;
+
+                // Skip if section is invalid or doesn't pass filter
+                if (section?.SectionID == null)
+                    continue;
+
+                if (sectionFilter != null && !sectionFilter(sectionEl, section))
+                    continue;
+
+                // Set section context and ensure it's restored
+                var oldSection = context.CurrentSection;
+                context.CurrentSection = section;
+
+                try
+                {
+                    var parseResult = await parseOperation(sectionEl, context, reportProgress);
+                    result.MergeFrom(parseResult);
+                }
+                finally
+                {
+                    context.CurrentSection = oldSection;
+                }
+            }
+
+            #endregion
+        }
         #endregion
     }
 }
