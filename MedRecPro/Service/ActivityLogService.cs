@@ -85,7 +85,8 @@ namespace MedRecPro.Service
 
                 if (!logginEnabled)
                 {
-                   throw new Exception("Activity logging is disabled via configuration.");
+                    _logger.LogDebug("Activity logging is disabled via configuration.");
+                    return;
                 }
 
                 // Ensure timestamp is set

@@ -72,6 +72,19 @@ namespace MedRecPro.Service
             #endregion
         }
 
+        /// <summary>
+        /// Protected parameterless constructor for mocking purposes.
+        /// </summary>
+        protected SplDataService()
+        {
+            // Initialize with null! to satisfy compiler - only used for mocking
+            _splDataRepository = null!;
+            _context = null!;
+            _logger = null!;
+            _configuration = null!;
+            _encryptionKey = null!;
+        }
+
         #endregion
 
         #region Public Methods
@@ -105,7 +118,7 @@ namespace MedRecPro.Service
         /// </example>
         /// <seealso cref="SplData"/>
         /// <seealso cref="GetOrCreateSplDataAsync"/>
-        public async Task<bool> IsDuplicateSplDataAsync(string xmlContent, Guid splDataGuid)
+        public virtual async Task<bool> IsDuplicateSplDataAsync(string xmlContent, Guid splDataGuid)
         {
             #region implementation
             if (string.IsNullOrWhiteSpace(xmlContent))
@@ -162,7 +175,7 @@ namespace MedRecPro.Service
         /// <seealso cref="SplData"/>
         /// <seealso cref="CreateSplDataAsync"/>
         /// <seealso cref="IsDuplicateSplDataAsync"/>
-        public async Task<string> GetOrCreateSplDataAsync(string xmlContent, Guid splDataGuid, long? userId = null)
+        public virtual async Task<string> GetOrCreateSplDataAsync(string xmlContent, Guid splDataGuid, long? userId = null)
         {
             #region implementation
             if (string.IsNullOrWhiteSpace(xmlContent))
@@ -218,7 +231,7 @@ namespace MedRecPro.Service
         /// </example>
         /// <seealso cref="SplData"/>
         /// <seealso cref="GetOrCreateSplDataAsync"/>
-        public async Task<string> CreateSplDataAsync(string xmlContent,Guid splDataGuid, long? userId = null)
+        public virtual async Task<string> CreateSplDataAsync(string xmlContent,Guid splDataGuid, long? userId = null)
         {
             #region implementation
             if (string.IsNullOrWhiteSpace(xmlContent))
@@ -273,7 +286,7 @@ namespace MedRecPro.Service
         /// </example>
         /// <seealso cref="SplData"/>
         /// <seealso cref="Repository{T}.ReadByIdAsync"/>
-        public async Task<SplData?> GetSplDataByGuidAsync(Guid SplDataGuid)
+        public virtual async Task<SplData?> GetSplDataByGuidAsync(Guid SplDataGuid)
         {
             #region implementation
 
@@ -326,7 +339,7 @@ namespace MedRecPro.Service
         /// </code>
         /// </example>
         /// <seealso cref="SplData.Archive"/>
-        public async Task<bool> ArchiveSplDataAsync(string encryptedId)
+        public virtual async Task<bool> ArchiveSplDataAsync(string encryptedId)
         {
             #region implementation
             if (string.IsNullOrWhiteSpace(encryptedId))
@@ -378,7 +391,7 @@ namespace MedRecPro.Service
         /// </code>
         /// </example>
         /// <seealso cref="Repository{T}.ReadAllAsync"/>
-        public async Task<IEnumerable<SplData>> GetSplDataListAsync(int? pageNumber = null, int? pageSize = null, bool includeArchived = false)
+        public virtual async Task<IEnumerable<SplData>> GetSplDataListAsync(int? pageNumber = null, int? pageSize = null, bool includeArchived = false)
         {
             #region implementation
             try

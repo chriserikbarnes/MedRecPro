@@ -184,6 +184,10 @@ namespace MedRecPro.DataAccess
                     }
 
                     await UpdateLastLoginAsync(user.EncryptedUserId, DateTime.UtcNow, null /* IP address */);
+
+                    // Update user object in memory to reflect the reset values
+                    user.FailedLoginCount = 0;
+                    user.LockoutUntil = null;
                 }
                 catch (Exception ex)
                 {
