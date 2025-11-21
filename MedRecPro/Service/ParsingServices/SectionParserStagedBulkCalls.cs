@@ -272,6 +272,14 @@ namespace MedRecPro.Service.ParsingServices
 
                 var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
 
+                if(dbContext == null)
+                {
+                    context?.Logger?.LogError("Database context not available for bulk section creation");
+                    result.Success = false;
+                    result.Errors.Add("Database context not available");
+                    return;
+                }
+
                 // Step 2: Parse sections from XML elements into DTOs
                 var (sectionDtos, sectionGuids) = parseSectionsFromDiscovery(
                     discovery,
@@ -288,7 +296,7 @@ namespace MedRecPro.Service.ParsingServices
                 var sectionsToCreate = convertDtosToEntities(sectionDtos, context!);
 
                 // Step 4: Perform bulk insert operation
-                await performBulkInsertAsync(sectionsToCreate, dbContext!, context!);
+                await performBulkInsertAsync(sectionsToCreate, dbContext, context!);
 
                 // Step 5: Map database-generated IDs back to discovery GUIDs
                 mapGeneratedIdsToGuids(
@@ -1087,7 +1095,7 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Processes document relationships and related documents for all discovered sections.
+        /// Processes document relationships and related documents for all discovered sections using phased approach.
         /// Must be executed before media parsing.
         /// </summary>
         /// <param name="discovery">Section discovery results containing all sections.</param>
@@ -1097,10 +1105,14 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>Task representing the async processing operation.</returns>
         /// <remarks>
         /// Processes document-level relationships that may be referenced by other parsers.
+        /// Uses phased approach with TWO operations:
+        /// 1. Document relationships for all sections
+        /// 2. Document-level related documents for all sections
         /// </remarks>
         /// <seealso cref="SectionDiscoveryResult"/>
         /// <seealso cref="SectionParserBase.parseDocumentRelationshipAsync"/>
         /// <seealso cref="SectionParserBase.parseDocumentLevelRelatedDocumentsAsync"/>
+        /// <seealso cref="SectionParserBase.executeParserPhaseAsync"/>
         /// <seealso cref="Label"/>
         private async Task bulkProcessDocumentRelationshipsAsync(
             SectionDiscoveryResult discovery,
@@ -1117,9 +1129,10 @@ namespace MedRecPro.Service.ParsingServices
                     return;
                 }
 
-                context.Logger?.LogInformation("Starting document relationships processing");
-                int sectionsProcessed = 0;
+                context.Logger?.LogInformation("Starting phased document relationships processing for {Count} sections", discovery.AllSections.Count);
 
+                // Convert discovery DTOs to dictionary for phased processing
+                var sectionMap = new Dictionary<XElement, Section>();
                 foreach (var sectionDto in discovery.AllSections)
                 {
                     if (!sectionDto.SectionID.HasValue)
@@ -1127,44 +1140,38 @@ namespace MedRecPro.Service.ParsingServices
                         continue;
                     }
 
-                    try
+                    var section = new Section
                     {
-                        // Create Section entity from discovery DTO (no database query needed)
-                        var section = new Section
-                        {
-                            SectionID = sectionDto.SectionID.Value,
-                            SectionGUID = sectionDto.SectionGuid,
-                            SectionCode = sectionDto.SectionCode,
-                            SectionCodeSystem = sectionDto.SectionCodeSystem,
-                            SectionDisplayName = sectionDto.SectionCodeDisplayName,
-                            Title = sectionDto.SectionTitle,
-                            DocumentID = context.Document?.DocumentID,
-                            StructuredBodyID = context.StructuredBody?.StructuredBodyID
-                        };
-
-                        context.CurrentSection = section;
-
-                        var docRelResult = await parseDocumentRelationshipAsync(sectionDto.SourceElement, context, reportProgress);
-                        result.MergeFrom(docRelResult);
-
-                        var docLevelRelatedDocResult = await parseDocumentLevelRelatedDocumentsAsync(context);
-                        result.MergeFrom(docLevelRelatedDocResult);
-
-                        sectionsProcessed++;
-
-                        if (sectionsProcessed % 10 == 0)
-                        {
-                            reportProgress?.Invoke($"Document relationships: {sectionsProcessed}/{discovery.AllSections.Count}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        context.Logger?.LogError(ex, "Error processing document relationships for section {SectionGuid}", sectionDto.SectionGuid);
-                        result.Errors.Add($"Document relationships failed for section {sectionDto.SectionGuid}: {ex.Message}");
-                    }
+                        SectionID = sectionDto.SectionID.Value,
+                        SectionGUID = sectionDto.SectionGuid,
+                        SectionCode = sectionDto.SectionCode,
+                        SectionCodeSystem = sectionDto.SectionCodeSystem,
+                        SectionDisplayName = sectionDto.SectionCodeDisplayName,
+                        Title = sectionDto.SectionTitle,
+                        DocumentID = context.Document?.DocumentID,
+                        StructuredBodyID = context.StructuredBody?.StructuredBodyID
+                    };
+                    sectionMap[sectionDto.SourceElement] = section;
                 }
 
-                context.Logger?.LogInformation("Document relationships processing complete: {Count} sections", sectionsProcessed);
+                // Phase: Document relationships and related documents for ALL sections
+                // Note: Both operations combined in single phase since they're tightly coupled
+                await executeParserPhaseAsync(sectionMap, context, reportProgress,
+                    async (sectionEl, ctx, progress) =>
+                    {
+                        var phaseResult = new SplParseResult();
+
+                        var docRelResult = await parseDocumentRelationshipAsync(sectionEl, ctx, progress);
+                        phaseResult.MergeFrom(docRelResult);
+
+                        var docLevelRelatedDocResult = await parseDocumentLevelRelatedDocumentsAsync(ctx);
+                        phaseResult.MergeFrom(docLevelRelatedDocResult);
+
+                        return phaseResult;
+                    },
+                    result);
+
+                context.Logger?.LogInformation("Phased document relationships processing complete: {Count} sections", sectionMap.Count);
             }
             catch (Exception ex)
             {
@@ -1178,7 +1185,7 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Processes media references for all discovered sections.
+        /// Processes media references for all discovered sections using phased approach.
         /// Must be executed before content parsing since content may reference media.
         /// </summary>
         /// <param name="discovery">Section discovery results containing all sections.</param>
@@ -1188,9 +1195,11 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>Task representing the async processing operation.</returns>
         /// <remarks>
         /// Media parsing must precede content parsing as content elements may reference media entities.
+        /// Uses phased approach to process media for all sections, enabling bulk operation optimizations.
         /// </remarks>
         /// <seealso cref="SectionDiscoveryResult"/>
         /// <seealso cref="SectionMediaParser"/>
+        /// <seealso cref="SectionParserBase.executeParserPhaseAsync"/>
         /// <seealso cref="Label"/>
         private async Task bulkProcessAllMediaAsync(
             SectionDiscoveryResult discovery,
@@ -1207,9 +1216,10 @@ namespace MedRecPro.Service.ParsingServices
                     return;
                 }
 
-                context.Logger?.LogInformation("Starting media processing for {Count} sections", discovery.AllSections.Count);
-                int sectionsProcessed = 0;
+                context.Logger?.LogInformation("Starting phased media processing for {Count} sections", discovery.AllSections.Count);
 
+                // Convert discovery DTOs to dictionary for phased processing
+                var sectionMap = new Dictionary<XElement, Section>();
                 foreach (var sectionDto in discovery.AllSections)
                 {
                     if (!sectionDto.SectionID.HasValue)
@@ -1217,41 +1227,26 @@ namespace MedRecPro.Service.ParsingServices
                         continue;
                     }
 
-                    try
+                    var section = new Section
                     {
-                        // Create Section entity from discovery DTO (no database query needed)
-                        var section = new Section
-                        {
-                            SectionID = sectionDto.SectionID.Value,
-                            SectionGUID = sectionDto.SectionGuid,
-                            SectionCode = sectionDto.SectionCode,
-                            SectionCodeSystem = sectionDto.SectionCodeSystem,
-                            SectionDisplayName = sectionDto.SectionCodeDisplayName,
-                            Title = sectionDto.SectionTitle,
-                            DocumentID = context.Document?.DocumentID,
-                            StructuredBodyID = context.StructuredBody?.StructuredBodyID
-                        };
-
-                        context.CurrentSection = section;
-
-                        var mediaResult = await _mediaParser.ParseAsync(sectionDto.SourceElement, context, reportProgress);
-                        result.MergeFrom(mediaResult);
-
-                        sectionsProcessed++;
-
-                        if (sectionsProcessed % 10 == 0)
-                        {
-                            reportProgress?.Invoke($"Media processing: {sectionsProcessed}/{discovery.AllSections.Count}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        context.Logger?.LogError(ex, "Error processing media for section {SectionGuid}", sectionDto.SectionGuid);
-                        result.Errors.Add($"Media processing failed for section {sectionDto.SectionGuid}: {ex.Message}");
-                    }
+                        SectionID = sectionDto.SectionID.Value,
+                        SectionGUID = sectionDto.SectionGuid,
+                        SectionCode = sectionDto.SectionCode,
+                        SectionCodeSystem = sectionDto.SectionCodeSystem,
+                        SectionDisplayName = sectionDto.SectionCodeDisplayName,
+                        Title = sectionDto.SectionTitle,
+                        DocumentID = context.Document?.DocumentID,
+                        StructuredBodyID = context.StructuredBody?.StructuredBodyID
+                    };
+                    sectionMap[sectionDto.SourceElement] = section;
                 }
 
-                context.Logger?.LogInformation("Media processing complete: {Count} sections", sectionsProcessed);
+                // Phase: Media parsing for ALL sections
+                await executeParserPhaseAsync(sectionMap, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await _mediaParser.ParseAsync(sectionEl, ctx, progress),
+                    result);
+
+                context.Logger?.LogInformation("Phased media processing complete: {Count} sections", sectionMap.Count);
             }
             catch (Exception ex)
             {
@@ -1262,6 +1257,7 @@ namespace MedRecPro.Service.ParsingServices
 
             #endregion
         }
+
 
         /**************************************************************/
         /// <summary>
@@ -1286,8 +1282,7 @@ namespace MedRecPro.Service.ParsingServices
         /// This phased approach enables parsers to optimize bulk operations and reduces database round-trips.
         /// </remarks>
         /// <seealso cref="SectionDiscoveryResult"/>
-        /// <seealso cref="SectionParserBase.executeParserPhaseAsync(Dictionary{XElement, Section}, 
-        ///     SplParseContext, Action{string}?, Func{XElement, SplParseContext, Action{string}?, Task{SplParseResult}}, SplParseResult, Func{XElement, Section, bool}?)"/>
+        /// <seealso cref="SectionParserBase.executeParserPhaseAsync"/>
         /// <seealso cref="Label"/>
         private async Task bulkProcessRemainingOperationsAsync(
             SectionDiscoveryResult discovery,
@@ -1321,7 +1316,6 @@ namespace MedRecPro.Service.ParsingServices
                         DocumentID = context.Document?.DocumentID,
                         StructuredBodyID = context.StructuredBody?.StructuredBodyID
                     };
-
                     sectionMap[sectionDto.SourceElement] = section;
                 }
 
@@ -1378,7 +1372,6 @@ namespace MedRecPro.Service.ParsingServices
 
             #endregion
         }
-
         #endregion
 
         #endregion
