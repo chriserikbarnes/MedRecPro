@@ -29,12 +29,27 @@ namespace MedRecPro.Service.ParsingServices
 
         public string SectionName => "section";
 
+        /**************************************************************/
+        /// <summary>
+        /// Parses section elements asynchronously using the staged bulk operations pattern.
+        /// </summary>
+        /// <param name="element">The XElement representing the section to parse.</param>
+        /// <param name="context">The parsing context containing configuration and state.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">Optional flag indicating if called from parent element.</param>
+        /// <returns>A SplParseResult indicating the success status and metrics.</returns>
+        /// <seealso cref="SplParseResult"/>
+        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="XElement"/>
+        /// <seealso cref="parseAsync_StagedBulk"/>
         public async Task<SplParseResult> ParseAsync(
             XElement element,
             SplParseContext context,
             Action<string>? reportProgress,
             bool? isParentCallingForAllSubElements = false)
         {
+            #region implementation
+
             var result = new SplParseResult();
 
             if (!validateContext(context, result))
@@ -52,6 +67,8 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             return result;
+
+            #endregion
         }
 
         #region Section Processing Methods - Staged Bulk Operations
@@ -59,8 +76,8 @@ namespace MedRecPro.Service.ParsingServices
         /**************************************************************/
         /// <summary>
         /// Parses multiple section elements using staged bulk operations pattern.
-        /// Implements a two-pass architecture: Pass 1 (Discovery) traverses entire section tree once,
-        /// Pass 2 (Processing) processes all discovered sections with flat bulk operations.
+        /// Implements a two-pass architecture: Discovery pass traverses entire section tree once,
+        /// Processing pass handles all discovered sections with flat bulk operations.
         /// </summary>
         /// <param name="structuredBodyEl">The XElement representing the structuredBody containing all sections.</param>
         /// <param name="context">The current parsing context.</param>
@@ -68,8 +85,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>A SplParseResult indicating the success status and metrics for all sections processed.</returns>
         /// <remarks>
         /// Performance Pattern:
-        /// - Pass 1: Single XML traversal discovering all sections and hierarchies (memory only, no DB calls)
-        /// - Pass 2: Flat bulk operations across all nesting levels (15-20 database operations total)
+        /// - Discovery: Single XML traversal discovering all sections and hierarchies (memory only, no DB calls)
+        /// - Processing: Flat bulk operations across all nesting levels (15-20 database operations total)
         /// 
         /// Improvement over Nested Bulk:
         /// - Before (Nested): ~200 database operations for 100 sections across 5 levels
@@ -77,7 +94,7 @@ namespace MedRecPro.Service.ParsingServices
         /// - Result: 5-6× faster, 93% fewer database operations
         /// 
         /// This method eliminates recursive orchestration by processing all sections discovered
-        /// in Pass 1 through flat bulk operations, regardless of nesting level.
+        /// in the initial pass through flat bulk operations, regardless of nesting level.
         /// </remarks>
         /// <seealso cref="Section"/>
         /// <seealso cref="SectionDiscoveryResult"/>
@@ -112,15 +129,15 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 context.Logger?.LogInformation("Starting staged bulk section processing with discovery phase");
-                reportProgress?.Invoke("Starting section discovery (Pass 1)...");
+                reportProgress?.Invoke("Starting section discovery...");
 
-                // PASS 1: Discovery Phase - Single XML traversal to collect all sections and hierarchies
+                // Discovery Phase - Single XML traversal to collect all sections and hierarchies
                 // This phase performs no database operations, just collects metadata to memory
                 var discovery = XElementExtensions.DiscoverAllSections(structuredBodyEl, context.Logger);
 
                 if (discovery == null || !discovery.AllSections.Any())
                 {
-                    context.Logger?.LogWarning("No sections discovered during Pass 1");
+                    context.Logger?.LogWarning("No sections discovered during discovery phase");
                     return result; // Empty result, but success
                 }
 
@@ -132,12 +149,12 @@ namespace MedRecPro.Service.ParsingServices
                 // Store discovery results in context for use by all parsers
                 context.SectionDiscovery = discovery;
 
-                reportProgress?.Invoke($"Discovered {discovery.AllSections.Count} sections. Starting bulk processing (Pass 2)...");
+                reportProgress?.Invoke($"Discovered {discovery.AllSections.Count} sections. Starting bulk processing...");
 
-                // PASS 2: Processing Phase - Flat bulk operations across all discovered sections
+                // Processing Phase - Flat bulk operations across all discovered sections
 
-                // Task 5.1: Bulk create all sections ✅
-                reportProgress?.Invoke("Creating sections (Pass 2a)...");
+                // Bulk create all sections
+                reportProgress?.Invoke("Creating sections...");
                 await bulkCreateAllSectionsAsync(discovery, context, result);
 
                 if (!result.Success)
@@ -147,8 +164,8 @@ namespace MedRecPro.Service.ParsingServices
                 }
                 context.Logger?.LogInformation("Section creation complete: {Count} sections", result.SectionsCreated);
 
-                // Task 5.2: Bulk create all hierarchies ✅
-                reportProgress?.Invoke("Creating hierarchies (Pass 2b)...");
+                // Bulk create all hierarchies
+                reportProgress?.Invoke("Creating hierarchies...");
                 await bulkCreateAllHierarchiesAsync(discovery, context, result);
 
                 if (!result.Success)
@@ -157,29 +174,27 @@ namespace MedRecPro.Service.ParsingServices
                 }
                 context.Logger?.LogInformation("Hierarchy creation complete");
 
-                // Phase 1: Document relationships and related documents
-                reportProgress?.Invoke("Processing document relationships (Pass 2c)...");
+                // Process document relationships and related documents
+                reportProgress?.Invoke("Processing document relationships...");
                 await bulkProcessDocumentRelationshipsAsync(discovery, context, result, reportProgress);
                 context.Logger?.LogInformation("Document relationships complete");
 
-                // Phase 2: Media parsing (must precede content parsing)
-                reportProgress?.Invoke("Processing media (Pass 2d)...");
+                // Process media (must precede content parsing)
+                reportProgress?.Invoke("Processing media...");
                 await bulkProcessAllMediaAsync(discovery, context, result, reportProgress);
                 context.Logger?.LogInformation("Media processing complete");
 
-                // Task 5.3: Bulk process all content (depends on media) ✅
-                reportProgress?.Invoke("Processing content (Pass 2e)...");
+                // Bulk process all content (depends on media)
+                reportProgress?.Invoke("Processing content...");
                 await bulkProcessAllContentAsync(discovery, context, result, reportProgress);
                 context.Logger?.LogInformation("Content processing complete");
 
-                // Phases 5-11: Remaining operations
-                reportProgress?.Invoke("Processing remaining operations (Pass 2f)...");
+                // Process remaining operations
+                reportProgress?.Invoke("Processing remaining operations...");
                 await bulkProcessRemainingOperationsAsync(discovery, context, result, reportProgress);
                 context.Logger?.LogInformation("Remaining operations complete");
 
                 reportProgress?.Invoke($"Staged bulk processing complete: {result.SectionsCreated} sections, {result.SectionAttributesCreated} attributes");
-
-
             }
             catch (Exception ex)
             {
@@ -197,11 +212,11 @@ namespace MedRecPro.Service.ParsingServices
 
         #region Staged Bulk Helper Methods
 
-        #region Task 5.1: Bulk Section Creation
+        #region Bulk Section Creation
 
         /**************************************************************/
         /// <summary>
-        /// Orchestrates the bulk creation of all sections discovered during Pass 1.
+        /// Orchestrates the bulk creation of all sections discovered during the discovery phase.
         /// Coordinates validation, parsing, entity creation, persistence, and ID mapping.
         /// </summary>
         /// <param name="discovery">The discovery result containing all sections to create.</param>
@@ -209,7 +224,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="result">The parse result to update with metrics.</param>
         /// <returns>A task representing the asynchronous operation.</returns>
         /// <remarks>
-        /// This orchestrator implements Phase 2a of staged bulk operations by coordinating:
+        /// This orchestrator coordinates the following operations:
         /// 1. Context validation and setup
         /// 2. Section parsing from XML elements
         /// 3. Entity conversion from DTOs
@@ -438,7 +453,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </remarks>
         /// <seealso cref="SectionDto"/>
         /// <seealso cref="Section"/>
-        /// <seealso cref="createSectionFromDto"/>
+        /// <seealso cref="SectionParserBase.createSectionFromDto"/>
         /// <seealso cref="SplParseContext"/>
         private List<Section> convertDtosToEntities(
             List<SectionDto> sectionDtos,
@@ -608,11 +623,11 @@ namespace MedRecPro.Service.ParsingServices
         }
         #endregion
 
-        #region Task 5.2: Bulk Hierarchy Creation
+        #region Bulk Hierarchy Creation
 
         /**************************************************************/
         /// <summary>
-        /// Phase 2b: Orchestrates the creation of all section hierarchy relationships in a single bulk operation.
+        /// Orchestrates the creation of all section hierarchy relationships in a single bulk operation.
         /// </summary>
         /// <param name="discovery">Discovery results containing all hierarchies and section ID mappings.</param>
         /// <param name="context">The parsing context containing service providers and repositories.</param>
@@ -636,8 +651,8 @@ namespace MedRecPro.Service.ParsingServices
         /// </list>
         /// <para><b>Integration Points:</b></para>
         /// <list type="bullet">
-        ///   <item>Input: Uses discovery.AllHierarchies (populated by Task 4)</item>
-        ///   <item>Input: Uses discovery.SectionIdsByGuid (populated by Task 5.1)</item>
+        ///   <item>Input: Uses discovery.AllHierarchies (populated by discovery phase)</item>
+        ///   <item>Input: Uses discovery.SectionIdsByGuid (populated by section creation)</item>
         ///   <item>Called by: parseAsync_StagedBulk() after section creation</item>
         /// </list>
         /// <para><b>Error Handling:</b></para>
@@ -659,22 +674,18 @@ namespace MedRecPro.Service.ParsingServices
             SplParseContext context,
             SplParseResult result)
         {
+            #region implementation
+
             try
             {
-                #region Phase 1: Validation
-
-                // Validate all input parameters and preconditions
+                // Validation phase
                 if (!validateHierarchyCreationInputs(discovery, context, result))
                 {
                     // Validation failed - result.Success already set by validation method
                     return;
                 }
 
-                #endregion
-
-                #region Phase 2: Parsing
-
-                // Transform hierarchy DTOs into database entities with validation
+                // Parsing phase - transform hierarchy DTOs into database entities with validation
                 var hierarchiesToCreate = parseHierarchyEntities(discovery, context);
 
                 // Check if we have any valid hierarchies to create
@@ -685,18 +696,12 @@ namespace MedRecPro.Service.ParsingServices
                     return;
                 }
 
-                #endregion
-
-                #region Phase 3: Bulk Insertion
-
-                // Perform single bulk INSERT operation
+                // Insertion phase - perform single bulk INSERT operation
                 await insertHierarchiesInBulk(hierarchiesToCreate, context);
 
                 context?.Logger?.LogInformation(
                     "Bulk hierarchy orchestration complete: {Count} relationships created",
                     hierarchiesToCreate.Count);
-
-                #endregion
 
                 // Mark orchestration as successful
                 result.Success = true;
@@ -707,6 +712,8 @@ namespace MedRecPro.Service.ParsingServices
                 result.Success = false;
                 throw;
             }
+
+            #endregion
         }
 
         /**************************************************************/
@@ -959,14 +966,14 @@ namespace MedRecPro.Service.ParsingServices
 
         #endregion
 
-        #region Task 5.3 Bulk Content Creation
+        #region Bulk Content Creation
 
         /**************************************************************/
         /// <summary>
-        /// Task 5.3: Processes content (text, lists, tables, excerpts) for all discovered sections
+        /// Processes content (text, lists, tables, excerpts) for all discovered sections
         /// using flat bulk operations. Dramatically reduces database operations from N×100 to ~5-8 total.
         /// </summary>
-        /// <param name="discovery">Section discovery results from Pass 1 containing all sections.</param>
+        /// <param name="discovery">Section discovery results from discovery phase containing all sections.</param>
         /// <param name="context">Parsing context with service provider and configuration.</param>
         /// <param name="result">Parse result to accumulate metrics and errors.</param>
         /// <param name="reportProgress">Optional progress reporting callback.</param>
@@ -983,8 +990,8 @@ namespace MedRecPro.Service.ParsingServices
         /// - Staged bulk mode (this): ~5-8 DB operations total across ALL sections
         /// 
         /// Processing order:
-        /// - Called after Task 5.2 (hierarchy creation)
-        /// - Before Task 5.4 (media processing)
+        /// - Called after hierarchy creation
+        /// - Before media processing
         /// </remarks>
         /// <seealso cref="SectionContentParser"/>
         /// <seealso cref="SectionDiscoveryResult"/>
@@ -1076,11 +1083,11 @@ namespace MedRecPro.Service.ParsingServices
 
         #endregion
 
-        #region Task 5.x Downstream Items
+        #region Downstream Processing Operations
 
         /**************************************************************/
         /// <summary>
-        /// Phase 1: Processes document relationships and related documents for all discovered sections.
+        /// Processes document relationships and related documents for all discovered sections.
         /// Must be executed before media parsing.
         /// </summary>
         /// <param name="discovery">Section discovery results containing all sections.</param>
@@ -1171,7 +1178,7 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Phase 2: Processes media references for all discovered sections.
+        /// Processes media references for all discovered sections.
         /// Must be executed before content parsing since content may reference media.
         /// </summary>
         /// <param name="discovery">Section discovery results containing all sections.</param>
@@ -1267,14 +1274,14 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="reportProgress">Optional progress reporting callback.</param>
         /// <returns>Task representing the async processing operation.</returns>
         /// <remarks>
-        /// Processes phases 5-11 from the bulk operations pipeline:
-        /// - Phase 5: Indexing parsing
-        /// - Phase 6: Tolerance specifications (conditional)
-        /// - Phase 7: Warning letters
-        /// - Phase 8: Compliance actions
-        /// - Phase 9: Certification links (conditional)
-        /// - Phase 10: Manufactured products
-        /// - Phase 11: REMS protocols (conditional)
+        /// Processes remaining operations from the bulk operations pipeline:
+        /// - Indexing parsing
+        /// - Tolerance specifications (conditional)
+        /// - Warning letters
+        /// - Compliance actions
+        /// - Certification links (conditional)
+        /// - Manufactured products
+        /// - REMS protocols (conditional)
         /// </remarks>
         /// <seealso cref="SectionDiscoveryResult"/>
         /// <seealso cref="Label"/>
@@ -1321,37 +1328,37 @@ namespace MedRecPro.Service.ParsingServices
                         context.CurrentSection = section;
                         var sectionEl = sectionDto.SourceElement;
 
-                        // Phase 5: Indexing parsing
+                        // Indexing parsing
                         var indexingResult = await _indexingParser.ParseAsync(sectionEl, context, reportProgress);
                         result.MergeFrom(indexingResult);
 
-                        // Phase 6: Tolerance specifications (conditional)
+                        // Tolerance specifications (conditional)
                         if (containsToleranceSpecifications(sectionEl))
                         {
                             var toleranceResult = await _toleranceParser.ParseAsync(sectionEl, context, reportProgress);
                             result.MergeFrom(toleranceResult);
                         }
 
-                        // Phase 7: Warning letters
+                        // Warning letters
                         var warningLetterResult = await parseWarningLetterContentAsync(sectionEl, context, reportProgress);
                         result.MergeFrom(warningLetterResult);
 
-                        // Phase 8: Compliance actions
+                        // Compliance actions
                         var complianceResult = await parseComplianceActionsAsync(sectionEl, context, reportProgress);
                         result.MergeFrom(complianceResult);
 
-                        // Phase 9: Certification links (conditional)
+                        // Certification links (conditional)
                         if (section.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE)
                         {
                             var certificationResult = await parseCertificationLinksAsync(sectionEl, context, reportProgress);
                             result.MergeFrom(certificationResult);
                         }
 
-                        // Phase 10: Manufactured products
+                        // Manufactured products
                         var productResult = await parseManufacturedProductsAsync(sectionEl, context, reportProgress);
                         result.MergeFrom(productResult);
 
-                        // Phase 11: REMS protocols (conditional)
+                        // REMS protocols (conditional)
                         if (containsRemsProtocols(sectionEl))
                         {
                             var remsParser = new REMSParser();
