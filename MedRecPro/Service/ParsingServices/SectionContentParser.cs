@@ -11,7 +11,43 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
 using System.Linq;
+using System.Configuration;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.ComponentModel.Design.Serialization;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
+
+/*
+11/21/2025 TODO: FIX the UseBulkSaving switch. There is data loss with it turned on.
+
+/ BEFORE (BROKEN):
+var existing = await dbSet
+    .Where(eh => eh.SectionID == sectionId && eh.HighlightText == txt)
+    .FirstOrDefaultAsync();
+
+// AFTER (FIXED):
+var existing = await dbSet
+    .Where(eh => eh.SectionID == sectionId && eh.HighlightText == txt)
+    .FirstOrDefaultAsync();
+
+// NEW: Also check EF's change tracker for unsaved entities
+if (existing == null)
+{
+    existing = dbContext.ChangeTracker.Entries<SectionExcerptHighlight>()
+        .Where(e => e.State == EntityState.Added)
+        .Select(e => e.Entity)
+        .FirstOrDefault(eh => eh.SectionID == sectionId && eh.HighlightText == txt);
+}
+
+if (existing != null)
+{
+    highlights.Add(existing);
+    continue;
+}
+
+*/
 
 namespace MedRecPro.Service.ParsingServices
 {
@@ -281,6 +317,17 @@ namespace MedRecPro.Service.ParsingServices
                 // Parse section content
                 var contentResult = await ParseSectionContentAsync(element, context.CurrentSection.SectionID.Value, context);
                 result.MergeFrom(contentResult);
+
+                if (context.UseBulkSaving)
+                {
+                    // Commit all bulk-saved entities to the database
+                    var dbContext = context.GetDbContext();
+
+                    if (dbContext != null)
+                    {
+                        await dbContext.SaveChangesAsync();
+                    }
+                }
 
                 reportProgress?.Invoke($"Processed {contentResult.SectionAttributesCreated} content attributes");
             }
@@ -604,10 +651,19 @@ namespace MedRecPro.Service.ParsingServices
             };
 
             // Persist new content to database
-            await repo.CreateAsync(newStc);
+            if (context.UseBulkSaving)
+            {
+                // In bulk saving mode, add to DbContext without immediate save
+                dbContext.Set<SectionTextContent>().Add(newStc);
+            }
+            else
+            {
+                await repo.CreateAsync(newStc);
+            }
+
             return newStc;
             #endregion
-        } 
+        }
 
         /**************************************************************/
         /// <summary>
@@ -769,7 +825,7 @@ namespace MedRecPro.Service.ParsingServices
             var existingKeys = await getExistingSectionTextContentKeysAsync(dbContext, sectionId);
 
             // PHASE 3: Bulk insert missing content (1-2 inserts for parent/child hierarchy)
-            var (createdEntities, idLookup) = await bulkCreateSectionTextContentAsync(dbContext, dtos, existingKeys);
+            var (createdEntities, idLookup) = await bulkCreateSectionTextContentAsync(dbContext, context, dtos, existingKeys);
 
             // Retrieve all SectionTextContent entities for this section (including existing ones)
             var allEntities = await dbContext.Set<SectionTextContent>()
@@ -928,7 +984,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private async Task<HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)>>getExistingSectionTextContentKeysAsync(
+        private async Task<HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)>> getExistingSectionTextContentKeysAsync(
         ApplicationDbContext dbContext,
         int sectionId)
         {
@@ -970,6 +1026,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Coordinates two-pass processing: top-level entities first, then child entities.
         /// </summary>
         /// <param name="dbContext">The database context.</param>
+        /// <param name="context">The parsing context</param>
         /// <param name="dtos">The list of DTOs to insert.</param>
         /// <param name="existingKeys">HashSet of existing content keys for deduplication.</param>
         /// <returns>A tuple containing the created entities and a lookup dictionary mapping temp IDs to database IDs.</returns>
@@ -980,6 +1037,7 @@ namespace MedRecPro.Service.ParsingServices
         private async Task<(List<SectionTextContent> entities, Dictionary<string, int> idLookup)>
             bulkCreateSectionTextContentAsync(
                 ApplicationDbContext dbContext,
+                SplParseContext context,
                 List<SectionTextContentDto> dtos,
                 HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys)
         {
@@ -996,6 +1054,7 @@ namespace MedRecPro.Service.ParsingServices
             var topLevelDtos = filterTopLevelDtos(dtos);
             await createTopLevelEntitiesAsync(
                 dbContext,
+                context,
                 topLevelDtos,
                 existingKeys,
                 createdEntities,
@@ -1012,6 +1071,7 @@ namespace MedRecPro.Service.ParsingServices
             var childDtos = filterChildDtos(dtos);
             await createChildEntitiesAsync(
                 dbContext,
+                context,
                 childDtos,
                 existingKeys,
                 tempIdToDbIdLookup,
@@ -1057,6 +1117,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Filters out duplicates using the existingKeys set before creating entities.
         /// </summary>
         /// <param name="dbContext">The database context.</param>
+        /// <param name="context">The parsing context</param>
         /// <param name="topLevelDtos">DTOs representing top-level entities.</param>
         /// <param name="existingKeys">HashSet for deduplication checking.</param>
         /// <param name="createdEntities">Output collection of created entities.</param>
@@ -1067,6 +1128,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private async Task createTopLevelEntitiesAsync(
             ApplicationDbContext dbContext,
+            SplParseContext context,
             List<SectionTextContentDto> topLevelDtos,
             HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys,
             List<SectionTextContent> createdEntities,
@@ -1088,7 +1150,15 @@ namespace MedRecPro.Service.ParsingServices
 
             // Persist to database
             dbContext.Set<SectionTextContent>().AddRange(newEntities);
-            await dbContext.SaveChangesAsync();
+
+            if (context.UseBulkSaving)
+            {
+                // In bulk saving mode, defer SaveChanges
+            }
+            else
+            {
+                await dbContext.SaveChangesAsync();
+            }
 
             // Build temp ID to DB ID lookup
             buildIdLookup(newEntities, newDtos, tempIdToDbIdLookup);
@@ -1143,6 +1213,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Resolves parent IDs from lookup before creating entities.
         /// </summary>
         /// <param name="dbContext">The database context.</param>
+        /// <param name="context">The parsing context</param>
         /// <param name="childDtos">DTOs representing child entities.</param>
         /// <param name="existingKeys">HashSet for deduplication checking.</param>
         /// <param name="tempIdToDbIdLookup">Dictionary mapping temporary IDs to database IDs.</param>
@@ -1153,6 +1224,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private async Task createChildEntitiesAsync(
             ApplicationDbContext dbContext,
+            SplParseContext context,
             List<SectionTextContentDto> childDtos,
             HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys,
             Dictionary<string, int> tempIdToDbIdLookup,
@@ -1179,7 +1251,15 @@ namespace MedRecPro.Service.ParsingServices
 
             // Persist to database
             dbContext.Set<SectionTextContent>().AddRange(newEntities);
-            await dbContext.SaveChangesAsync();
+
+            if (context.UseBulkSaving)
+            {
+                // In bulk saving mode, defer SaveChanges
+            }
+            else
+            {
+                await dbContext.SaveChangesAsync();
+            }
 
             // Build temp ID to DB ID lookup for children
             buildIdLookup(newEntities, newChildDtos, tempIdToDbIdLookup);
@@ -1463,7 +1543,7 @@ namespace MedRecPro.Service.ParsingServices
                 // Find or create the main TextList record
                 if (dbContext != null)
                 {
-                    var textList = await getOrCreateTextListAsync(dbContext, repositories.TextListRepo, listEl, sectionTextContentId);
+                    var textList = await getOrCreateTextListAsync(dbContext, context, repositories.TextListRepo, listEl, sectionTextContentId);
                     if (textList?.TextListID == null)
                     {
                         context.Logger?.LogError("Failed to create or retrieve TextList for SectionTextContentID {id}", sectionTextContentId);
@@ -1545,7 +1625,8 @@ namespace MedRecPro.Service.ParsingServices
         /// Finds or creates a TextList record for the given list element and section content.
         /// </summary>
         /// <param name="dbContext">The database context.</param>
-        /// <param name="textListRepo">The TextList repository.</param>
+        /// <param name="context">The parser context</param>
+        /// <param name="textListRepo">The TextList repository.</param> 
         /// <param name="listEl">The XElement representing the list.</param>
         /// <param name="sectionTextContentId">The section text content ID.</param>
         /// <returns>The existing or newly created TextList entity.</returns>
@@ -1556,6 +1637,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private static async Task<TextList> getOrCreateTextListAsync(
             ApplicationDbContext dbContext,
+            SplParseContext context,
             Repository<TextList> textListRepo,
             XElement listEl,
             int sectionTextContentId)
@@ -1569,7 +1651,11 @@ namespace MedRecPro.Service.ParsingServices
             if (textList == null)
             {
                 textList = createTextListEntity(listEl, sectionTextContentId);
-                await textListRepo.CreateAsync(textList);
+
+                if (context.UseBulkSaving)
+                    dbContext.Add(textList);
+                else
+                    await textListRepo.CreateAsync(textList);
             }
 
             return textList;
@@ -1635,7 +1721,7 @@ namespace MedRecPro.Service.ParsingServices
             foreach (var itemEl in itemElements)
             {
                 var itemProcessResult = await processTextListItem(
-                    textListItemDbSet, textListItemRepo, itemEl, textList, seqNum);
+                    textListItemDbSet, context, textListItemRepo, itemEl, textList, seqNum);
 
                 // Only increment sequence if item was processed (had content)
                 if (itemProcessResult.WasProcessed)
@@ -1657,6 +1743,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Processes a single list item element, creating a TextListItem record if needed.
         /// </summary>
         /// <param name="textListItemDbSet">The TextListItem DbSet for querying.</param>
+        /// <param name="context">The parsing context</param>
         /// <param name="textListItemRepo">The TextListItem repository for creation.</param>
         /// <param name="itemEl">The XElement representing the item.</param>
         /// <param name="textList">The parent TextList entity.</param>
@@ -1669,6 +1756,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private static async Task<TextListItemProcessResult> processTextListItem(
             DbSet<TextListItem> textListItemDbSet,
+            SplParseContext context,
             Repository<TextListItem> textListItemRepo,
             XElement itemEl,
             TextList textList,
@@ -1693,7 +1781,12 @@ namespace MedRecPro.Service.ParsingServices
             if (existingItem == null && itemEl != null)
             {
                 var newItem = createTextListItemEntity(itemEl, textList, seqNum, itemText);
-                await textListItemRepo.CreateAsync(newItem);
+
+                if (context.UseBulkSaving)
+                    textListItemDbSet.Add(newItem);
+                else
+                    await textListItemRepo.CreateAsync(newItem);
+
                 return new TextListItemProcessResult { WasProcessed = true, WasCreated = true };
             }
 
@@ -1790,7 +1883,16 @@ namespace MedRecPro.Service.ParsingServices
             {
                 textList = createTextListEntity(listEl, sectionTextContentId);
                 textListDbSet.Add(textList);
-                await dbContext.SaveChangesAsync();
+
+                if (context.UseBulkSaving)
+                {
+                    // Defer SaveChanges for bulk saving
+                }
+                else
+                {
+                    await dbContext.SaveChangesAsync();
+                }
+
                 createdCount++;
             }
             else
@@ -1804,7 +1906,7 @@ namespace MedRecPro.Service.ParsingServices
                 return createdCount;
             }
 
-            createdCount += await bulkCreateTextListItemsAsync(dbContext, textList.TextListID.Value, itemDtos);
+            createdCount += await bulkCreateTextListItemsAsync(dbContext, context, textList.TextListID.Value, itemDtos);
 
             #endregion
 
@@ -1831,7 +1933,7 @@ namespace MedRecPro.Service.ParsingServices
 
             foreach (var itemEl in itemElements)
             {
-                if(itemEl == null)
+                if (itemEl == null)
                     continue;
 
                 var itemText = itemEl?.GetSplHtml(stripNamespaces: true);
@@ -1860,6 +1962,7 @@ namespace MedRecPro.Service.ParsingServices
         /// and creating only missing ones in a single batch operation.
         /// </summary>
         /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="context"></param>
         /// <param name="textListId">The foreign key ID of the parent TextList.</param>
         /// <param name="itemDtos">The list of item DTOs parsed from XML.</param>
         /// <returns>The count of newly created TextListItem entities.</returns>
@@ -1869,6 +1972,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private async Task<int> bulkCreateTextListItemsAsync(
             ApplicationDbContext dbContext,
+            SplParseContext context,
             int textListId,
             List<TextListItemDto> itemDtos)
         {
@@ -1904,7 +2008,15 @@ namespace MedRecPro.Service.ParsingServices
             if (newItems.Any())
             {
                 itemDbSet.AddRange(newItems);
-                await dbContext.SaveChangesAsync();
+
+                if (context.UseBulkSaving)
+                {
+                    // Defer SaveChanges for bulk saving
+                }
+                else
+                {
+                    await dbContext.SaveChangesAsync();
+                }
             }
 
             return newItems.Count;
@@ -1977,7 +2089,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             #endregion
-        } 
+        }
 
         #endregion
 
@@ -2050,7 +2162,11 @@ namespace MedRecPro.Service.ParsingServices
                 };
 
                 // Persist new table to database
-                await tableRepo.CreateAsync(textTable);
+                if (context.UseBulkSaving)
+                { dbContext.Add(textTable); }
+                else
+                { await tableRepo.CreateAsync(textTable); }
+
                 createdCount++;
             }
 
@@ -2187,6 +2303,7 @@ namespace MedRecPro.Service.ParsingServices
                         var createdCol = await createColumnEntityAsync(
                             columnDbSet,
                             columnRepo,
+                            context,
                             textTableId,
                             overallSeqNum,
                             colEl,
@@ -2223,6 +2340,7 @@ namespace MedRecPro.Service.ParsingServices
                     var createdCol = await createColumnEntityAsync(
                         columnDbSet,
                         columnRepo,
+                        context,
                         textTableId,
                         overallSeqNum,
                         colEl,
@@ -2253,6 +2371,7 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="columnDbSet">The DbSet for querying existing TextTableColumn entities.</param>
         /// <param name="columnRepo">The repository for creating new TextTableColumn entities.</param>
+        /// <param name="context">The parsing context</param>
         /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
         /// <param name="sequenceNumber">The overall sequence number for this column within the table.</param>
         /// <param name="colElement">The XElement representing the [col] element to parse.</param>
@@ -2286,6 +2405,7 @@ namespace MedRecPro.Service.ParsingServices
         private async Task<bool> createColumnEntityAsync(
             DbSet<TextTableColumn> columnDbSet,
             Repository<TextTableColumn> columnRepo,
+            SplParseContext context,
             int textTableId,
             int sequenceNumber,
             XElement colElement,
@@ -2332,7 +2452,10 @@ namespace MedRecPro.Service.ParsingServices
             };
 
             // Persist new column to database
-            await columnRepo.CreateAsync(newColumn);
+            if (context.UseBulkSaving)
+            { columnDbSet.Add(newColumn); }
+            else
+            { await columnRepo.CreateAsync(newColumn); }
 
             return true;
 
@@ -2407,7 +2530,11 @@ namespace MedRecPro.Service.ParsingServices
                     };
 
                     // Persist new row to database
-                    await rowRepo.CreateAsync(textTableRow);
+                    if (context.UseBulkSaving)
+                    { dbContext.Add(textTableRow); }
+                    else
+                    { await rowRepo.CreateAsync(textTableRow); }
+
                     createdCount++;
                 }
 
@@ -2498,7 +2625,11 @@ namespace MedRecPro.Service.ParsingServices
                     };
 
                     // Persist new cell to database
-                    await cellRepo.CreateAsync(newCell);
+                    if (context.UseBulkSaving)
+                    { dbContext.Add(newCell); }
+                    else
+                    { await cellRepo.CreateAsync(newCell); }
+
                     createdCount++;
                 }
 
@@ -2626,7 +2757,17 @@ namespace MedRecPro.Service.ParsingServices
                 };
 
                 textTableDbSet.Add(textTable);
-                await dbContext.SaveChangesAsync(); // Need ID for foreign keys
+
+                if (context.UseBulkSaving)
+                {
+                    // Defer SaveChanges for bulk operation}
+                }
+                else
+                {
+                    // Need ID for foreign keys
+                    await dbContext.SaveChangesAsync();
+                }
+
                 createdCount++;
             }
             else
@@ -2644,10 +2785,10 @@ namespace MedRecPro.Service.ParsingServices
             int tableId = textTable.TextTableID.Value;
 
             // Bulk create columns
-            createdCount += await bulkCreateColumnsAsync(dbContext, tableId, columnDtos);
+            createdCount += await bulkCreateColumnsAsync(dbContext, context, tableId, columnDtos);
 
             // Bulk create rows and cells
-            createdCount += await bulkCreateRowsAndCellsAsync(dbContext, tableId, rowDtos);
+            createdCount += await bulkCreateRowsAndCellsAsync(dbContext, context, tableId, rowDtos);
 
             #endregion
 
@@ -2833,6 +2974,7 @@ namespace MedRecPro.Service.ParsingServices
         /// and creating only missing ones in a single batch operation.
         /// </summary>
         /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="context">The parsing context containing relevant information</param>
         /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
         /// <param name="columnDtos">The list of column DTOs parsed from XML.</param>
         /// <returns>
@@ -2853,6 +2995,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private async Task<int> bulkCreateColumnsAsync(
             ApplicationDbContext dbContext,
+            SplParseContext context,
             int textTableId,
             List<TableColumnDto> columnDtos)
         {
@@ -2898,7 +3041,15 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // Bulk insert all new columns in one operation
                 columnDbSet.AddRange(newColumns);
-                await dbContext.SaveChangesAsync();
+
+                if (context.UseBulkSaving)
+                {
+                    // Defer SaveChanges for bulk operation
+                }
+                else
+                {
+                    await dbContext.SaveChangesAsync();
+                }
             }
 
             return newColumns.Count;
@@ -2912,6 +3063,7 @@ namespace MedRecPro.Service.ParsingServices
         /// entities and creating only missing ones in batch operations.
         /// </summary>
         /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="context">The parsing context information</param>
         /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
         /// <param name="rowDtos">The list of row DTOs (including cell DTOs) parsed from XML.</param>
         /// <returns>
@@ -2937,6 +3089,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private async Task<int> bulkCreateRowsAndCellsAsync(
             ApplicationDbContext dbContext,
+            SplParseContext context,
             int textTableId,
             List<TableRowDto> rowDtos)
         {
@@ -2981,7 +3134,16 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // Bulk insert all new rows in one operation
                 rowDbSet.AddRange(newRows);
-                await dbContext.SaveChangesAsync(); // Need IDs for cells
+
+                if (context.UseBulkSaving)
+                {
+                    // Defer SaveChanges for bulk operation
+                }
+                else
+                {
+                    await dbContext.SaveChangesAsync();
+                }
+
                 createdCount += newRows.Count;
             }
 
@@ -3061,7 +3223,16 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // Bulk insert all new cells in one operation
                 cellDbSet.AddRange(newCells);
-                await dbContext.SaveChangesAsync();
+
+                if (context.UseBulkSaving)
+                {
+                    // Defer SaveChanges for bulk operation
+                }
+                else
+                {
+                    await dbContext.SaveChangesAsync();
+                }
+
                 createdCount += newCells.Count;
             }
 
@@ -3187,7 +3358,15 @@ namespace MedRecPro.Service.ParsingServices
                     HighlightText = txt
                 };
 
-                await repo.CreateAsync(newHighlight);
+                if (context.UseBulkSaving)
+                {
+                    dbContext.Add(newHighlight);
+                }
+                else
+                {
+                    await repo.CreateAsync(newHighlight);
+                }
+
                 highlights.Add(newHighlight);
 
                 context.Logger?.LogInformation($"Created SectionExcerptHighlight for SectionID {sectionId} with {txt.Length} characters");
@@ -3236,7 +3415,7 @@ namespace MedRecPro.Service.ParsingServices
 
             // Get repo/db
             // Get database context and repository for section operations
-            var dbContext = context!.ServiceProvider!.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var sectionRepo = context.GetRepository<Section>();
             var sectionDbSet = dbContext.Set<Section>();
 
@@ -3277,7 +3456,11 @@ namespace MedRecPro.Service.ParsingServices
             };
 
             // Persist new section to database and return
-            await sectionRepo.CreateAsync(newSection);
+            if (context.UseBulkSaving)
+            { dbContext.Add(newSection); }
+            else
+            { await sectionRepo.CreateAsync(newSection); }
+
             return newSection;
             #endregion
         }
