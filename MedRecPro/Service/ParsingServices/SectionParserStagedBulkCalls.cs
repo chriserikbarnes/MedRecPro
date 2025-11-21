@@ -285,22 +285,22 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 // Step 3: Convert DTOs to entity models
-                var sectionsToCreate = convertDtosToEntities(sectionDtos, context);
+                var sectionsToCreate = convertDtosToEntities(sectionDtos, context!);
 
                 // Step 4: Perform bulk insert operation
-                await performBulkInsertAsync(sectionsToCreate, dbContext, context);
+                await performBulkInsertAsync(sectionsToCreate, dbContext!, context!);
 
                 // Step 5: Map database-generated IDs back to discovery GUIDs
                 mapGeneratedIdsToGuids(
                     sectionsToCreate,
                     sectionGuids,
                     discovery,
-                    context);
+                    context!);
 
                 // Update metrics
                 result.SectionsCreated = sectionsToCreate.Count;
 
-                context.Logger?.LogInformation(
+                context?.Logger?.LogInformation(
                     "Bulk section creation complete: {Count} sections created, {MappedCount} IDs mapped",
                     sectionsToCreate.Count,
                     discovery.SectionIdsByGuid.Count);
@@ -1265,7 +1265,7 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Processes remaining section operations after content and hierarchy are complete.
+        /// Processes remaining section operations after content and hierarchy are complete using phased approach.
         /// Handles indexing, tolerance specs, warning letters, compliance, certification, products, and REMS.
         /// </summary>
         /// <param name="discovery">Section discovery results containing all sections.</param>
@@ -1274,16 +1274,20 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="reportProgress">Optional progress reporting callback.</param>
         /// <returns>Task representing the async processing operation.</returns>
         /// <remarks>
-        /// Processes remaining operations from the bulk operations pipeline:
-        /// - Indexing parsing
-        /// - Tolerance specifications (conditional)
-        /// - Warning letters
-        /// - Compliance actions
-        /// - Certification links (conditional)
-        /// - Manufactured products
-        /// - REMS protocols (conditional)
+        /// Processes remaining operations using phased approach for optimal performance:
+        /// Phase 1: Indexing for ALL sections
+        /// Phase 2: Tolerance specifications for qualifying sections
+        /// Phase 3: Warning letters for ALL sections
+        /// Phase 4: Compliance actions for ALL sections
+        /// Phase 5: Certification links for qualifying sections
+        /// Phase 6: Manufactured products for ALL sections
+        /// Phase 7: REMS protocols for qualifying sections
+        /// 
+        /// This phased approach enables parsers to optimize bulk operations and reduces database round-trips.
         /// </remarks>
         /// <seealso cref="SectionDiscoveryResult"/>
+        /// <seealso cref="SectionParserBase.executeParserPhaseAsync(Dictionary{XElement, Section}, 
+        ///     SplParseContext, Action{string}?, Func{XElement, SplParseContext, Action{string}?, Task{SplParseResult}}, SplParseResult, Func{XElement, Section, bool}?)"/>
         /// <seealso cref="Label"/>
         private async Task bulkProcessRemainingOperationsAsync(
             SectionDiscoveryResult discovery,
@@ -1300,87 +1304,70 @@ namespace MedRecPro.Service.ParsingServices
                     return;
                 }
 
-                context.Logger?.LogInformation("Starting remaining operations for {Count} sections", discovery.AllSections.Count);
-                int sectionsProcessed = 0;
+                context.Logger?.LogInformation("Starting phased remaining operations for {Count} sections", discovery.AllSections.Count);
 
-                foreach (var sectionDto in discovery.AllSections)
+                // Convert discovery DTOs to dictionary for phased processing
+                var sectionMap = new Dictionary<XElement, Section>();
+                foreach (var sectionDto in discovery.AllSections.Where(s => s.SectionID.HasValue))
                 {
-                    if (!sectionDto.SectionID.HasValue)
+                    var section = new Section
                     {
-                        continue;
-                    }
+                        SectionID = sectionDto!.SectionID!.Value,
+                        SectionGUID = sectionDto.SectionGuid,
+                        SectionCode = sectionDto.SectionCode,
+                        SectionCodeSystem = sectionDto.SectionCodeSystem,
+                        SectionDisplayName = sectionDto.SectionCodeDisplayName,
+                        Title = sectionDto.SectionTitle,
+                        DocumentID = context.Document?.DocumentID,
+                        StructuredBodyID = context.StructuredBody?.StructuredBodyID
+                    };
 
-                    try
-                    {
-                        // Create Section entity from discovery DTO (no database query needed)
-                        var section = new Section
-                        {
-                            SectionID = sectionDto.SectionID.Value,
-                            SectionGUID = sectionDto.SectionGuid,
-                            SectionCode = sectionDto.SectionCode,
-                            SectionCodeSystem = sectionDto.SectionCodeSystem,
-                            SectionDisplayName = sectionDto.SectionCodeDisplayName,
-                            Title = sectionDto.SectionTitle,
-                            DocumentID = context.Document?.DocumentID,
-                            StructuredBodyID = context.StructuredBody?.StructuredBodyID
-                        };
-
-                        context.CurrentSection = section;
-                        var sectionEl = sectionDto.SourceElement;
-
-                        // Indexing parsing
-                        var indexingResult = await _indexingParser.ParseAsync(sectionEl, context, reportProgress);
-                        result.MergeFrom(indexingResult);
-
-                        // Tolerance specifications (conditional)
-                        if (containsToleranceSpecifications(sectionEl))
-                        {
-                            var toleranceResult = await _toleranceParser.ParseAsync(sectionEl, context, reportProgress);
-                            result.MergeFrom(toleranceResult);
-                        }
-
-                        // Warning letters
-                        var warningLetterResult = await parseWarningLetterContentAsync(sectionEl, context, reportProgress);
-                        result.MergeFrom(warningLetterResult);
-
-                        // Compliance actions
-                        var complianceResult = await parseComplianceActionsAsync(sectionEl, context, reportProgress);
-                        result.MergeFrom(complianceResult);
-
-                        // Certification links (conditional)
-                        if (section.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE)
-                        {
-                            var certificationResult = await parseCertificationLinksAsync(sectionEl, context, reportProgress);
-                            result.MergeFrom(certificationResult);
-                        }
-
-                        // Manufactured products
-                        var productResult = await parseManufacturedProductsAsync(sectionEl, context, reportProgress);
-                        result.MergeFrom(productResult);
-
-                        // REMS protocols (conditional)
-                        if (containsRemsProtocols(sectionEl))
-                        {
-                            var remsParser = new REMSParser();
-                            var remsResult = await remsParser.ParseAsync(sectionEl, context, reportProgress);
-                            result.MergeFrom(remsResult);
-                        }
-
-                        sectionsProcessed++;
-
-                        if (sectionsProcessed % 10 == 0)
-                        {
-                            reportProgress?.Invoke($"Remaining operations: {sectionsProcessed}/{discovery.AllSections.Count}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        context.Logger?.LogError(ex, "Error processing remaining operations for section {SectionGuid}", sectionDto.SectionGuid);
-                        result.Errors.Add($"Remaining operations failed for section {sectionDto.SectionGuid}: {ex.Message}");
-                    }
+                    sectionMap[sectionDto.SourceElement] = section;
                 }
 
-                context.Logger?.LogInformation("Remaining operations complete: {Count} sections", sectionsProcessed);
+                // Phase 1: Indexing parsing for ALL sections
+                await executeParserPhaseAsync(sectionMap, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await _indexingParser.ParseAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 2: Tolerance specifications (conditional)
+                await executeParserPhaseAsync(sectionMap, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await _toleranceParser.ParseAsync(sectionEl, ctx, progress),
+                    result,
+                    sectionFilter: (sectionEl, section) => containsToleranceSpecifications(sectionEl));
+
+                // Phase 3: Warning letters for ALL sections
+                await executeParserPhaseAsync(sectionMap, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await parseWarningLetterContentAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 4: Compliance actions for ALL sections
+                await executeParserPhaseAsync(sectionMap, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await parseComplianceActionsAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 5: Certification links (conditional)
+                await executeParserPhaseAsync(sectionMap, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await parseCertificationLinksAsync(sectionEl, ctx, progress),
+                    result,
+                    sectionFilter: (sectionEl, section) => section.SectionCode == c.BLANKET_NO_CHANGES_CERTIFICATION_CODE);
+
+                // Phase 6: Manufactured products for ALL sections
+                await executeParserPhaseAsync(sectionMap, context, reportProgress,
+                    async (sectionEl, ctx, progress) => await parseManufacturedProductsAsync(sectionEl, ctx, progress),
+                    result);
+
+                // Phase 7: REMS protocols (conditional)
+                await executeParserPhaseAsync(sectionMap, context, reportProgress,
+                    async (sectionEl, ctx, progress) =>
+                    {
+                        var remsParser = new REMSParser();
+                        return await remsParser.ParseAsync(sectionEl, ctx, progress);
+                    },
+                    result,
+                    sectionFilter: (sectionEl, section) => containsRemsProtocols(sectionEl));
+
+                context.Logger?.LogInformation("Phased remaining operations complete: {Count} sections", sectionMap.Count);
             }
             catch (Exception ex)
             {
