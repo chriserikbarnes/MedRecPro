@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
@@ -301,7 +301,7 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Find all subject2/substanceAdministration/componentOf/protocol elements
             foreach (var substanceAdminEl in sectionEl.SplElements(sc.E.Subject2, sc.E.SubstanceAdministration))
@@ -470,7 +470,7 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Process each component within the protocol
             foreach (var componentEl in protocolEl.SplElements(sc.E.Component))
@@ -921,7 +921,7 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Find all subject/manufacturedProduct/subjectOf/document elements (materials)
             foreach (var documentEl in sectionEl.SplElements(sc.E.Subject, sc.E.ManufacturedProduct, sc.E.SubjectOf, sc.E.Document))
@@ -1093,7 +1093,7 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Find all subject/manufacturedProduct/subjectOf/document elements (electronic resources)
             foreach (var documentEl in sectionEl.SplElements(sc.E.Subject, sc.E.ManufacturedProduct, sc.E.SubjectOf, sc.E.Document))

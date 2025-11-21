@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using MedRecPro.Models;
 using MedRecPro.Data;
 using MedRecPro.Helpers;
@@ -456,7 +456,7 @@ namespace MedRecPro.Service.ParsingServices
                 if (context?.ServiceProvider == null)
                     return null;
 
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var repo = context.GetRepository<WarningLetterProductInfo>();
                 var dbSet = dbContext.Set<WarningLetterProductInfo>();
 
@@ -668,7 +668,7 @@ namespace MedRecPro.Service.ParsingServices
                 if (context?.ServiceProvider == null)
                     return null;
 
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var repo = context.GetRepository<WarningLetterDate>();
                 var dbSet = dbContext.Set<WarningLetterDate>();
 

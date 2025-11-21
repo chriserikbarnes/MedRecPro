@@ -158,7 +158,7 @@ namespace MedRecPro.Service.Test
                 .ReturnsAsync("encrypted-spl-data-id");
 
             // Configure SplXmlParser to return successful result
-            splXmlParser.Setup(x => x.ParseAndSaveSplDataAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Action<string>?>()))
+            splXmlParser.Setup(x => x.ParseAndSaveSplDataAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Action<string>>(), null))
                 .ReturnsAsync(new SplFileImportResult
                 {
                     FileName = TestXmlFileName,

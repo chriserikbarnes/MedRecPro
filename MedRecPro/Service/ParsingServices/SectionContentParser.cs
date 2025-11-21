@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using MedRecPro.Data;
@@ -558,7 +558,7 @@ namespace MedRecPro.Service.ParsingServices
                 return null;
 
             // Get database context and repository for content operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var repo = context.GetRepository<SectionTextContent>();
 
             // Standardize content type name with proper capitalization
@@ -755,7 +755,7 @@ namespace MedRecPro.Service.ParsingServices
                 return Tuple.Create(allContent, totalGrandChildEntities);
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // PHASE 1: Parse all content blocks to DTOs (0 DB calls)
             var dtos = parseContentBlocksToMemory(parentEl, sectionId, parentSectionTextContentId?.ToString(), sequence);
@@ -1527,7 +1527,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get database context and repositories from service provider
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var textListRepo = context.GetRepository<TextList>();
             var textListItemRepo = context.GetRepository<TextListItem>();
 
@@ -2018,7 +2018,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get database context and repository for table operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var tableRepo = context.GetRepository<TextTable>();
             var tableDbSet = dbContext.Set<TextTable>();
 
@@ -2152,7 +2152,7 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
 
             // Get database context and repository for column operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var columnRepo = context.GetRepository<TextTableColumn>();
             var columnDbSet = dbContext.Set<TextTableColumn>();
 
@@ -2369,7 +2369,7 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
 
             // Get database context and repository for table row operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var rowRepo = context.GetRepository<TextTableRow>();
             var rowDbSet = dbContext.Set<TextTableRow>();
 
@@ -2453,7 +2453,7 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
 
             // Get database context and repository for table cell operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var cellRepo = context.GetRepository<TextTableCell>();
             var cellDbSet = dbContext.Set<TextTableCell>();
 
@@ -2560,7 +2560,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get database context for bulk operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             #region parse table structure into memory
 
@@ -3114,7 +3114,7 @@ namespace MedRecPro.Service.ParsingServices
                 return highlights;
 
             // Get database context and repository for section excerpt highlight operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var repo = context.GetRepository<SectionExcerptHighlight>();
             var dbSet = dbContext.Set<SectionExcerptHighlight>();
 

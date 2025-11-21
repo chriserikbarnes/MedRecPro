@@ -1,4 +1,4 @@
-﻿
+
 using System.Xml.Linq;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
@@ -121,7 +121,7 @@ namespace MedRecPro.Service.ParsingServices
                 return null;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Find the DocumentAuthor link created during header parsing
             var labelerAuthorLink = await dbContext.Set<DocumentAuthor>()
@@ -147,7 +147,7 @@ namespace MedRecPro.Service.ParsingServices
                 return null;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var repo = context.GetRepository<DocumentRelationship>();
             var dbSet = dbContext.Set<DocumentRelationship>();
 

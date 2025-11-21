@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 #pragma warning disable CS8981
 using sc = MedRecPro.Models.SplConstants;
 using c = MedRecPro.Models.Constant;
@@ -203,7 +203,7 @@ namespace MedRecPro.Service.ParsingServices
                 return count;
 
             // Get DbContext for getOrCreate operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var characteristicDbSet = dbContext.Set<Characteristic>();
 
             // Get all characteristics for parsing at once to minimize database calls
@@ -410,7 +410,7 @@ namespace MedRecPro.Service.ParsingServices
 
             // Get repository for PackagingLevel lookups
             var packagingRepo = context.GetRepository<PackagingLevel>();
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var packagingDbSet = dbContext.Set<PackagingLevel>();
 
             // Process all asContent elements
@@ -812,7 +812,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.ServiceProvider == null || context.Logger == null || product.ProductID == null)
                 return createdCount;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             int? packagingLevelId = context.CurrentPackagingLevel?.PackagingLevelID;
 
             #region parse characteristics structure into memory
@@ -1148,7 +1148,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.ServiceProvider == null || context.Logger == null || product.ProductID == null)
                 return createdCount;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             #region parse identifiers structure into memory
 
@@ -1330,7 +1330,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.ServiceProvider == null || context.Logger == null || product.ProductID == null)
                 return createdCount;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             #region parse routes structure into memory
 

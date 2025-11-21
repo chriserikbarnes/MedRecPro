@@ -1,4 +1,4 @@
-﻿
+
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
@@ -272,7 +272,7 @@ namespace MedRecPro.Service.ParsingServices
                 return null;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var repo = context.GetRepository<ComplianceAction>();
             var dbSet = dbContext.Set<ComplianceAction>();
 

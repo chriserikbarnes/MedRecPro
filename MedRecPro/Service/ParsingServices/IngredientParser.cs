@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
@@ -390,7 +390,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get the DbContext to check for existing records and perform database operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var referenceSubstanceDbSet = dbContext.Set<ReferenceSubstance>();
 
             // Check if this exact reference substance link already exists to prevent duplicates
@@ -476,7 +476,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get the DbContext to check for existing records and perform database operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var sourceProductDbSet = dbContext.Set<IngredientSourceProduct>();
 
             // Check if this exact source product link already exists to prevent duplicates
@@ -704,7 +704,7 @@ namespace MedRecPro.Service.ParsingServices
 
             #region database operations
             // Get database context and specified substance repository
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var substanceDbSet = dbContext.Set<SpecifiedSubstance>();
 
             // Search for existing substance with matching code and code system
@@ -1257,7 +1257,7 @@ namespace MedRecPro.Service.ParsingServices
 
             #region process each active moiety
             // Get database context once for all moiety operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var moietyRepo = context.GetRepository<ActiveMoiety>();
 
             // Process each active moiety element
@@ -1344,14 +1344,14 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>A task that resolves to a SplParseResult indicating success and the count of created entities.</returns>
         /// <remarks>
         /// Performance Pattern:
-        /// - Before: 6N database calls (N ingredients × 6 entity types)
+        /// - Before: 6N database calls (N ingredients � 6 entity types)
         /// - After: 12-18 queries/inserts total (2-3 per entity type)
         /// This represents a 30-100x performance improvement for large ingredient lists.
         /// 
         /// Handles hierarchical dependencies:
-        /// 1. IngredientSubstances → ActiveMoieties/ReferenceSubstances
+        /// 1. IngredientSubstances ? ActiveMoieties/ReferenceSubstances
         /// 2. SpecifiedSubstances (independent)
-        /// 3. Ingredients → IngredientSourceProducts
+        /// 3. Ingredients ? IngredientSourceProducts
         /// </remarks>
         /// <seealso cref="SplParseResult"/>
         /// <seealso cref="SplParseContext"/>

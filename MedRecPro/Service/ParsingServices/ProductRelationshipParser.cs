@@ -1,5 +1,5 @@
-﻿
-﻿using System.Xml.Linq;
+
+using System.Xml.Linq;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
@@ -135,7 +135,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             var aggregateResult = new SplParseResult();
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             foreach (var partEl in parentEl.SplElements(sc.E.Part))
             {
@@ -200,7 +200,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             var aggregateResult = new SplParseResult();
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             foreach (var assemblyEl in parentEl.SplElements(sc.E.AsPartOfAssembly))
             {
@@ -275,7 +275,7 @@ namespace MedRecPro.Service.ParsingServices
                 context.Logger.LogInformation("Created new Organization (Responsible Person) '{OrgName}' with ID {OrgID}", responsibleOrg.OrganizationName, responsibleOrg.OrganizationID);
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             await getOrSaveResponsiblePersonLinkAsync(dbContext, product.ProductID, responsibleOrg.OrganizationID);
             context.Logger.LogInformation("Created ResponsiblePersonLink for ProductID {ProductID} to OrganizationID {OrgID}", product.ProductID, responsibleOrg.OrganizationID);
             count++;
@@ -345,7 +345,7 @@ namespace MedRecPro.Service.ParsingServices
                 return (null, false);
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var orgRepo = context.GetRepository<Organization>();
             var orgDbSet = dbContext.Set<Organization>();
 

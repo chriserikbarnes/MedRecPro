@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using MedRecPro.Data;
@@ -1396,7 +1396,7 @@ namespace MedRecPro.Service.ParsingServices
                 return count;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // The structure is a series of <manufacturedProduct> elements inside the <subject>.
             foreach (var manufacturedProductEl in sectionEl.SplElements(sc.E.Subject, sc.E.ManufacturedProduct, sc.E.ManufacturedProduct))
@@ -1541,7 +1541,7 @@ namespace MedRecPro.Service.ParsingServices
                 return count;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // The structure is a series of <manufacturedProduct> elements inside the <subject>.
             foreach (var manufacturedProductEl in sectionEl.SplElements(sc.E.Subject, sc.E.ManufacturedProduct, sc.E.ManufacturedProduct))
@@ -1730,7 +1730,7 @@ namespace MedRecPro.Service.ParsingServices
                 return count;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // The structure is <substanceAdministration><subjectOf><issue>
             foreach (var issueEl in sectionEl.SplElements(sc.E.SubstanceAdministration, sc.E.SubjectOf, sc.E.Issue))
@@ -1932,7 +1932,7 @@ namespace MedRecPro.Service.ParsingServices
                 return count;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // The structure is <subject2><substanceAdministration><componentOf><protocol><id>
             // The XElementExtensions helper `SplElements` is perfect for this deep navigation.
@@ -2046,7 +2046,7 @@ namespace MedRecPro.Service.ParsingServices
                 return count;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // DEBUG: Log what we're starting with
             Console.WriteLine($"DEBUG: Starting to parse section {section.SectionCode}");

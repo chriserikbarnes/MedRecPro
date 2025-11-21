@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using MedRecPro.Data;
@@ -323,7 +323,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 // We query by GUID (a non-PK), so direct DbContext access is more flexible here.
                 // Find child section entity by GUID for hierarchy establishment
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var childSection = await dbContext
                     .Set<Section>()
                     .AsNoTracking()
@@ -401,7 +401,7 @@ namespace MedRecPro.Service.ParsingServices
                 int documentId = context.Document?.DocumentID ?? 0;
 
                 // Get database context and repository for section hierarchy operations
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var repo = context.GetRepository<SectionHierarchy>();
                 var dbSet = dbContext.Set<SectionHierarchy>();
 
@@ -623,7 +623,7 @@ namespace MedRecPro.Service.ParsingServices
                     return;
                 }
 
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
 
                 // STEP 1: Extract child section GUIDs from XML elements
                 var childGuids = extractChildGuids(childSectionEls, context);
@@ -1015,7 +1015,7 @@ namespace MedRecPro.Service.ParsingServices
                 int documentId = context.Document?.DocumentID ?? 0;
 
                 // Get database context for bulk operations
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
 
                 // Step 1: Parse child section GUIDs from XML into memory
                 var hierarchyDtos = parseChildSectionsToMemory(parentSectionEl);

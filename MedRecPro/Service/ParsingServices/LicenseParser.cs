@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
@@ -113,7 +113,7 @@ namespace MedRecPro.Service.ParsingServices
             {
                 reportProgress?.Invoke($"Starting License XML Elements {context.FileNameInZip}");
 
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var licenseCount = await parseAndSaveLicensesAsync(parentEl: element, 
                     context.CurrentBusinessOperation, 
                     context, 

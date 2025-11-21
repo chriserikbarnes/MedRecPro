@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 
 using static MedRecPro.Models.Label;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
@@ -310,7 +310,7 @@ namespace MedRecPro.Service.ParsingServices
                 return null;
 
             // Get database context and organization dataset for queries
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var orgDbSet = dbContext.Set<Organization>();
 
             // Look up the organization by name to check for existing record
@@ -357,7 +357,7 @@ namespace MedRecPro.Service.ParsingServices
                 return null;
 
             // Get database context and LegalAuthenticator dataset for queries
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var dbSet = dbContext.Set<LegalAuthenticator>();
 
             // Check if an identical authenticator already exists for this document
@@ -425,7 +425,7 @@ namespace MedRecPro.Service.ParsingServices
                 return relatedDocs;
 
             // Get database context and repository for related document operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var repo = context.GetRepository<RelatedDocument>();
             var dbSet = dbContext.Set<RelatedDocument>();
 

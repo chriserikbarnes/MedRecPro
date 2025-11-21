@@ -259,6 +259,7 @@ namespace MedRecPro.Service
         /// <param name="xmlContent">Raw XML content string to parse</param>
         /// <param name="fileNameInZip">Name of the file within the ZIP archive for logging</param>
         /// <param name="reportProgress">Delegate for progress reporting</param>
+        /// <param name="sharedDbContext">DbContext for downstream parsers</param>
         /// <returns>Import result containing success status, counts, and any errors encountered</returns>
         /// <example>
         /// <code>
@@ -286,7 +287,8 @@ namespace MedRecPro.Service
         /// <seealso cref="XDocument"/>
         public async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent,
             string fileNameInZip,
-            Action<string>? reportProgress = null)
+            Action<string>? reportProgress = null,
+            ApplicationDbContext? sharedDbContext = null)
         {
             #region implementation
             var fileResult = new SplFileImportResult { FileName = fileNameInZip };
@@ -331,7 +333,8 @@ namespace MedRecPro.Service
                 FileResult = fileResult,
                 FileNameInZip = fileNameInZip,
                 MainSectionParser = _mainSectionParser,
-                DocumentElement = docEl
+                DocumentElement = docEl,
+                DbContext = sharedDbContext
             };
 
             // Manually set feature flag

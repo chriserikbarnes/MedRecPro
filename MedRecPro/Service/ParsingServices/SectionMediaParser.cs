@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using MedRecPro.Data;
@@ -208,7 +208,7 @@ namespace MedRecPro.Service.ParsingServices
                 return mediaList;
 
             // Get database context and repository for ObservationMedia operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var repo = context.GetRepository<ObservationMedia>();
             var dbSet = dbContext.Set<ObservationMedia>();
 
@@ -581,7 +581,7 @@ namespace MedRecPro.Service.ParsingServices
             if (sectionEl == null || sectionId <= 0 || context?.ServiceProvider == null)
                 return new List<ObservationMedia>();
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // PHASE 1: Parse to DTOs (0 DB calls)
             var dtos = parseObservationMediaToMemory(sectionEl);
@@ -816,7 +816,7 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
 
             int documentId = context.Document?.DocumentID ?? 0;
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // PHASE 1: Parse to DTOs (0 DB calls)
             var dtos = parseRenderedMediaToMemory(contentBlockEl);

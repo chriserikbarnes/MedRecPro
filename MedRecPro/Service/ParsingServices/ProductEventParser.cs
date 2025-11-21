@@ -369,7 +369,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get database context for direct queries
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var productEventDbSet = dbContext.Set<ProductEvent>();
 
             // Search for existing product event with same packaging level and event code

@@ -1,4 +1,4 @@
-ï»¿using MedRecPro.Data;
+using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
@@ -91,7 +91,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Improvement over Nested Bulk:
         /// - Before (Nested): ~200 database operations for 100 sections across 5 levels
         /// - After (Staged): ~15-20 database operations for same document
-        /// - Result: 5-6Ã— faster, 93% fewer database operations
+        /// - Result: 5-6× faster, 93% fewer database operations
         /// 
         /// This method eliminates recursive orchestration by processing all sections discovered
         /// in the initial pass through flat bulk operations, regardless of nesting level.
@@ -270,7 +270,7 @@ namespace MedRecPro.Service.ParsingServices
                     "Starting bulk section creation for {SectionCount} sections",
                     discovery.AllSections.Count);
 
-                var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
 
                 if(dbContext == null)
                 {
@@ -947,7 +947,7 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
 
             // Get database context from service provider
-            var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var dbSet = dbContext?.Set<SectionHierarchy>();
 
             if (dbSet == null || dbContext == null)
@@ -979,7 +979,7 @@ namespace MedRecPro.Service.ParsingServices
         /**************************************************************/
         /// <summary>
         /// Processes content (text, lists, tables, excerpts) for all discovered sections
-        /// using flat bulk operations. Dramatically reduces database operations from NÃ—100 to ~5-8 total.
+        /// using flat bulk operations. Dramatically reduces database operations from N×100 to ~5-8 total.
         /// </summary>
         /// <param name="discovery">Section discovery results from discovery phase containing all sections.</param>
         /// <param name="context">Parsing context with service provider and configuration.</param>
@@ -993,7 +993,7 @@ namespace MedRecPro.Service.ParsingServices
         /// 3. Aggregates results across all sections
         /// 
         /// Performance characteristics:
-        /// - Single-call mode: ~100+ DB operations per section Ã— N sections
+        /// - Single-call mode: ~100+ DB operations per section × N sections
         /// - Bulk mode: ~5-8 DB operations per section
         /// - Staged bulk mode (this): ~5-8 DB operations total across ALL sections
         /// 

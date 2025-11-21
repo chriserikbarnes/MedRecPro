@@ -447,7 +447,7 @@ namespace MedRecPro.Service.ParsingServices
                 if (context.ServiceProvider != null && context.Document?.DocumentID != null)
                 {
                     // Get database context from service provider for data access
-                    var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                    var dbContext = context.GetDbContext();
 
                     // Query existing related documents count for this source document
                     var existingCount = await dbContext.Set<RelatedDocument>()

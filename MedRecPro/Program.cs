@@ -90,6 +90,9 @@ builder.Services.Configure<ClaudeApiSettings>(builder.Configuration.GetSection("
 // Debug logging
 var apiKey = builder.Configuration["ClaudeApiSettings:ApiKey"];
 Console.WriteLine($"=== DEBUG: ApiKey from config: {(string.IsNullOrEmpty(apiKey) ? "EMPTY/NULL" : "LOADED (length: " + apiKey.Length + ")")}");
+
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Connection", LogLevel.Debug);
+
 #endif
 
 

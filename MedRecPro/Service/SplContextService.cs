@@ -1,6 +1,7 @@
-﻿using System.Xml.Linq;
+﻿using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
+using System.Xml.Linq;
 using static MedRecPro.Models.Label;
 
 namespace MedRecPro.Service.ParsingServices
@@ -84,6 +85,11 @@ namespace MedRecPro.Service.ParsingServices
         /// Requires UseBulkOperations to also be enabled.
         /// </remarks>
         public bool UseBulkStaging { get; private set; }
+
+        /// <summary>
+        /// Gets or sets the database context used for data access operations.
+        /// </summary>
+        public ApplicationDbContext? DbContext { get; set; }
 
         /// <summary>
         /// Contains the results of section discovery if UseBulkStaging is enabled.

@@ -1,6 +1,6 @@
-ï»¿
 
-ï»¿using System.Xml.Linq;
+
+using System.Xml.Linq;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
@@ -549,8 +549,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>A SplParseResult indicating the success status and the count of created entities.</returns>
         /// <remarks>
         /// Performance Pattern:
-        /// - Before: (3 entity types Ã— 2) Ã— N items Ã— 45ms = ~270ms per item on Azure
-        /// - After: (3 entity types Ã— 2) Ã— 45ms = ~270ms total
+        /// - Before: (3 entity types × 2) × N items × 45ms = ~270ms per item on Azure
+        /// - After: (3 entity types × 2) × 45ms = ~270ms total
         /// Parses all three identity types (EquivalentEntity, ProductIdentifier, SpecializedKind) in bulk.
         /// </remarks>
         /// <seealso cref="Product"/>
@@ -574,7 +574,7 @@ namespace MedRecPro.Service.ParsingServices
                 return result;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Process Equivalent Entities
             var equivCount = await bulkCreateEquivalentEntitiesAsync(element, product.ProductID.Value, dbContext, context);

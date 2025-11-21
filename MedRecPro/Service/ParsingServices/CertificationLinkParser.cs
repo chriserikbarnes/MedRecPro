@@ -1,4 +1,4 @@
-﻿
+
 using System.Xml.Linq;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
@@ -108,7 +108,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Explicitly get the DbContext from the service provider
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var repo = context.GetRepository<CertificationProductLink>();
             var dbSet = dbContext.Set<CertificationProductLink>();
 

@@ -1,4 +1,4 @@
-﻿using MedRecPro.Data;
+using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
@@ -498,7 +498,7 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
             if (parentPackagingLevelId.HasValue && childPackagingLevel.PackagingLevelID.HasValue)
             {
-                var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
 
                 if (dbContext == null)
                 {
@@ -900,7 +900,7 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
 
                 // Corrected: Query the PackageIdentifier table instead.
                 var packageIdentifierDbSet = dbContext.Set<PackageIdentifier>();

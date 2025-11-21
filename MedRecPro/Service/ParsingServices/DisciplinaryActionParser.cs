@@ -1,4 +1,4 @@
-﻿
+
 using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
@@ -312,7 +312,7 @@ namespace MedRecPro.Service.ParsingServices
                     return null;
                 }
 
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var dbSet = dbContext.Set<DisciplinaryAction>();
 
                 var existingAction = await dbSet.FirstOrDefaultAsync(d =>
@@ -362,7 +362,7 @@ namespace MedRecPro.Service.ParsingServices
                     return null;
                 }
 
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var dbSet = dbContext.Set<AttachedDocument>();
 
                 var existingDoc = await dbSet.FirstOrDefaultAsync(d =>

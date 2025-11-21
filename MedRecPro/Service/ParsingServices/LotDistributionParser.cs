@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
@@ -558,7 +558,7 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var productIdentifierDbSet = dbContext.Set<ProductIdentifier>();
 
                 // Get all identifiers for this product
@@ -810,7 +810,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context.ServiceProvider == null)
                 return null;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var lotDbSet = dbContext.Set<LotIdentifier>();
 
             // Search by lot number and root OID
@@ -923,7 +923,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.Logger == null || context.ServiceProvider == null)
                 return null;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var instanceDbSet = dbContext.Set<ProductInstance>();
 
             // Search by product ID, lot identifier ID, and instance type
@@ -1130,7 +1130,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.Logger == null || context.ServiceProvider == null)
                 return null;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var substanceDbSet = dbContext.Set<IngredientSubstance>();
 
             // First try to find by UNII code
@@ -1221,7 +1221,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.Logger == null || context.ServiceProvider == null)
                 return null;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var orgDbSet = dbContext.Set<OrganizationIdentifier>();
 
             // Find organization by DUNS number
@@ -1255,7 +1255,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context.ServiceProvider == null)
                 return null;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var ingredientDbSet = dbContext.Set<IngredientInstance>();
 
             // Search by fill lot instance ID, ingredient substance ID, and lot identifier ID
@@ -1534,7 +1534,7 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var hierarchyDbSet = dbContext.Set<LotHierarchy>();
 
                 // Check for existing hierarchy relationship to avoid duplicates
@@ -1603,7 +1603,7 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var hierarchyDbSet = dbContext.Set<LotHierarchy>();
 
                 // Search by parent and child instance IDs
@@ -1646,7 +1646,7 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var instanceDbSet = dbContext.Set<ProductInstance>();
 
                 // Check if parent instance exists

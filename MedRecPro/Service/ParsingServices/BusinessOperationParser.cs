@@ -1,4 +1,4 @@
-﻿
+
 using System.Xml.Linq;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
@@ -124,7 +124,7 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             int? docId = context.Document.DocumentID;
 
             if (dbContext != null)

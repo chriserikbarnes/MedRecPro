@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using System.Xml.Linq;
 using MedRecPro.Data;
 using MedRecPro.Helpers;
@@ -272,7 +272,7 @@ namespace MedRecPro.Service.ParsingServices
                 return (null, false);
             }
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Step 1: Search for an existing OrganizationIdentifier
             var existingIdentifier = await dbContext.Set<OrganizationIdentifier>()
@@ -462,7 +462,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Links the author organization's identifiers to a top-level DocumentRelationship.
         /// Creates a level 1 relationship with no parent organization to represent the
-        /// Document → Author relationship, enabling proper hierarchical identifier rendering.
+        /// Document ? Author relationship, enabling proper hierarchical identifier rendering.
         /// </summary>
         /// <param name="authorOrgElement">The XElement containing the author's representedOrganization data.</param>
         /// <param name="context">The parsing context for database access and logging services.</param>
@@ -473,7 +473,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <remarks>
         /// This method ensures proper hierarchical identifier rendering by creating or finding
         /// a top-level (author-level) DocumentRelationship where:
-        /// - ParentOrganizationID is NULL (representing Document → Author relationship)
+        /// - ParentOrganizationID is NULL (representing Document ? Author relationship)
         /// - ChildOrganizationID is the author organization
         /// - RelationshipLevel is 1 (author/labeler level)
         /// 
@@ -513,12 +513,12 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get database context for querying and creating relationships
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Search for a top-level (author-level) relationship where:
             // - The author organization is the CHILD
             // - There is NO PARENT (ParentOrganizationID = NULL)
-            // - This represents the Document → Author Organization relationship
+            // - This represents the Document ? Author Organization relationship
             // - RelationshipLevel is 0 or 1 (author/labeler level)
             var authorLevelRelationship = await dbContext.Set<DocumentRelationship>()
                 .FirstOrDefaultAsync(dr =>
@@ -532,7 +532,7 @@ namespace MedRecPro.Service.ParsingServices
             if (authorLevelRelationship == null)
             {
                 context.Logger?.LogInformation(
-                    "No author-level relationship found for organization {OrgId}, creating Document → Author relationship at level 1",
+                    "No author-level relationship found for organization {OrgId}, creating Document ? Author relationship at level 1",
                     authorOrgId);
 
                 // Create new top-level relationship with no parent organization
@@ -708,12 +708,12 @@ namespace MedRecPro.Service.ParsingServices
         /// <returns>The determined author type (e.g., "Manufacturer", "Packager", "Labeler", etc.).</returns>
         /// <remarks>
         /// This method analyzes business operation codes to determine the organization's primary role:
-        /// - Manufacturing operations (C43360, C82401, etc.) → "Manufacturer"
-        /// - Packaging operations (C84731, C73606) → "Packager" 
-        /// - Labeling operations (C84732, C73607) → "Labeler"
-        /// - Analysis/Testing operations → "Analyzer"
-        /// - Multiple operations → Combined type (e.g., "Manufacturer/Packager")
-        /// - No operations found → "Labeler" (default for author section)
+        /// - Manufacturing operations (C43360, C82401, etc.) ? "Manufacturer"
+        /// - Packaging operations (C84731, C73606) ? "Packager" 
+        /// - Labeling operations (C84732, C73607) ? "Labeler"
+        /// - Analysis/Testing operations ? "Analyzer"
+        /// - Multiple operations ? Combined type (e.g., "Manufacturer/Packager")
+        /// - No operations found ? "Labeler" (default for author section)
         /// </remarks>
         /// <seealso cref="BusinessOperation"/>
         /// <seealso cref="Label"/>
@@ -840,7 +840,7 @@ namespace MedRecPro.Service.ParsingServices
             var orgName = orgElement.GetSplElementVal(sc.E.Name)?.Trim();
             if (string.IsNullOrWhiteSpace(orgName)) return (null, false);
 
-            var dbContext = context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var orgRepo = context?.GetRepository<Organization>();
 
             if (dbContext == null || orgRepo == null)
@@ -955,7 +955,7 @@ namespace MedRecPro.Service.ParsingServices
             // We have a valid organization - create relationship
             var relationshipType = determineRelationshipType(relationshipPrefix, currentLevel);
             var relationship = await saveOrGetDocumentRelationshipAsync(
-                context.ServiceProvider.GetRequiredService<ApplicationDbContext>(),
+                context.GetDbContext(),
                 documentId, parentOrgId, childOrg.OrganizationID,
                 relationshipType, currentLevel);
 
@@ -1046,7 +1046,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context?.ServiceProvider == null || context.Logger == null || !documentRelationshipId.HasValue)
                 return createdCount;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Process each performance element
             foreach (var actDefEl in parentEl.SplElements(sc.E.Performance, sc.E.ActDefinition))
@@ -1305,7 +1305,7 @@ namespace MedRecPro.Service.ParsingServices
             if (!relationshipId.HasValue || context?.ServiceProvider == null)
                 return;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             foreach (var idEl in orgEl.SplElements(sc.E.Id))
             {
@@ -1381,7 +1381,7 @@ namespace MedRecPro.Service.ParsingServices
                 return entities;
 
             // Get database context and repository for named entity operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var repo = context.GetRepository<NamedEntity>();
             var dbSet = dbContext.Set<NamedEntity>();
 
@@ -1490,7 +1490,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.Logger == null || context.ServiceProvider == null)
                 return identifiers;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var repo = context.GetRepository<OrganizationIdentifier>();
             var dbSet = dbContext.Set<OrganizationIdentifier>();
 
@@ -1628,7 +1628,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 // --- Deduplication: By TelecomValue (case-insensitive) ---
                 // Get database context and repositories for telecom operations
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var telecomRepo = context.GetRepository<Telecom>();
                 var cptRepo = context.GetRepository<ContactPartyTelecom>();
                 var telecomDbSet = dbContext.Set<Telecom>();
@@ -1742,7 +1742,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 // Deduplication
                 // Get database context and repositories for telecom operations
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
                 var telecomRepo = context.GetRepository<Telecom>();
                 var orgTelecomRepo = context.GetRepository<OrganizationTelecom>();
                 var telecomDbSet = dbContext.Set<Telecom>();
@@ -1902,7 +1902,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get database context for entity operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             // Get the elements defining product links i.e. <performance><actDefinition> elements
             var productLinkEls = parentEl.SplElements(sc.E.Performance, sc.E.ActDefinition);
@@ -2157,7 +2157,7 @@ namespace MedRecPro.Service.ParsingServices
 
             // --- Deduplication: full match on all address fields ---
             // Get database context and repository for address lookups
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var addrRepo = context.GetRepository<Address>();
             var dbSet = dbContext.Set<Address>();
 
@@ -2234,7 +2234,7 @@ namespace MedRecPro.Service.ParsingServices
 
             // --- CONTACT PARTY DEDUPLICATION ---
             // Get database context and repository for contact party operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var partyRepo = context.GetRepository<ContactParty>();
             var dbSet = dbContext.Set<ContactParty>();
 
@@ -2299,7 +2299,7 @@ namespace MedRecPro.Service.ParsingServices
                 return (null, false);
 
             // Get database context and repository for contact person operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var personRepo = context.GetRepository<ContactPerson>();
             var dbSet = dbContext.Set<ContactPerson>();
 
@@ -2420,7 +2420,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get database context and repository for organization operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var orgRepo = context.GetRepository<Organization>();
             var orgDbSet = dbContext.Set<Organization>();
 
@@ -2490,7 +2490,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get database context and repository for document author operations
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
             var docAuthorRepo = context.GetRepository<DocumentAuthor>();
             var docAuthorDbSet = dbContext.Set<DocumentAuthor>();
 
@@ -2557,7 +2557,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.Logger == null || context.ServiceProvider == null)
                 return 0;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             //parse telecoms into memory
             var telecomDtos = parseTelecomsToMemory(telecomEls, context.Logger);
@@ -2791,7 +2791,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.Logger == null || context.ServiceProvider == null)
                 return identifiers;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             #region parse identifiers into memory
 
@@ -2981,7 +2981,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.Logger == null || context.ServiceProvider == null)
                 return entities;
 
-            var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
             #region parse named entities into memory
 

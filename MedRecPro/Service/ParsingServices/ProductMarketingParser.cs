@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
@@ -306,7 +306,7 @@ namespace MedRecPro.Service.ParsingServices
             {
                 #region duplicate_check
                 // Use the DbContext directly for the specific 'find by composite key' query
-                var dbContext = context.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var dbContext = context.GetDbContext();
 
                 // Get the DbSet for MarketingCategory
                 var categoryDbSet = dbContext.Set<MarketingCategory>();
