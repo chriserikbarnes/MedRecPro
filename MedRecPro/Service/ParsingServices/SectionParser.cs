@@ -88,7 +88,7 @@ namespace MedRecPro.Service.ParsingServices
                 {
                     var sectionElements = xEl.SplElements(sc.E.Component, sc.E.Section);
 
-                    if (context.UseBulkStaging)
+                    if (context.UseBulkStagingOperations)
                     {
                         // Mode 3: Staged bulk operations
                         return await _stagedBulkDelegate.ParseAsync(xEl, context, reportProgress, true);

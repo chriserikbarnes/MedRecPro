@@ -84,7 +84,7 @@ namespace MedRecPro.Service.ParsingServices
         /// when ServiceProvider is set. Defaults to false if not configured.
         /// Requires UseBulkOperations to also be enabled.
         /// </remarks>
-        public bool UseBulkStaging { get; private set; }
+        public bool UseBulkStagingOperations { get; private set; }
 
         /// <summary>
         /// Gets a value indicating whether bulk saving is enabled for data operations.
@@ -125,7 +125,7 @@ namespace MedRecPro.Service.ParsingServices
                     if (configuration != null)
                     {
                         UseBulkOperations = configuration.GetValue<bool>("FeatureFlags:UseBulkOperations", false);
-                        UseBulkStaging = configuration.GetValue<bool>("FeatureFlags:UseBulkStaging", false);
+                        UseBulkStagingOperations = configuration.GetValue<bool>("FeatureFlags:UseBulkStaging", false);
                         UseBatchSaving = configuration.GetValue<bool>("FeatureFlags:UseBatchSaving", false);
                     }
                 }
@@ -268,7 +268,7 @@ namespace MedRecPro.Service.ParsingServices
         ///</summary>
         public void SetBulkStagingFlag(bool value)
         {
-            UseBulkStaging = value;
+            UseBulkStagingOperations = value;
         }
 
         /**************************************************************/

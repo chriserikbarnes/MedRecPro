@@ -65,6 +65,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionContentParser_BulkCalls"/>
         private readonly SectionContentParser_BulkCalls _bulkCallsDelegate;
 
+        private readonly SectionContentParser_StagedBulkCalls _stagedBulkCallsDelegate;
+
         #endregion
 
         #region Constructor
@@ -84,6 +86,7 @@ namespace MedRecPro.Service.ParsingServices
             // Initialize both mode delegates with shared media parser
             _singleCallsDelegate = new SectionContentParser_SingleCalls(_mediaParser);
             _bulkCallsDelegate = new SectionContentParser_BulkCalls(_mediaParser);
+            _stagedBulkCallsDelegate = new SectionContentParser_StagedBulkCalls(_mediaParser);
             #endregion
         }
 
@@ -131,8 +134,14 @@ namespace MedRecPro.Service.ParsingServices
                     return result;
                 }
 
+                if(context.UseBulkStagingOperations)
+                {
+                    // Mode 3: Staged Bulk operations for very large documents
+                    return await _stagedBulkCallsDelegate.ParseAsync(element, context, reportProgress, isParentCallingForAllSubElements);
+                }
+
                 // Route to appropriate delegate based on context configuration
-                if (context.UseBulkOperations)
+                else if (context.UseBulkOperations)
                 {
                     // Mode 2: Bulk operations for high-performance parsing
                     return await _bulkCallsDelegate.ParseAsync(element, context, reportProgress, isParentCallingForAllSubElements);

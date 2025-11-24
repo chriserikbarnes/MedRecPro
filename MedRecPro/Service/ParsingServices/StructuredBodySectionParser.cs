@@ -128,7 +128,7 @@ namespace MedRecPro.Service.ParsingServices
                 // This must happen HERE (not in SectionParser) because this is the only place
                 // where we have the complete structuredBody element. When SectionParser is called
                 // recursively through SectionHierarchyParser, it only has a child section elements.
-                if (context.UseBulkStaging)
+                if (context.UseBulkStagingOperations)
                 {
                     context.Logger?.LogInformation("Starting section discovery for staged bulk operations");
                     reportProgress?.Invoke("Discovering all sections (Pass 1)...");
