@@ -341,7 +341,7 @@ namespace MedRecPro.Service
             // Manually set feature flag
             context.SetBulkOperationsFlag(useBulkOps);
             context.SetBulkStagingFlag(useStaging);
-            context.SetBulkSavingFlag(useBulkSaving);
+            context.SetBatchSavingFlag(useBulkSaving);
 
             try
             {

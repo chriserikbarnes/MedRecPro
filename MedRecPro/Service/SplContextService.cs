@@ -89,7 +89,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <summary>
         /// Gets a value indicating whether bulk saving is enabled for data operations.
         /// </summary>
-        public bool UseBulkSaving { get; private set;  }
+        public bool UseBatchSaving { get; private set;  }
 
         /// <summary>
         /// Gets or sets the database context used for data access operations.
@@ -126,7 +126,7 @@ namespace MedRecPro.Service.ParsingServices
                     {
                         UseBulkOperations = configuration.GetValue<bool>("FeatureFlags:UseBulkOperations", false);
                         UseBulkStaging = configuration.GetValue<bool>("FeatureFlags:UseBulkStaging", false);
-                        UseBulkSaving = configuration.GetValue<bool>("FeatureFlags:UseBatchSaving", false);
+                        UseBatchSaving = configuration.GetValue<bool>("FeatureFlags:UseBatchSaving", false);
                     }
                 }
 
@@ -279,9 +279,9 @@ namespace MedRecPro.Service.ParsingServices
         /// The effect of this setting depends on the implementation and may impact performance or transactional
         /// behavior.</remarks>
         /// <param name="value">true to enable bulk saving mode; false to disable it.</param>
-        public void SetBulkSavingFlag(bool value)
+        public void SetBatchSavingFlag(bool value)
         {
-            UseBulkSaving = value;
+            UseBatchSaving = value;
         }
 
         /**************************************************************/
