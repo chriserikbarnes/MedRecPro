@@ -29,15 +29,15 @@ namespace MedRecPro.Service.ParsingServices
     /// - Debugging or when detailed per-entity logging is required
     /// 
     /// For high-performance scenarios with large documents, use
-    /// <see cref="SectionContentParserBulkCalls"/> instead.
+    /// <see cref="SectionContentParser_BulkCalls"/> instead.
     /// </remarks>
     /// <seealso cref="SectionContentParserBase"/>
-    /// <seealso cref="SectionContentParserBulkCalls"/>
+    /// <seealso cref="SectionContentParser_BulkCalls"/>
     /// <seealso cref="SectionTextContent"/>
     /// <seealso cref="TextList"/>
     /// <seealso cref="TextTable"/>
     /// <seealso cref="SplParseContext"/>
-    public class SectionContentParserSingleCalls : SectionContentParserBase
+    public class SectionContentParser_SingleCalls : SectionContentParserBase, ISplSectionParser
     {
         #region Private Helper Classes
 
@@ -137,8 +137,101 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="mediaParser">Parser for handling multimedia content within text blocks.</param>
         /// <seealso cref="SectionMediaParser"/>
-        public SectionContentParserSingleCalls(SectionMediaParser? mediaParser = null) : base(mediaParser)
+        public SectionContentParser_SingleCalls(SectionMediaParser? mediaParser = null) : base(mediaParser)
         {
+        }
+
+        public string SectionName => "section";
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses section text content elements, processing hierarchical structures
+        /// including text, lists, tables, excerpts, and highlights.
+        /// </summary>
+        /// <param name="element">The XElement representing the section to parse for content.</param>
+        /// <param name="context">The current parsing context containing section information.</param>
+        /// <param name="reportProgress">Optional action to report progress during parsing.</param>
+        /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
+        /// <returns>A SplParseResult indicating the success status and content elements created.</returns>
+        /// <seealso cref="ParseSectionContentAsync"/>
+        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
+        {
+            #region implementation
+            var result = new SplParseResult();
+
+            try
+            {
+                // Validate context and current section
+                if (context?.CurrentSection?.SectionID == null)
+                {
+                    result.Success = false;
+                    result.Errors.Add("No current section available for content parsing.");
+                    return result;
+                }
+
+                reportProgress?.Invoke("Processing section content...");
+
+                // Parse section content
+                var contentResult = await ParseSectionContentAsync(element, context.CurrentSection.SectionID.Value, context);
+                result.MergeFrom(contentResult);
+
+                reportProgress?.Invoke($"Processed {contentResult.SectionAttributesCreated} content attributes");
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Errors.Add($"Error parsing section content: {ex.Message}");
+                context?.Logger?.LogError(ex, "Error processing section content for section {SectionId}", context.CurrentSection?.SectionID);
+            }
+
+            return result;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the inner content of a section, such as text, lists, and highlights.
+        /// Processes hierarchies, text content, excerpts, and highlight elements.
+        /// </summary>
+        /// <param name="xEl">The XElement for the section whose content is to be parsed.</param>
+        /// <param name="sectionId">The database ID of the parent section.</param>
+        /// <param name="context">The current parsing context.</param>
+        /// <returns>A SplParseResult containing the outcome of parsing the content.</returns>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SectionExcerptHighlight"/>
+        /// <seealso cref="Label"/>
+        public async Task<SplParseResult> ParseSectionContentAsync(XElement xEl, int sectionId, SplParseContext context)
+        {
+            #region implementation
+            var result = new SplParseResult();
+
+            // Process main text content including paragraphs, lists, tables, etc.
+            var textEl = xEl.SplElement(sc.E.Text);
+            if (textEl != null)
+            {
+                var (textContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(textEl, sectionId, context, parseAndSaveSectionAsync);
+                result.SectionAttributesCreated += textContents.Count;
+                result.SectionAttributesCreated += listEntityCount;
+            }
+
+            // Process excerpt elements with nested content structure
+            var excerptEl = xEl.SplElement(sc.E.Excerpt);
+            if (excerptEl != null)
+            {
+                var (excerptTextContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(excerptEl, sectionId, context, parseAndSaveSectionAsync);
+                result.SectionAttributesCreated += excerptTextContents.Count;
+
+                // Extract highlighted text within excerpts for specialized processing
+                var eHighlights = await getOrCreateSectionExcerptHighlightsAsync(excerptEl, sectionId, context);
+                result.SectionAttributesCreated += eHighlights.Count;
+            }
+
+            // Process direct highlights not contained within excerpts
+            var directHighlights = await getOrCreateSectionExcerptHighlightsAsync(xEl, sectionId, context);
+            result.SectionAttributesCreated += directHighlights.Count;
+
+            return result;
+            #endregion
         }
 
         #endregion
