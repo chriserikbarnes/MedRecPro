@@ -16,59 +16,77 @@ namespace MedRecPro.Service.ParsingServices
 {
     /**************************************************************/
     /// <summary>
-    /// Bulk operations implementation for section content parsing.
-    /// Contains methods that collect all entities into memory first, then perform
-    /// batch queries and bulk inserts for optimal database performance.
+    /// Staged bulk operations implementation for section content parsing.
+    /// Stages all database changes in memory first, then performs batch operations
+    /// to minimize database connection overhead and improve performance.
     /// </summary>
     /// <remarks>
-    /// This class implements the bulk operations pattern where:
-    /// - Phase 1: Parse all content to in-memory DTOs (0 database calls)
-    /// - Phase 2: Bulk query existing entities (1 query per entity type)
-    /// - Phase 3: Bulk insert missing entities (1 insert per entity type)
-    /// 
+    /// This class implements the staged bulk operations pattern where:
+    /// - Discovery Phase: Section discovery happens once in parent parser
+    /// - Staging Phase: Parse all content to in-memory DTOs (0 database calls)
+    /// - Query Phase: Bulk query existing entities (1 query per entity type across ALL sections)
+    /// - Insert Phase: Bulk insert missing entities (1 insert per entity type across ALL sections)
+    /// - Commit Phase: Single SaveChangesAsync at the end
+    ///
     /// Performance Impact:
-    /// - Before (N+1): N database calls (one per entity)
-    /// - After (Bulk): 2-4 calls total (one query + one insert per entity type)
-    /// 
+    /// - Before (Bulk per section): N sections � 4-8 calls = potentially hundreds of database operations
+    /// - After (Staged): 8-12 calls total for ALL sections regardless of count
+    ///
     /// Best suited for:
-    /// - Large documents with many content elements
-    /// - Batch processing scenarios
+    /// - Large documents with many sections
     /// - Production environments where performance is critical
-    /// 
-    /// For simpler scenarios or debugging, use <see cref="SectionContentParser_SingleCalls"/> instead.
+    /// - Scenarios where connection overhead is significant
+    ///
+    /// Uses SplParseContextExtensions methods for deferred saves:
+    /// - SaveChangesIfAllowedAsync defers saves when UseBatchSaving is true
+    /// - CommitDeferredChangesAsync commits all changes at the end
     /// </remarks>
     /// <seealso cref="SectionContentParserBase"/>
-    /// <seealso cref="SectionContentParser_SingleCalls"/>
+    /// <seealso cref="SectionContentParser_BulkCalls"/>
+    /// <seealso cref="SectionParser_StagedBulk"/>
+    /// <seealso cref="SplParseContextExtensions"/>
     /// <seealso cref="SectionTextContent"/>
     /// <seealso cref="TextList"/>
     /// <seealso cref="TextTable"/>
     /// <seealso cref="SplParseContext"/>
-    public class SectionContentParser_BulkCalls : SectionContentParserBase, ISplSectionParser
+    public class SectionContentParser_StagedBulkCalls : SectionContentParserBase, ISplSectionParser
     {
         #region Constructor
 
         /**************************************************************/
         /// <summary>
-        /// Initializes a new instance of the SectionContentParserBulkCalls with required dependencies.
+        /// Initializes a new instance of the SectionContentParserStagedBulkCalls with required dependencies.
         /// </summary>
         /// <param name="mediaParser">Parser for handling multimedia content within text blocks.</param>
         /// <seealso cref="SectionMediaParser"/>
-        public SectionContentParser_BulkCalls(SectionMediaParser? mediaParser = null) : base(mediaParser)
+        public SectionContentParser_StagedBulkCalls(SectionMediaParser? mediaParser = null) : base(mediaParser)
         {
         }
+
         public string SectionName => "section";
+
+        #endregion
+
+        #region Main Parsing Interface
 
         /**************************************************************/
         /// <summary>
-        /// Parses section text content elements, processing hierarchical structures
-        /// including text, lists, tables, excerpts, and highlights.
+        /// Parses section text content elements using staged bulk operations pattern.
+        /// This method is called by the parent section parser and processes content
+        /// for a single section, but uses deferred saves for staging.
         /// </summary>
         /// <param name="element">The XElement representing the section to parse for content.</param>
         /// <param name="context">The current parsing context containing section information.</param>
         /// <param name="reportProgress">Optional action to report progress during parsing.</param>
         /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A SplParseResult indicating the success status and content elements created.</returns>
+        /// <remarks>
+        /// When called from SectionParser_StagedBulk, the context.UseBatchSaving flag is set to true,
+        /// which causes all database saves to be deferred until CommitDeferredChangesAsync is called
+        /// at the end of the entire document parsing operation.
+        /// </remarks>
         /// <seealso cref="ParseSectionContentAsync"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
@@ -84,11 +102,13 @@ namespace MedRecPro.Service.ParsingServices
                     return result;
                 }
 
-                reportProgress?.Invoke("Processing section content...");
+                reportProgress?.Invoke("Processing section content with staged bulk operations...");
 
-                // Parse section content
+                // Parse section content using staged operations
                 var contentResult = await ParseSectionContentAsync(element, context.CurrentSection.SectionID.Value, context);
                 result.MergeFrom(contentResult);
+
+                await context.CommitDeferredChangesAsync();
 
                 reportProgress?.Invoke($"Processed {contentResult.SectionAttributesCreated} content attributes");
             }
@@ -105,15 +125,21 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses the inner content of a section, such as text, lists, and highlights.
+        /// Parses the inner content of a section using staged bulk operations.
         /// Processes hierarchies, text content, excerpts, and highlight elements.
+        /// All database operations are staged via SaveChangesIfAllowedAsync.
         /// </summary>
         /// <param name="xEl">The XElement for the section whose content is to be parsed.</param>
         /// <param name="sectionId">The database ID of the parent section.</param>
         /// <param name="context">The current parsing context.</param>
         /// <returns>A SplParseResult containing the outcome of parsing the content.</returns>
+        /// <remarks>
+        /// This method stages all content creation operations. When context.UseBatchSaving is true,
+        /// all saves are deferred and committed in a single operation at the end.
+        /// </remarks>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SectionExcerptHighlight"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
         public async Task<SplParseResult> ParseSectionContentAsync(XElement xEl, int sectionId, SplParseContext context)
         {
@@ -124,7 +150,7 @@ namespace MedRecPro.Service.ParsingServices
             var textEl = xEl.SplElement(sc.E.Text);
             if (textEl != null)
             {
-                var (textContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(textEl, sectionId, context, parseAndSaveSectionAsync);
+                var (textContents, listEntityCount) = await stageSectionTextContentsAsync(textEl, sectionId, context, parseAndSaveSectionAsync);
                 result.SectionAttributesCreated += textContents.Count;
                 result.SectionAttributesCreated += listEntityCount;
             }
@@ -133,48 +159,54 @@ namespace MedRecPro.Service.ParsingServices
             var excerptEl = xEl.SplElement(sc.E.Excerpt);
             if (excerptEl != null)
             {
-                var (excerptTextContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(excerptEl, sectionId, context, parseAndSaveSectionAsync);
+                var (excerptTextContents, listEntityCount) = await stageSectionTextContentsAsync(excerptEl, sectionId, context, parseAndSaveSectionAsync);
                 result.SectionAttributesCreated += excerptTextContents.Count;
 
                 // Extract highlighted text within excerpts for specialized processing
-                var eHighlights = await getOrCreateSectionExcerptHighlightsAsync(excerptEl, sectionId, context);
+                var eHighlights = await stageExcerptHighlightsAsync(excerptEl, sectionId, context);
                 result.SectionAttributesCreated += eHighlights.Count;
             }
 
             // Process direct highlights not contained within excerpts
-            var directHighlights = await getOrCreateSectionExcerptHighlightsAsync(xEl, sectionId, context);
+            var directHighlights = await stageExcerptHighlightsAsync(xEl, sectionId, context);
             result.SectionAttributesCreated += directHighlights.Count;
 
             return result;
             #endregion
         }
 
-
         #endregion
 
-        #region Section Content Parsing - Bulk Operations
+        #region Staged Section Content Parsing
 
         /**************************************************************/
         /// <summary>
-        /// Orchestrates the recursive parsing of a section's [text] element. It iterates
-        /// through top-level content blocks and delegates the processing of each block
-        /// to specialized helpers, preserving the nested hierarchy for SPL round-tripping.
-        /// Uses bulk operations pattern for 100-1000x performance improvement.
+        /// Stages the parsing of section text contents using deferred database operations.
+        /// Orchestrates the recursive parsing with staging pattern for optimal performance.
         /// </summary>
         /// <param name="parentEl">The XElement to start parsing (typically the [text] element).</param>
         /// <param name="sectionId">The SectionID owning this content.</param>
-        /// <param name="context">Parsing context.</param>
+        /// <param name="context">Parsing context with deferred save settings.</param>
         /// <param name="parseAndSaveSectionAsync">Function delegate for parsing and saving child sections.</param>
         /// <param name="parentSectionTextContentId">Parent SectionTextContentID for hierarchy, or null for top-level blocks.</param>
         /// <param name="sequence">The sequence number to start from (default 1).</param>
-        /// <returns>A tuple containing the complete list of all created/found SectionTextContent objects and the total count of grandchild entities (e.g., list items, table cells).</returns>
+        /// <returns>A tuple containing the complete list of all created/found SectionTextContent objects and the total count of grandchild entities.</returns>
+        /// <remarks>
+        /// This method uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
+        /// All changes are committed in a single operation at the end of document parsing.
+        ///
+        /// Performance Pattern:
+        /// - Phase 1: Parse all content blocks to DTOs (0 DB calls)
+        /// - Phase 2: Query existing content in bulk (1 query per section, but deferred commit)
+        /// - Phase 3: Stage insert operations (tracked in DbContext change tracker)
+        /// - Phase 4: Process specialized content (lists, tables) with staging
+        /// - Commit: Single SaveChangesAsync at end of all sections (via CommitDeferredChangesAsync)
+        /// </remarks>
         /// <seealso cref="SectionTextContent"/>
-        /// <seealso cref="Section"/>
         /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="XElementExtensions"/>
-        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        public async Task<Tuple<List<SectionTextContent>, int>> GetOrCreateSectionTextContentsAsync(
+        private async Task<Tuple<List<SectionTextContent>, int>> stageSectionTextContentsAsync(
             XElement parentEl,
             int sectionId,
             SplParseContext context,
@@ -205,8 +237,8 @@ namespace MedRecPro.Service.ParsingServices
             // PHASE 2: Bulk query existing content (1 query)
             var existingKeys = await getExistingSectionTextContentKeysAsync(dbContext, sectionId);
 
-            // PHASE 3: Bulk insert missing content (1-2 inserts for parent/child hierarchy)
-            var (createdEntities, idLookup) = await bulkCreateSectionTextContentAsync(dbContext, dtos, existingKeys);
+            // PHASE 3: Stage insert operations for missing content (tracked in change tracker, not yet saved)
+            var (createdEntities, idLookup) = await stageCreateSectionTextContentAsync(dbContext, dtos, existingKeys, context);
 
             // Retrieve all SectionTextContent entities for this section (including existing ones)
             var allEntities = await dbContext.Set<SectionTextContent>()
@@ -215,7 +247,7 @@ namespace MedRecPro.Service.ParsingServices
 
             allContent.AddRange(allEntities);
 
-            // PHASE 4: Process specialized content (lists, tables, excerpts) using the ID lookup
+            // PHASE 4: Process specialized content (lists, tables, excerpts) using the ID lookup with staging
             foreach (var dto in dtos)
             {
                 // Get the database ID for this content block
@@ -243,8 +275,8 @@ namespace MedRecPro.Service.ParsingServices
                     var stc = allEntities.FirstOrDefault(e => e.SectionTextContentID == contentId.Value);
                     if (stc != null)
                     {
-                        // Process specialized content
-                        totalGrandChildEntities += await processSpecializedContentAsync(dto.SourceElement, stc, context);
+                        // Process specialized content with staging
+                        totalGrandChildEntities += await processSpecializedContentStagedAsync(dto.SourceElement, stc, context);
                     }
                 }
             }
@@ -253,11 +285,9 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
-        #region Phase 2: Bulk Query Existing
-
         /**************************************************************/
         /// <summary>
-        /// Phase 2: Queries database once to get all existing SectionTextContent records for the section.
+        /// Queries database once to get all existing SectionTextContent records for the section.
         /// Returns a HashSet of composite keys for efficient duplicate detection.
         /// </summary>
         /// <param name="dbContext">The database context.</param>
@@ -267,8 +297,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private async Task<HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)>> getExistingSectionTextContentKeysAsync(
-        ApplicationDbContext dbContext,
-        int sectionId)
+            ApplicationDbContext dbContext,
+            int sectionId)
         {
             #region implementation
             var existing = await dbContext.Set<SectionTextContent>()
@@ -298,28 +328,31 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
-        #endregion
-
-        #region Phase 3: Bulk Insert Missing
-
         /**************************************************************/
         /// <summary>
-        /// Phase 3: Orchestrates bulk insertion of SectionTextContent records with hierarchical relationships.
-        /// Coordinates two-pass processing: top-level entities first, then child entities.
+        /// Stages bulk insertion of SectionTextContent records with hierarchical relationships.
+        /// Uses deferred saves via SaveChangesIfAllowedAsync for staging pattern.
         /// </summary>
         /// <param name="dbContext">The database context.</param>
         /// <param name="dtos">The list of DTOs to insert.</param>
         /// <param name="existingKeys">HashSet of existing content keys for deduplication.</param>
+        /// <param name="context">The parsing context for deferred save control.</param>
         /// <returns>A tuple containing the created entities and a lookup dictionary mapping temp IDs to database IDs.</returns>
+        /// <remarks>
+        /// This method stages entities in the DbContext change tracker but defers the actual
+        /// database save operation via SaveChangesIfAllowedAsync. When context.UseBatchSaving is true,
+        /// the save is deferred until CommitDeferredChangesAsync is called at the end.
+        /// </remarks>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SectionTextContentDto"/>
-        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
         private async Task<(List<SectionTextContent> entities, Dictionary<string, int> idLookup)>
-            bulkCreateSectionTextContentAsync(
+            stageCreateSectionTextContentAsync(
                 ApplicationDbContext dbContext,
                 List<SectionTextContentDto> dtos,
-                HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys)
+                HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys,
+                SplParseContext context)
         {
             #region implementation
             var createdEntities = new List<SectionTextContent>();
@@ -332,12 +365,13 @@ namespace MedRecPro.Service.ParsingServices
 
             // Pass 1: Process top-level entities (no parent)
             var topLevelDtos = filterTopLevelDtos(dtos);
-            await createTopLevelEntitiesAsync(
+            await stageTopLevelEntitiesAsync(
                 dbContext,
                 topLevelDtos,
                 existingKeys,
                 createdEntities,
-                tempIdToDbIdLookup);
+                tempIdToDbIdLookup,
+                context);
 
             await addExistingTopLevelToLookupAsync(
                 dbContext,
@@ -348,12 +382,13 @@ namespace MedRecPro.Service.ParsingServices
 
             // Pass 2: Process child entities (with parent references)
             var childDtos = filterChildDtos(dtos);
-            await createChildEntitiesAsync(
+            await stageChildEntitiesAsync(
                 dbContext,
                 childDtos,
                 existingKeys,
                 tempIdToDbIdLookup,
-                createdEntities);
+                createdEntities,
+                context);
 
             return (createdEntities, tempIdToDbIdLookup);
             #endregion
@@ -361,24 +396,28 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Creates and persists top-level SectionTextContent entities, building ID lookup mappings.
-        /// Filters out duplicates using the existingKeys set before creating entities.
+        /// Stages creation of top-level SectionTextContent entities with deferred save.
+        /// Adds entities to change tracker and uses SaveChangesIfAllowedAsync for staging.
         /// </summary>
         /// <param name="dbContext">The database context.</param>
         /// <param name="topLevelDtos">DTOs representing top-level entities.</param>
         /// <param name="existingKeys">HashSet for deduplication checking.</param>
         /// <param name="createdEntities">Output collection of created entities.</param>
         /// <param name="tempIdToDbIdLookup">Output dictionary mapping temporary IDs to database IDs.</param>
+        /// <param name="context">The parsing context for deferred save control.</param>
+        /// <remarks>
+        /// Uses SaveChangesIfAllowedAsync which defers the actual save when context.UseBatchSaving is true.
+        /// </remarks>
         /// <seealso cref="SectionTextContent"/>
-        /// <seealso cref="SectionTextContentDto"/>
-        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        private async Task createTopLevelEntitiesAsync(
+        private async Task stageTopLevelEntitiesAsync(
             ApplicationDbContext dbContext,
             List<SectionTextContentDto> topLevelDtos,
             HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys,
             List<SectionTextContent> createdEntities,
-            Dictionary<string, int> tempIdToDbIdLookup)
+            Dictionary<string, int> tempIdToDbIdLookup,
+            SplParseContext context)
         {
             #region implementation
             // Filter new entities not already in database
@@ -394,12 +433,71 @@ namespace MedRecPro.Service.ParsingServices
                 .Select(dto => createEntityFromDto(dto, parentId: null))
                 .ToList();
 
-            // Persist to database
+            // Stage in database context (add to change tracker)
             dbContext.Set<SectionTextContent>().AddRange(newEntities);
-            await dbContext.SaveChangesAsync();
+
+            // Use deferred save - only saves if batch saving is disabled
+            await context.SaveChangesIfAllowedAsync();
 
             // Build temp ID to DB ID lookup
             buildIdLookup(newEntities, newDtos, tempIdToDbIdLookup);
+
+            createdEntities.AddRange(newEntities);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stages creation of child SectionTextContent entities with resolved parent references.
+        /// Uses deferred save via SaveChangesIfAllowedAsync for staging pattern.
+        /// </summary>
+        /// <param name="dbContext">The database context.</param>
+        /// <param name="childDtos">DTOs representing child entities.</param>
+        /// <param name="existingKeys">HashSet for deduplication checking.</param>
+        /// <param name="tempIdToDbIdLookup">Dictionary mapping temporary IDs to database IDs.</param>
+        /// <param name="createdEntities">Output collection of created entities.</param>
+        /// <param name="context">The parsing context for deferred save control.</param>
+        /// <remarks>
+        /// Uses SaveChangesIfAllowedAsync which defers the actual save when context.UseBatchSaving is true.
+        /// </remarks>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
+        /// <seealso cref="Label"/>
+        private async Task stageChildEntitiesAsync(
+            ApplicationDbContext dbContext,
+            List<SectionTextContentDto> childDtos,
+            HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys,
+            Dictionary<string, int> tempIdToDbIdLookup,
+            List<SectionTextContent> createdEntities,
+            SplParseContext context)
+        {
+            #region implementation
+            if (!childDtos.Any())
+            {
+                return;
+            }
+
+            // Resolve parent IDs and filter new entities
+            var newChildDtos = resolveParentIdsAndFilterNew(childDtos, tempIdToDbIdLookup, existingKeys);
+
+            if (!newChildDtos.Any())
+            {
+                return;
+            }
+
+            // Create entity instances with resolved parent IDs
+            var newEntities = newChildDtos
+                .Select(dto => createEntityFromDto(dto, dto.ParentSectionTextContentID))
+                .ToList();
+
+            // Stage in database context (add to change tracker)
+            dbContext.Set<SectionTextContent>().AddRange(newEntities);
+
+            // Use deferred save - only saves if batch saving is disabled
+            await context.SaveChangesIfAllowedAsync();
+
+            // Build temp ID to DB ID lookup for children
+            buildIdLookup(newEntities, newChildDtos, tempIdToDbIdLookup);
 
             createdEntities.AddRange(newEntities);
             #endregion
@@ -417,7 +515,6 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="tempIdToDbIdLookup">Dictionary to update with existing entity mappings.</param>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SectionTextContentDto"/>
-        /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
         private async Task addExistingTopLevelToLookupAsync(
             ApplicationDbContext dbContext,
@@ -442,57 +539,6 @@ namespace MedRecPro.Service.ParsingServices
                     tempIdToDbIdLookup[matchingDto.TempId] = existing.SectionTextContentID.Value;
                 }
             }
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Creates and persists child SectionTextContent entities with resolved parent references.
-        /// Resolves parent IDs from lookup before creating entities.
-        /// </summary>
-        /// <param name="dbContext">The database context.</param>
-        /// <param name="childDtos">DTOs representing child entities.</param>
-        /// <param name="existingKeys">HashSet for deduplication checking.</param>
-        /// <param name="tempIdToDbIdLookup">Dictionary mapping temporary IDs to database IDs.</param>
-        /// <param name="createdEntities">Output collection of created entities.</param>
-        /// <seealso cref="SectionTextContent"/>
-        /// <seealso cref="SectionTextContentDto"/>
-        /// <seealso cref="ApplicationDbContext"/>
-        /// <seealso cref="Label"/>
-        private async Task createChildEntitiesAsync(
-            ApplicationDbContext dbContext,
-            List<SectionTextContentDto> childDtos,
-            HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys,
-            Dictionary<string, int> tempIdToDbIdLookup,
-            List<SectionTextContent> createdEntities)
-        {
-            #region implementation
-            if (!childDtos.Any())
-            {
-                return;
-            }
-
-            // Resolve parent IDs and filter new entities
-            var newChildDtos = resolveParentIdsAndFilterNew(childDtos, tempIdToDbIdLookup, existingKeys);
-
-            if (!newChildDtos.Any())
-            {
-                return;
-            }
-
-            // Create entity instances with resolved parent IDs
-            var newEntities = newChildDtos
-                .Select(dto => createEntityFromDto(dto, dto.ParentSectionTextContentID))
-                .ToList();
-
-            // Persist to database
-            dbContext.Set<SectionTextContent>().AddRange(newEntities);
-            await dbContext.SaveChangesAsync();
-
-            // Build temp ID to DB ID lookup for children
-            buildIdLookup(newEntities, newChildDtos, tempIdToDbIdLookup);
-
-            createdEntities.AddRange(newEntities);
             #endregion
         }
 
@@ -626,21 +672,25 @@ namespace MedRecPro.Service.ParsingServices
 
         #endregion
 
-        #region Specialized Content Processing
+        #region Specialized Content Processing - Staged
 
         /**************************************************************/
         /// <summary>
-        /// Dispatches processing for special content types that have nested data structures,
-        /// such as Lists, Tables, and Excerpts with Highlights.
+        /// Dispatches processing for special content types with staging pattern.
+        /// Processes Lists, Tables, and Excerpts with deferred database saves.
         /// </summary>
         /// <param name="block">The XElement representing the content block.</param>
         /// <param name="stc">The SectionTextContent entity for this block.</param>
-        /// <param name="context">The current parsing context.</param>
+        /// <param name="context">The current parsing context with staging settings.</param>
         /// <returns>The number of grandchild entities created (e.g., list items, table cells).</returns>
+        /// <remarks>
+        /// All database operations use SaveChangesIfAllowedAsync for deferred saves.
+        /// </remarks>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        private async Task<int> processSpecializedContentAsync(XElement block,
+        private async Task<int> processSpecializedContentStagedAsync(XElement block,
             SectionTextContent stc,
             SplParseContext context)
         {
@@ -654,32 +704,29 @@ namespace MedRecPro.Service.ParsingServices
             // Dispatch to appropriate specialized handler based on content type
             if (contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase))
             {
-                // Process list structure and create list item entities
-                grandchildEntitiesCount += await GetOrCreateTextListAndItemsAsync(block, stc.SectionTextContentID.Value, context);
+                // Process list structure with staging
+                grandchildEntitiesCount += await stageTextListAndItemsAsync(block, stc.SectionTextContentID.Value, context);
             }
             else if (contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
             {
-                // Process table structure and create row/cell entities
-                grandchildEntitiesCount += await GetOrCreateTextTableAndChildrenAsync(block, stc.SectionTextContentID.Value, context);
+                // Process table structure with staging
+                grandchildEntitiesCount += await stageTextTableAndChildrenAsync(block, stc.SectionTextContentID.Value, context);
             }
             else if (contentType.Equals(sc.E.Excerpt, StringComparison.OrdinalIgnoreCase))
             {
-                // This method doesn't return a count, but we call it for its side effect.
-                // Process excerpt highlights for specialized content extraction
+                // Process excerpt highlights with staging
                 if (stc.SectionID > 0)
-                    await getOrCreateSectionExcerptHighlightsAsync(block, (int)stc.SectionID, context);
+                    await stageExcerptHighlightsAsync(block, (int)stc.SectionID, context);
             }
             else if (contentType.Equals(sc.E.RenderMultimedia, StringComparison.OrdinalIgnoreCase))
             {
-                // Handle block-level images, where <renderMultimedia> is its own content block.
+                // Handle block-level images with staging
                 grandchildEntitiesCount += await _mediaParser.ParseRenderedMediaAsync(block, stc.SectionTextContentID.Value, context, isInline: false);
             }
 
-            // Check for INLINE images inside other content types, like Paragraph.
-            // This runs in addition to the handlers above.
+            // Check for INLINE images inside other content types
             if (block.Descendants(ns + sc.E.RenderMultimedia).Any())
             {
-                // If the block itself isn't a RenderMultiMedia tag, any images inside it must be inline.
                 bool isInline = !contentType.Equals(sc.E.RenderMultimedia, StringComparison.OrdinalIgnoreCase);
                 if (isInline)
                 {
@@ -693,30 +740,26 @@ namespace MedRecPro.Service.ParsingServices
 
         #endregion
 
-        #endregion
-
-        #region List Processing Methods - Bulk Operations
+        #region List Processing - Staged
 
         /**************************************************************/
         /// <summary>
-        /// Parses a [list] element using bulk operations pattern. Collects all list items into memory,
-        /// deduplicates against existing entities, then performs batch insert for optimal performance.
+        /// Stages creation of TextList and TextListItem entities using deferred saves.
+        /// Parses list structure to memory, then stages database operations.
         /// </summary>
         /// <param name="listEl">The XElement representing the [list] element.</param>
-        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record (where ContentType='List').</param>
-        /// <param name="context">The current parsing context.</param>
-        /// <returns>A task that resolves to the total number of TextList and TextListItem entities created.</returns>
+        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record.</param>
+        /// <param name="context">The current parsing context with staging settings.</param>
+        /// <returns>The total number of TextList and TextListItem entities staged for creation.</returns>
         /// <remarks>
-        /// Performance Pattern:
-        /// - Before: N database calls (one per item)
-        /// - After: 2 queries + 2 inserts (one per entity type)
+        /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
+        /// All changes are committed at the end via CommitDeferredChangesAsync.
         /// </remarks>
         /// <seealso cref="TextList"/>
         /// <seealso cref="TextListItem"/>
-        /// <seealso cref="SectionTextContent"/>
-        /// <seealso cref="SplParseContext"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        public async Task<int> GetOrCreateTextListAndItemsAsync(
+        private async Task<int> stageTextListAndItemsAsync(
             XElement listEl,
             int sectionTextContentId,
             SplParseContext context)
@@ -729,18 +772,13 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
             }
 
-            var dbContext = context.ServiceProvider!.GetRequiredService<ApplicationDbContext>();
+            var dbContext = context.GetDbContext();
 
-            #region parse list structure into memory
-
+            // Parse list structure into memory
             var itemDtos = parseTextListItemsToMemory(listEl);
 
-            #endregion
-
-            #region check existing entities and create missing
-
+            // Check for existing TextList
             var textListDbSet = dbContext.Set<TextList>();
-
             var existingList = await textListDbSet
                 .FirstOrDefaultAsync(l => l.SectionTextContentID == sectionTextContentId);
 
@@ -748,9 +786,12 @@ namespace MedRecPro.Service.ParsingServices
 
             if (existingList == null)
             {
+                // Create and stage new list entity
                 textList = createTextListEntity(listEl, sectionTextContentId);
                 textListDbSet.Add(textList);
-                await dbContext.SaveChangesAsync();
+
+                // Use deferred save
+                await context.SaveChangesIfAllowedAsync();
                 createdCount++;
             }
             else
@@ -764,9 +805,8 @@ namespace MedRecPro.Service.ParsingServices
                 return createdCount;
             }
 
-            createdCount += await bulkCreateTextListItemsAsync(dbContext, textList.TextListID.Value, itemDtos);
-
-            #endregion
+            // Stage list items with deferred save
+            createdCount += await stageTextListItemsAsync(dbContext, textList.TextListID.Value, itemDtos, context);
 
             return createdCount;
             #endregion
@@ -774,21 +814,25 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Performs bulk creation of TextListItem entities, checking for existing items
-        /// and creating only missing ones in a single batch operation.
+        /// Stages bulk creation of TextListItem entities using deferred saves.
+        /// Checks for existing items and stages only missing ones.
         /// </summary>
-        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="dbContext">The database context for querying and staging entities.</param>
         /// <param name="textListId">The foreign key ID of the parent TextList.</param>
         /// <param name="itemDtos">The list of item DTOs parsed from XML.</param>
-        /// <returns>The count of newly created TextListItem entities.</returns>
+        /// <param name="context">The parsing context for deferred save control.</param>
+        /// <returns>The count of newly staged TextListItem entities.</returns>
+        /// <remarks>
+        /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
+        /// </remarks>
         /// <seealso cref="TextListItem"/>
-        /// <seealso cref="TextListItemDto"/>
-        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        private async Task<int> bulkCreateTextListItemsAsync(
+        private async Task<int> stageTextListItemsAsync(
             ApplicationDbContext dbContext,
             int textListId,
-            List<TextListItemDto> itemDtos)
+            List<TextListItemDto> itemDtos,
+            SplParseContext context)
         {
             #region implementation
 
@@ -822,7 +866,9 @@ namespace MedRecPro.Service.ParsingServices
             if (newItems.Any())
             {
                 itemDbSet.AddRange(newItems);
-                await dbContext.SaveChangesAsync();
+
+                // Use deferred save
+                await context.SaveChangesIfAllowedAsync();
             }
 
             return newItems.Count;
@@ -832,41 +878,30 @@ namespace MedRecPro.Service.ParsingServices
 
         #endregion
 
-        #region Table Processing Methods - Bulk Operations
+        #region Table Processing - Staged
 
         /**************************************************************/
         /// <summary>
-        /// Parses a [table] element using bulk operations pattern. Collects all table data into memory,
-        /// deduplicates against existing entities, then performs batch inserts for optimal performance.
+        /// Stages creation of TextTable and all child entities using deferred saves.
+        /// Parses table structure to memory, then stages all database operations.
         /// </summary>
         /// <param name="tableEl">The XElement representing the [table] element.</param>
-        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record (where ContentType='Table'). Each table has its own SectionTextContent record, so this ID uniquely identifies this specific table.</param>
-        /// <param name="context">The current parsing context.</param>
-        /// <returns>A task that resolves to the total number of table, column, row, and cell entities created.</returns>
+        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record.</param>
+        /// <param name="context">The current parsing context with staging settings.</param>
+        /// <returns>The total number of table, column, row, and cell entities staged for creation.</returns>
         /// <remarks>
-        /// This method implements the bulk operations pattern to minimize database round-trips:
-        /// 1. Parse entire table structure into memory (DTOs)
-        /// 2. Query for existing entities in bulk (one query per entity type)
-        /// 3. Build HashSet lookups for O(1) duplicate detection
-        /// 4. Create missing entities in batch operations
-        /// 
-        /// Performance Impact:
-        /// - Before: N database calls (one per entity)
-        /// - After: 4 queries + 4 bulk inserts (one per entity type)
-        /// 
-        /// This method expects a one-to-one relationship between SectionTextContent (ContentType='Table') and TextTable.
-        /// Each table element in the SPL creates a separate SectionTextContent record, which then gets one TextTable record.
+        /// This method stages all table-related entities in the DbContext change tracker.
+        /// Uses SaveChangesIfAllowedAsync which defers actual database saves when
+        /// context.UseBatchSaving is true. All changes are committed at the end via
+        /// CommitDeferredChangesAsync.
         /// </remarks>
         /// <seealso cref="TextTable"/>
         /// <seealso cref="TextTableColumn"/>
         /// <seealso cref="TextTableRow"/>
         /// <seealso cref="TextTableCell"/>
-        /// <seealso cref="SectionTextContent"/>
-        /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="XElementExtensions"/>
-        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        public async Task<int> GetOrCreateTextTableAndChildrenAsync(
+        private async Task<int> stageTextTableAndChildrenAsync(
             XElement tableEl,
             int sectionTextContentId,
             SplParseContext context)
@@ -880,12 +915,9 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
             }
 
-            // Get database context for bulk operations
             var dbContext = context.GetDbContext();
 
-            #region parse table structure into memory
-
-            // Parse table metadata
+            // Parse table structure into memory
             var captionEl = tableEl.SplElement(sc.E.Caption);
             string? captionText = captionEl?.GetSplHtml(stripNamespaces: true);
 
@@ -899,10 +931,9 @@ namespace MedRecPro.Service.ParsingServices
                 HasFooter = tableEl.SplElement(sc.E.Tfoot) != null
             };
 
-            // Parse all column definitions into memory
+            // Parse all columns, rows, and cells into memory
             var columnDtos = parseColumnsToMemory(tableEl);
 
-            // Parse all rows and cells into memory
             var rowDtos = new List<TableRowDto>();
 
             var theadEl = tableEl.SplElement(sc.E.Thead);
@@ -923,10 +954,6 @@ namespace MedRecPro.Service.ParsingServices
                 rowDtos.AddRange(parseRowsToMemory(tfootEl, "Footer"));
             }
 
-            #endregion
-
-            #region check existing entities and create missing
-
             // Check for existing TextTable
             var textTableDbSet = dbContext.Set<TextTable>();
             var existingTable = await textTableDbSet
@@ -935,7 +962,7 @@ namespace MedRecPro.Service.ParsingServices
             TextTable textTable;
             if (existingTable == null)
             {
-                // Create new table entity
+                // Create and stage new table entity
                 textTable = new TextTable
                 {
                     SectionTextContentID = tableData.SectionTextContentID,
@@ -947,7 +974,9 @@ namespace MedRecPro.Service.ParsingServices
                 };
 
                 textTableDbSet.Add(textTable);
-                await dbContext.SaveChangesAsync(); // Need ID for foreign keys
+
+                // Use deferred save
+                await context.SaveChangesIfAllowedAsync();
                 createdCount++;
             }
             else
@@ -964,13 +993,11 @@ namespace MedRecPro.Service.ParsingServices
 
             int tableId = textTable.TextTableID.Value;
 
-            // Bulk create columns
-            createdCount += await bulkCreateColumnsAsync(dbContext, tableId, columnDtos);
+            // Stage columns with deferred save
+            createdCount += await stageColumnsAsync(dbContext, tableId, columnDtos, context);
 
-            // Bulk create rows and cells
-            createdCount += await bulkCreateRowsAndCellsAsync(dbContext, tableId, rowDtos);
-
-            #endregion
+            // Stage rows and cells with deferred save
+            createdCount += await stageRowsAndCellsAsync(dbContext, tableId, rowDtos, context);
 
             return createdCount;
             #endregion
@@ -978,54 +1005,43 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Performs bulk creation of TextTableColumn entities, checking for existing columns
-        /// and creating only missing ones in a single batch operation.
+        /// Stages bulk creation of TextTableColumn entities using deferred saves.
+        /// Checks for existing columns and stages only missing ones.
         /// </summary>
-        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="dbContext">The database context for querying and staging entities.</param>
         /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
         /// <param name="columnDtos">The list of column DTOs parsed from XML.</param>
-        /// <returns>
-        /// The count of newly created TextTableColumn entities.
-        /// </returns>
+        /// <param name="context">The parsing context for deferred save control.</param>
+        /// <returns>The count of newly staged TextTableColumn entities.</returns>
         /// <remarks>
-        /// Performance Pattern:
-        /// 1. Single query to fetch all existing columns for this table
-        /// 2. Build HashSet of existing (TableId, SequenceNumber) pairs for O(1) lookup
-        /// 3. Filter DTOs to only those not already in database
-        /// 4. Single bulk insert for all new columns
-        /// 
-        /// This reduces N database calls to 2 calls regardless of column count.
+        /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
         /// </remarks>
         /// <seealso cref="TextTableColumn"/>
-        /// <seealso cref="SectionContentParserBase.TableColumnDto"/>
-        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        private async Task<int> bulkCreateColumnsAsync(
+        private async Task<int> stageColumnsAsync(
             ApplicationDbContext dbContext,
             int textTableId,
-            List<TableColumnDto> columnDtos)
+            List<TableColumnDto> columnDtos,
+            SplParseContext context)
         {
             #region implementation
 
             if (!columnDtos.Any())
                 return 0;
 
-            // Query all existing columns for this table in one call
             var columnDbSet = dbContext.Set<TextTableColumn>();
             var existingColumns = await columnDbSet
                 .Where(c => c.TextTableID == textTableId)
                 .Select(c => new { c.TextTableID, c.SequenceNumber })
                 .ToListAsync();
 
-            // Build HashSet for O(1) existence checking
-            // Filter nulls if TextTableID or SequenceNumber are nullable in your schema
             var existingKeys = new HashSet<(int TableId, int SeqNum)>(
                 existingColumns
                     .Where(c => c.TextTableID.HasValue && c.SequenceNumber.HasValue)
                     .Select(c => (c.TextTableID!.Value, c.SequenceNumber!.Value))
             );
 
-            // Filter to only columns that don't exist yet
             var newColumns = columnDtos
                 .Where(dto => !existingKeys.Contains((textTableId, dto.SequenceNumber)))
                 .Select(dto => new TextTableColumn
@@ -1045,9 +1061,10 @@ namespace MedRecPro.Service.ParsingServices
 
             if (newColumns.Any())
             {
-                // Bulk insert all new columns in one operation
                 columnDbSet.AddRange(newColumns);
-                await dbContext.SaveChangesAsync();
+
+                // Use deferred save
+                await context.SaveChangesIfAllowedAsync();
             }
 
             return newColumns.Count;
@@ -1057,37 +1074,26 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Performs bulk creation of TextTableRow and TextTableCell entities, checking for existing
-        /// entities and creating only missing ones in batch operations.
+        /// Stages bulk creation of TextTableRow and TextTableCell entities using deferred saves.
+        /// Checks for existing entities and stages only missing ones in batch operations.
         /// </summary>
-        /// <param name="dbContext">The database context for querying and persisting entities.</param>
+        /// <param name="dbContext">The database context for querying and staging entities.</param>
         /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
         /// <param name="rowDtos">The list of row DTOs (including cell DTOs) parsed from XML.</param>
-        /// <returns>
-        /// The count of newly created TextTableRow and TextTableCell entities.
-        /// </returns>
+        /// <param name="context">The parsing context for deferred save control.</param>
+        /// <returns>The count of newly staged TextTableRow and TextTableCell entities.</returns>
         /// <remarks>
-        /// Performance Pattern:
-        /// 1. Single query to fetch all existing rows for this table
-        /// 2. Build HashSet of existing (TableId, GroupType, SeqNum) tuples for O(1) lookup
-        /// 3. Filter DTOs to only rows not already in database
-        /// 4. Single bulk insert for all new rows
-        /// 5. Single query to fetch all existing cells for this table
-        /// 6. Build HashSet of existing (RowId, SeqNum) pairs
-        /// 7. Single bulk insert for all new cells
-        /// 
-        /// This reduces potentially thousands of database calls to 4 calls total.
+        /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
         /// </remarks>
         /// <seealso cref="TextTableRow"/>
         /// <seealso cref="TextTableCell"/>
-        /// <seealso cref="SectionContentParserBase.TableRowDto"/>
-        /// <seealso cref="SectionContentParserBase.TableCellDto"/>
-        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        private async Task<int> bulkCreateRowsAndCellsAsync(
+        private async Task<int> stageRowsAndCellsAsync(
             ApplicationDbContext dbContext,
             int textTableId,
-            List<TableRowDto> rowDtos)
+            List<TableRowDto> rowDtos,
+            SplParseContext context)
         {
             #region implementation
 
@@ -1096,25 +1102,20 @@ namespace MedRecPro.Service.ParsingServices
             if (!rowDtos.Any())
                 return 0;
 
-            #region bulk create rows
-
+            // Stage rows
             var rowDbSet = dbContext.Set<TextTableRow>();
 
-            // Query all existing rows for this table in one call
             var existingRows = await rowDbSet
                 .Where(r => r.TextTableID == textTableId)
                 .Select(r => new { r.TextTableID, r.RowGroupType, r.SequenceNumber, r.TextTableRowID })
                 .ToListAsync();
 
-            // Build HashSet for O(1) existence checking
-            // Filter nulls if properties are nullable in your schema
             var existingRowKeys = new HashSet<(int TableId, string GroupType, int SeqNum)>(
                 existingRows
                     .Where(r => r.TextTableID.HasValue && r.RowGroupType != null && r.SequenceNumber.HasValue)
                     .Select(r => (r.TextTableID!.Value, r.RowGroupType!, r.SequenceNumber!.Value))
             );
 
-            // Filter to only rows that don't exist yet
             var newRows = rowDtos
                 .Where(dto => !existingRowKeys.Contains((textTableId, dto.RowGroupType, dto.SequenceNumber)))
                 .Select(dto => new TextTableRow
@@ -1128,24 +1129,19 @@ namespace MedRecPro.Service.ParsingServices
 
             if (newRows.Any())
             {
-                // Bulk insert all new rows in one operation
                 rowDbSet.AddRange(newRows);
-                await dbContext.SaveChangesAsync(); // Need IDs for cells
+
+                // Use deferred save
+                await context.SaveChangesIfAllowedAsync();
                 createdCount += newRows.Count;
             }
 
-            #endregion
-
-            #region build row lookup dictionary
-
-            // Re-query all rows to get complete set with IDs (including newly created)
+            // Build row lookup dictionary
             var allRows = await rowDbSet
                 .Where(r => r.TextTableID == textTableId)
                 .Select(r => new { r.TextTableID, r.RowGroupType, r.SequenceNumber, r.TextTableRowID })
                 .ToListAsync();
 
-            // Build lookup dictionary for linking cells to rows
-            // Filter to ensure all key components are non-null
             var rowLookup = allRows
                 .Where(r => r.TextTableID.HasValue
                     && r.RowGroupType != null
@@ -1156,38 +1152,30 @@ namespace MedRecPro.Service.ParsingServices
                     r => r.TextTableRowID!.Value
                 );
 
-            #endregion
-
-            #region bulk create cells
-
+            // Stage cells
             var cellDbSet = dbContext.Set<TextTableCell>();
 
-            // Query all existing cells for this table's rows in one call
             var rowIds = rowLookup.Values.ToList();
             var existingCells = await cellDbSet
                 .Where(c => c.TextTableRowID.HasValue && rowIds.Contains(c.TextTableRowID.Value))
                 .Select(c => new { c.TextTableRowID, c.SequenceNumber })
                 .ToListAsync();
 
-            // Build HashSet for O(1) existence checking
-            // Filter nulls if properties are nullable in your schema
             var existingCellKeys = new HashSet<(int RowId, int SeqNum)>(
                 existingCells
                     .Where(c => c.TextTableRowID.HasValue && c.SequenceNumber.HasValue)
                     .Select(c => (c.TextTableRowID!.Value, c.SequenceNumber!.Value))
             );
 
-            // Flatten all cells from all rows and link to their row IDs
             var newCells = new List<TextTableCell>();
             foreach (var rowDto in rowDtos)
             {
                 var rowKey = (textTableId, rowDto.RowGroupType, rowDto.SequenceNumber);
                 if (!rowLookup.TryGetValue(rowKey, out int rowId))
-                    continue; // Skip if row doesn't exist (shouldn't happen)
+                    continue;
 
                 foreach (var cellDto in rowDto.Cells)
                 {
-                    // Only create cell if it doesn't already exist
                     if (!existingCellKeys.Contains((rowId, cellDto.SequenceNumber)))
                     {
                         newCells.Add(new TextTableCell
@@ -1208,16 +1196,130 @@ namespace MedRecPro.Service.ParsingServices
 
             if (newCells.Any())
             {
-                // Bulk insert all new cells in one operation
                 cellDbSet.AddRange(newCells);
-                await dbContext.SaveChangesAsync();
+
+                // Use deferred save
+                await context.SaveChangesIfAllowedAsync();
                 createdCount += newCells.Count;
             }
 
-            #endregion
-
             return createdCount;
 
+            #endregion
+        }
+
+        #endregion
+
+        #region Highlight Processing - Staged
+
+        /**************************************************************/
+        /// <summary>
+        /// Stages creation of SectionExcerptHighlight records using deferred saves.
+        /// Finds or creates highlights for all highlight text nodes within excerpt elements.
+        /// </summary>
+        /// <param name="excerptEl">The XElement to search for excerpt/highlight/text patterns.</param>
+        /// <param name="sectionId">The SectionID owning this highlight content.</param>
+        /// <param name="context">Parsing context with deferred save settings.</param>
+        /// <returns>List of SectionExcerptHighlight objects (created or found).</returns>
+        /// <remarks>
+        /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
+        /// This method captures the complete inner XML of highlight text elements for database storage.
+        /// </remarks>
+        /// <seealso cref="SectionExcerptHighlight"/>
+        /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
+        /// <seealso cref="Label"/>
+        private async Task<List<SectionExcerptHighlight>> stageExcerptHighlightsAsync(
+            XElement excerptEl,
+            int sectionId,
+            SplParseContext context)
+        {
+            #region implementation
+            var highlights = new List<SectionExcerptHighlight>();
+
+            // Validate required input parameters
+            if (excerptEl == null || sectionId <= 0)
+                return highlights;
+
+            // Validate required context dependencies
+            if (context == null || context.Logger == null || context.ServiceProvider == null)
+                return highlights;
+
+            // Get database context and repository for section excerpt highlight operations
+            var dbContext = context.GetDbContext();
+            var repo = context.GetRepository<SectionExcerptHighlight>();
+            var dbSet = dbContext.Set<SectionExcerptHighlight>();
+
+            // Find all highlight elements directly under this excerpt
+            var highlightElements = excerptEl.Elements(ns + sc.E.Highlight);
+
+            foreach (var highlightEl in highlightElements)
+            {
+                // Get the text element within this specific highlight
+                var textEl = highlightEl.Element(ns + sc.E.Text);
+
+                if (textEl == null)
+                {
+                    context.Logger?.LogWarning($"Highlight element without text child in SectionID {sectionId}");
+                    continue;
+                }
+
+                // Extract the complete inner XML from the text element
+                string? txt = null;
+
+                try
+                {
+                    var innerNodes = textEl.Nodes();
+
+                    if (innerNodes != null && innerNodes.Any())
+                    {
+                        txt = string
+                            .Concat(innerNodes.Select(n => n.ToString()))
+                            ?.NormalizeXmlWhitespace();
+                    }
+                    else
+                    {
+                        txt = textEl.Value?.Trim();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    context.Logger?.LogError(ex, $"Error extracting highlight XML for SectionID {sectionId}");
+                    continue;
+                }
+
+                // Skip if no actual content was extracted
+                if (string.IsNullOrWhiteSpace(txt))
+                {
+                    context.Logger?.LogWarning($"Empty highlight text extracted for SectionID {sectionId}");
+                    continue;
+                }
+
+                // Dedupe: SectionID + HighlightText
+                var existing = await dbSet
+                    .Where(eh => eh.SectionID == sectionId && eh.HighlightText == txt)
+                    .FirstOrDefaultAsync();
+
+                if (existing != null)
+                {
+                    highlights.Add(existing);
+                    continue;
+                }
+
+                // Create new section excerpt highlight
+                var newHighlight = new SectionExcerptHighlight
+                {
+                    SectionID = sectionId,
+                    HighlightText = txt
+                };
+
+                // Stage the entity - repository internally uses SaveChangesIfAllowedAsync
+                await repo.CreateAsync(newHighlight);
+                highlights.Add(newHighlight);
+
+                context.Logger?.LogInformation($"Staged SectionExcerptHighlight for SectionID {sectionId} with {txt.Length} characters");
+            }
+
+            return highlights;
             #endregion
         }
 

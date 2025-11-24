@@ -329,5 +329,522 @@ namespace MedRecPro.Service.ParsingServices
         }
 
         #endregion
+
+        /**************************************************************/
+        /**************************************************************/
+        /**************************************************************/
+        // SHARED METHODS FOR BULK AND STAGED BULK OPERATIONS
+        /**************************************************************/
+        /**************************************************************/
+        /**************************************************************/
+
+        #region Shared Data Transfer Objects
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object representing a table column parsed from XML.
+        /// Used for in-memory collection before bulk database operations.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <seealso cref="TextTableColumn"/>
+        /// <seealso cref="Label"/>
+        protected class TableColumnDto
+        {
+            public int SequenceNumber { get; set; }
+            public int? ColGroupSequenceNumber { get; set; }
+            public string? ColGroupStyleCode { get; set; }
+            public string? ColGroupAlign { get; set; }
+            public string? ColGroupVAlign { get; set; }
+            public string? Width { get; set; }
+            public string? Align { get; set; }
+            public string? VAlign { get; set; }
+            public string? StyleCode { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object representing a table row parsed from XML.
+        /// Contains row metadata and a list of associated cell DTOs.
+        /// Used for in-memory collection before bulk database operations.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <seealso cref="TextTableRow"/>
+        /// <seealso cref="TableCellDto"/>
+        /// <seealso cref="Label"/>
+        protected class TableRowDto
+        {
+            public string RowGroupType { get; set; } = string.Empty;
+            public int SequenceNumber { get; set; }
+            public string? StyleCode { get; set; }
+            public List<TableCellDto> Cells { get; set; } = new();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object representing a table cell parsed from XML.
+        /// Used for in-memory collection before bulk database operations.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <seealso cref="TextTableCell"/>
+        /// <seealso cref="Label"/>
+        protected class TableCellDto
+        {
+            public string CellType { get; set; } = string.Empty;
+            public int SequenceNumber { get; set; }
+            public string? CellText { get; set; }
+            public int? RowSpan { get; set; }
+            public int? ColSpan { get; set; }
+            public string? StyleCode { get; set; }
+            public string? Align { get; set; }
+            public string? VAlign { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data Transfer Object representing a SectionTextContent entity during parsing.
+        /// Used in Phase 1 to collect all content blocks before database operations.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="Label"/>
+        protected class SectionTextContentDto
+        {
+            public int SectionID { get; set; }
+            public int? ParentSectionTextContentID { get; set; }
+            public string ContentType { get; set; } = string.Empty;
+            public string? StyleCode { get; set; }
+            public int SequenceNumber { get; set; }
+            public string? ContentText { get; set; }
+            public XElement SourceElement { get; set; } = null!;
+            public List<SectionTextContentDto> Children { get; set; } = new();
+
+            /// <summary>
+            /// Temporary identifier used to establish parent-child relationships before database IDs are assigned.
+            /// </summary>
+            public string TempId { get; set; } = string.Empty;
+
+            /// <summary>
+            /// Reference to parent's temporary identifier for building hierarchy.
+            /// </summary>
+            public string? ParentTempId { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data transfer object for TextListItem parsing and bulk operations.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <seealso cref="TextListItem"/>
+        /// <seealso cref="Label"/>
+        protected class TextListItemDto
+        {
+            public int SequenceNumber { get; set; }
+            public string? ItemCaption { get; set; }
+            public string? ItemText { get; set; }
+        }
+
+        #endregion
+
+        #region Shared Parsing Methods (XML to DTOs)
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all content blocks from XML into DTOs without any database calls.
+        /// Recursively processes nested hierarchy and assigns temporary IDs for relationship tracking.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <param name="parentEl">The XElement to start parsing (typically the [text] element).</param>
+        /// <param name="sectionId">The SectionID owning this content.</param>
+        /// <param name="parentTempId">Parent's temporary identifier for hierarchy, or null for top-level blocks.</param>
+        /// <param name="sequence">The sequence number to start from (default 1).</param>
+        /// <returns>A flattened list of all DTOs including nested content.</returns>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        protected List<SectionTextContentDto> parseContentBlocksToMemory(
+            XElement parentEl,
+            int sectionId,
+            string? parentTempId = null,
+            int sequence = 1)
+        {
+            #region implementation
+            var allDtos = new List<SectionTextContentDto>();
+
+            if (parentEl == null || sectionId <= 0)
+            {
+                return allDtos;
+            }
+
+            int seq = sequence;
+            int tempIdCounter = 0;
+
+            // Process each content block in the section
+            foreach (var block in parentEl.SplBuildSectionContentTree())
+            {
+                // Skip highlight elements as they are handled separately
+                if (block.Name.LocalName.Equals(sc.E.Highlight, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // Generate temporary ID for this block
+                var tempId = parentTempId != null
+                    ? $"{parentTempId}_{seq}_{tempIdCounter++}"
+                    : $"root_{seq}_{tempIdCounter++}";
+
+                // Extract content type and standardize capitalization
+                var contentType = char.ToUpper(block.Name.LocalName[0]) + block.Name.LocalName.Substring(1);
+
+                // Extract optional style code
+                var styleCode = block.Attribute(sc.A.StyleCode)?.Value?.Trim();
+
+                // ContentText is null for container types like List or Table
+                string? contentText = null;
+                if (!contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase) &&
+                    !contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
+                {
+                    contentText = block.GetSplHtml(stripNamespaces: true);
+                }
+
+                // Create DTO for this block
+                var dto = new SectionTextContentDto
+                {
+                    SectionID = sectionId,
+                    ParentSectionTextContentID = null, // Will be set later via lookup
+                    ContentType = contentType,
+                    StyleCode = styleCode,
+                    SequenceNumber = seq,
+                    ContentText = contentText,
+                    SourceElement = block,
+                    TempId = tempId,
+                    ParentTempId = parentTempId
+                };
+
+                allDtos.Add(dto);
+
+                // Recursively process child blocks for non-specialized content types
+                // Lists and Tables handle their own children differently
+                if (!contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase) &&
+                    !contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
+                {
+                    var childBlocks = block.SplBuildSectionContentTree().ToList();
+                    if (childBlocks.Any())
+                    {
+                        // Parse children recursively
+                        var childDtos = parseContentBlocksToMemory(block, sectionId, tempId, 1);
+                        allDtos.AddRange(childDtos);
+                    }
+                }
+
+                seq++;
+            }
+
+            return allDtos;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all list items from a list element into memory without database operations.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <param name="listEl">The XElement representing the [list] element to parse.</param>
+        /// <returns>A list of TextListItemDto objects representing all items with content.</returns>
+        /// <seealso cref="TextListItemDto"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        protected List<TextListItemDto> parseTextListItemsToMemory(XElement listEl)
+        {
+            #region implementation
+
+            var itemDtos = new List<TextListItemDto>();
+            var itemElements = listEl.SplElements(sc.E.Item).ToList();
+            int seqNum = 1;
+
+            foreach (var itemEl in itemElements)
+            {
+                if (itemEl == null)
+                    continue;
+
+                var itemText = itemEl?.GetSplHtml(stripNamespaces: true);
+
+                if (!string.IsNullOrWhiteSpace(itemText))
+                {
+                    itemDtos.Add(new TextListItemDto
+                    {
+                        SequenceNumber = seqNum,
+                        ItemCaption = itemEl?.SplElement(sc.E.Caption)?.Value?.Trim(),
+                        ItemText = itemText?.Trim()
+                    });
+
+                    seqNum++;
+                }
+            }
+
+            return itemDtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all column definitions from a table element into memory without database operations.
+        /// Handles both standalone [col] elements and [col] elements nested within [colgroup].
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <param name="tableEl">The XElement representing the [table] element to parse.</param>
+        /// <returns>
+        /// A list of TableColumnDto objects representing all columns in document order.
+        /// </returns>
+        /// <remarks>
+        /// Per Section 2.2.2.5 of SPL Implementation Guide:
+        /// - [colgroup] elements are optional and uncommon but must be supported
+        /// - [col] elements can exist standalone or within [colgroup]
+        /// - [colgroup] attributes provide defaults that individual [col] can override
+        /// - Column width, alignment, and styleCode attributes must be preserved
+        ///
+        /// Parsing Logic:
+        /// 1. First processes all [colgroup] elements and their child [col] elements
+        /// 2. Then processes standalone [col] elements not within any [colgroup]
+        /// 3. Maintains sequence numbering across both types for proper rendering order
+        /// </remarks>
+        /// <seealso cref="TextTableColumn"/>
+        /// <seealso cref="TableColumnDto"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        protected List<TableColumnDto> parseColumnsToMemory(XElement tableEl)
+        {
+            #region implementation
+
+            var columnDtos = new List<TableColumnDto>();
+            int overallSeqNum = 1;
+            int colgroupSeqNum = 1;
+
+            #region process colgroup elements
+
+            var colgroupElements = tableEl.Elements(ns + sc.E.Colgroup).ToList();
+
+            foreach (var colgroupEl in colgroupElements)
+            {
+                // Extract colgroup-level attributes that serve as defaults for child columns
+                var colgroupStyleCode = colgroupEl.Attribute(sc.A.StyleCode)?.Value;
+                var colgroupAlign = colgroupEl.Attribute(sc.A.Align)?.Value;
+                var colgroupVAlign = colgroupEl.Attribute(sc.A.VAlign)?.Value;
+
+                var colElementsInGroup = colgroupEl.Elements(ns + sc.E.Col).ToList();
+
+                foreach (var colEl in colElementsInGroup)
+                {
+                    columnDtos.Add(new TableColumnDto
+                    {
+                        SequenceNumber = overallSeqNum,
+                        ColGroupSequenceNumber = colgroupSeqNum,
+                        ColGroupStyleCode = colgroupStyleCode,
+                        ColGroupAlign = colgroupAlign,
+                        ColGroupVAlign = colgroupVAlign,
+                        Width = colEl.Attribute(sc.A.Width)?.Value,
+                        Align = colEl.Attribute(sc.A.Align)?.Value,
+                        VAlign = colEl.Attribute(sc.A.VAlign)?.Value,
+                        StyleCode = colEl.Attribute(sc.A.StyleCode)?.Value
+                    });
+
+                    overallSeqNum++;
+                }
+
+                colgroupSeqNum++;
+            }
+
+            #endregion
+
+            #region process standalone col elements
+
+            var standaloneColElements = tableEl.Elements(ns + sc.E.Col).ToList();
+
+            foreach (var colEl in standaloneColElements)
+            {
+                columnDtos.Add(new TableColumnDto
+                {
+                    SequenceNumber = overallSeqNum,
+                    ColGroupSequenceNumber = null,
+                    ColGroupStyleCode = null,
+                    ColGroupAlign = null,
+                    ColGroupVAlign = null,
+                    Width = colEl.Attribute(sc.A.Width)?.Value,
+                    Align = colEl.Attribute(sc.A.Align)?.Value,
+                    VAlign = colEl.Attribute(sc.A.VAlign)?.Value,
+                    StyleCode = colEl.Attribute(sc.A.StyleCode)?.Value
+                });
+
+                overallSeqNum++;
+            }
+
+            #endregion
+
+            return columnDtos;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses all rows and their cells from a table group element into memory without database operations.
+        /// Processes [thead], [tbody], or [tfoot] elements, extracting all [tr] rows and their [td]/[th] cells.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <param name="rowGroupEl">The XElement for the group (e.g., [tbody]).</param>
+        /// <param name="rowGroupType">The type of group: 'Header', 'Body', or 'Footer'.</param>
+        /// <returns>
+        /// A list of TableRowDto objects containing row metadata and their associated cell DTOs.
+        /// </returns>
+        /// <remarks>
+        /// This method performs pure XML parsing without any database operations, enabling
+        /// bulk processing later. All row and cell attributes are preserved for database persistence.
+        /// </remarks>
+        /// <seealso cref="TableRowDto"/>
+        /// <seealso cref="TableCellDto"/>
+        /// <seealso cref="TextTableRow"/>
+        /// <seealso cref="TextTableCell"/>
+        /// <seealso cref="XElementExtensions"/>
+        /// <seealso cref="Label"/>
+        protected List<TableRowDto> parseRowsToMemory(XElement rowGroupEl, string rowGroupType)
+        {
+            #region implementation
+
+            var rowDtos = new List<TableRowDto>();
+            var rowElements = rowGroupEl.SplElements(sc.E.Tr).ToList();
+            int rowSeqNum = 1;
+
+            foreach (var rowEl in rowElements)
+            {
+                // Parse all cells for this row
+                var cellDtos = new List<TableCellDto>();
+                var cellElements = rowEl.Elements()
+                    .Where(e => e.Name.LocalName == sc.E.Th || e.Name.LocalName == sc.E.Td)
+                    .ToList();
+
+                int cellSeqNum = 1;
+                foreach (var cellEl in cellElements)
+                {
+                    // Extract rowspan and colspan attributes with safe parsing
+                    _ = int.TryParse(cellEl.Attribute(sc.A.Rowspan)?.Value, out int rs);
+                    _ = int.TryParse(cellEl.Attribute(sc.A.Colspan)?.Value, out int cs);
+
+                    cellDtos.Add(new TableCellDto
+                    {
+                        CellType = cellEl.Name.LocalName,
+                        SequenceNumber = cellSeqNum,
+                        CellText = cellEl.GetSplHtml(stripNamespaces: true),
+                        RowSpan = rs > 0 ? rs : null,
+                        ColSpan = cs > 0 ? cs : null,
+                        StyleCode = cellEl.Attribute(sc.A.StyleCode)?.Value,
+                        Align = cellEl.Attribute(sc.A.Align)?.Value,
+                        VAlign = cellEl.Attribute(sc.A.VAlign)?.Value
+                    });
+
+                    cellSeqNum++;
+                }
+
+                rowDtos.Add(new TableRowDto
+                {
+                    RowGroupType = rowGroupType,
+                    SequenceNumber = rowSeqNum,
+                    StyleCode = rowEl.Attribute(sc.A.StyleCode)?.Value,
+                    Cells = cellDtos
+                });
+
+                rowSeqNum++;
+            }
+
+            return rowDtos;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Shared Helper Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Filters DTOs to return only top-level entities (those without a parent).
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <param name="dtos">The complete list of DTOs.</param>
+        /// <returns>List of DTOs where ParentTempId is null.</returns>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <seealso cref="Label"/>
+        protected List<SectionTextContentDto> filterTopLevelDtos(List<SectionTextContentDto> dtos)
+        {
+            #region implementation
+            return dtos.Where(dto => dto.ParentTempId == null).ToList();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Filters DTOs to return only child entities (those with a parent reference).
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <param name="dtos">The complete list of DTOs.</param>
+        /// <returns>List of DTOs where ParentTempId is not null.</returns>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <seealso cref="Label"/>
+        protected List<SectionTextContentDto> filterChildDtos(List<SectionTextContentDto> dtos)
+        {
+            #region implementation
+            return dtos.Where(dto => dto.ParentTempId != null).ToList();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a deduplication key tuple from a DTO for uniqueness checking.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <param name="dto">The DTO to build key from.</param>
+        /// <returns>Tuple containing key fields for deduplication.</returns>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <seealso cref="Label"/>
+        protected (int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)
+            buildDeduplicationKey(SectionTextContentDto dto)
+        {
+            #region implementation
+            return (
+                dto.SectionID,
+                dto.ContentType,
+                dto.SequenceNumber,
+                dto.ParentSectionTextContentID,
+                dto.ContentText
+            );
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a SectionTextContent entity from a DTO with specified parent ID.
+        /// Shared between bulk calls and staged bulk calls implementations.
+        /// </summary>
+        /// <param name="dto">The DTO to convert.</param>
+        /// <param name="parentId">The resolved parent ID or null for top-level entities.</param>
+        /// <returns>New SectionTextContent entity instance.</returns>
+        /// <seealso cref="SectionTextContent"/>
+        /// <seealso cref="SectionTextContentDto"/>
+        /// <seealso cref="Label"/>
+        protected SectionTextContent createEntityFromDto(SectionTextContentDto dto, int? parentId)
+        {
+            #region implementation
+            return new SectionTextContent
+            {
+                SectionID = dto.SectionID,
+                ParentSectionTextContentID = parentId,
+                ContentType = dto.ContentType,
+                StyleCode = dto.StyleCode,
+                SequenceNumber = dto.SequenceNumber,
+                ContentText = dto.ContentText
+            };
+            #endregion
+        }
+
+        #endregion
     }
 }
