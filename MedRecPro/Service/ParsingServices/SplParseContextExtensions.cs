@@ -1,5 +1,6 @@
 ﻿using MedRecPro.Data;
 using MedRecPro.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System.Diagnostics;
 
@@ -38,7 +39,7 @@ namespace MedRecPro.Service.ParsingServices
             if (context?.DbContext != null)
             {
 #if DEBUG
-                Debug.WriteLine($"✓ Using shared DbContext: {context.DbContext.ContextId}"); 
+                Debug.WriteLine($"✓ Using shared DbContext: {context.DbContext.ContextId}");
 #endif
                 return context.DbContext;
             }
@@ -50,6 +51,80 @@ namespace MedRecPro.Service.ParsingServices
             // Fallback to creating new DbContext (legacy path - backward compatible)
             return context?.ServiceProvider?.GetRequiredService<ApplicationDbContext>()
                 ?? throw new InvalidOperationException("SplParseContext must have either DbContext or ServiceProvider set");
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the current ID value for an entity from the change tracker.
+        /// Returns the temporary ID (negative) for unsaved entities or the 
+        /// permanent ID for persisted entities.
+        /// </summary>
+        /// <typeparam name="TEntity">The entity type.</typeparam>
+        /// <param name="dbContext">The database context.</param>
+        /// <param name="entity">The entity to get the ID from.</param>
+        /// <param name="keyPropertyName">The name of the primary key property.</param>
+        /// <returns>The current ID value (temporary or permanent), or null if not available.</returns>
+        /// <remarks>
+        /// EF Core assigns temporary negative IDs to entities in the "Added" state.
+        /// These temporary IDs can be used to establish FK relationships between
+        /// entities before SaveChanges is called. On SaveChanges, EF Core:
+        /// 1. Inserts parent entities first and gets real IDs
+        /// 2. Automatically fixes up FK values in child entities
+        /// 3. Inserts children with correct FK references
+        /// 
+        /// This enables true single-commit bulk operations with hierarchical data.
+        /// </remarks>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="Label"/>
+        public static int? GetTrackedEntityId<TEntity>(
+            this ApplicationDbContext dbContext,
+            TEntity entity,
+            string keyPropertyName)
+            where TEntity : class
+        {
+            #region implementation
+            if (entity == null || string.IsNullOrEmpty(keyPropertyName) || dbContext == null)
+                return null;
+
+            try
+            {
+                var entry = dbContext.Entry(entity);
+
+                // Entity must be tracked (Added, Unchanged, Modified)
+                if (entry.State == EntityState.Detached)
+                {
+#if DEBUG
+                    Debug.WriteLine($"⚠ Entity {typeof(TEntity).Name} is detached - cannot get ID");
+#endif
+                    return null;
+                }
+
+                var property = entry.Property(keyPropertyName);
+                var currentValue = property.CurrentValue;
+
+#if DEBUG
+                var isTemp = property.IsTemporary;
+                Debug.WriteLine($"→ {typeof(TEntity).Name}.{keyPropertyName} = {currentValue} (IsTemporary: {isTemp}, State: {entry.State})");
+#endif
+
+                // Handle both int and int? types
+                if (currentValue == null)
+                    return null;
+
+                if (currentValue is int intValue)
+                    return intValue;
+
+                // Try converting from other numeric types
+                return Convert.ToInt32(currentValue);
+            }
+            catch (Exception ex)
+            {
+#if DEBUG
+                Debug.WriteLine($"❌ Error getting ID for {typeof(TEntity).Name}.{keyPropertyName}: {ex.Message}");
+#endif
+                return null;
+            }
             #endregion
         }
 
@@ -131,7 +206,10 @@ namespace MedRecPro.Service.ParsingServices
             if (dbContext != null)
             {
 #if DEBUG
-                Debug.WriteLine("✓ Committing all deferred changes to database");
+                var entries = dbContext.ChangeTracker.Entries().ToList();
+                var addedCount = entries.Count(e => e.State == EntityState.Added);
+                var modifiedCount = entries.Count(e => e.State == EntityState.Modified);
+                Debug.WriteLine($"✓ Committing {addedCount} added, {modifiedCount} modified entities to database");
 #endif
                 await dbContext.SaveChangesAsync();
             }

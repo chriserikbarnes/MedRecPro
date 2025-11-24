@@ -80,7 +80,7 @@ namespace MedRecPro.Service.ParsingServices
         /// in flat bulk operations without recursive orchestration.
         /// </summary>
         /// <remarks>
-        /// This value is populated from FeatureFlags:UseBulkStaging in appsettings.json
+        /// This value is populated from FeatureFlags:UseBulkStagingOperations in appsettings.json
         /// when ServiceProvider is set. Defaults to false if not configured.
         /// Requires UseBulkOperations to also be enabled.
         /// </remarks>
@@ -125,7 +125,7 @@ namespace MedRecPro.Service.ParsingServices
                     if (configuration != null)
                     {
                         UseBulkOperations = configuration.GetValue<bool>("FeatureFlags:UseBulkOperations", false);
-                        UseBulkStagingOperations = configuration.GetValue<bool>("FeatureFlags:UseBulkStaging", false);
+                        UseBulkStagingOperations = configuration.GetValue<bool>("FeatureFlags:UseBulkStagingOperations", false);
                         UseBatchSaving = configuration.GetValue<bool>("FeatureFlags:UseBatchSaving", false);
                     }
                 }

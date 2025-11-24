@@ -134,7 +134,7 @@ namespace MedRecPro.Service.ParsingServices
                     return result;
                 }
 
-                if(context.UseBulkStagingOperations)
+                if (context.UseBulkStagingOperations)
                 {
                     // Mode 3: Staged Bulk operations for very large documents
                     return await _stagedBulkCallsDelegate.ParseAsync(element, context, reportProgress, isParentCallingForAllSubElements);
@@ -186,7 +186,15 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             // Route to appropriate delegate based on context configuration
-            if (context.UseBulkOperations)
+
+            if (context.UseBulkStagingOperations)
+            {
+                // Mode 3: Staged Bulk operations for very large documents
+                var ret = await _stagedBulkCallsDelegate.ParseSectionContentAsync(xEl, sectionId, context);
+                await context.CommitDeferredChangesAsync();
+                return ret;
+            }
+            else if (context.UseBulkOperations)
             {
                 // Mode 2: Bulk operations for high-performance parsing
                 return await _bulkCallsDelegate.ParseSectionContentAsync(xEl, sectionId, context);

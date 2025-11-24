@@ -238,46 +238,46 @@ namespace MedRecPro.Service.ParsingServices
             var existingKeys = await getExistingSectionTextContentKeysAsync(dbContext, sectionId);
 
             // PHASE 3: Stage insert operations for missing content (tracked in change tracker, not yet saved)
-            var (createdEntities, idLookup) = await stageCreateSectionTextContentAsync(dbContext, dtos, existingKeys, context);
+            var (createdEntities, idLookup, entityLookup) = await stageCreateSectionTextContentAsync(dbContext, dtos, existingKeys, context);
 
-            // Retrieve all SectionTextContent entities for this section (including existing ones)
-            var allEntities = await dbContext.Set<SectionTextContent>()
+            // Combine all entities for return value
+            allContent.AddRange(createdEntities);
+
+            // Also query existing entities from database
+            var existingEntities = await dbContext.Set<SectionTextContent>()
                 .Where(c => c.SectionID == sectionId)
                 .ToListAsync();
+            allContent.AddRange(existingEntities.Where(e => !createdEntities.Contains(e)));
 
-            allContent.AddRange(allEntities);
-
-            // PHASE 4: Process specialized content (lists, tables, excerpts) using the ID lookup with staging
+            // PHASE 4: Process specialized content (lists, tables, excerpts)
+            // Use entity lookup to get both new entities (with temp IDs) and existing entities
             foreach (var dto in dtos)
             {
-                // Get the database ID for this content block
-                int? contentId = null;
-                if (idLookup.ContainsKey(dto.TempId))
+                if (!entityLookup.TryGetValue(dto.TempId, out var stc))
                 {
-                    contentId = idLookup[dto.TempId];
+                    continue;
+                }
+
+                // Get the ID - either from idLookup (may be temp) or from entity (if saved)
+                int? contentId = null;
+                if (idLookup.TryGetValue(dto.TempId, out var lookupId))
+                {
+                    contentId = lookupId;
+                }
+                else if (stc.SectionTextContentID.HasValue)
+                {
+                    contentId = stc.SectionTextContentID.Value;
                 }
                 else
                 {
-                    // Find in existing entities
-                    var existing = allEntities.FirstOrDefault(e =>
-                        e.SectionID == dto.SectionID &&
-                        e.ContentType == dto.ContentType &&
-                        e.SequenceNumber == dto.SequenceNumber &&
-                        e.ParentSectionTextContentID == dto.ParentSectionTextContentID &&
-                        (dto.ContentType.ToLower() != sc.E.Paragraph || e.ContentText == dto.ContentText));
-
-                    contentId = existing?.SectionTextContentID;
+                    // Try to get temp ID from change tracker
+                    contentId = dbContext.GetTrackedEntityId(stc, nameof(SectionTextContent.SectionTextContentID));
                 }
 
                 if (contentId.HasValue)
                 {
-                    // Find the actual entity
-                    var stc = allEntities.FirstOrDefault(e => e.SectionTextContentID == contentId.Value);
-                    if (stc != null)
-                    {
-                        // Process specialized content with staging
-                        totalGrandChildEntities += await processSpecializedContentStagedAsync(dto.SourceElement, stc, context);
-                    }
+                    // Process specialized content - pass both entity and explicit ID
+                    totalGrandChildEntities += await processSpecializedContentStagedAsync(dto.SourceElement, stc, contentId.Value, context);
                 }
             }
 
@@ -347,7 +347,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionTextContentDto"/>
         /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        private async Task<(List<SectionTextContent> entities, Dictionary<string, int> idLookup)>
+        private async Task<(List<SectionTextContent> entities, Dictionary<string, int> idLookup, Dictionary<string, SectionTextContent> entityLookup)>
             stageCreateSectionTextContentAsync(
                 ApplicationDbContext dbContext,
                 List<SectionTextContentDto> dtos,
@@ -357,10 +357,11 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
             var createdEntities = new List<SectionTextContent>();
             var tempIdToDbIdLookup = new Dictionary<string, int>(StringComparer.Ordinal);
+            var tempIdToEntityLookup = new Dictionary<string, SectionTextContent>(StringComparer.Ordinal);
 
             if (!dtos.Any())
             {
-                return (createdEntities, tempIdToDbIdLookup);
+                return (createdEntities, tempIdToDbIdLookup, tempIdToEntityLookup);
             }
 
             // Pass 1: Process top-level entities (no parent)
@@ -371,6 +372,7 @@ namespace MedRecPro.Service.ParsingServices
                 existingKeys,
                 createdEntities,
                 tempIdToDbIdLookup,
+                tempIdToEntityLookup,
                 context);
 
             await addExistingTopLevelToLookupAsync(
@@ -378,7 +380,8 @@ namespace MedRecPro.Service.ParsingServices
                 topLevelDtos,
                 existingKeys,
                 dtos.First().SectionID,
-                tempIdToDbIdLookup);
+                tempIdToDbIdLookup,
+                tempIdToEntityLookup);
 
             // Pass 2: Process child entities (with parent references)
             var childDtos = filterChildDtos(dtos);
@@ -387,10 +390,11 @@ namespace MedRecPro.Service.ParsingServices
                 childDtos,
                 existingKeys,
                 tempIdToDbIdLookup,
+                tempIdToEntityLookup,
                 createdEntities,
                 context);
 
-            return (createdEntities, tempIdToDbIdLookup);
+            return (createdEntities, tempIdToDbIdLookup, tempIdToEntityLookup);
             #endregion
         }
 
@@ -404,6 +408,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="existingKeys">HashSet for deduplication checking.</param>
         /// <param name="createdEntities">Output collection of created entities.</param>
         /// <param name="tempIdToDbIdLookup">Output dictionary mapping temporary IDs to database IDs.</param>
+        /// <param name="tempIdToEntityLookup">Output dictionary mapping temporary IDs to entity references.</param>
         /// <param name="context">The parsing context for deferred save control.</param>
         /// <remarks>
         /// Uses SaveChangesIfAllowedAsync which defers the actual save when context.UseBatchSaving is true.
@@ -417,6 +422,7 @@ namespace MedRecPro.Service.ParsingServices
             HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys,
             List<SectionTextContent> createdEntities,
             Dictionary<string, int> tempIdToDbIdLookup,
+            Dictionary<string, SectionTextContent> tempIdToEntityLookup,
             SplParseContext context)
         {
             #region implementation
@@ -428,10 +434,15 @@ namespace MedRecPro.Service.ParsingServices
                 return;
             }
 
-            // Create entity instances
-            var newEntities = newDtos
-                .Select(dto => createEntityFromDto(dto, parentId: null))
-                .ToList();
+            // Create entity instances and track them
+            var newEntities = new List<SectionTextContent>();
+            foreach (var dto in newDtos)
+            {
+                var entity = createEntityFromDto(dto, parentId: null);
+                newEntities.Add(entity);
+                // Track entity reference by TempId
+                tempIdToEntityLookup[dto.TempId] = entity;
+            }
 
             // Stage in database context (add to change tracker)
             dbContext.Set<SectionTextContent>().AddRange(newEntities);
@@ -439,8 +450,8 @@ namespace MedRecPro.Service.ParsingServices
             // Use deferred save - only saves if batch saving is disabled
             await context.SaveChangesIfAllowedAsync();
 
-            // Build temp ID to DB ID lookup
-            buildIdLookup(newEntities, newDtos, tempIdToDbIdLookup);
+            // Build temp ID to DB ID lookup (uses change tracker for temp IDs)
+            buildIdLookup(newEntities, newDtos, tempIdToDbIdLookup, dbContext);
 
             createdEntities.AddRange(newEntities);
             #endregion
@@ -455,6 +466,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="childDtos">DTOs representing child entities.</param>
         /// <param name="existingKeys">HashSet for deduplication checking.</param>
         /// <param name="tempIdToDbIdLookup">Dictionary mapping temporary IDs to database IDs.</param>
+        /// <param name="tempIdToEntityLookup">Dictionary mapping temporary IDs to entity references.</param>
         /// <param name="createdEntities">Output collection of created entities.</param>
         /// <param name="context">The parsing context for deferred save control.</param>
         /// <remarks>
@@ -468,6 +480,7 @@ namespace MedRecPro.Service.ParsingServices
             List<SectionTextContentDto> childDtos,
             HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys,
             Dictionary<string, int> tempIdToDbIdLookup,
+            Dictionary<string, SectionTextContent> tempIdToEntityLookup,
             List<SectionTextContent> createdEntities,
             SplParseContext context)
         {
@@ -485,10 +498,15 @@ namespace MedRecPro.Service.ParsingServices
                 return;
             }
 
-            // Create entity instances with resolved parent IDs
-            var newEntities = newChildDtos
-                .Select(dto => createEntityFromDto(dto, dto.ParentSectionTextContentID))
-                .ToList();
+            // Create entity instances with resolved parent IDs and track them
+            var newEntities = new List<SectionTextContent>();
+            foreach (var dto in newChildDtos)
+            {
+                var entity = createEntityFromDto(dto, dto.ParentSectionTextContentID);
+                newEntities.Add(entity);
+                // Track entity reference by TempId
+                tempIdToEntityLookup[dto.TempId] = entity;
+            }
 
             // Stage in database context (add to change tracker)
             dbContext.Set<SectionTextContent>().AddRange(newEntities);
@@ -496,8 +514,8 @@ namespace MedRecPro.Service.ParsingServices
             // Use deferred save - only saves if batch saving is disabled
             await context.SaveChangesIfAllowedAsync();
 
-            // Build temp ID to DB ID lookup for children
-            buildIdLookup(newEntities, newChildDtos, tempIdToDbIdLookup);
+            // Build temp ID to DB ID lookup for children (uses change tracker for temp IDs)
+            buildIdLookup(newEntities, newChildDtos, tempIdToDbIdLookup, dbContext);
 
             createdEntities.AddRange(newEntities);
             #endregion
@@ -505,14 +523,15 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Queries existing top-level entities from database and adds them to the ID lookup.
+        /// Queries existing top-level entities from database and adds them to the lookups.
         /// Matches DTOs to existing entities by deduplication key.
         /// </summary>
         /// <param name="dbContext">The database context.</param>
         /// <param name="topLevelDtos">DTOs representing top-level entities.</param>
         /// <param name="existingKeys">HashSet for deduplication checking.</param>
         /// <param name="sectionId">The section ID to filter by.</param>
-        /// <param name="tempIdToDbIdLookup">Dictionary to update with existing entity mappings.</param>
+        /// <param name="tempIdToDbIdLookup">Dictionary to update with existing entity ID mappings.</param>
+        /// <param name="tempIdToEntityLookup">Dictionary to update with existing entity references.</param>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SectionTextContentDto"/>
         /// <seealso cref="Label"/>
@@ -521,7 +540,8 @@ namespace MedRecPro.Service.ParsingServices
             List<SectionTextContentDto> topLevelDtos,
             HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)> existingKeys,
             int sectionId,
-            Dictionary<string, int> tempIdToDbIdLookup)
+            Dictionary<string, int> tempIdToDbIdLookup,
+            Dictionary<string, SectionTextContent> tempIdToEntityLookup)
         {
             #region implementation
             // Query existing top-level entities
@@ -529,14 +549,21 @@ namespace MedRecPro.Service.ParsingServices
                 .Where(c => c.SectionID == sectionId && c.ParentSectionTextContentID == null)
                 .ToListAsync();
 
-            // Match existing entities to DTOs and build lookup
+            // Match existing entities to DTOs and build lookups
             foreach (var existing in existingTopLevel)
             {
                 var matchingDto = findMatchingDto(existing, topLevelDtos, existingKeys);
 
-                if (matchingDto != null && existing.SectionTextContentID.HasValue)
+                if (matchingDto != null)
                 {
-                    tempIdToDbIdLookup[matchingDto.TempId] = existing.SectionTextContentID.Value;
+                    // Add entity reference to lookup
+                    tempIdToEntityLookup[matchingDto.TempId] = existing;
+
+                    // Add ID to lookup
+                    if (existing.SectionTextContentID.HasValue)
+                    {
+                        tempIdToDbIdLookup[matchingDto.TempId] = existing.SectionTextContentID.Value;
+                    }
                 }
             }
             #endregion
@@ -569,14 +596,21 @@ namespace MedRecPro.Service.ParsingServices
 
         /**************************************************************/
         /// <summary>
-        /// Builds mapping from temporary DTO IDs to persisted database IDs.
-        /// Matches entities to DTOs by index position.
+        /// Builds mapping from temporary DTO IDs to entity IDs (real or temporary).
+        /// Uses EF Core change tracker to get temporary IDs for unsaved entities.
         /// </summary>
-        /// <param name="entities">List of persisted entities with database IDs.</param>
+        /// <param name="entities">List of entities (may be unsaved with temp IDs).</param>
         /// <param name="dtos">List of DTOs with temporary IDs.</param>
         /// <param name="tempIdToDbIdLookup">Dictionary to populate with ID mappings.</param>
+        /// <param name="dbContext">Database context for change tracker access.</param>
         /// <remarks>
-        /// Assumes entities and DTOs are in the same order after filtering.
+        /// When entities are added to DbContext but not yet saved, EF Core assigns
+        /// temporary negative IDs. These IDs can be used for FK relationships.
+        /// On SaveChanges, EF Core automatically fixes up the FK values.
+        /// 
+        /// FIX: The original code checked entity.SectionTextContentID.HasValue,
+        /// which is always FALSE when saves are deferred. Now we get the temp ID
+        /// from the change tracker, enabling parent-child relationships before save.
         /// </remarks>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SectionTextContentDto"/>
@@ -584,7 +618,8 @@ namespace MedRecPro.Service.ParsingServices
         private void buildIdLookup(
             List<SectionTextContent> entities,
             List<SectionTextContentDto> dtos,
-            Dictionary<string, int> tempIdToDbIdLookup)
+            Dictionary<string, int> tempIdToDbIdLookup,
+            ApplicationDbContext dbContext)
         {
             #region implementation
             for (int i = 0; i < entities.Count; i++)
@@ -592,9 +627,47 @@ namespace MedRecPro.Service.ParsingServices
                 var entity = entities[i];
                 var dto = dtos.ElementAtOrDefault(i);
 
-                if (dto != null && entity.SectionTextContentID.HasValue)
+                if (dto == null)
+                    continue;
+
+                // Try to get the ID - either real (if saved) or temporary (if not)
+                int? entityId = null;
+
+                // First check if entity already has a real ID (immediate save mode)
+                if (entity.SectionTextContentID.HasValue)
                 {
-                    tempIdToDbIdLookup[dto.TempId] = entity.SectionTextContentID.Value;
+                    entityId = entity.SectionTextContentID.Value;
+                }
+                else
+                {
+                    // Entity hasn't been saved - get temporary ID from change tracker
+                    // EF Core assigns negative temp IDs to Added entities
+                    try
+                    {
+                        var entry = dbContext.Entry(entity);
+                        if (entry.State != EntityState.Detached)
+                        {
+                            var property = entry.Property(nameof(SectionTextContent.SectionTextContentID));
+                            var currentValue = property.CurrentValue;
+
+                            if (currentValue is int intValue)
+                            {
+                                entityId = intValue;
+#if DEBUG
+                                System.Diagnostics.Debug.WriteLine($"→ SectionTextContent.SectionTextContentID = {intValue} (IsTemporary: {property.IsTemporary}, State: {entry.State})");
+#endif
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Fallback - entity not tracked, skip
+                    }
+                }
+
+                if (entityId.HasValue)
+                {
+                    tempIdToDbIdLookup[dto.TempId] = entityId.Value;
                 }
             }
             #endregion
@@ -681,10 +754,13 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="block">The XElement representing the content block.</param>
         /// <param name="stc">The SectionTextContent entity for this block.</param>
+        /// <param name="contentId">The content ID (may be temp negative or real positive).</param>
         /// <param name="context">The current parsing context with staging settings.</param>
         /// <returns>The number of grandchild entities created (e.g., list items, table cells).</returns>
         /// <remarks>
         /// All database operations use SaveChangesIfAllowedAsync for deferred saves.
+        /// The contentId parameter is passed explicitly because for new entities,
+        /// the SectionTextContentID property may not be set yet (temp ID is in change tracker).
         /// </remarks>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
@@ -692,12 +768,10 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="Label"/>
         private async Task<int> processSpecializedContentStagedAsync(XElement block,
             SectionTextContent stc,
+            int contentId,
             SplParseContext context)
         {
             #region implementation
-            // Validate content entity has valid ID before processing children
-            if (!stc.SectionTextContentID.HasValue) return 0;
-
             int grandchildEntitiesCount = 0;
             var contentType = stc.ContentType ?? string.Empty;
 
@@ -705,12 +779,12 @@ namespace MedRecPro.Service.ParsingServices
             if (contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase))
             {
                 // Process list structure with staging
-                grandchildEntitiesCount += await stageTextListAndItemsAsync(block, stc.SectionTextContentID.Value, context);
+                grandchildEntitiesCount += await stageTextListAndItemsAsync(block, contentId, context);
             }
             else if (contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
             {
                 // Process table structure with staging
-                grandchildEntitiesCount += await stageTextTableAndChildrenAsync(block, stc.SectionTextContentID.Value, context);
+                grandchildEntitiesCount += await stageTextTableAndChildrenAsync(block, contentId, context);
             }
             else if (contentType.Equals(sc.E.Excerpt, StringComparison.OrdinalIgnoreCase))
             {
@@ -721,7 +795,7 @@ namespace MedRecPro.Service.ParsingServices
             else if (contentType.Equals(sc.E.RenderMultimedia, StringComparison.OrdinalIgnoreCase))
             {
                 // Handle block-level images with staging
-                grandchildEntitiesCount += await _mediaParser.ParseRenderedMediaAsync(block, stc.SectionTextContentID.Value, context, isInline: false);
+                grandchildEntitiesCount += await _mediaParser.ParseRenderedMediaAsync(block, contentId, context, isInline: false);
             }
 
             // Check for INLINE images inside other content types
@@ -730,7 +804,7 @@ namespace MedRecPro.Service.ParsingServices
                 bool isInline = !contentType.Equals(sc.E.RenderMultimedia, StringComparison.OrdinalIgnoreCase);
                 if (isInline)
                 {
-                    grandchildEntitiesCount += await _mediaParser.ParseRenderedMediaAsync(block, stc.SectionTextContentID.Value, context, isInline: true);
+                    grandchildEntitiesCount += await _mediaParser.ParseRenderedMediaAsync(block, contentId, context, isInline: true);
                 }
             }
 
@@ -767,7 +841,8 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
             int createdCount = 0;
 
-            if (!validateTextListInputs(listEl, sectionTextContentId, context))
+            // Validate inputs - allow negative temp IDs (sectionTextContentId != 0)
+            if (listEl == null || sectionTextContentId == 0 || context?.ServiceProvider == null)
             {
                 return 0;
             }
@@ -777,10 +852,15 @@ namespace MedRecPro.Service.ParsingServices
             // Parse list structure into memory
             var itemDtos = parseTextListItemsToMemory(listEl);
 
-            // Check for existing TextList
-            var textListDbSet = dbContext.Set<TextList>();
-            var existingList = await textListDbSet
-                .FirstOrDefaultAsync(l => l.SectionTextContentID == sectionTextContentId);
+            // For temp IDs (negative), we know there's no existing list in database
+            // Only query for existing if we have a real positive ID
+            TextList? existingList = null;
+            if (sectionTextContentId > 0)
+            {
+                var textListDbSet = dbContext.Set<TextList>();
+                existingList = await textListDbSet
+                    .FirstOrDefaultAsync(l => l.SectionTextContentID == sectionTextContentId);
+            }
 
             TextList textList;
 
@@ -788,7 +868,7 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // Create and stage new list entity
                 textList = createTextListEntity(listEl, sectionTextContentId);
-                textListDbSet.Add(textList);
+                dbContext.Set<TextList>().Add(textList);
 
                 // Use deferred save
                 await context.SaveChangesIfAllowedAsync();
@@ -799,14 +879,22 @@ namespace MedRecPro.Service.ParsingServices
                 textList = existingList;
             }
 
-            if (textList.TextListID == null)
+            // Get the TextList ID - either from entity property (if saved) or from change tracker (if temp)
+            int? textListId = textList.TextListID;
+            if (!textListId.HasValue)
             {
-                context.Logger?.LogError("Failed to create or retrieve TextList for SectionTextContentID {id}", sectionTextContentId);
+                // Get temp ID from change tracker
+                textListId = dbContext.GetTrackedEntityId(textList, nameof(TextList.TextListID));
+            }
+
+            if (!textListId.HasValue)
+            {
+                context.Logger?.LogError("Failed to create or retrieve TextList ID for SectionTextContentID {id}", sectionTextContentId);
                 return createdCount;
             }
 
             // Stage list items with deferred save
-            createdCount += await stageTextListItemsAsync(dbContext, textList.TextListID.Value, itemDtos, context);
+            createdCount += await stageTextListItemsAsync(dbContext, textListId.Value, itemDtos, context);
 
             return createdCount;
             #endregion
@@ -841,16 +929,21 @@ namespace MedRecPro.Service.ParsingServices
 
             var itemDbSet = dbContext.Set<TextListItem>();
 
-            var existingItems = await itemDbSet
-                .Where(i => i.TextListID == textListId)
-                .Select(i => new { i.TextListID, i.SequenceNumber })
-                .ToListAsync();
+            // For temp IDs (negative), there won't be existing items in database
+            var existingKeys = new HashSet<(int ListId, int SeqNum)>();
+            if (textListId > 0)
+            {
+                var existingItems = await itemDbSet
+                    .Where(i => i.TextListID == textListId)
+                    .Select(i => new { i.TextListID, i.SequenceNumber })
+                    .ToListAsync();
 
-            var existingKeys = new HashSet<(int ListId, int SeqNum)>(
-                existingItems
-                    .Where(i => i.TextListID.HasValue && i.SequenceNumber.HasValue)
-                    .Select(i => (i.TextListID!.Value, i.SequenceNumber!.Value))
-            );
+                existingKeys = new HashSet<(int ListId, int SeqNum)>(
+                    existingItems
+                        .Where(i => i.TextListID.HasValue && i.SequenceNumber.HasValue)
+                        .Select(i => (i.TextListID!.Value, i.SequenceNumber!.Value))
+                );
+            }
 
             var newItems = itemDtos
                 .Where(dto => !existingKeys.Contains((textListId, dto.SequenceNumber)))
@@ -909,8 +1002,8 @@ namespace MedRecPro.Service.ParsingServices
             #region implementation
             int createdCount = 0;
 
-            // Validate all required input parameters and context dependencies
-            if (tableEl == null || sectionTextContentId <= 0 || context?.ServiceProvider == null)
+            // Validate inputs - allow negative temp IDs (sectionTextContentId != 0)
+            if (tableEl == null || sectionTextContentId == 0 || context?.ServiceProvider == null)
             {
                 return 0;
             }
@@ -954,10 +1047,15 @@ namespace MedRecPro.Service.ParsingServices
                 rowDtos.AddRange(parseRowsToMemory(tfootEl, "Footer"));
             }
 
-            // Check for existing TextTable
-            var textTableDbSet = dbContext.Set<TextTable>();
-            var existingTable = await textTableDbSet
-                .FirstOrDefaultAsync(t => t.SectionTextContentID == sectionTextContentId);
+            // For temp IDs (negative), we know there's no existing table in database
+            // Only query for existing if we have a real positive ID
+            TextTable? existingTable = null;
+            if (sectionTextContentId > 0)
+            {
+                var textTableDbSet = dbContext.Set<TextTable>();
+                existingTable = await textTableDbSet
+                    .FirstOrDefaultAsync(t => t.SectionTextContentID == sectionTextContentId);
+            }
 
             TextTable textTable;
             if (existingTable == null)
@@ -973,7 +1071,7 @@ namespace MedRecPro.Service.ParsingServices
                     HasFooter = tableData.HasFooter
                 };
 
-                textTableDbSet.Add(textTable);
+                dbContext.Set<TextTable>().Add(textTable);
 
                 // Use deferred save
                 await context.SaveChangesIfAllowedAsync();
@@ -984,20 +1082,25 @@ namespace MedRecPro.Service.ParsingServices
                 textTable = existingTable;
             }
 
-            // Validate table creation was successful before proceeding
-            if (textTable.TextTableID == null)
+            // Get the TextTable ID - either from entity property (if saved) or from change tracker (if temp)
+            int? tableId = textTable.TextTableID;
+            if (!tableId.HasValue)
             {
-                context.Logger?.LogError("Failed to create or retrieve TextTable for SectionTextContentID {id}", sectionTextContentId);
+                // Get temp ID from change tracker
+                tableId = dbContext.GetTrackedEntityId(textTable, nameof(TextTable.TextTableID));
+            }
+
+            if (!tableId.HasValue)
+            {
+                context.Logger?.LogError("Failed to create or retrieve TextTable ID for SectionTextContentID {id}", sectionTextContentId);
                 return createdCount;
             }
 
-            int tableId = textTable.TextTableID.Value;
-
             // Stage columns with deferred save
-            createdCount += await stageColumnsAsync(dbContext, tableId, columnDtos, context);
+            createdCount += await stageColumnsAsync(dbContext, tableId.Value, columnDtos, context);
 
             // Stage rows and cells with deferred save
-            createdCount += await stageRowsAndCellsAsync(dbContext, tableId, rowDtos, context);
+            createdCount += await stageRowsAndCellsAsync(dbContext, tableId.Value, rowDtos, context);
 
             return createdCount;
             #endregion
@@ -1031,16 +1134,22 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
 
             var columnDbSet = dbContext.Set<TextTableColumn>();
-            var existingColumns = await columnDbSet
-                .Where(c => c.TextTableID == textTableId)
-                .Select(c => new { c.TextTableID, c.SequenceNumber })
-                .ToListAsync();
 
-            var existingKeys = new HashSet<(int TableId, int SeqNum)>(
-                existingColumns
-                    .Where(c => c.TextTableID.HasValue && c.SequenceNumber.HasValue)
-                    .Select(c => (c.TextTableID!.Value, c.SequenceNumber!.Value))
-            );
+            // For temp IDs (negative), there won't be existing columns in database
+            var existingKeys = new HashSet<(int TableId, int SeqNum)>();
+            if (textTableId > 0)
+            {
+                var existingColumns = await columnDbSet
+                    .Where(c => c.TextTableID == textTableId)
+                    .Select(c => new { c.TextTableID, c.SequenceNumber })
+                    .ToListAsync();
+
+                existingKeys = new HashSet<(int TableId, int SeqNum)>(
+                    existingColumns
+                        .Where(c => c.TextTableID.HasValue && c.SequenceNumber.HasValue)
+                        .Select(c => (c.TextTableID!.Value, c.SequenceNumber!.Value))
+                );
+            }
 
             var newColumns = columnDtos
                 .Where(dto => !existingKeys.Contains((textTableId, dto.SequenceNumber)))
@@ -1105,67 +1214,108 @@ namespace MedRecPro.Service.ParsingServices
             // Stage rows
             var rowDbSet = dbContext.Set<TextTableRow>();
 
-            var existingRows = await rowDbSet
-                .Where(r => r.TextTableID == textTableId)
-                .Select(r => new { r.TextTableID, r.RowGroupType, r.SequenceNumber, r.TextTableRowID })
-                .ToListAsync();
-
-            var existingRowKeys = new HashSet<(int TableId, string GroupType, int SeqNum)>(
-                existingRows
-                    .Where(r => r.TextTableID.HasValue && r.RowGroupType != null && r.SequenceNumber.HasValue)
-                    .Select(r => (r.TextTableID!.Value, r.RowGroupType!, r.SequenceNumber!.Value))
-            );
-
-            var newRows = rowDtos
-                .Where(dto => !existingRowKeys.Contains((textTableId, dto.RowGroupType, dto.SequenceNumber)))
-                .Select(dto => new TextTableRow
-                {
-                    TextTableID = textTableId,
-                    RowGroupType = dto.RowGroupType,
-                    SequenceNumber = dto.SequenceNumber,
-                    StyleCode = dto.StyleCode
-                })
-                .ToList();
-
-            if (newRows.Any())
+            // For temp IDs (negative), there won't be existing rows in database
+            var existingRowKeys = new HashSet<(int TableId, string GroupType, int SeqNum)>();
+            if (textTableId > 0)
             {
-                rowDbSet.AddRange(newRows);
+                var existingRows = await rowDbSet
+                    .Where(r => r.TextTableID == textTableId)
+                    .Select(r => new { r.TextTableID, r.RowGroupType, r.SequenceNumber, r.TextTableRowID })
+                    .ToListAsync();
+
+                existingRowKeys = new HashSet<(int TableId, string GroupType, int SeqNum)>(
+                    existingRows
+                        .Where(r => r.TextTableID.HasValue && r.RowGroupType != null && r.SequenceNumber.HasValue)
+                        .Select(r => (r.TextTableID!.Value, r.RowGroupType!, r.SequenceNumber!.Value))
+                );
+            }
+
+            // Create new row entities and track them
+            var newRowEntities = new List<(TextTableRow Entity, TableRowDto Dto)>();
+            foreach (var dto in rowDtos)
+            {
+                if (!existingRowKeys.Contains((textTableId, dto.RowGroupType, dto.SequenceNumber)))
+                {
+                    var entity = new TextTableRow
+                    {
+                        TextTableID = textTableId,
+                        RowGroupType = dto.RowGroupType,
+                        SequenceNumber = dto.SequenceNumber,
+                        StyleCode = dto.StyleCode
+                    };
+                    newRowEntities.Add((entity, dto));
+                }
+            }
+
+            if (newRowEntities.Any())
+            {
+                rowDbSet.AddRange(newRowEntities.Select(x => x.Entity));
 
                 // Use deferred save
                 await context.SaveChangesIfAllowedAsync();
-                createdCount += newRows.Count;
+                createdCount += newRowEntities.Count;
             }
 
-            // Build row lookup dictionary
-            var allRows = await rowDbSet
-                .Where(r => r.TextTableID == textTableId)
-                .Select(r => new { r.TextTableID, r.RowGroupType, r.SequenceNumber, r.TextTableRowID })
-                .ToListAsync();
+            // Build row lookup from tracked entities (includes temp IDs)
+            var rowLookup = new Dictionary<(int TableId, string GroupType, int SeqNum), int>();
 
-            var rowLookup = allRows
-                .Where(r => r.TextTableID.HasValue
-                    && r.RowGroupType != null
-                    && r.SequenceNumber.HasValue
-                    && r.TextTableRowID.HasValue)
-                .ToDictionary(
-                    r => (r.TextTableID!.Value, r.RowGroupType!, r.SequenceNumber!.Value),
-                    r => r.TextTableRowID!.Value
-                );
+            // Add newly created rows with their temp IDs from change tracker
+            foreach (var (entity, dto) in newRowEntities)
+            {
+                int? rowId = entity.TextTableRowID;
+                if (!rowId.HasValue)
+                {
+                    // Get temp ID from change tracker
+                    rowId = dbContext.GetTrackedEntityId(entity, nameof(TextTableRow.TextTableRowID));
+                }
 
-            // Stage cells
+                if (rowId.HasValue)
+                {
+                    var key = (textTableId, dto.RowGroupType, dto.SequenceNumber);
+                    rowLookup[key] = rowId.Value;
+                }
+            }
+
+            // Also add existing rows from database (if any)
+            if (textTableId > 0)
+            {
+                var dbRows = await rowDbSet
+                    .Where(r => r.TextTableID == textTableId && r.TextTableRowID.HasValue)
+                    .Select(r => new { r.TextTableID, r.RowGroupType, r.SequenceNumber, r.TextTableRowID })
+                    .ToListAsync();
+
+                foreach (var r in dbRows)
+                {
+                    if (r.TextTableID.HasValue && r.RowGroupType != null && r.SequenceNumber.HasValue && r.TextTableRowID.HasValue)
+                    {
+                        var key = (r.TextTableID.Value, r.RowGroupType, r.SequenceNumber.Value);
+                        if (!rowLookup.ContainsKey(key))
+                        {
+                            rowLookup[key] = r.TextTableRowID.Value;
+                        }
+                    }
+                }
+            }
+
+            // Stage cells using row lookup (includes temp row IDs)
             var cellDbSet = dbContext.Set<TextTableCell>();
 
-            var rowIds = rowLookup.Values.ToList();
-            var existingCells = await cellDbSet
-                .Where(c => c.TextTableRowID.HasValue && rowIds.Contains(c.TextTableRowID.Value))
-                .Select(c => new { c.TextTableRowID, c.SequenceNumber })
-                .ToListAsync();
+            // For temp row IDs, there won't be existing cells in database
+            var existingCellKeys = new HashSet<(int RowId, int SeqNum)>();
+            var realRowIds = rowLookup.Values.Where(id => id > 0).ToList();
+            if (realRowIds.Any())
+            {
+                var existingCells = await cellDbSet
+                    .Where(c => c.TextTableRowID.HasValue && realRowIds.Contains(c.TextTableRowID.Value))
+                    .Select(c => new { c.TextTableRowID, c.SequenceNumber })
+                    .ToListAsync();
 
-            var existingCellKeys = new HashSet<(int RowId, int SeqNum)>(
-                existingCells
-                    .Where(c => c.TextTableRowID.HasValue && c.SequenceNumber.HasValue)
-                    .Select(c => (c.TextTableRowID!.Value, c.SequenceNumber!.Value))
-            );
+                existingCellKeys = new HashSet<(int RowId, int SeqNum)>(
+                    existingCells
+                        .Where(c => c.TextTableRowID.HasValue && c.SequenceNumber.HasValue)
+                        .Select(c => (c.TextTableRowID!.Value, c.SequenceNumber!.Value))
+                );
+            }
 
             var newCells = new List<TextTableCell>();
             foreach (var rowDto in rowDtos)
@@ -1176,21 +1326,22 @@ namespace MedRecPro.Service.ParsingServices
 
                 foreach (var cellDto in rowDto.Cells)
                 {
-                    if (!existingCellKeys.Contains((rowId, cellDto.SequenceNumber)))
+                    // Only check for existing if rowId is positive (real ID)
+                    if (rowId > 0 && existingCellKeys.Contains((rowId, cellDto.SequenceNumber)))
+                        continue;
+
+                    newCells.Add(new TextTableCell
                     {
-                        newCells.Add(new TextTableCell
-                        {
-                            TextTableRowID = rowId,
-                            CellType = cellDto.CellType,
-                            SequenceNumber = cellDto.SequenceNumber,
-                            CellText = cellDto.CellText,
-                            RowSpan = cellDto.RowSpan,
-                            ColSpan = cellDto.ColSpan,
-                            StyleCode = cellDto.StyleCode,
-                            Align = cellDto.Align,
-                            VAlign = cellDto.VAlign
-                        });
-                    }
+                        TextTableRowID = rowId,
+                        CellType = cellDto.CellType,
+                        SequenceNumber = cellDto.SequenceNumber,
+                        CellText = cellDto.CellText,
+                        RowSpan = cellDto.RowSpan,
+                        ColSpan = cellDto.ColSpan,
+                        StyleCode = cellDto.StyleCode,
+                        Align = cellDto.Align,
+                        VAlign = cellDto.VAlign
+                    });
                 }
             }
 
