@@ -124,7 +124,7 @@ namespace MedRecPro.Service.ParsingServices
             var textEl = xEl.SplElement(sc.E.Text);
             if (textEl != null)
             {
-                var (textContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(textEl, sectionId, context, parseAndSaveSectionAsync);
+                var (textContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(textEl, sectionId, context);
                 result.SectionAttributesCreated += textContents.Count;
                 result.SectionAttributesCreated += listEntityCount;
             }
@@ -133,7 +133,7 @@ namespace MedRecPro.Service.ParsingServices
             var excerptEl = xEl.SplElement(sc.E.Excerpt);
             if (excerptEl != null)
             {
-                var (excerptTextContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(excerptEl, sectionId, context, parseAndSaveSectionAsync);
+                var (excerptTextContents, listEntityCount) = await GetOrCreateSectionTextContentsAsync(excerptEl, sectionId, context);
                 result.SectionAttributesCreated += excerptTextContents.Count;
 
                 // Extract highlighted text within excerpts for specialized processing
@@ -164,7 +164,6 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="parentEl">The XElement to start parsing (typically the [text] element).</param>
         /// <param name="sectionId">The SectionID owning this content.</param>
         /// <param name="context">Parsing context.</param>
-        /// <param name="parseAndSaveSectionAsync">Function delegate for parsing and saving child sections.</param>
         /// <param name="parentSectionTextContentId">Parent SectionTextContentID for hierarchy, or null for top-level blocks.</param>
         /// <param name="sequence">The sequence number to start from (default 1).</param>
         /// <returns>A tuple containing the complete list of all created/found SectionTextContent objects and the total count of grandchild entities (e.g., list items, table cells).</returns>
@@ -178,7 +177,6 @@ namespace MedRecPro.Service.ParsingServices
             XElement parentEl,
             int sectionId,
             SplParseContext context,
-            Func<XElement, SplParseContext, Task<Section>> parseAndSaveSectionAsync,
             int? parentSectionTextContentId = null,
             int sequence = 1)
         {

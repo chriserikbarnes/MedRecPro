@@ -12,6 +12,7 @@ using sc = MedRecPro.Models.SplConstants;
 using c = MedRecPro.Models.Constant;
 using AngleSharp.Dom;
 using System.Data;
+using System.Diagnostics;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 namespace MedRecPro.Service.ParsingServices
@@ -1070,6 +1071,12 @@ namespace MedRecPro.Service.ParsingServices
                         // Continue processing other sections
                     }
                 }
+
+#if DEBUG
+                Debug.WriteLine($"SectionParser_StagedBulk.bulkProcessAllContentAsync() Content has been staged. sectionsProcessed: {sectionsProcessed}. totalContentItems {totalContentItems}");
+#endif
+                // Moved from the conclusion of ParseAsync to here in order to immediately commit section content
+                await context.CommitDeferredChangesAsync();
 
                 context.Logger?.LogInformation(
                     "Bulk content processing complete: {SectionsProcessed} sections, {ContentItems} content items",

@@ -10,6 +10,7 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
+using System.Diagnostics;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 namespace MedRecPro.Service.ParsingServices
@@ -185,13 +186,25 @@ namespace MedRecPro.Service.ParsingServices
         public async Task<SplParseResult> ParseSectionContentAsync(XElement xEl, int sectionId, SplParseContext context)
         {
             #region implementation
-            // Route to appropriate delegate based on context configuration
 
+            var textEl = xEl.SplElement(sc.E.Text);
+            if (textEl == null)
+            {
+                context.Logger?.LogWarning(
+                    "Section {SectionId} has no <text> element - only excerpt/highlight content will be processed",
+                    sectionId);
+
+#if DEBUG
+                Debug.WriteLine($"Section {sectionId} has no <text> element - only excerpt/highlight content will be processed");
+#endif
+            }
+
+            // Route to appropriate delegate based on context configuration
             if (context.UseBulkStagingOperations)
             {
                 // Mode 3: Staged Bulk operations for very large documents
                 var ret = await _stagedBulkCallsDelegate.ParseSectionContentAsync(xEl, sectionId, context);
-                await context.CommitDeferredChangesAsync();
+
                 return ret;
             }
             else if (context.UseBulkOperations)
@@ -203,62 +216,6 @@ namespace MedRecPro.Service.ParsingServices
             {
                 // Mode 1: Single-call operations
                 return await _singleCallsDelegate.ParseSectionContentAsync(xEl, sectionId, context);
-            }
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Orchestrates the recursive parsing of a section's [text] element by delegating
-        /// to either a bulk operations strategy or single-call strategy based on context settings.
-        /// This public method serves as the entry point for section content parsing, routing
-        /// to the appropriate implementation based on performance requirements.
-        /// </summary>
-        /// <param name="parentEl">The parent element from which content blocks are parsed (typically [text] or [excerpt]).</param>
-        /// <param name="sectionId">The database ID of the section owning this content.</param>
-        /// <param name="context">The parsing context containing database services, logging, and configuration.</param>
-        /// <param name="parseAndSaveSectionAsync">Delegate function for parsing and saving child sections encountered during content processing.</param>
-        /// <param name="parentSectionTextContentId">Optional parent content ID for establishing hierarchy relationships.</param>
-        /// <param name="sequence">Starting sequence number for content ordering (default 1).</param>
-        /// <returns>
-        /// A tuple containing:
-        /// - List of all SectionTextContent entities created or found
-        /// - Total count of grandchild entities (list items, table cells, etc.)
-        /// </returns>
-        /// <remarks>
-        /// The method uses a strategy pattern to optimize database operations. When bulk operations
-        /// are enabled via context.UseBulkOperations, it delegates to the high-performance bulk
-        /// implementation which reduces database round-trips by 100-1000x. Otherwise, it uses
-        /// the traditional single-call approach for simpler scenarios or backwards compatibility.
-        /// </remarks>
-        /// <seealso cref="SectionTextContent"/>
-        /// <seealso cref="Section"/>
-        /// <seealso cref="SplParseContext"/>
-        /// <seealso cref="XElement"/>
-        /// <seealso cref="SectionContentParser_SingleCalls.GetOrCreateSectionTextContentsAsync"/>
-        /// <seealso cref="SectionContentParser_BulkCalls.GetOrCreateSectionTextContentsAsync"/>
-        /// <seealso cref="Label"/>
-        public async Task<Tuple<List<SectionTextContent>, int>> GetOrCreateSectionTextContentsAsync(
-            XElement parentEl,
-            int sectionId,
-            SplParseContext context,
-            Func<XElement, SplParseContext, Task<Section>> parseAndSaveSectionAsync,
-            int? parentSectionTextContentId = null,
-            int sequence = 1)
-        {
-            #region implementation
-            // Route to appropriate delegate based on context configuration
-            if (context.UseBulkOperations)
-            {
-                // Mode 2: Bulk operations for high-performance parsing
-                return await _bulkCallsDelegate.GetOrCreateSectionTextContentsAsync(
-                    parentEl, sectionId, context, parseAndSaveSectionAsync, parentSectionTextContentId, sequence);
-            }
-            else
-            {
-                // Mode 1: Single-call operations
-                return await _singleCallsDelegate.GetOrCreateSectionTextContentsAsync(
-                    parentEl, sectionId, context, parseAndSaveSectionAsync, parentSectionTextContentId, sequence);
             }
             #endregion
         }

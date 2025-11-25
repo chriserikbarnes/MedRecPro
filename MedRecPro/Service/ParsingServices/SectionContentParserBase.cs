@@ -10,6 +10,7 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
+using System.Diagnostics;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 namespace MedRecPro.Service.ParsingServices
@@ -230,6 +231,14 @@ namespace MedRecPro.Service.ParsingServices
                     SectionID = sectionId,
                     HighlightText = txt
                 };
+
+#if DEBUG
+                if (context.UseBatchSaving)
+                {
+                    Debug.WriteLine($"SectionContentParserBase.getOrCreateSectionExcerptHighlightsAsync. BatchSaving {context.UseBatchSaving}. " +
+                        $"This shouldn't be happening. This will fire a premature database save");
+                }
+#endif
 
                 await repo.CreateAsync(newHighlight);
                 highlights.Add(newHighlight);

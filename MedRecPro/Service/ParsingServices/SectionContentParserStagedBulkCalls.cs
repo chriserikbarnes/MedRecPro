@@ -10,6 +10,7 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
+using System.Diagnostics;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 namespace MedRecPro.Service.ParsingServices
@@ -29,7 +30,7 @@ namespace MedRecPro.Service.ParsingServices
     /// - Commit Phase: Single SaveChangesAsync at the end
     ///
     /// Performance Impact:
-    /// - Before (Bulk per section): N sections � 4-8 calls = potentially hundreds of database operations
+    /// - Before (Bulk per section): N sections × 4-8 calls = potentially hundreds of database operations
     /// - After (Staged): 8-12 calls total for ALL sections regardless of count
     ///
     /// Best suited for:
@@ -108,8 +109,6 @@ namespace MedRecPro.Service.ParsingServices
                 var contentResult = await ParseSectionContentAsync(element, context.CurrentSection.SectionID.Value, context);
                 result.MergeFrom(contentResult);
 
-                await context.CommitDeferredChangesAsync();
-
                 reportProgress?.Invoke($"Processed {contentResult.SectionAttributesCreated} content attributes");
             }
             catch (Exception ex)
@@ -150,7 +149,7 @@ namespace MedRecPro.Service.ParsingServices
             var textEl = xEl.SplElement(sc.E.Text);
             if (textEl != null)
             {
-                var (textContents, listEntityCount) = await stageSectionTextContentsAsync(textEl, sectionId, context, parseAndSaveSectionAsync);
+                var (textContents, listEntityCount) = await StageSectionTextContentsAsync(textEl, sectionId, context);
                 result.SectionAttributesCreated += textContents.Count;
                 result.SectionAttributesCreated += listEntityCount;
             }
@@ -159,7 +158,7 @@ namespace MedRecPro.Service.ParsingServices
             var excerptEl = xEl.SplElement(sc.E.Excerpt);
             if (excerptEl != null)
             {
-                var (excerptTextContents, listEntityCount) = await stageSectionTextContentsAsync(excerptEl, sectionId, context, parseAndSaveSectionAsync);
+                var (excerptTextContents, listEntityCount) = await StageSectionTextContentsAsync(excerptEl, sectionId, context);
                 result.SectionAttributesCreated += excerptTextContents.Count;
 
                 // Extract highlighted text within excerpts for specialized processing
@@ -187,7 +186,6 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="parentEl">The XElement to start parsing (typically the [text] element).</param>
         /// <param name="sectionId">The SectionID owning this content.</param>
         /// <param name="context">Parsing context with deferred save settings.</param>
-        /// <param name="parseAndSaveSectionAsync">Function delegate for parsing and saving child sections.</param>
         /// <param name="parentSectionTextContentId">Parent SectionTextContentID for hierarchy, or null for top-level blocks.</param>
         /// <param name="sequence">The sequence number to start from (default 1).</param>
         /// <returns>A tuple containing the complete list of all created/found SectionTextContent objects and the total count of grandchild entities.</returns>
@@ -197,8 +195,8 @@ namespace MedRecPro.Service.ParsingServices
         ///
         /// Performance Pattern:
         /// - Phase 1: Parse all content blocks to DTOs (0 DB calls)
-        /// - Phase 2: Query existing content in bulk (1 query per section, but deferred commit)
-        /// - Phase 3: Stage insert operations (tracked in DbContext change tracker)
+        /// - Phase 2: Bulk query existing content (1 query per section, but deferred commit)
+        /// - Phase 3: Stage insert operations (tracked in change tracker, not yet saved)
         /// - Phase 4: Process specialized content (lists, tables) with staging
         /// - Commit: Single SaveChangesAsync at end of all sections (via CommitDeferredChangesAsync)
         /// </remarks>
@@ -206,11 +204,10 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
-        private async Task<Tuple<List<SectionTextContent>, int>> stageSectionTextContentsAsync(
+        public async Task<Tuple<List<SectionTextContent>, int>> StageSectionTextContentsAsync(
             XElement parentEl,
             int sectionId,
             SplParseContext context,
-            Func<XElement, SplParseContext, Task<Section>> parseAndSaveSectionAsync,
             int? parentSectionTextContentId = null,
             int sequence = 1)
         {
@@ -229,13 +226,21 @@ namespace MedRecPro.Service.ParsingServices
             // PHASE 1: Parse all content blocks to DTOs (0 DB calls)
             var dtos = parseContentBlocksToMemory(parentEl, sectionId, parentSectionTextContentId?.ToString(), sequence);
 
+#if DEBUG
+            System.Diagnostics.Debug.WriteLine($"→ parseContentBlocksToMemory for SectionID {sectionId} found {dtos.Count} content blocks");
+            if (!dtos.Any())
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠ No content blocks found. Element name: {parentEl.Name.LocalName}, Children: {string.Join(", ", parentEl.Elements().Select(e => e.Name.LocalName))}");
+            }
+#endif
+
             if (!dtos.Any())
             {
                 return Tuple.Create(allContent, totalGrandChildEntities);
             }
 
             // PHASE 2: Bulk query existing content (1 query)
-            var existingKeys = await getExistingSectionTextContentKeysAsync(dbContext, sectionId);
+            var existingKeys = await getExistingSectionTextContentKeysAsync(dbContext, sectionId, context);
 
             // PHASE 3: Stage insert operations for missing content (tracked in change tracker, not yet saved)
             var (createdEntities, idLookup, entityLookup) = await stageCreateSectionTextContentAsync(dbContext, dtos, existingKeys, context);
@@ -247,6 +252,7 @@ namespace MedRecPro.Service.ParsingServices
             var existingEntities = await dbContext.Set<SectionTextContent>()
                 .Where(c => c.SectionID == sectionId)
                 .ToListAsync();
+
             allContent.AddRange(existingEntities.Where(e => !createdEntities.Contains(e)));
 
             // PHASE 4: Process specialized content (lists, tables, excerpts)
@@ -292,15 +298,40 @@ namespace MedRecPro.Service.ParsingServices
         /// </summary>
         /// <param name="dbContext">The database context.</param>
         /// <param name="sectionId">The section ID to query.</param>
+        /// <param name="context">The parsing context</param>
         /// <returns>A HashSet containing composite keys of existing content blocks.</returns>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="Label"/>
-        private async Task<HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)>> getExistingSectionTextContentKeysAsync(
-            ApplicationDbContext dbContext,
-            int sectionId)
+        private async Task<HashSet<(int sectionId, string contentType, int sequenceNumber, int? parentId, string? contentText)>>
+        getExistingSectionTextContentKeysAsync(
+             ApplicationDbContext dbContext,
+             int sectionId,
+             SplParseContext context)
         {
             #region implementation
+            var keys = new HashSet<(int, string, int, int?, string?)>();
+
+            // Include tracked (staged) entities
+            if (context?.UseBatchSaving == true)
+            {
+                var trackedEntities = dbContext.ChangeTracker.Entries<SectionTextContent>()
+                    .Where(e => e.State == EntityState.Added &&
+                                e.Entity.SectionID == sectionId)
+                    .Select(e => e.Entity);
+
+                foreach (var e in trackedEntities)
+                {
+                    if (e.SectionID.HasValue && e.SequenceNumber.HasValue)
+                    {
+                        keys.Add((e.SectionID.Value, e.ContentType ?? "",
+                                 e.SequenceNumber.Value, e.ParentSectionTextContentID,
+                                 e.ContentText));
+                    }
+                }
+            }
+
+            // Also query database for previously committed entities
             var existing = await dbContext.Set<SectionTextContent>()
                 .Where(c => c.SectionID == sectionId)
                 .Select(c => new
@@ -313,16 +344,11 @@ namespace MedRecPro.Service.ParsingServices
                 })
                 .ToListAsync();
 
-            var keys = new HashSet<(int, string, int, int?, string?)>(existing
-                .Where(e => e.SectionID.HasValue && e.SequenceNumber.HasValue)
-                .Select(e => (
-                    e.SectionID!.Value,
-                    e.ContentType ?? string.Empty,
-                    e.SequenceNumber!.Value,
-                    e.ParentSectionTextContentID,
-                    e.ContentText
-                ))
-            );
+            foreach (var e in existing.Where(e => e.SectionID.HasValue && e.SequenceNumber.HasValue))
+            {
+                keys.Add((e.SectionID!.Value, e.ContentType ?? "", e.SequenceNumber!.Value,
+                         e.ParentSectionTextContentID, e.ContentText));
+            }
 
             return keys;
             #endregion
@@ -880,7 +906,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get the TextList ID - either from entity property (if saved) or from change tracker (if temp)
-            int? textListId = textList.TextListID;
+            int? textListId = textList.TextListID > 0 ? textList.TextListID : null;
             if (!textListId.HasValue)
             {
                 // Get temp ID from change tracker
@@ -890,6 +916,12 @@ namespace MedRecPro.Service.ParsingServices
             if (!textListId.HasValue)
             {
                 context.Logger?.LogError("Failed to create or retrieve TextList ID for SectionTextContentID {id}", sectionTextContentId);
+
+
+#if DEBUG
+                Debug.WriteLine($"SectionContentParser_StagedBulkCalls.stageTextListAndItemsAsync: Failed to create or retrieve TextList ID for SectionTextContentID {sectionTextContentId}");
+#endif
+
                 return createdCount;
             }
 
@@ -1083,7 +1115,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Get the TextTable ID - either from entity property (if saved) or from change tracker (if temp)
-            int? tableId = textTable.TextTableID;
+            int? tableId = textTable.TextTableID > 0 ? textTable.TextTableID : null;
             if (!tableId.HasValue)
             {
                 // Get temp ID from change tracker
@@ -1093,6 +1125,10 @@ namespace MedRecPro.Service.ParsingServices
             if (!tableId.HasValue)
             {
                 context.Logger?.LogError("Failed to create or retrieve TextTable ID for SectionTextContentID {id}", sectionTextContentId);
+
+#if DEBUG
+                Debug.WriteLine($"SectionContentParser_StagedBulkCalls.stageTextTableAndChildrenAsync: Failed to create or retrieve TextTable ID for SectionTextContentID {sectionTextContentId}");
+#endif
                 return createdCount;
             }
 
@@ -1262,7 +1298,8 @@ namespace MedRecPro.Service.ParsingServices
             // Add newly created rows with their temp IDs from change tracker
             foreach (var (entity, dto) in newRowEntities)
             {
-                int? rowId = entity.TextTableRowID;
+                int? rowId = entity.TextTableRowID > 0 ? entity.TextTableRowID : null;
+
                 if (!rowId.HasValue)
                 {
                     // Get temp ID from change tracker
@@ -1274,6 +1311,13 @@ namespace MedRecPro.Service.ParsingServices
                     var key = (textTableId, dto.RowGroupType, dto.SequenceNumber);
                     rowLookup[key] = rowId.Value;
                 }
+
+#if DEBUG
+                if (!rowId.HasValue)
+                {
+                    Debug.WriteLine($"SectionContentParser_StagedBulkCalls.stageRowsAndCellsAsync. Failed to get a row id from either GetTrackedEntityId nor rowLookup[key] = rowId.Value");
+                } 
+#endif
             }
 
             // Also add existing rows from database (if any)
@@ -1375,6 +1419,11 @@ namespace MedRecPro.Service.ParsingServices
         /// <remarks>
         /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
         /// This method captures the complete inner XML of highlight text elements for database storage.
+        /// 
+        /// FIX APPLIED: Replaced repo.CreateAsync with dbSet.Add + SaveChangesIfAllowedAsync.
+        /// repo.CreateAsync was triggering an immediate SaveChanges on the context, which caused
+        /// premature persistence of partially staged graph entities (with temp IDs), causing 
+        /// foreign key constraint failures and subsequent data loss.
         /// </remarks>
         /// <seealso cref="SectionExcerptHighlight"/>
         /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
@@ -1395,9 +1444,8 @@ namespace MedRecPro.Service.ParsingServices
             if (context == null || context.Logger == null || context.ServiceProvider == null)
                 return highlights;
 
-            // Get database context and repository for section excerpt highlight operations
+            // Get database context directly (bypass repository to avoid auto-save)
             var dbContext = context.GetDbContext();
-            var repo = context.GetRepository<SectionExcerptHighlight>();
             var dbSet = dbContext.Set<SectionExcerptHighlight>();
 
             // Find all highlight elements directly under this excerpt
@@ -1405,27 +1453,20 @@ namespace MedRecPro.Service.ParsingServices
 
             foreach (var highlightEl in highlightElements)
             {
-                // Get the text element within this specific highlight
                 var textEl = highlightEl.Element(ns + sc.E.Text);
-
                 if (textEl == null)
                 {
                     context.Logger?.LogWarning($"Highlight element without text child in SectionID {sectionId}");
                     continue;
                 }
 
-                // Extract the complete inner XML from the text element
                 string? txt = null;
-
                 try
                 {
                     var innerNodes = textEl.Nodes();
-
                     if (innerNodes != null && innerNodes.Any())
                     {
-                        txt = string
-                            .Concat(innerNodes.Select(n => n.ToString()))
-                            ?.NormalizeXmlWhitespace();
+                        txt = string.Concat(innerNodes.Select(n => n.ToString()))?.NormalizeXmlWhitespace();
                     }
                     else
                     {
@@ -1438,14 +1479,10 @@ namespace MedRecPro.Service.ParsingServices
                     continue;
                 }
 
-                // Skip if no actual content was extracted
-                if (string.IsNullOrWhiteSpace(txt))
-                {
-                    context.Logger?.LogWarning($"Empty highlight text extracted for SectionID {sectionId}");
-                    continue;
-                }
+                if (string.IsNullOrWhiteSpace(txt)) continue;
 
-                // Dedupe: SectionID + HighlightText
+                // Check existing locally in DB (for staging, we usually skip this or cache keys, 
+                // but for now we keep the check to match logic)
                 var existing = await dbSet
                     .Where(eh => eh.SectionID == sectionId && eh.HighlightText == txt)
                     .FirstOrDefaultAsync();
@@ -1456,15 +1493,16 @@ namespace MedRecPro.Service.ParsingServices
                     continue;
                 }
 
-                // Create new section excerpt highlight
                 var newHighlight = new SectionExcerptHighlight
                 {
                     SectionID = sectionId,
                     HighlightText = txt
                 };
 
-                // Stage the entity - repository internally uses SaveChangesIfAllowedAsync
-                await repo.CreateAsync(newHighlight);
+                // FIX: Use DbSet.Add + Deferred Save
+                dbSet.Add(newHighlight);
+                await context.SaveChangesIfAllowedAsync();
+
                 highlights.Add(newHighlight);
 
                 context.Logger?.LogInformation($"Staged SectionExcerptHighlight for SectionID {sectionId} with {txt.Length} characters");
