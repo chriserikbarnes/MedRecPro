@@ -92,7 +92,6 @@ var apiKey = builder.Configuration["ClaudeApiSettings:ApiKey"];
 Console.WriteLine($"=== DEBUG: ApiKey from config: {(string.IsNullOrEmpty(apiKey) ? "EMPTY/NULL" : "LOADED (length: " + apiKey.Length + ")")}");
 
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Connection", LogLevel.Debug);
-
 #endif
 
 
@@ -119,6 +118,10 @@ builder.Services.AddHttpContextAccessor();
 
 // --- Custom Services ---
 builder.Services.AddScoped<UserDataAccess>();
+
+builder.Services.AddMemoryCache();
+
+builder.Services.AddSingleton<AzureSqlMetricsService>();
 
 // Configure ClaudeApiService with HttpClient and inject settings
 builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>((serviceProvider, client) =>

@@ -1,6 +1,8 @@
 
-using Microsoft.AspNetCore.Mvc;
 using MedRecPro.Helpers;
+using MedRecPro.Service;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 
 
@@ -21,26 +23,35 @@ namespace MedRecPro.Controllers
 
         private readonly IConfiguration _configuration;
         private readonly ILogger<SettingsController> _logger;
+        private readonly IMemoryCache _cache;
+        private readonly AzureSqlMetricsService _metricsService;
 
         #endregion
 
         #region constructor
-
         /**************************************************************/
         /// <summary>
         /// Initializes a new instance of the SettingsController class.
         /// </summary>
         /// <param name="configuration">Application configuration provider.</param>
         /// <param name="logger">Logger instance for this controller.</param>
-        /// <exception cref="ArgumentNullException">Thrown when configuration or logger is null.</exception>
+        /// <param name="sqlMetricsService">Service for querying Azure SQL Database metrics.</param>
+        /// <param name="cache">Memory cache for storing temporary data.</param>
+        /// <exception cref="ArgumentNullException">Thrown when any parameter is null.</exception>
         /// <seealso cref="IConfiguration"/>
         /// <seealso cref="ILogger{TCategoryName}"/>
+        /// <seealso cref="AzureSqlMetricsService"/>
+        /// <seealso cref="IMemoryCache"/>
         public SettingsController(
             IConfiguration configuration,
-            ILogger<SettingsController> logger)
+            ILogger<SettingsController> logger,
+            AzureSqlMetricsService sqlMetricsService,
+            IMemoryCache cache)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+            _metricsService = sqlMetricsService ?? throw new ArgumentNullException(nameof(sqlMetricsService));
         }
 
         #endregion
@@ -218,6 +229,48 @@ namespace MedRecPro.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Gets current database metrics and budget status.
+        /// </summary>
+        /// <returns>Current vCore usage, remaining quota, and cost projections.</returns>
+        /// <seealso cref="AzureSqlMetricsService"/>
+        [HttpGet("metrics/database")]
+        public async Task<IActionResult> GetDatabaseMetrics()
+        {
+            #region implementation
+
+            var (used, remaining, percentUsed) = await _metricsService.GetFreeTierStatusAsync();
+            var (projectedUsage, projectedCost, daysElapsed) = await _metricsService.GetProjectedMonthlyCostAsync();
+            var (shouldThrottle, throttleLevel, _) = await _metricsService.ShouldThrottleAsync();
+
+            return Ok(new
+            {
+                CurrentMonth = new
+                {
+                    UsedVCoreSeconds = Math.Round(used, 2),
+                    RemainingVCoreSeconds = Math.Round(remaining, 2),
+                    PercentUsed = Math.Round(percentUsed, 2),
+                    DaysElapsed = daysElapsed
+                },
+                Projection = new
+                {
+                    EstimatedMonthlyUsage = Math.Round(projectedUsage, 2),
+                    EstimatedCost = Math.Round(projectedCost, 2),
+                    CostDescription = projectedCost > 0
+                        ? $"${projectedCost:F2} for overage"
+                        : "Within free tier"
+                },
+                Throttling = new
+                {
+                    ShouldThrottle = shouldThrottle,
+                    ThrottleLevel = throttleLevel
+                }
+            });
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Clears all managed cache entries from the performance cache.
         /// </summary>
         /// <returns>
@@ -302,6 +355,7 @@ namespace MedRecPro.Controllers
             #endregion
         }
 
+       
         #endregion
     }
 }
