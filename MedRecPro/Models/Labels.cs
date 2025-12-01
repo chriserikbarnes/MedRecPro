@@ -848,6 +848,40 @@ namespace MedRecPro.Models
                     ?.NormalizeXmlWhitespace();
             }
             #endregion properties
+
+            #region navigation
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for TextList entities that reference this content.
+            /// Used by EF Core for FK fixup during deferred batch saves.
+            /// </summary>
+            /// <remarks>
+            /// When a TextList is created with a reference to this SectionTextContent via
+            /// navigation property (textList.SectionTextContent = this), EF Core will
+            /// automatically update the TextList.SectionTextContentID when this entity's
+            /// temporary ID is replaced with a real ID during SaveChanges.
+            /// </remarks>
+            /// <seealso cref="TextList"/>
+            /// <seealso cref="Label"/>
+            public virtual ICollection<TextList> TextLists { get; set; } = new List<TextList>();
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for TextTable entities that reference this content.
+            /// Used by EF Core for FK fixup during deferred batch saves.
+            /// </summary>
+            /// <remarks>
+            /// When a TextTable is created with a reference to this SectionTextContent via
+            /// navigation property (textTable.SectionTextContent = this), EF Core will
+            /// automatically update the TextTable.SectionTextContentID when this entity's
+            /// temporary ID is replaced with a real ID during SaveChanges.
+            /// </remarks>
+            /// <seealso cref="TextTable"/>
+            /// <seealso cref="Label"/>
+            public virtual ICollection<TextTable> TextTables { get; set; } = new List<TextTable>();
+
+            #endregion navigation
         }
 
         /*******************************************************************************/
@@ -887,6 +921,49 @@ namespace MedRecPro.Models
                 set => _styleCode = value?.RemoveHtmlXss();
             }
             #endregion properties
+
+            #region navigation
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for the parent SectionTextContent.
+            /// Setting this property enables EF Core FK fixup during deferred batch saves.
+            /// </summary>
+            /// <remarks>
+            /// When this navigation property is set instead of SectionTextContentID directly,
+            /// EF Core will automatically update the SectionTextContentID value when the
+            /// parent's temporary ID is replaced with a real ID during SaveChanges.
+            /// 
+            /// Usage in batch saving mode:
+            /// <code>
+            /// textList.SectionTextContent = parentContentEntity;  // FK fixup enabled
+            /// </code>
+            /// 
+            /// Usage in immediate save mode (backward compatible):
+            /// <code>
+            /// textList.SectionTextContentID = parentContentId;  // Direct FK assignment
+            /// </code>
+            /// </remarks>
+            /// <seealso cref="SectionTextContent"/>
+            /// <seealso cref="Label"/>
+            public virtual SectionTextContent? SectionTextContent { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for TextListItem entities that belong to this list.
+            /// Used by EF Core for FK fixup during deferred batch saves.
+            /// </summary>
+            /// <remarks>
+            /// When a TextListItem is created with a reference to this TextList via
+            /// navigation property (item.TextList = this), EF Core will automatically
+            /// update the TextListItem.TextListID when this entity's temporary ID is
+            /// replaced with a real ID during SaveChanges.
+            /// </remarks>
+            /// <seealso cref="TextListItem"/>
+            /// <seealso cref="Label"/>
+            public virtual ICollection<TextListItem> TextListItems { get; set; } = new List<TextListItem>();
+
+            #endregion navigation
         }
 
         /*******************************************************************************/
@@ -933,6 +1010,34 @@ namespace MedRecPro.Models
                     ?.NormalizeXmlWhitespace();
             }
             #endregion properties
+
+            #region navigation
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for the parent TextList.
+            /// Setting this property enables EF Core FK fixup during deferred batch saves.
+            /// </summary>
+            /// <remarks>
+            /// When this navigation property is set instead of TextListID directly,
+            /// EF Core will automatically update the TextListID value when the parent's
+            /// temporary ID is replaced with a real ID during SaveChanges.
+            /// 
+            /// Usage in batch saving mode:
+            /// <code>
+            /// item.TextList = parentListEntity;  // FK fixup enabled
+            /// </code>
+            /// 
+            /// Usage in immediate save mode (backward compatible):
+            /// <code>
+            /// item.TextListID = parentListId;  // Direct FK assignment
+            /// </code>
+            /// </remarks>
+            /// <seealso cref="TextList"/>
+            /// <seealso cref="Label"/>
+            public virtual TextList? TextList { get; set; }
+
+            #endregion navigation
         }
 
         /**************************************************************/
@@ -1018,6 +1123,52 @@ namespace MedRecPro.Models
             public bool? HasFooter { get; set; }
 
             #endregion properties
+
+            #region navigation
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for the parent SectionTextContent.
+            /// Setting this property enables EF Core FK fixup during deferred batch saves.
+            /// </summary>
+            /// <remarks>
+            /// When this navigation property is set instead of SectionTextContentID directly,
+            /// EF Core will automatically update the SectionTextContentID value when the
+            /// parent's temporary ID is replaced with a real ID during SaveChanges.
+            /// 
+            /// Usage in batch saving mode:
+            /// <code>
+            /// textTable.SectionTextContent = parentContentEntity;  // FK fixup enabled
+            /// </code>
+            /// 
+            /// Usage in immediate save mode (backward compatible):
+            /// <code>
+            /// textTable.SectionTextContentID = parentContentId;  // Direct FK assignment
+            /// </code>
+            /// </remarks>
+            /// <seealso cref="SectionTextContent"/>
+            /// <seealso cref="Label"/>
+            public virtual SectionTextContent? SectionTextContent { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for TextTableColumn entities that belong to this table.
+            /// Used by EF Core for FK fixup during deferred batch saves.
+            /// </summary>
+            /// <seealso cref="TextTableColumn"/>
+            /// <seealso cref="Label"/>
+            public virtual ICollection<TextTableColumn> TextTableColumns { get; set; } = new List<TextTableColumn>();
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for TextTableRow entities that belong to this table.
+            /// Used by EF Core for FK fixup during deferred batch saves.
+            /// </summary>
+            /// <seealso cref="TextTableRow"/>
+            /// <seealso cref="Label"/>
+            public virtual ICollection<TextTableRow> TextTableRows { get; set; } = new List<TextTableRow>();
+
+            #endregion navigation
         }
 
         /**************************************************************/
@@ -1209,6 +1360,24 @@ namespace MedRecPro.Models
 
             #endregion properties
 
+            #region navigation
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for the parent TextTable.
+            /// Setting this property enables EF Core FK fixup during deferred batch saves.
+            /// </summary>
+            /// <remarks>
+            /// When this navigation property is set instead of TextTableID directly,
+            /// EF Core will automatically update the TextTableID value when the parent's
+            /// temporary ID is replaced with a real ID during SaveChanges.
+            /// </remarks>
+            /// <seealso cref="TextTable"/>
+            /// <seealso cref="Label"/>
+            public virtual TextTable? TextTable { get; set; }
+
+            #endregion navigation
+
             #region methods
 
             /**************************************************************/
@@ -1318,6 +1487,33 @@ namespace MedRecPro.Models
                 set => _styleCode = value?.RemoveHtmlXss();
             }
             #endregion properties
+
+            #region navigation
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for the parent TextTable.
+            /// Setting this property enables EF Core FK fixup during deferred batch saves.
+            /// </summary>
+            /// <remarks>
+            /// When this navigation property is set instead of TextTableID directly,
+            /// EF Core will automatically update the TextTableID value when the parent's
+            /// temporary ID is replaced with a real ID during SaveChanges.
+            /// </remarks>
+            /// <seealso cref="TextTable"/>
+            /// <seealso cref="Label"/>
+            public virtual TextTable? TextTable { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for TextTableCell entities that belong to this row.
+            /// Used by EF Core for FK fixup during deferred batch saves.
+            /// </summary>
+            /// <seealso cref="TextTableCell"/>
+            /// <seealso cref="Label"/>
+            public virtual ICollection<TextTableCell> TextTableCells { get; set; } = new List<TextTableCell>();
+
+            #endregion navigation
         }
 
         /*******************************************************************************/
@@ -1404,6 +1600,24 @@ namespace MedRecPro.Models
                 set => _vAlign = value?.RemoveHtmlXss();
             }
             #endregion properties
+
+            #region navigation
+
+            /**************************************************************/
+            /// <summary>
+            /// Navigation property for the parent TextTableRow.
+            /// Setting this property enables EF Core FK fixup during deferred batch saves.
+            /// </summary>
+            /// <remarks>
+            /// When this navigation property is set instead of TextTableRowID directly,
+            /// EF Core will automatically update the TextTableRowID value when the parent's
+            /// temporary ID is replaced with a real ID during SaveChanges.
+            /// </remarks>
+            /// <seealso cref="TextTableRow"/>
+            /// <seealso cref="Label"/>
+            public virtual TextTableRow? TextTableRow { get; set; }
+
+            #endregion navigation
         }
 
         /*******************************************************************************/

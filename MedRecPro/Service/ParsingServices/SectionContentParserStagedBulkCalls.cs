@@ -634,7 +634,7 @@ namespace MedRecPro.Service.ParsingServices
         /// temporary negative IDs. These IDs can be used for FK relationships.
         /// On SaveChanges, EF Core automatically fixes up the FK values.
         /// 
-        /// FIX: The original code checked entity.SectionTextContentID.HasValue,
+        /// The original code checked entity.SectionTextContentID.HasValue,
         /// which is always FALSE when saves are deferred. Now we get the temp ID
         /// from the change tracker, enabling parent-child relationships before save.
         /// </remarks>
@@ -787,6 +787,10 @@ namespace MedRecPro.Service.ParsingServices
         /// All database operations use SaveChangesIfAllowedAsync for deferred saves.
         /// The contentId parameter is passed explicitly because for new entities,
         /// the SectionTextContentID property may not be set yet (temp ID is in change tracker).
+        /// 
+        /// Now passes the parent entity reference to child staging methods to enable
+        /// EF Core FK fixup during deferred batch saves. When UseBatchSaving is true,
+        /// child entities use navigation properties instead of FK integers.
         /// </remarks>
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
@@ -802,19 +806,21 @@ namespace MedRecPro.Service.ParsingServices
             var contentType = stc.ContentType ?? string.Empty;
 
             // Dispatch to appropriate specialized handler based on content type
+            // Pass the parent entity (stc) to enable navigation property FK fixup
             if (contentType.Equals(sc.E.List, StringComparison.OrdinalIgnoreCase))
             {
-                // Process list structure with staging
-                grandchildEntitiesCount += await stageTextListAndItemsAsync(block, contentId, context);
+                // Process list structure with staging - pass parent entity for FK fixup
+                grandchildEntitiesCount += await stageTextListAndItemsAsync(block, stc, contentId, context);
             }
             else if (contentType.Equals(sc.E.Table, StringComparison.OrdinalIgnoreCase))
             {
-                // Process table structure with staging
-                grandchildEntitiesCount += await stageTextTableAndChildrenAsync(block, contentId, context);
+                // Process table structure with staging - pass parent entity for FK fixup
+                grandchildEntitiesCount += await stageTextTableAndChildrenAsync(block, stc, contentId, context);
             }
             else if (contentType.Equals(sc.E.Excerpt, StringComparison.OrdinalIgnoreCase))
             {
                 // Process excerpt highlights with staging
+                // Note: Highlights use SectionID which is a real ID (sections saved earlier), so no FK fixup needed
                 if (stc.SectionID > 0)
                     await stageExcerptHighlightsAsync(block, (int)stc.SectionID, context);
             }
@@ -848,19 +854,26 @@ namespace MedRecPro.Service.ParsingServices
         /// Parses list structure to memory, then stages database operations.
         /// </summary>
         /// <param name="listEl">The XElement representing the [list] element.</param>
-        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record.</param>
+        /// <param name="parentContent">The parent SectionTextContent entity for FK fixup via navigation property.</param>
+        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record (may be temp ID).</param>
         /// <param name="context">The current parsing context with staging settings.</param>
         /// <returns>The total number of TextList and TextListItem entities staged for creation.</returns>
         /// <remarks>
         /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
         /// All changes are committed at the end via CommitDeferredChangesAsync.
+        /// 
+        /// When batch saving is enabled, uses navigation properties for FK assignment
+        /// to enable EF Core FK fixup. When batch saving is disabled, falls back to
+        /// FK integer assignment for backward compatibility.
         /// </remarks>
         /// <seealso cref="TextList"/>
         /// <seealso cref="TextListItem"/>
+        /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
         private async Task<int> stageTextListAndItemsAsync(
             XElement listEl,
+            SectionTextContent parentContent,
             int sectionTextContentId,
             SplParseContext context)
         {
@@ -874,6 +887,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             var dbContext = context.GetDbContext();
+            bool useBatchSaving = context.UseBatchSaving;
 
             // Parse list structure into memory
             var itemDtos = parseTextListItemsToMemory(listEl);
@@ -892,9 +906,40 @@ namespace MedRecPro.Service.ParsingServices
 
             if (existingList == null)
             {
-                // Create and stage new list entity
-                textList = createTextListEntity(listEl, sectionTextContentId);
+                // Create new list entity - don't set FK directly when batch saving
+                textList = createTextListEntity(listEl, sectionTextContentId: 0);
+
+                // ═══════════════════════════════════════════════════════════════════════
+                // Use navigation property for FK assignment when batch saving enabled
+                // This enables EF Core FK fixup when temp IDs become real IDs
+                // ═══════════════════════════════════════════════════════════════════════
+                if (useBatchSaving && parentContent != null)
+                {
+                    // Use navigation property - EF Core will fix up FK on SaveChanges
+                    textList.SectionTextContent = parentContent;
+
+#if DEBUG
+                    Debug.WriteLine($"→ TextList using navigation property to SectionTextContent (batch saving enabled)");
+#endif
+                }
+                else
+                {
+                    // Fallback: Set FK directly (works when batch saving disabled - immediate save)
+                    textList.SectionTextContentID = sectionTextContentId;
+
+#if DEBUG
+                    Debug.WriteLine($"→ TextList using FK integer: SectionTextContentID={sectionTextContentId} (batch saving disabled)");
+#endif
+                }
+
                 dbContext.Set<TextList>().Add(textList);
+
+#if DEBUG
+                // Log temp ID assignment for tracking
+                var entry = dbContext.Entry(textList);
+                var tempId = entry.Property(nameof(TextList.TextListID)).CurrentValue;
+                Debug.WriteLine($"→ TextList.TextListID = {tempId} (IsTemporary: {entry.Property(nameof(TextList.TextListID)).IsTemporary}, State: {entry.State})");
+#endif
 
                 // Use deferred save
                 await context.SaveChangesIfAllowedAsync();
@@ -917,7 +962,6 @@ namespace MedRecPro.Service.ParsingServices
             {
                 context.Logger?.LogError("Failed to create or retrieve TextList ID for SectionTextContentID {id}", sectionTextContentId);
 
-
 #if DEBUG
                 Debug.WriteLine($"SectionContentParser_StagedBulkCalls.stageTextListAndItemsAsync: Failed to create or retrieve TextList ID for SectionTextContentID {sectionTextContentId}");
 #endif
@@ -925,12 +969,13 @@ namespace MedRecPro.Service.ParsingServices
                 return createdCount;
             }
 
-            // Stage list items with deferred save
-            createdCount += await stageTextListItemsAsync(dbContext, textListId.Value, itemDtos, context);
+            // Stage list items with deferred save - pass parent entity for FK fixup
+            createdCount += await stageTextListItemsAsync(dbContext, textList, textListId.Value, itemDtos, context);
 
             return createdCount;
             #endregion
         }
+
 
         /**************************************************************/
         /// <summary>
@@ -938,18 +983,25 @@ namespace MedRecPro.Service.ParsingServices
         /// Checks for existing items and stages only missing ones.
         /// </summary>
         /// <param name="dbContext">The database context for querying and staging entities.</param>
-        /// <param name="textListId">The foreign key ID of the parent TextList.</param>
+        /// <param name="parentList">The parent TextList entity for FK fixup via navigation property.</param>
+        /// <param name="textListId">The foreign key ID of the parent TextList (may be temp ID).</param>
         /// <param name="itemDtos">The list of item DTOs parsed from XML.</param>
         /// <param name="context">The parsing context for deferred save control.</param>
         /// <returns>The count of newly staged TextListItem entities.</returns>
         /// <remarks>
         /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
+        /// 
+        /// When batch saving is enabled, uses navigation properties for FK assignment
+        /// to enable EF Core FK fixup. When batch saving is disabled, falls back to
+        /// FK integer assignment for backward compatibility.
         /// </remarks>
         /// <seealso cref="TextListItem"/>
+        /// <seealso cref="TextList"/>
         /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
         private async Task<int> stageTextListItemsAsync(
             ApplicationDbContext dbContext,
+            TextList parentList,
             int textListId,
             List<TextListItemDto> itemDtos,
             SplParseContext context)
@@ -960,9 +1012,10 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
 
             var itemDbSet = dbContext.Set<TextListItem>();
+            bool useBatchSaving = context?.UseBatchSaving == true;
 
 #if DEBUG
-            Debug.WriteLine($"→ Entering stageTextListItemsAsync: called with textListId={textListId}, itemDtos.Count={itemDtos?.Count ?? -1}");
+            Debug.WriteLine($"→ Entering stageTextListItemsAsync: textListId={textListId}, itemDtos.Count={itemDtos?.Count ?? -1}, useBatchSaving={useBatchSaving}");
 #endif
 
             // For temp IDs (negative), there won't be existing items in database
@@ -981,16 +1034,50 @@ namespace MedRecPro.Service.ParsingServices
                 );
             }
 
-            var newItems = itemDtos
-                .Where(dto => !existingKeys.Contains((textListId, dto.SequenceNumber)))
-                .Select(dto => new TextListItem
+            // Create new items - use navigation property when batch saving enabled
+            var newItems = new List<TextListItem>();
+
+            foreach (var dto in itemDtos)
+            {
+                // Skip if already exists
+                if (existingKeys.Contains((textListId, dto.SequenceNumber)))
+                    continue;
+
+                var item = new TextListItem
                 {
-                    TextListID = textListId,
                     SequenceNumber = dto.SequenceNumber,
                     ItemCaption = dto.ItemCaption,
                     ItemText = dto.ItemText
-                })
-                .ToList();
+                };
+
+                // ═══════════════════════════════════════════════════════════════════════
+                // Use navigation property for FK assignment when batch saving enabled
+                // This enables EF Core FK fixup when temp IDs become real IDs
+                // ═══════════════════════════════════════════════════════════════════════
+                if (useBatchSaving && parentList != null)
+                {
+                    // Use navigation property - EF Core will fix up FK on SaveChanges
+                    item.TextList = parentList;
+                }
+                else
+                {
+                    // Fallback: Set FK directly (works when batch saving disabled)
+                    item.TextListID = textListId;
+                }
+
+                newItems.Add(item);
+            }
+
+#if DEBUG
+            if (useBatchSaving)
+            {
+                Debug.WriteLine($"→ stageTextListItemsAsync: Created {newItems.Count} items using navigation property (batch saving enabled)");
+            }
+            else
+            {
+                Debug.WriteLine($"→ stageTextListItemsAsync: Created {newItems.Count} items using FK integer={textListId} (batch saving disabled)");
+            }
+#endif
 
             if (newItems.Any())
             {
@@ -1015,7 +1102,8 @@ namespace MedRecPro.Service.ParsingServices
         /// Parses table structure to memory, then stages all database operations.
         /// </summary>
         /// <param name="tableEl">The XElement representing the [table] element.</param>
-        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record.</param>
+        /// <param name="parentContent">The parent SectionTextContent entity for FK fixup via navigation property.</param>
+        /// <param name="sectionTextContentId">The ID of the parent SectionTextContent record (may be temp ID).</param>
         /// <param name="context">The current parsing context with staging settings.</param>
         /// <returns>The total number of table, column, row, and cell entities staged for creation.</returns>
         /// <remarks>
@@ -1023,15 +1111,21 @@ namespace MedRecPro.Service.ParsingServices
         /// Uses SaveChangesIfAllowedAsync which defers actual database saves when
         /// context.UseBatchSaving is true. All changes are committed at the end via
         /// CommitDeferredChangesAsync.
+        /// 
+        /// When batch saving is enabled, uses navigation properties for FK assignment
+        /// to enable EF Core FK fixup. When batch saving is disabled, falls back to
+        /// FK integer assignment for backward compatibility.
         /// </remarks>
         /// <seealso cref="TextTable"/>
         /// <seealso cref="TextTableColumn"/>
         /// <seealso cref="TextTableRow"/>
         /// <seealso cref="TextTableCell"/>
+        /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
         private async Task<int> stageTextTableAndChildrenAsync(
             XElement tableEl,
+            SectionTextContent parentContent,
             int sectionTextContentId,
             SplParseContext context)
         {
@@ -1045,6 +1139,7 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             var dbContext = context.GetDbContext();
+            bool useBatchSaving = context.UseBatchSaving;
 
             // Parse table structure into memory
             var captionEl = tableEl.SplElement(sc.E.Caption);
@@ -1096,10 +1191,9 @@ namespace MedRecPro.Service.ParsingServices
             TextTable textTable;
             if (existingTable == null)
             {
-                // Create and stage new table entity
+                // Create new table entity - don't set FK directly when batch saving
                 textTable = new TextTable
                 {
-                    SectionTextContentID = tableData.SectionTextContentID,
                     SectionTableLink = tableData.SectionTableLink,
                     Width = tableData.Width,
                     Caption = tableData.Caption,
@@ -1107,7 +1201,37 @@ namespace MedRecPro.Service.ParsingServices
                     HasFooter = tableData.HasFooter
                 };
 
+                // ═══════════════════════════════════════════════════════════════════════
+                // Use navigation property for FK assignment when batch saving enabled
+                // This enables EF Core FK fixup when temp IDs become real IDs
+                // ═══════════════════════════════════════════════════════════════════════
+                if (useBatchSaving && parentContent != null)
+                {
+                    // Use navigation property - EF Core will fix up FK on SaveChanges
+                    textTable.SectionTextContent = parentContent;
+
+#if DEBUG
+                    Debug.WriteLine($"→ TextTable using navigation property to SectionTextContent (batch saving enabled)");
+#endif
+                }
+                else
+                {
+                    // Fallback: Set FK directly (works when batch saving disabled - immediate save)
+                    textTable.SectionTextContentID = tableData.SectionTextContentID;
+
+#if DEBUG
+                    Debug.WriteLine($"→ TextTable using FK integer: SectionTextContentID={sectionTextContentId} (batch saving disabled)");
+#endif
+                }
+
                 dbContext.Set<TextTable>().Add(textTable);
+
+#if DEBUG
+                // Log temp ID assignment for tracking
+                var entry = dbContext.Entry(textTable);
+                var tempId = entry.Property(nameof(TextTable.TextTableID)).CurrentValue;
+                Debug.WriteLine($"→ TextTable.TextTableID = {tempId} (IsTemporary: {entry.Property(nameof(TextTable.TextTableID)).IsTemporary}, State: {entry.State})");
+#endif
 
                 // Use deferred save
                 await context.SaveChangesIfAllowedAsync();
@@ -1136,11 +1260,11 @@ namespace MedRecPro.Service.ParsingServices
                 return createdCount;
             }
 
-            // Stage columns with deferred save
-            createdCount += await stageColumnsAsync(dbContext, tableId.Value, columnDtos, context);
+            // Stage columns with deferred save - pass parent entity for FK fixup
+            createdCount += await stageColumnsAsync(dbContext, textTable, tableId.Value, columnDtos, context);
 
-            // Stage rows and cells with deferred save
-            createdCount += await stageRowsAndCellsAsync(dbContext, tableId.Value, rowDtos, context);
+            // Stage rows and cells with deferred save - pass parent entity for FK fixup
+            createdCount += await stageRowsAndCellsAsync(dbContext, textTable, tableId.Value, rowDtos, context);
 
             return createdCount;
             #endregion
@@ -1152,18 +1276,25 @@ namespace MedRecPro.Service.ParsingServices
         /// Checks for existing columns and stages only missing ones.
         /// </summary>
         /// <param name="dbContext">The database context for querying and staging entities.</param>
-        /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
+        /// <param name="parentTable">The parent TextTable entity for FK fixup via navigation property.</param>
+        /// <param name="textTableId">The foreign key ID of the parent TextTable (may be temp ID).</param>
         /// <param name="columnDtos">The list of column DTOs parsed from XML.</param>
         /// <param name="context">The parsing context for deferred save control.</param>
         /// <returns>The count of newly staged TextTableColumn entities.</returns>
         /// <remarks>
         /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
+        /// 
+        /// When batch saving is enabled, uses navigation properties for FK assignment
+        /// to enable EF Core FK fixup. When batch saving is disabled, falls back to
+        /// FK integer assignment for backward compatibility.
         /// </remarks>
         /// <seealso cref="TextTableColumn"/>
+        /// <seealso cref="TextTable"/>
         /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
         private async Task<int> stageColumnsAsync(
             ApplicationDbContext dbContext,
+            TextTable parentTable,
             int textTableId,
             List<TableColumnDto> columnDtos,
             SplParseContext context)
@@ -1174,6 +1305,7 @@ namespace MedRecPro.Service.ParsingServices
                 return 0;
 
             var columnDbSet = dbContext.Set<TextTableColumn>();
+            bool useBatchSaving = context?.UseBatchSaving == true;
 
             // For temp IDs (negative), there won't be existing columns in database
             var existingKeys = new HashSet<(int TableId, int SeqNum)>();
@@ -1191,11 +1323,17 @@ namespace MedRecPro.Service.ParsingServices
                 );
             }
 
-            var newColumns = columnDtos
-                .Where(dto => !existingKeys.Contains((textTableId, dto.SequenceNumber)))
-                .Select(dto => new TextTableColumn
+            // Create new columns - use navigation property when batch saving enabled
+            var newColumns = new List<TextTableColumn>();
+
+            foreach (var dto in columnDtos)
+            {
+                // Skip if already exists
+                if (existingKeys.Contains((textTableId, dto.SequenceNumber)))
+                    continue;
+
+                var column = new TextTableColumn
                 {
-                    TextTableID = textTableId,
                     SequenceNumber = dto.SequenceNumber,
                     ColGroupSequenceNumber = dto.ColGroupSequenceNumber,
                     ColGroupStyleCode = dto.ColGroupStyleCode,
@@ -1205,8 +1343,36 @@ namespace MedRecPro.Service.ParsingServices
                     Align = dto.Align,
                     VAlign = dto.VAlign,
                     StyleCode = dto.StyleCode
-                })
-                .ToList();
+                };
+
+                // ═══════════════════════════════════════════════════════════════════════
+                // Use navigation property for FK assignment when batch saving enabled
+                // This enables EF Core FK fixup when temp IDs become real IDs
+                // ═══════════════════════════════════════════════════════════════════════
+                if (useBatchSaving && parentTable != null)
+                {
+                    // Use navigation property - EF Core will fix up FK on SaveChanges
+                    column.TextTable = parentTable;
+                }
+                else
+                {
+                    // Fallback: Set FK directly (works when batch saving disabled)
+                    column.TextTableID = textTableId;
+                }
+
+                newColumns.Add(column);
+            }
+
+#if DEBUG
+            if (useBatchSaving)
+            {
+                Debug.WriteLine($"→ stageColumnsAsync: Created {newColumns.Count} columns using navigation property (batch saving enabled)");
+            }
+            else
+            {
+                Debug.WriteLine($"→ stageColumnsAsync: Created {newColumns.Count} columns using FK integer={textTableId} (batch saving disabled)");
+            }
+#endif
 
             if (newColumns.Any())
             {
@@ -1227,19 +1393,26 @@ namespace MedRecPro.Service.ParsingServices
         /// Checks for existing entities and stages only missing ones in batch operations.
         /// </summary>
         /// <param name="dbContext">The database context for querying and staging entities.</param>
-        /// <param name="textTableId">The foreign key ID of the parent TextTable.</param>
+        /// <param name="parentTable">The parent TextTable entity for FK fixup via navigation property.</param>
+        /// <param name="textTableId">The foreign key ID of the parent TextTable (may be temp ID).</param>
         /// <param name="rowDtos">The list of row DTOs (including cell DTOs) parsed from XML.</param>
         /// <param name="context">The parsing context for deferred save control.</param>
         /// <returns>The count of newly staged TextTableRow and TextTableCell entities.</returns>
         /// <remarks>
         /// Uses SaveChangesIfAllowedAsync which defers saves when context.UseBatchSaving is true.
+        /// 
+        /// When batch saving is enabled, uses navigation properties for FK assignment
+        /// to enable EF Core FK fixup. When batch saving is disabled, falls back to
+        /// FK integer assignment for backward compatibility.
         /// </remarks>
         /// <seealso cref="TextTableRow"/>
         /// <seealso cref="TextTableCell"/>
+        /// <seealso cref="TextTable"/>
         /// <seealso cref="SplParseContextExtensions.SaveChangesIfAllowedAsync"/>
         /// <seealso cref="Label"/>
         private async Task<int> stageRowsAndCellsAsync(
             ApplicationDbContext dbContext,
+            TextTable parentTable,
             int textTableId,
             List<TableRowDto> rowDtos,
             SplParseContext context)
@@ -1250,6 +1423,8 @@ namespace MedRecPro.Service.ParsingServices
 
             if (!rowDtos.Any())
                 return 0;
+
+            bool useBatchSaving = context?.UseBatchSaving == true;
 
             // Stage rows
             var rowDbSet = dbContext.Set<TextTableRow>();
@@ -1270,7 +1445,7 @@ namespace MedRecPro.Service.ParsingServices
                 );
             }
 
-            // Create new row entities and track them
+            // Create new row entities and track them - includes parent entity reference for cells
             var newRowEntities = new List<(TextTableRow Entity, TableRowDto Dto)>();
             foreach (var dto in rowDtos)
             {
@@ -1278,14 +1453,40 @@ namespace MedRecPro.Service.ParsingServices
                 {
                     var entity = new TextTableRow
                     {
-                        TextTableID = textTableId,
                         RowGroupType = dto.RowGroupType,
                         SequenceNumber = dto.SequenceNumber,
                         StyleCode = dto.StyleCode
                     };
+
+                    // ═══════════════════════════════════════════════════════════════════════
+                    // Use navigation property for FK assignment when batch saving enabled
+                    // This enables EF Core FK fixup when temp IDs become real IDs
+                    // ═══════════════════════════════════════════════════════════════════════
+                    if (useBatchSaving && parentTable != null)
+                    {
+                        // Use navigation property - EF Core will fix up FK on SaveChanges
+                        entity.TextTable = parentTable;
+                    }
+                    else
+                    {
+                        // Fallback: Set FK directly (works when batch saving disabled)
+                        entity.TextTableID = textTableId;
+                    }
+
                     newRowEntities.Add((entity, dto));
                 }
             }
+
+#if DEBUG
+            if (useBatchSaving)
+            {
+                Debug.WriteLine($"→ stageRowsAndCellsAsync: Created {newRowEntities.Count} rows using navigation property (batch saving enabled)");
+            }
+            else
+            {
+                Debug.WriteLine($"→ stageRowsAndCellsAsync: Created {newRowEntities.Count} rows using FK integer={textTableId} (batch saving disabled)");
+            }
+#endif
 
             if (newRowEntities.Any())
             {
@@ -1297,7 +1498,9 @@ namespace MedRecPro.Service.ParsingServices
             }
 
             // Build row lookup from tracked entities (includes temp IDs)
+            // Also track entity references for cell FK fixup
             var rowLookup = new Dictionary<(int TableId, string GroupType, int SeqNum), int>();
+            var rowEntityLookup = new Dictionary<(int TableId, string GroupType, int SeqNum), TextTableRow>();
 
             // Add newly created rows with their temp IDs from change tracker
             foreach (var (entity, dto) in newRowEntities)
@@ -1314,13 +1517,14 @@ namespace MedRecPro.Service.ParsingServices
                 {
                     var key = (textTableId, dto.RowGroupType, dto.SequenceNumber);
                     rowLookup[key] = rowId.Value;
+                    rowEntityLookup[key] = entity;  // Track entity for FK fixup
                 }
 
 #if DEBUG
                 if (!rowId.HasValue)
                 {
                     Debug.WriteLine($"SectionContentParser_StagedBulkCalls.stageRowsAndCellsAsync. Failed to get a row id from either GetTrackedEntityId nor rowLookup[key] = rowId.Value");
-                } 
+                }
 #endif
             }
 
@@ -1329,8 +1533,7 @@ namespace MedRecPro.Service.ParsingServices
             {
                 var dbRows = await rowDbSet
                     .Where(r => r.TextTableID == textTableId && r.TextTableRowID.HasValue)
-                    .Select(r => new { r.TextTableID, r.RowGroupType, r.SequenceNumber, r.TextTableRowID })
-                    .ToListAsync();
+                    .ToListAsync();  // Get full entities for FK fixup
 
                 foreach (var r in dbRows)
                 {
@@ -1340,6 +1543,7 @@ namespace MedRecPro.Service.ParsingServices
                         if (!rowLookup.ContainsKey(key))
                         {
                             rowLookup[key] = r.TextTableRowID.Value;
+                            rowEntityLookup[key] = r;  // Track entity for FK fixup
                         }
                     }
                 }
@@ -1372,15 +1576,17 @@ namespace MedRecPro.Service.ParsingServices
                 if (!rowLookup.TryGetValue(rowKey, out int rowId))
                     continue;
 
+                // Get parent row entity for FK fixup
+                rowEntityLookup.TryGetValue(rowKey, out var parentRow);
+
                 foreach (var cellDto in rowDto.Cells)
                 {
                     // Only check for existing if rowId is positive (real ID)
                     if (rowId > 0 && existingCellKeys.Contains((rowId, cellDto.SequenceNumber)))
                         continue;
 
-                    newCells.Add(new TextTableCell
+                    var cell = new TextTableCell
                     {
-                        TextTableRowID = rowId,
                         CellType = cellDto.CellType,
                         SequenceNumber = cellDto.SequenceNumber,
                         CellText = cellDto.CellText,
@@ -1389,9 +1595,37 @@ namespace MedRecPro.Service.ParsingServices
                         StyleCode = cellDto.StyleCode,
                         Align = cellDto.Align,
                         VAlign = cellDto.VAlign
-                    });
+                    };
+
+                    // ═══════════════════════════════════════════════════════════════════════
+                    // Use navigation property for FK assignment when batch saving enabled
+                    // This enables EF Core FK fixup when temp IDs become real IDs
+                    // ═══════════════════════════════════════════════════════════════════════
+                    if (useBatchSaving && parentRow != null)
+                    {
+                        // Use navigation property - EF Core will fix up FK on SaveChanges
+                        cell.TextTableRow = parentRow;
+                    }
+                    else
+                    {
+                        // Fallback: Set FK directly (works when batch saving disabled)
+                        cell.TextTableRowID = rowId;
+                    }
+
+                    newCells.Add(cell);
                 }
             }
+
+#if DEBUG
+            if (useBatchSaving)
+            {
+                Debug.WriteLine($"→ stageRowsAndCellsAsync: Created {newCells.Count} cells using navigation property (batch saving enabled)");
+            }
+            else
+            {
+                Debug.WriteLine($"→ stageRowsAndCellsAsync: Created {newCells.Count} cells using FK integer (batch saving disabled)");
+            }
+#endif
 
             if (newCells.Any())
             {
@@ -1503,7 +1737,7 @@ namespace MedRecPro.Service.ParsingServices
                     HighlightText = txt
                 };
 
-                // FIX: Use DbSet.Add + Deferred Save
+                // Use DbSet.Add + Deferred Save
                 dbSet.Add(newHighlight);
                 await context.SaveChangesIfAllowedAsync();
 
