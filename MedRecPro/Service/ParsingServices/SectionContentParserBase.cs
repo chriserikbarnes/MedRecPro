@@ -1,4 +1,4 @@
-using System.Xml.Linq;
+﻿using System.Xml.Linq;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using MedRecPro.Data;
@@ -11,6 +11,8 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
 using System.Diagnostics;
+using AngleSharp.Dom;
+using System.Text;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 namespace MedRecPro.Service.ParsingServices
@@ -569,6 +571,10 @@ namespace MedRecPro.Service.ParsingServices
             var itemDtos = new List<TextListItemDto>();
             var itemElements = listEl.SplElements(sc.E.Item).ToList();
             int seqNum = 1;
+
+#if DEBUG
+            Debug.WriteLine($"→ parseTextListItemsToMemory found {itemElements.Count} items for listEl");
+#endif
 
             foreach (var itemEl in itemElements)
             {

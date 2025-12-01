@@ -10,6 +10,9 @@ using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
+using System.Diagnostics;
+using AngleSharp.Dom;
+using static System.Collections.Specialized.BitVector32;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 
 namespace MedRecPro.Service.ParsingServices
@@ -69,7 +72,11 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="isParentCallingForAllSubElements">(DEFAULT = false) Indicates whether the delegate will loop on outer Element</param>
         /// <returns>A SplParseResult indicating the success status and content elements created.</returns>
         /// <seealso cref="ParseSectionContentAsync"/>
-        public async Task<SplParseResult> ParseAsync(XElement element, SplParseContext context, Action<string>? reportProgress = null, bool? isParentCallingForAllSubElements = false)
+        public async Task<SplParseResult> ParseAsync(XElement element, 
+            SplParseContext context, 
+            Action<string>? 
+            reportProgress = null, 
+            bool? isParentCallingForAllSubElements = false)
         {
             #region implementation
             var result = new SplParseResult();
@@ -85,6 +92,10 @@ namespace MedRecPro.Service.ParsingServices
                 }
 
                 reportProgress?.Invoke("Processing section content...");
+
+#if DEBUG
+                Debug.WriteLine($"Starting SectionContentParser_BulkCalls.ParseAsync(): XElement element {element.Value?.Take(50)}...");
+#endif 
 
                 // Parse section content
                 var contentResult = await ParseSectionContentAsync(element, context.CurrentSection.SectionID.Value, context);
@@ -119,6 +130,11 @@ namespace MedRecPro.Service.ParsingServices
         {
             #region implementation
             var result = new SplParseResult();
+
+#if DEBUG
+            Debug.WriteLine($"Starting SectionContentParser_BulkCalls.ParseSectionContentAsync(): XElement xEl {xEl.Value?.Take(50)}...");
+#endif 
+
 
             // Process main text content including paragraphs, lists, tables, etc.
             var textEl = xEl.SplElement(sc.E.Text);
@@ -714,6 +730,7 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
+        /// <seealso cref=""/>
         public async Task<int> GetOrCreateTextListAndItemsAsync(
             XElement listEl,
             int sectionTextContentId,
@@ -743,6 +760,16 @@ namespace MedRecPro.Service.ParsingServices
                 .FirstOrDefaultAsync(l => l.SectionTextContentID == sectionTextContentId);
 
             TextList textList;
+
+#if DEBUG
+            Debug.WriteLine($"Starting SectionContentParser_BulkCalls.GetOrCreateTextListAndItemsAsync() for sectionTextContentId = {sectionTextContentId}");
+            Debug.WriteLine($"SectionContentParser_BulkCalls.GetOrCreateTextListAndItemsAsync() database save using dbContext.SaveChangesAsync()");
+
+            if(context.UseBatchSaving)
+            {
+                Debug.WriteLine($"SectionContentParser_BulkCalls.GetOrCreateTextListAndItemsAsync() - Batch saving is ENABLED. dbContext.SaveChangesAsync(). This may be a bug.");
+            }
+#endif
 
             if (existingList == null)
             {
@@ -819,6 +846,21 @@ namespace MedRecPro.Service.ParsingServices
 
             if (newItems.Any())
             {
+
+#if DEBUG
+                Debug.WriteLine($"Starting SectionContentParser_BulkCalls.bulkCreateTextListItemsAsync() for textListId = {textListId}");
+                Debug.WriteLine($"SectionContentParser_BulkCalls.bulkCreateTextListItemsAsync() database save using dbContext.SaveChangesAsync()");
+
+                if (dbContext.ChangeTracker.AutoDetectChangesEnabled)
+                {
+                    Debug.WriteLine($"SectionContentParser_BulkCalls.bulkCreateTextListItemsAsync() - Batch saving is ENABLED. This may be a bug.");
+                }
+                else
+                {
+                    Debug.WriteLine($"SectionContentParser_BulkCalls.bulkCreateTextListItemsAsync() - Batch saving is DISABLED.");
+                }
+#endif
+
                 itemDbSet.AddRange(newItems);
                 await dbContext.SaveChangesAsync();
             }
@@ -944,6 +986,20 @@ namespace MedRecPro.Service.ParsingServices
                     HasFooter = tableData.HasFooter
                 };
 
+#if DEBUG
+                Debug.WriteLine($"Starting SectionContentParser_BulkCalls.GetOrCreateTextTableAndChildrenAsync() for sectionTextContentId = {sectionTextContentId}");
+                Debug.WriteLine($"SectionContentParser_BulkCalls.GetOrCreateTextTableAndChildrenAsync() database save using dbContext.SaveChangesAsync()");
+
+                if (context.UseBatchSaving)
+                {
+                    Debug.WriteLine($"SectionContentParser_BulkCalls.GetOrCreateTextTableAndChildrenAsync() - Batch saving is ENABLED. dbContext.SaveChangesAsync(). This may be a bug.");
+                }
+                else
+                {
+                    Debug.WriteLine($"SectionContentParser_BulkCalls.GetOrCreateTextTableAndChildrenAsync() - Batch saving is DISABLED.");
+                }
+#endif
+
                 textTableDbSet.Add(textTable);
                 await dbContext.SaveChangesAsync(); // Need ID for foreign keys
                 createdCount++;
@@ -1043,6 +1099,21 @@ namespace MedRecPro.Service.ParsingServices
 
             if (newColumns.Any())
             {
+
+#if DEBUG
+                Debug.WriteLine($"Starting SectionContentParser_BulkCalls.bulkCreateColumnsAsync() for textTableId = {textTableId}");
+                Debug.WriteLine($"SectionContentParser_BulkCalls.bulkCreateColumnsAsync() database save using dbContext.SaveChangesAsync()");
+
+                if (dbContext.ChangeTracker.AutoDetectChangesEnabled)
+                {
+                    Debug.WriteLine($"SectionContentParser_BulkCalls.bulkCreateColumnsAsync() - Batch saving is ENABLED. This may be a bug.");
+                }
+                else
+                {
+                    Debug.WriteLine($"SectionContentParser_BulkCalls.bulkCreateColumnsAsync() - Batch saving is DISABLED.");
+                }
+#endif
+
                 // Bulk insert all new columns in one operation
                 columnDbSet.AddRange(newColumns);
                 await dbContext.SaveChangesAsync();
@@ -1206,6 +1277,21 @@ namespace MedRecPro.Service.ParsingServices
 
             if (newCells.Any())
             {
+
+#if DEBUG
+                Debug.WriteLine($"Starting SectionContentParser_BulkCalls.bulkCreateRowsAndCellsAsync() for textTableId = {textTableId}");
+                Debug.WriteLine($"SectionContentParser_BulkCalls.bulkCreateRowsAndCellsAsync() database save using dbContext.SaveChangesAsync()");
+
+                if (dbContext.ChangeTracker.AutoDetectChangesEnabled)
+                {
+                    Debug.WriteLine($"SectionContentParser_BulkCalls.bulkCreateRowsAndCellsAsync() - Batch saving is ENABLED. This may be a bug.");
+                }
+                else
+                {
+                    Debug.WriteLine($"SectionContentParser_BulkCalls.bulkCreateRowsAndCellsAsync() - Batch saving is DISABLED.");
+                }
+#endif
+
                 // Bulk insert all new cells in one operation
                 cellDbSet.AddRange(newCells);
                 await dbContext.SaveChangesAsync();

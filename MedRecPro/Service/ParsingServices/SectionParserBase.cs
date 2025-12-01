@@ -1,4 +1,4 @@
-using MedRecPro.DataAccess;
+﻿using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using System.Xml.Linq;
@@ -8,6 +8,9 @@ using sc = MedRecPro.Models.SplConstants;
 using c = MedRecPro.Models.Constant;
 using MedRecPro.Data;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
+using System.Diagnostics;
+using System.Globalization;
 #pragma warning restore CS8981
 
 namespace MedRecPro.Service.ParsingServices
@@ -1252,6 +1255,495 @@ namespace MedRecPro.Service.ParsingServices
 
             #endregion
         }
+        #endregion
+
+        #region Orphan Detection Diagnostics
+
+        // Class-level (or at least above the method) constants + helpers
+
+        /**************************************************************/
+        // Fixed content width between the borders (NOT counting the left/right ║).
+        private const int OrphanReportBoxWidth = 68;
+
+        /**************************************************************/
+        // Fixed width for numeric fields (Total / Orphaned).
+        private const int OrphanReportNumberWidth = 8;
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a horizontal divider for the orphan diagnostic box.
+        /// </summary>
+        /// <param name="left">Left border character (e.g., '╔', '╠', '╚').</param>
+        /// <param name="right">Right border character (e.g., '╗', '╣', '╝').</param>
+        /// <returns>A divider line with a fixed width.</returns>
+        private static string buildOrphanReportDivider(char left, char right)
+        {
+            // Example: ╔════════════════...════╗
+            return $"{left}{new string('═', OrphanReportBoxWidth)}{right}";
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Formats a single content line inside the box with borders,
+        /// truncating and padding so the right-hand ║ always lines up.
+        /// </summary>
+        /// <param name="content">The content to render inside the box.</param>
+        /// <returns>A full line including left/right borders.</returns>
+        private static string formatOrphanReportLine(string content)
+        {
+            if (content == null)
+            {
+                content = string.Empty;
+            }
+
+            // Truncate if too long to keep the box width stable.
+            if (content.Length > OrphanReportBoxWidth)
+            {
+                content = content.Substring(0, OrphanReportBoxWidth);
+            }
+
+            // Pad to exact width, then add borders.
+            return $"║{content.PadRight(OrphanReportBoxWidth)}║";
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Formats the standard "Total / Orphaned / Status" line with fixed-width numbers.
+        /// </summary>
+        /// <param name="indentLevel">Number of spaces to indent before the text.</param>
+        /// <param name="total">Total count.</param>
+        /// <param name="orphaned">Orphaned count.</param>
+        /// <returns>Formatted box line.</returns>
+        private static string formatOrphanReportCountLine(int indentLevel, int total, int orphaned)
+        {
+            var hasIssue = orphaned > 0;
+            var indent = new string(' ', indentLevel);
+
+            var statusText = hasIssue ? "❌ ISSUE" : "✓ OK";
+
+            // Fixed-width numeric fields so spacing is stable even as counts grow.
+            var innerText = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}Total: {1,-" + OrphanReportNumberWidth + "} Orphaned: {2,-" + OrphanReportNumberWidth + "} {3}",
+                indent,
+                total,
+                orphaned,
+                statusText);
+
+            return formatOrphanReportLine(innerText);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Appends the common header for the orphan report.
+        /// </summary>
+        /// <param name="sb">StringBuilder to append to.</param>
+        /// <param name="documentId">Document identifier.</param>
+        private static void appendOrphanReportHeader(StringBuilder sb, int documentId)
+        {
+            sb.AppendLine(buildOrphanReportDivider('╔', '╗'));
+            sb.AppendLine(formatOrphanReportLine("           ORPHAN DETECTION DIAGNOSTIC REPORT"));
+            sb.AppendLine(formatOrphanReportLine($"  Document ID: {documentId}"));
+            sb.AppendLine(formatOrphanReportLine($"  Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC"));
+            sb.AppendLine(buildOrphanReportDivider('╠', '╣'));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Appends a simple section title line (e.g., "  TextList:").
+        /// </summary>
+        /// <param name="sb">StringBuilder to append to.</param>
+        /// <param name="title">Section title text.</param>
+        private static void appendOrphanReportSectionTitle(StringBuilder sb, string title)
+        {
+            sb.AppendLine(formatOrphanReportLine($"  {title}:"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Appends the summary section divider before the "RESULT" lines.
+        /// </summary>
+        /// <param name="sb">StringBuilder to append to.</param>
+        private static void appendOrphanReportSummaryDivider(StringBuilder sb)
+        {
+            sb.AppendLine(buildOrphanReportDivider('╠', '╣'));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Appends the closing line of the box.
+        /// </summary>
+        /// <param name="sb">StringBuilder to append to.</param>
+        private static void appendOrphanReportFooter(StringBuilder sb)
+        {
+            sb.AppendLine(buildOrphanReportDivider('╚', '╝'));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Logs diagnostic information about orphaned content entities after a deferred commit.
+        /// Call this immediately after CommitDeferredChangesAsync() to verify FK integrity.
+        /// </summary>
+        /// <param name="dbContext">The database context after commit.</param>
+        /// <param name="documentId">The document ID to scope the diagnostics.</param>
+        /// <param name="logger">Optional logger for output.</param>
+        /// <returns>A diagnostic summary with orphan counts.</returns>
+        /// <remarks>
+        /// The diagnostic output is written as a fixed-width box so that the right-hand borders
+        /// visually align regardless of numeric magnitudes.
+        /// </remarks>
+        /// <example>
+        /// <![CDATA[
+        /// var result = await logOrphanedContentEntitiesAsync(dbContext, documentId, logger);
+        /// ]]>
+        /// </example>
+        /// <seealso cref="OrphanDiagnosticResult"/>
+        protected async Task<OrphanDiagnosticResult> logOrphanedContentEntitiesAsync(
+            ApplicationDbContext dbContext,
+            int documentId,
+            ILogger? logger = null)
+        {
+            #region implementation
+            var result = new OrphanDiagnosticResult();
+            var sb = new StringBuilder();
+
+            appendOrphanReportHeader(sb, documentId);
+
+            try
+            {
+                // Get all SectionIDs for this document
+                var sectionIds = await dbContext.Set<Section>()
+                    .Where(s => s.DocumentID == documentId)
+                    .Select(s => s.SectionID)
+                    .ToListAsync();
+
+                if (!sectionIds.Any())
+                {
+                    sb.AppendLine(formatOrphanReportLine("  ⚠ No sections found for document"));
+                    appendOrphanReportFooter(sb);
+                    logOutput(sb.ToString(), logger);
+                    return result;
+                }
+
+                // Get all valid SectionTextContentIDs for this document
+                var validContentIds = await dbContext.Set<SectionTextContent>()
+                    .Where(c => sectionIds.Contains(c.SectionID.Value))
+                    .Select(c => c.SectionTextContentID)
+                    .ToListAsync();
+
+                var validContentIdSet = new HashSet<int?>(validContentIds.Select(id => (int?)id));
+
+                // ══════════════════════════════════════════════════════════════
+                // 1. ORPHANED TextList (SectionTextContentID doesn't exist)
+                // ══════════════════════════════════════════════════════════════
+                var allTextLists = await dbContext.Set<TextList>()
+                    .Where(l => validContentIdSet.Contains(l.SectionTextContentID) ||
+                                l.SectionTextContentID == null ||
+                                l.SectionTextContentID <= 0)
+                    .Select(l => new { l.TextListID, l.SectionTextContentID })
+                    .ToListAsync();
+
+                var orphanedTextLists = allTextLists
+                    .Where(l => !l.SectionTextContentID.HasValue ||
+                                l.SectionTextContentID <= 0 ||
+                                !validContentIdSet.Contains(l.SectionTextContentID))
+                    .ToList();
+
+                result.OrphanedTextListCount = orphanedTextLists.Count;
+                result.TotalTextListCount = allTextLists.Count;
+
+                appendOrphanReportSectionTitle(sb, "TextList");
+                sb.AppendLine(formatOrphanReportCountLine(4, allTextLists.Count, orphanedTextLists.Count));
+
+                if (orphanedTextLists.Any())
+                {
+                    foreach (var orphan in orphanedTextLists.Take(5))
+                    {
+                        sb.AppendLine(formatOrphanReportLine(
+                            $"    \u2192 TextListID={orphan.TextListID}, SectionTextContentID={orphan.SectionTextContentID?.ToString() ?? "NULL"}"));
+                    }
+
+                    if (orphanedTextLists.Count > 5)
+                    {
+                        sb.AppendLine(formatOrphanReportLine(
+                            $"    ... and {orphanedTextLists.Count - 5} more"));
+                    }
+                }
+
+                // ══════════════════════════════════════════════════════════════
+                // 2. ORPHANED TextListItem (TextListID doesn't exist)
+                // ══════════════════════════════════════════════════════════════
+                var validTextListIds = new HashSet<int?>(allTextLists.Select(l => (int?)l.TextListID));
+
+                var orphanedTextListItems = await dbContext.Set<TextListItem>()
+                    .Where(i => !validTextListIds.Contains(i.TextListID) ||
+                                i.TextListID == null ||
+                                i.TextListID <= 0)
+                    .Select(i => new { i.TextListItemID, i.TextListID })
+                    .ToListAsync();
+
+                var totalTextListItems = await dbContext.Set<TextListItem>()
+                    .Where(i => validTextListIds.Contains(i.TextListID))
+                    .CountAsync();
+
+                result.OrphanedTextListItemCount = orphanedTextListItems.Count;
+                result.TotalTextListItemCount = totalTextListItems + orphanedTextListItems.Count;
+
+                appendOrphanReportSectionTitle(sb, "TextListItem");
+                sb.AppendLine(formatOrphanReportCountLine(4, result.TotalTextListItemCount, orphanedTextListItems.Count));
+
+                if (orphanedTextListItems.Any())
+                {
+                    foreach (var orphan in orphanedTextListItems.Take(5))
+                    {
+                        sb.AppendLine(formatOrphanReportLine(
+                            $"    \u2192 TextListItemID={orphan.TextListItemID}, TextListID={orphan.TextListID?.ToString() ?? "NULL"}"));
+                    }
+
+                    if (orphanedTextListItems.Count > 5)
+                    {
+                        sb.AppendLine(formatOrphanReportLine(
+                            $"    ... and {orphanedTextListItems.Count - 5} more"));
+                    }
+                }
+
+                // ══════════════════════════════════════════════════════════════
+                // 3. ORPHANED TextTable (SectionTextContentID doesn't exist)
+                // ══════════════════════════════════════════════════════════════
+                var allTextTables = await dbContext.Set<TextTable>()
+                    .Where(t => validContentIdSet.Contains(t.SectionTextContentID) ||
+                                t.SectionTextContentID == null ||
+                                t.SectionTextContentID <= 0)
+                    .Select(t => new { t.TextTableID, t.SectionTextContentID })
+                    .ToListAsync();
+
+                var orphanedTextTables = allTextTables
+                    .Where(t => !t.SectionTextContentID.HasValue ||
+                                t.SectionTextContentID <= 0 ||
+                                !validContentIdSet.Contains(t.SectionTextContentID))
+                    .ToList();
+
+                result.OrphanedTextTableCount = orphanedTextTables.Count;
+                result.TotalTextTableCount = allTextTables.Count;
+
+                appendOrphanReportSectionTitle(sb, "TextTable");
+                sb.AppendLine(formatOrphanReportCountLine(4, allTextTables.Count, orphanedTextTables.Count));
+
+                // ══════════════════════════════════════════════════════════════
+                // 4. ORPHANED TextTableRow (TextTableID doesn't exist)
+                // ══════════════════════════════════════════════════════════════
+                var validTableIds = new HashSet<int?>(allTextTables.Select(t => (int?)t.TextTableID));
+
+                var orphanedTableRows = await dbContext.Set<TextTableRow>()
+                    .Where(r => !validTableIds.Contains(r.TextTableID) ||
+                                r.TextTableID == null ||
+                                r.TextTableID <= 0)
+                    .Select(r => new { r.TextTableRowID, r.TextTableID })
+                    .ToListAsync();
+
+                var totalTableRows = await dbContext.Set<TextTableRow>()
+                    .Where(r => validTableIds.Contains(r.TextTableID))
+                    .CountAsync();
+
+                result.OrphanedTextTableRowCount = orphanedTableRows.Count;
+                result.TotalTextTableRowCount = totalTableRows + orphanedTableRows.Count;
+
+                appendOrphanReportSectionTitle(sb, "TextTableRow");
+                sb.AppendLine(formatOrphanReportCountLine(4, result.TotalTextTableRowCount, orphanedTableRows.Count));
+
+                // ══════════════════════════════════════════════════════════════
+                // 5. ORPHANED TextTableColumn (TextTableID doesn't exist)
+                // ══════════════════════════════════════════════════════════════
+                var orphanedTableColumns = await dbContext.Set<TextTableColumn>()
+                    .Where(c => !validTableIds.Contains(c.TextTableID) ||
+                                c.TextTableID == null ||
+                                c.TextTableID <= 0)
+                    .Select(c => new { c.TextTableColumnID, c.TextTableID })
+                    .ToListAsync();
+
+                var totalTableColumns = await dbContext.Set<TextTableColumn>()
+                    .Where(c => validTableIds.Contains(c.TextTableID))
+                    .CountAsync();
+
+                result.OrphanedTextTableColumnCount = orphanedTableColumns.Count;
+                result.TotalTextTableColumnCount = totalTableColumns + orphanedTableColumns.Count;
+
+                appendOrphanReportSectionTitle(sb, "TextTableColumn");
+                sb.AppendLine(formatOrphanReportCountLine(4, result.TotalTextTableColumnCount, orphanedTableColumns.Count));
+
+                // ══════════════════════════════════════════════════════════════
+                // 6. ORPHANED TextTableCell (TextTableRowID doesn't exist)
+                // ══════════════════════════════════════════════════════════════
+                var validRowIds = await dbContext.Set<TextTableRow>()
+                    .Where(r => validTableIds.Contains(r.TextTableID))
+                    .Select(r => (int?)r.TextTableRowID)
+                    .ToListAsync();
+
+                var validRowIdSet = new HashSet<int?>(validRowIds);
+
+                var orphanedTableCells = await dbContext.Set<TextTableCell>()
+                    .Where(c => !validRowIdSet.Contains(c.TextTableRowID) ||
+                                c.TextTableRowID == null ||
+                                c.TextTableRowID <= 0)
+                    .Select(c => new { c.TextTableCellID, c.TextTableRowID })
+                    .ToListAsync();
+
+                var totalTableCells = await dbContext.Set<TextTableCell>()
+                    .Where(c => validRowIdSet.Contains(c.TextTableRowID))
+                    .CountAsync();
+
+                result.OrphanedTextTableCellCount = orphanedTableCells.Count;
+                result.TotalTextTableCellCount = totalTableCells + orphanedTableCells.Count;
+
+                appendOrphanReportSectionTitle(sb, "TextTableCell");
+                sb.AppendLine(formatOrphanReportCountLine(4, result.TotalTextTableCellCount, orphanedTableCells.Count));
+
+                // ══════════════════════════════════════════════════════════════
+                // 7. ORPHANED SectionExcerptHighlight (SectionID doesn't exist)
+                // ══════════════════════════════════════════════════════════════
+                var sectionIdSet = new HashSet<int?>(sectionIds);
+
+                var allHighlights = await dbContext.Set<SectionExcerptHighlight>()
+                    .Where(h => sectionIdSet.Contains(h.SectionID.Value) ||
+                                h.SectionID == null ||
+                                h.SectionID <= 0)
+                    .Select(h => new { h.SectionExcerptHighlightID, h.SectionID })
+                    .ToListAsync();
+
+                var orphanedHighlights = allHighlights
+                    .Where(h => !h.SectionID.HasValue ||
+                                h.SectionID <= 0 ||
+                                !sectionIdSet.Contains(h.SectionID.Value))
+                    .ToList();
+
+                result.OrphanedHighlightCount = orphanedHighlights.Count;
+                result.TotalHighlightCount = allHighlights.Count;
+
+                appendOrphanReportSectionTitle(sb, "SectionExcerptHighlight");
+                sb.AppendLine(formatOrphanReportCountLine(4, allHighlights.Count, orphanedHighlights.Count));
+
+                // ══════════════════════════════════════════════════════════════
+                // 8. ORPHANED SectionTextContent (ParentID doesn't exist)
+                // ══════════════════════════════════════════════════════════════
+                var allContent = await dbContext.Set<SectionTextContent>()
+                    .Where(c => sectionIds.Contains(c.SectionID.Value))
+                    .Select(c => new { c.SectionTextContentID, c.ParentSectionTextContentID, c.SectionID })
+                    .ToListAsync();
+
+                var contentIdSet = new HashSet<int?>(allContent.Select(c => (int?)c.SectionTextContentID));
+
+                var orphanedContent = allContent
+                    .Where(c => c.ParentSectionTextContentID.HasValue &&
+                                c.ParentSectionTextContentID > 0 &&
+                                !contentIdSet.Contains(c.ParentSectionTextContentID))
+                    .ToList();
+
+                result.OrphanedContentCount = orphanedContent.Count;
+                result.TotalContentCount = allContent.Count;
+
+                appendOrphanReportSectionTitle(sb, "SectionTextContent (broken parent refs)");
+                sb.AppendLine(formatOrphanReportCountLine(4, allContent.Count, orphanedContent.Count));
+
+                if (orphanedContent.Any())
+                {
+                    foreach (var orphan in orphanedContent.Take(5))
+                    {
+                        sb.AppendLine(formatOrphanReportLine(
+                            $"    \u2192 ID={orphan.SectionTextContentID}, ParentID={orphan.ParentSectionTextContentID}"));
+                    }
+                }
+
+                // ══════════════════════════════════════════════════════════════
+                // SUMMARY
+                // ══════════════════════════════════════════════════════════════
+                appendOrphanReportSummaryDivider(sb);
+
+                result.TotalOrphanCount = result.OrphanedTextListCount +
+                                          result.OrphanedTextListItemCount +
+                                          result.OrphanedTextTableCount +
+                                          result.OrphanedTextTableRowCount +
+                                          result.OrphanedTextTableColumnCount +
+                                          result.OrphanedTextTableCellCount +
+                                          result.OrphanedHighlightCount +
+                                          result.OrphanedContentCount;
+
+                if (result.TotalOrphanCount == 0)
+                {
+                    sb.AppendLine(formatOrphanReportLine("  ✓ RESULT: All FK relationships are valid"));
+                }
+                else
+                {
+                    sb.AppendLine(formatOrphanReportLine(
+                        $"  ❌ RESULT: {result.TotalOrphanCount} orphaned entities detected!"));
+                    sb.AppendLine(formatOrphanReportLine(
+                        "  This indicates FK relationship failures during staging."));
+                }
+
+                appendOrphanReportFooter(sb);
+            }
+            catch (Exception ex)
+            {
+                var truncatedMsg = ex.Message.Length > 48 ? ex.Message.Substring(0, 48) : ex.Message;
+                sb.AppendLine(formatOrphanReportLine($"  ❌ ERROR: {truncatedMsg}"));
+                appendOrphanReportFooter(sb);
+                result.Error = ex.Message;
+            }
+
+            logOutput(sb.ToString(), logger);
+            return result;
+            #endregion
+        }
+
+
+        /**************************************************************/
+        /// <summary>
+        /// Outputs diagnostic text to Debug, Console, and optionally ILogger.
+        /// </summary>
+        protected static void logOutput(string message, ILogger? logger)
+        {
+#if DEBUG
+            Debug.WriteLine(message);
+#endif
+            Console.WriteLine(message);
+            logger?.LogInformation(message);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Result object for orphan detection diagnostics.
+        /// </summary>
+        protected class OrphanDiagnosticResult
+        {
+            public int TotalTextListCount { get; set; }
+            public int OrphanedTextListCount { get; set; }
+
+            public int TotalTextListItemCount { get; set; }
+            public int OrphanedTextListItemCount { get; set; }
+
+            public int TotalTextTableCount { get; set; }
+            public int OrphanedTextTableCount { get; set; }
+
+            public int TotalTextTableRowCount { get; set; }
+            public int OrphanedTextTableRowCount { get; set; }
+
+            public int TotalTextTableColumnCount { get; set; }
+            public int OrphanedTextTableColumnCount { get; set; }
+
+            public int TotalTextTableCellCount { get; set; }
+            public int OrphanedTextTableCellCount { get; set; }
+
+            public int TotalHighlightCount { get; set; }
+            public int OrphanedHighlightCount { get; set; }
+
+            public int TotalContentCount { get; set; }
+            public int OrphanedContentCount { get; set; }
+
+            public int TotalOrphanCount { get; set; }
+            public string? Error { get; set; }
+
+            public bool HasOrphans => TotalOrphanCount > 0;
+        }
+
         #endregion
     }
 }

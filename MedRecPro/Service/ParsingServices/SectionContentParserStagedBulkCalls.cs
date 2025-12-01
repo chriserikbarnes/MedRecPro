@@ -961,6 +961,10 @@ namespace MedRecPro.Service.ParsingServices
 
             var itemDbSet = dbContext.Set<TextListItem>();
 
+#if DEBUG
+            Debug.WriteLine($"→ Entering stageTextListItemsAsync: called with textListId={textListId}, itemDtos.Count={itemDtos?.Count ?? -1}");
+#endif
+
             // For temp IDs (negative), there won't be existing items in database
             var existingKeys = new HashSet<(int ListId, int SeqNum)>();
             if (textListId > 0)

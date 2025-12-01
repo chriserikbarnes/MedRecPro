@@ -1,4 +1,4 @@
-using MedRecPro.Data;
+﻿using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
@@ -58,6 +58,10 @@ namespace MedRecPro.Service.ParsingServices
 
             try
             {
+#if DEBUG
+                Debug.WriteLine($"Starting parseAsync_StagedBulk.ParseAsync(): XElement element {element.GetSplHtml(stripNamespaces: true)?.Take(50)}...");
+#endif 
+
                 result = await parseAsync_StagedBulk(element, context, reportProgress);
             }
             catch (Exception ex)
@@ -92,7 +96,7 @@ namespace MedRecPro.Service.ParsingServices
         /// Improvement over Nested Bulk:
         /// - Before (Nested): ~200 database operations for 100 sections across 5 levels
         /// - After (Staged): ~15-20 database operations for same document
-        /// - Result: 5-6� faster, 93% fewer database operations
+        /// - Result: 5-6× faster, 93% fewer database operations
         /// 
         /// This method eliminates recursive orchestration by processing all sections discovered
         /// in the initial pass through flat bulk operations, regardless of nesting level.
@@ -273,7 +277,7 @@ namespace MedRecPro.Service.ParsingServices
 
                 var dbContext = context.GetDbContext();
 
-                if(dbContext == null)
+                if (dbContext == null)
                 {
                     context?.Logger?.LogError("Database context not available for bulk section creation");
                     result.Success = false;
@@ -522,6 +526,20 @@ namespace MedRecPro.Service.ParsingServices
             context.Logger?.LogInformation(
                 "Performing bulk INSERT for {Count} sections",
                 sections.Count);
+
+#if DEBUG
+            Debug.WriteLine($"Starting SectionParser_StagedBulk.performBulkInsertAsync() for {sections.Count} sections");
+            Debug.WriteLine($"SectionParser_StagedBulk.performBulkInsertAsync() database save using dbContext.SaveChangesAsync()");
+
+            if(context.UseBatchSaving)
+            {
+                Debug.WriteLine($"⚠ SectionParser_StagedBulk.performBulkInsertAsync() - Batch saving is ENABLED.");
+            }
+            else
+            {
+                Debug.WriteLine($"SectionParser_StagedBulk.performBulkInsertAsync() - Batch saving is DISABLED");
+            }
+#endif
 
             var sectionDbSet = dbContext.Set<Section>();
             sectionDbSet.AddRange(sections);
@@ -960,6 +978,20 @@ namespace MedRecPro.Service.ParsingServices
                 "Performing bulk INSERT for {Count} hierarchies",
                 hierarchies.Count);
 
+#if DEBUG
+            Debug.WriteLine($"Starting SectionParser_StagedBulk.insertHierarchiesInBulk() for {hierarchies.Count} hierarchies");
+            Debug.WriteLine($"SectionParser_StagedBulk.insertHierarchiesInBulk() database save using dbContext.SaveChangesAsync()");
+
+            if (context?.UseBatchSaving == true)
+            {
+                Debug.WriteLine($"⚠ SectionParser_StagedBulk.insertHierarchiesInBulk() - Batch saving is ENABLED.");
+            }
+            else
+            {
+                Debug.WriteLine($"SectionParser_StagedBulk.insertHierarchiesInBulk() - Batch saving is DISABLED");
+            }
+#endif
+
             // Add all hierarchy entities to the change tracker
             await dbSet.AddRangeAsync(hierarchies);
 
@@ -980,7 +1012,7 @@ namespace MedRecPro.Service.ParsingServices
         /**************************************************************/
         /// <summary>
         /// Processes content (text, lists, tables, excerpts) for all discovered sections
-        /// using flat bulk operations. Dramatically reduces database operations from N�100 to ~5-8 total.
+        /// using flat bulk operations. Dramatically reduces database operations from N×100 to ~5-8 total.
         /// </summary>
         /// <param name="discovery">Section discovery results from discovery phase containing all sections.</param>
         /// <param name="context">Parsing context with service provider and configuration.</param>
@@ -994,7 +1026,7 @@ namespace MedRecPro.Service.ParsingServices
         /// 3. Aggregates results across all sections
         /// 
         /// Performance characteristics:
-        /// - Single-call mode: ~100+ DB operations per section � N sections
+        /// - Single-call mode: ~100+ DB operations per section × N sections
         /// - Bulk mode: ~5-8 DB operations per section
         /// - Staged bulk mode (this): ~5-8 DB operations total across ALL sections
         /// 
@@ -1074,11 +1106,33 @@ namespace MedRecPro.Service.ParsingServices
 
 #if DEBUG
                 Debug.WriteLine($"SectionParser_StagedBulk.bulkProcessAllContentAsync() Content has been staged. sectionsProcessed: {sectionsProcessed}. totalContentItems {totalContentItems}");
+                Debug.WriteLine($"SectionParser_StagedBulk.bulkProcessAllContentAsync() database save using context.CommitDeferredChangesAsync()");
+
+                if (context?.UseBatchSaving == true)
+                {
+                    Debug.WriteLine($"SectionParser_StagedBulk.bulkProcessAllContentAsync() - Batch saving is ENABLED. Committing");
+                }
+                else
+                {
+                    Debug.WriteLine($"SectionParser_StagedBulk.bulkProcessAllContentAsync() - Batch saving is DISABLED, but commit is being called");
+                }
 #endif
                 // Moved from the conclusion of ParseAsync to here in order to immediately commit section content
                 await context.CommitDeferredChangesAsync();
 
-                context.Logger?.LogInformation(
+#if DEBUG
+                // Diagnostic: Check for orphaned entities
+                var dbContext = context.GetDbContext();
+                var documentId = context?.Document?.DocumentID; // or however you get the document ID
+                var orphanResult = await logOrphanedContentEntitiesAsync(dbContext, documentId.Value, context?.Logger);
+
+                if (orphanResult.HasOrphans)
+                {
+                    Debug.WriteLine($"⚠ WARNING: {orphanResult.TotalOrphanCount} orphaned entities detected!");
+                }
+#endif
+
+                context?.Logger?.LogInformation(
                     "Bulk content processing complete: {SectionsProcessed} sections, {ContentItems} content items",
                     sectionsProcessed,
                     totalContentItems);
