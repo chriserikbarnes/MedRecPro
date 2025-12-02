@@ -94,6 +94,9 @@ Security settings including encryption keys should be configured in your user se
 
   "Dev:DB:Connection": Server=localhost;Database=your-database;User Id=your-user;Password=your-password-here;",
   "Prod:DB:Connection": "Server=tcp:yourdb.database.windows.net,9999;Initial Catalog=yourdb;Persist Security Info=False;User ID=your-admin;Password=your-password;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+
+  "AzureAd:Domain": "your-domain.onmicrosoft.com",
+  "Azure:SqlDatabase:ResourceId": "/subscriptions/your-azure-subscription-id/resourceGroups/your-group/providers/Microsoft.Sql/servers/your-server-sql/databases/your-database"
 }
 ```
 
@@ -338,6 +341,128 @@ Expected response:
 **Issue: Authentication succeeds but redirects to wrong page**
 - Solution: Check `AuthController.cs` uses correct path based on build configuration
 - Verify `#if DEBUG` / `#else` directives are properly set
+
+## Azure SQL Free Tier Monitoring
+
+MedRecPro includes built-in monitoring for Azure SQL Database's serverless free tier, enabling the application to track vCore consumption and implement intelligent throttling to stay within budget.
+
+### Overview
+
+Azure SQL Database's serverless tier includes a monthly free allowance of **100,000 vCore seconds**. The `AzureSqlMetricsService` queries Azure Monitor Metrics to track consumption in real-time, enabling:
+
+- Dashboard display of current free tier usage
+- Projected monthly cost estimates
+- Automatic throttling when approaching budget limits
+- Cost optimization through usage awareness
+
+### Configuration
+
+Add the following to your `appsettings.json`:
+
+```json
+{
+  "Azure": {
+    "SqlDatabase": {
+      "ResourceId": "/subscriptions/{subscription-id}/resourceGroups/{resource-group}/providers/Microsoft.Sql/servers/{server-name}/databases/{database-name}",
+      "MetricsRegion": "eastus"
+    }
+  }
+}
+```
+
+| Setting | Description |
+|---------|-------------|
+| `ResourceId` | Full Azure Resource Manager path to your SQL database |
+| `MetricsRegion` | Azure region for the metrics endpoint (e.g., `eastus`, `westus3`) |
+
+### Prerequisites
+
+**NuGet Packages:**
+```bash
+dotnet add package Azure.Monitor.Query.Metrics
+dotnet add package Azure.Identity
+```
+
+**Azure RBAC Requirements:**
+
+The application's managed identity (or service principal) requires the **Monitoring Reader** role on the SQL database resource to query metrics.
+
+### Service Registration
+
+```csharp
+// Program.cs
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<AzureManagementTokenProvider>();
+builder.Services.AddSingleton<AzureSqlMetricsService>();
+```
+
+### Usage Examples
+
+**Get Current Free Tier Status:**
+```csharp
+var (used, remaining, percentUsed) = await _metricsService.GetFreeTierStatusAsync();
+
+// Example output:
+// Used: 45,230 vCore seconds
+// Remaining: 54,770 vCore seconds  
+// Percent Used: 45.2%
+```
+
+**Project Monthly Costs:**
+```csharp
+var (projectedUsage, projectedCost, daysElapsed) = await _metricsService.GetProjectedMonthlyCostAsync();
+
+// Example output after 15 days:
+// Projected Usage: 90,460 vCore seconds
+// Projected Cost: $0.00 (within free tier)
+// Days Elapsed: 15
+```
+
+**Check If Throttling Needed:**
+```csharp
+var (shouldThrottle, level, percent) = await _metricsService.ShouldThrottleAsync();
+
+switch (level)
+{
+    case "Aggressive":  // >90% used
+        // Block expensive operations
+        break;
+    case "Warning":     // 80-90% used
+        // Rate limit heavy queries
+        break;
+    case "None":        // <80% used
+        // Normal operation
+        break;
+}
+```
+
+### Key Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `GetFreeTierStatusAsync()` | `(used, remaining, percentUsed)` | Current consumption status |
+| `GetUsedVCoreSecondsThisMonthAsync()` | `double` | Total vCore seconds used this month |
+| `GetRemainingFreeTierVCoreSecondsAsync()` | `double` | vCore seconds remaining in free tier |
+| `GetProjectedMonthlyCostAsync()` | `(projected, cost, days)` | Estimated end-of-month usage and cost |
+| `ShouldThrottleAsync()` | `(shouldThrottle, level, percent)` | Throttling recommendation |
+
+### Architecture Notes
+
+The service uses a dual-query strategy for reliability:
+
+1. **Primary:** REST API call to `management.azure.com` for `free_amount_remaining` metric
+2. **Fallback:** Azure Monitor Query SDK (`MetricsClient`) if REST returns no data
+
+Results are cached for 5 minutes to minimize API overhead. The service queries 15-minute granularity buckets and uses the minimum remaining value to ensure accurate tracking of consumption.
+
+### Cost Reference
+
+| Metric | Value |
+|--------|-------|
+| Monthly Free Allowance | 100,000 vCore seconds |
+| Overage Rate | ~$0.000145 per vCore second |
+| Break-even (100% usage) | $0.00/month |
+| 2x free tier usage | ~$14.50/month |
 
 
 ## License

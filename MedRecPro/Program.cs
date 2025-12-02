@@ -121,7 +121,9 @@ builder.Services.AddScoped<UserDataAccess>();
 
 builder.Services.AddMemoryCache();
 
-builder.Services.AddSingleton<AzureSqlMetricsService>();
+builder.Services.AddSingleton<AzureManagementTokenProvider>();
+
+builder.Services.AddScoped<AzureSqlMetricsService>();
 
 // Configure ClaudeApiService with HttpClient and inject settings
 builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>((serviceProvider, client) =>

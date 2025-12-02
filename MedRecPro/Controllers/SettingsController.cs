@@ -1,9 +1,13 @@
 
+using Azure;
+using Azure.Identity;
 using MedRecPro.Helpers;
 using MedRecPro.Service;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using System.Net;
 
 
 namespace MedRecPro.Controllers
@@ -229,45 +233,166 @@ namespace MedRecPro.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Gets current database metrics and budget status.
+        /// Gets current database vCore usage, remaining free-tier quota, and cost
+        /// projections for the MedRecPro Azure SQL database.
         /// </summary>
-        /// <returns>Current vCore usage, remaining quota, and cost projections.</returns>
+        /// <returns>
+        /// An <see cref="IActionResult"/> containing the current month's vCore usage,
+        /// remaining quota, projected end-of-month usage and overage cost, and
+        /// throttling guidance.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint is a thin orchestration layer over <see cref="AzureSqlMetricsService"/>: 
+        /// it does not talk to Azure directly, but instead delegates all metric aggregation to the service.
+        ///
+        /// **Authentication &amp; Identity**
+        /// 
+        /// This action requires an authenticated MedRecPro user with permission to access the configured Azure subscription. 
+        /// The underlying Azure calls use <see cref="AzureManagementTokenProvider"/> to obtain a `TokenCredential`
+        /// (for example via `DefaultAzureCredential` or an interactive browser credential, depending on your environment).
+        ///
+        /// **Configuration (appsettings.json)**
+        /// 
+        /// The Azure SQL resource to monitor is configured via `appsettings.json` (or environment configuration) using the following setting:
+        ///
+        /// ```json
+        /// "Azure": {
+        ///   "SqlDatabase": {
+        ///     "ResourceId": "/subscriptions/your-id/resourceGroups/MedRecPro/.../your-DB"
+        ///   }
+        /// }
+        /// ```
+        ///
+        /// <see cref="AzureSqlMetricsService"/> reads this `ResourceId` and uses it when querying Azure Monitor metrics 
+        /// (either via the Metrics REST API or the ARM client SDK, falling back between them internally).
+        ///
+        /// **Processing Flow**
+        /// 
+        /// 1. The controller calls <see cref="AzureSqlMetricsService.GetFreeTierStatusAsync"/> to obtain total used and remaining vCore-seconds and the percent used of the monthly free tier.
+        /// 2. It then calls <see cref="AzureSqlMetricsService.GetProjectedMonthlyCostAsync"/> to estimate end-of-month usage and overage cost based on elapsed days and current burn rate.
+        /// 3. Finally, it calls <see cref="AzureSqlMetricsService.ShouldThrottleAsync"/> to determine whether the application should consider self-throttling and, if so, at what level.
+        ///
+        /// **Possible HTTP Status Codes**
+        /// 
+        /// - **200 OK** – Metrics retrieved successfully.
+        /// - **400 Bad Request** – Configuration or usage error (for example, missing or invalid Azure resource configuration).
+        /// - **401 Unauthorized** – User is not authenticated or Azure authentication failed.
+        /// - **403 Forbidden** – Authenticated user lacks rights (e.g. missing Monitoring Reader/Contributor permissions on the Azure SQL resource).
+        /// - **500 Internal Server Error** – Unexpected error while querying Azure Monitor or processing the results.
+        /// </remarks>
+        /// <example>
+        /// Sample success payload:
+        /// <code>
+        /// {
+        ///   "currentMonth": {
+        ///     "usedVCoreSeconds": 7484,
+        ///     "remainingVCoreSeconds": 92516,
+        ///     "percentUsed": 7.48,
+        ///     "daysElapsed": 2
+        ///   },
+        ///   "projection": {
+        ///     "estimatedMonthlyUsage": 116002,
+        ///     "estimatedCost": 2.32,
+        ///     "costDescription": "$2.32 for overage"
+        ///   },
+        ///   "throttling": {
+        ///     "shouldThrottle": false,
+        ///     "throttleLevel": "None"
+        ///   }
+        /// }
+        /// </code>
+        /// </example>
         /// <seealso cref="AzureSqlMetricsService"/>
+        /// <seealso cref="AzureManagementTokenProvider"/>
         [HttpGet("metrics/database")]
+        [Authorize]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetDatabaseMetrics()
         {
             #region implementation
 
-            var (used, remaining, percentUsed) = await _metricsService.GetFreeTierStatusAsync();
-            var (projectedUsage, projectedCost, daysElapsed) = await _metricsService.GetProjectedMonthlyCostAsync();
-            var (shouldThrottle, throttleLevel, _) = await _metricsService.ShouldThrottleAsync();
-
-            return Ok(new
+            try
             {
-                CurrentMonth = new
+                // Get current free-tier status (used, remaining, and percent of quota used).
+                var (used, remaining, percentUsed) = await _metricsService.GetFreeTierStatusAsync();
+
+                // Get projected end-of-month usage and cost based on current burn rate.
+                var (projectedUsage, projectedCost, daysElapsed) = await _metricsService.GetProjectedMonthlyCostAsync();
+
+                // Get throttling recommendation (if any) based on utilization thresholds.
+                var (shouldThrottle, throttleLevel, _) = await _metricsService.ShouldThrottleAsync();
+
+                // Return a compact, UI-friendly summary payload.
+                return Ok(new
                 {
-                    UsedVCoreSeconds = Math.Round(used, 2),
-                    RemainingVCoreSeconds = Math.Round(remaining, 2),
-                    PercentUsed = Math.Round(percentUsed, 2),
-                    DaysElapsed = daysElapsed
-                },
-                Projection = new
+                    CurrentMonth = new
+                    {
+                        UsedVCoreSeconds = Math.Round(used, 2),
+                        RemainingVCoreSeconds = Math.Round(remaining, 2),
+                        PercentUsed = Math.Round(percentUsed, 2),
+                        DaysElapsed = daysElapsed
+                    },
+                    Projection = new
+                    {
+                        EstimatedMonthlyUsage = Math.Round(projectedUsage, 2),
+                        EstimatedCost = Math.Round(projectedCost, 2),
+                        CostDescription = projectedCost > 0
+                            ? $"${projectedCost:F2} for overage"
+                            : "Within free tier"
+                    },
+                    Throttling = new
+                    {
+                        ShouldThrottle = shouldThrottle,
+                        ThrottleLevel = throttleLevel
+                    }
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Treat service/configuration issues as a client error (e.g. bad or missing config).
+                _logger.LogError(ex, "Configuration or usage error while retrieving database metrics.");
+                return BadRequest(new
                 {
-                    EstimatedMonthlyUsage = Math.Round(projectedUsage, 2),
-                    EstimatedCost = Math.Round(projectedCost, 2),
-                    CostDescription = projectedCost > 0
-                        ? $"${projectedCost:F2} for overage"
-                        : "Within free tier"
-                },
-                Throttling = new
+                    error = "Invalid configuration or usage for Azure SQL metrics.",
+                    detail = ex.Message
+                });
+            }
+            catch (AuthenticationFailedException ex)
+            {
+                // User is authenticated in MedRecPro but Azure authentication failed.
+                _logger.LogError(ex, "Failed to authenticate for Azure Monitor API.");
+                return Unauthorized(new
                 {
-                    ShouldThrottle = shouldThrottle,
-                    ThrottleLevel = throttleLevel
-                }
-            });
+                    error = "Azure authentication failed. Please ensure you have access to the Azure subscription."
+                });
+            }
+            catch (RequestFailedException ex) when (ex.Status == (int)HttpStatusCode.Forbidden)
+            {
+                // Azure explicitly denied access to the metrics endpoint.
+                _logger.LogError(ex, "Azure Monitor API access forbidden for current user.");
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    error = "Access to Azure metrics is forbidden. Ensure the signed-in identity has monitor permissions on the SQL resource."
+                });
+            }
+            catch (Exception ex)
+            {
+                // Catch-all for anything unexpected coming from Azure or local processing.
+                _logger.LogError(ex, "Failed to retrieve database metrics.");
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    error = "Failed to retrieve metrics."
+                });
+            }
 
             #endregion
         }
+
 
         /**************************************************************/
         /// <summary>
