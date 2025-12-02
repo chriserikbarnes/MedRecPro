@@ -393,7 +393,6 @@ namespace MedRecPro.Controllers
             #endregion
         }
 
-
         /**************************************************************/
         /// <summary>
         /// Clears all managed cache entries from the performance cache.
