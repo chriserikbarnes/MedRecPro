@@ -263,7 +263,17 @@ namespace MedRecPro.Models
         public const string UNAPPROVED_DRUG_OTHER_CODE = "C73627";
         public const string UNAPPROVED_DRUG_PRODUCT_MANUFACTURED_UNDER_CONTRACT_CODE = "C132335";
         public const string UNAPPROVED_HOMEOPATHIC_CODE = "C73614";
-        public const string UNAPPROVED_MEDICAL_GAS_CODE = "C73613"; 
+        public const string UNAPPROVED_MEDICAL_GAS_CODE = "C73613";
+        #endregion
+
+        #region Azure Hosting
+        public const double FREE_TIER_MONTHLY_LIMIT = 100000.0;
+        public const string FREE_AMOUNT_CONSUMED_METRIC = "free_amount_consumed";
+        public const string FREE_AMOUNT_REMAINING_METRIC = "free_amount_remaining";
+        public const string CACHE_KEY_PREFIX = "AzureSqlMetrics_";
+
+        // API version for Azure Monitor metrics REST endpoint
+        public const string METRICS_API_VERSION = "2018-01-01";
         #endregion
 
         public enum ActorType

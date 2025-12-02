@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using Const = MedRecPro.Models.Constant;
 
 namespace MedRecPro.Service;
 
@@ -48,13 +49,13 @@ public class AzureSqlMetricsService
     private readonly AzureManagementTokenProvider _tokenProvider;
     private readonly HttpClient _httpClient;
 
-    private const double FREE_TIER_MONTHLY_LIMIT = 100000.0;
-    private const string FREE_AMOUNT_CONSUMED_METRIC = "free_amount_consumed";
-    private const string FREE_AMOUNT_REMAINING_METRIC = "free_amount_remaining";
-    private const string CACHE_KEY_PREFIX = "AzureSqlMetrics_";
+    private const double FREE_TIER_MONTHLY_LIMIT = Const.FREE_TIER_MONTHLY_LIMIT;
+    private const string FREE_AMOUNT_CONSUMED_METRIC = Const.FREE_AMOUNT_CONSUMED_METRIC;
+    private const string FREE_AMOUNT_REMAINING_METRIC = Const.FREE_AMOUNT_REMAINING_METRIC;
+    private const string CACHE_KEY_PREFIX = Const.CACHE_KEY_PREFIX;
 
     // API version for Azure Monitor metrics REST endpoint
-    private const string METRICS_API_VERSION = "2018-01-01";
+    private const string METRICS_API_VERSION = Const.METRICS_API_VERSION;
 
     #endregion
 
