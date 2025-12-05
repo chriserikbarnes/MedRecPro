@@ -95,6 +95,99 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Checks if any of the specified actor types exist in the permissions list.
+        /// </summary>
+        /// <param name="permissions">The list of <see cref="Permission"/> objects to search within.</param>
+        /// <param name="actorTypes">The actor types to check for (OR logic - any match returns true).</param>
+        /// <returns>
+        /// <c>true</c> if any permission with one of the specified actor types exists in the list;
+        /// otherwise, <c>false</c>. Returns <c>false</c> if the input list is null or empty.
+        /// </returns>
+        /// <remarks>
+        /// This method is particularly useful for authorization filters that need to check
+        /// if a user has any of several allowed actor types. The check uses OR logic,
+        /// meaning the user only needs ONE matching actor type.
+        /// 
+        /// If the user has <see cref="ActorType.SystemAdmin"/> in their permissions,
+        /// this method returns <c>true</c> regardless of the specified actor types.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var userPermissions = new List[Permission]
+        /// {
+        ///     Permission.New(ActorType.LabelAdmin, "Labels/All", PermissionType.Write),
+        ///     Permission.New(ActorType.Reviewer, "Labels/123", PermissionType.Read)
+        /// };
+        ///
+        /// // Check if user can manage labels (requires LabelAdmin, LabelManager, or SystemAdmin)
+        /// bool canManageLabels = _permissionService.HasAnyActorType(
+        ///     userPermissions, 
+        ///     ActorType.LabelAdmin, 
+        ///     ActorType.LabelManager, 
+        ///     ActorType.SystemAdmin);
+        /// // canManageLabels will be true (has LabelAdmin)
+        /// 
+        /// // Check for unassigned actor types
+        /// bool canApprove = _permissionService.HasAnyActorType(userPermissions, ActorType.Approver);
+        /// // canApprove will be false
+        /// </code>
+        /// </example>
+        /// <seealso cref="ActorType"/>
+        /// <seealso cref="MedRecPro.Filters.RequireActorAttribute"/>
+        bool HasAnyActorType(List<Permission> permissions, params ActorType[] actorTypes);
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates that a user has one of the required roles.
+        /// </summary>
+        /// <param name="user">The user to validate.</param>
+        /// <param name="allowedRoles">The roles that are permitted (OR logic - any match returns true).</param>
+        /// <returns>
+        /// <c>true</c> if the user's role matches any of the allowed roles (case-insensitive);
+        /// otherwise, <c>false</c>. Returns <c>false</c> if the user is null or has no role.
+        /// </returns>
+        /// <remarks>
+        /// Role comparison is case-insensitive. Use constants from <see cref="MedRecPro.Models.UserRole"/>
+        /// for consistency.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Check if user is an administrator
+        /// bool isAdmin = _permissionService.ValidateUserRole(user, UserRole.Admin, UserRole.UserAdmin);
+        /// 
+        /// // Check for specific role
+        /// bool isRegularUser = _permissionService.ValidateUserRole(user, UserRole.RegularUser);
+        /// </code>
+        /// </example>
+        /// <seealso cref="MedRecPro.Models.User.UserRole"/>
+        /// <seealso cref="MedRecPro.Models.UserRole"/>
+        /// <seealso cref="MedRecPro.Filters.RequireUserRoleAttribute"/>
+        bool ValidateUserRole(User user, params string[] allowedRoles);
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets all distinct actor types present in a permissions list.
+        /// </summary>
+        /// <param name="permissions">The list of <see cref="Permission"/> objects to analyze.</param>
+        /// <returns>
+        /// A list of distinct <see cref="ActorType"/> values found in the permissions.
+        /// Returns an empty list if permissions is null or empty.
+        /// </returns>
+        /// <remarks>
+        /// Useful for displaying or logging a user's actor types, or for checking
+        /// the complete set of actor types a user has been granted.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var actorTypes = _permissionService.GetActorTypes(userPermissions);
+        /// _logger.LogInformation("User has actor types: {ActorTypes}", string.Join(", ", actorTypes));
+        /// </code>
+        /// </example>
+        /// <seealso cref="ActorType"/>
+        List<ActorType> GetActorTypes(List<Permission> permissions);
+
+        /**************************************************************/
+        /// <summary>
         /// Appends a new permission to a list, but only if an identical permission (matching Actor, Resource, Type, and MaskedPII)
         /// does not already exist in the list.
         /// </summary>
@@ -136,107 +229,31 @@ namespace MedRecPro.Service
         /// Removal is based on value equality of all <see cref="Permission"/> properties.
         /// If multiple identical permissions exist (which shouldn't happen if <see cref="Append"/> is used consistently), all will be removed.
         /// </remarks>
-        /// <example>
-        /// <code>
-        /// var p1 = Permission.New(ActorType.Aggregator, "SummaryReport/All", PermissionType.Read, true);
-        /// var p2 = Permission.New(ActorType.Clinician, "PatientRecord/123", PermissionType.Write, false);
-        /// var permissions = new List[Permission] { p1, p2 };
-        ///
-        /// var permissionToRemove = Permission.New(ActorType.Aggregator, "SummaryReport/All", PermissionType.Read, true);
-        /// permissions = _permissionService.Remove(permissions, permissionToRemove);
-        /// // permissions now only contains p2.
-        ///
-        /// permissions = _permissionService.Remove(permissions, null);
-        /// // permissions remains unchanged (still only p2).
-        /// </code>
-        /// </example>
         List<Permission> Remove(List<Permission> permissions, Permission toRemove);
 
         /**************************************************************/
         /// <summary>
-        /// Updates a permission in the list. This is typically achieved by removing any existing permission
-        /// that matches the key properties (Actor, Resource, Type, MaskedPII) of the <paramref name="updated"/> permission,
-        /// and then adding the <paramref name="updated"/> permission.
-        /// If no matching permission is found, the <paramref name="updated"/> permission is simply added.
+        /// Updates a permission in the list. If not found, adds it.
         /// </summary>
-        /// <param name="permissions">The list of <see cref="Permission"/> objects to update. If null, a new list will be initialized.</param>
-        /// <param name="updated">The <see cref="Permission"/> object containing the new values. Its properties are used to find and replace/add.</param>
-        /// <returns>The modified list of permissions. Returns the original list if <paramref name="updated"/> is null.</returns>
-        /// <remarks>
-        /// This effectively ensures that there's at most one permission for a given combination of Actor, Resource, Type, and MaskedPII,
-        /// and that its state matches the <paramref name="updated"/> permission.
-        /// If the input <paramref name="permissions"/> list is null, it will be treated as an empty list.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// var p1 = Permission.New(ActorType.UserAdmin, "User/789", PermissionType.Read, false);
-        /// var permissions = new List[Permission] { p1 };
-        ///
-        /// // Update p1 to also have Write permission (assuming Permission object doesn't have sub-properties to change, so we replace it)
-        /// var updatedP1 = Permission.New(ActorType.UserAdmin, "User/789", PermissionType.Write, false);
-        /// permissions = _permissionService.Update(permissions, updatedP1);
-        /// // permissions now contains updatedP1 (Type is Write) instead of the original p1.
-        ///
-        /// var newPermission = Permission.New(ActorType.UserAdmin, "Role/Editor", PermissionType.Assign, false);
-        /// permissions = _permissionService.Update(permissions, newPermission);
-        /// // permissions now also contains newPermission, as it didn't exist before.
-        /// </code>
-        /// </example>
+        /// <param name="permissions">The list of permissions to update.</param>
+        /// <param name="updated">The permission with updated values.</param>
+        /// <returns>The updated list of permissions.</returns>
         List<Permission> Update(List<Permission> permissions, Permission updated);
 
         /**************************************************************/
         /// <summary>
-        /// Converts a list of permissions into a dictionary, grouping them by the <see cref="Permission.Resource"/> string.
+        /// Converts the permission list to a dictionary for fast lookup by resource.
         /// </summary>
-        /// <param name="permissions">The list of <see cref="Permission"/> objects to convert. If null, an empty dictionary is returned.</param>
-        /// <returns>
-        /// A <see cref="Dictionary{TKey, TValue}"/> where the key is the resource string
-        /// (or <see cref="string.Empty"/> if <see cref="Permission.Resource"/> is null)
-        /// and the value is a <see cref="List{T}"/> of <see cref="Permission"/> objects associated with that resource.
-        /// </returns>
-        /// <remarks>
-        /// This is useful for scenarios where you need to quickly access all permissions related to a specific resource.
-        /// Permissions with a null or empty <see cref="Permission.Resource"/> will be grouped under an empty string key.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// var p1 = Permission.New(ActorType.Patient, "Record/1", PermissionType.Read);
-        /// var p2 = Permission.New(ActorType.Patient, "Record/1", PermissionType.Share);
-        /// var p3 = Permission.New(ActorType.Clinician, "Record/2", PermissionType.Write);
-        /// var permissions = new List[Permission] { p1, p2, p3 };
-        ///
-        /// var dict = _permissionService.ToDictionary(permissions);
-        /// // dict will have two keys: "Record/1" and "Record/2"
-        /// // dict["Record/1"] will be a list containing p1 and p2.
-        /// // dict["Record/2"] will be a list containing p3.
-        ///
-        /// List[Permission] record1Permissions = dict.ContainsKey("Record/1") ? dict["Record/1"] : new List[Permission]();
-        /// </code>
-        /// </example>
+        /// <param name="permissions">The list of permissions to convert.</param>
+        /// <returns>A dictionary keyed by resource string.</returns>
         Dictionary<string, List<Permission>> ToDictionary(List<Permission> permissions);
 
         /**************************************************************/
         /// <summary>
-        /// Creates a deep copy of a list of permissions.
+        /// Returns a deep copy of the permissions list.
         /// </summary>
-        /// <param name="permissions">The list of <see cref="Permission"/> objects to clone. If null, an empty list is returned.</param>
-        /// <returns>A new <see cref="List{T}"/> containing deep copies of the original <see cref="Permission"/> objects.</returns>
-        /// <remarks>
-        /// The cloning process typically involves serializing the list to JSON and then deserializing it,
-        /// ensuring that the new list and its items are completely independent of the original.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// var originalPermissions = new List[Permission] { Permission.New(ActorType.Patient, "Data/A", PermissionType.Read) };
-        /// var clonedPermissions = _permissionService.Clone(originalPermissions);
-        ///
-        /// // Modify the clone
-        /// if (clonedPermissions.Any()) { clonedPermissions[0].MaskedPII = false; }
-        ///
-        /// // Original remains unchanged
-        /// // originalPermissions[0].MaskedPII will still be true (its default or original value)
-        /// </code>
-        /// </example>
+        /// <param name="permissions">The list to clone.</param>
+        /// <returns>A new list with cloned permission objects.</returns>
         List<Permission> Clone(List<Permission> permissions);
 
         /**************************************************************/
@@ -245,17 +262,6 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="permissions">The list of <see cref="Permission"/> objects to serialize. If null, an empty JSON array "[]" is returned.</param>
         /// <returns>A JSON string representation of the list. Returns "[]" if the input list is null.</returns>
-        /// <remarks>
-        /// This method typically uses a JSON serialization library like Newtonsoft.Json.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// var permissions = new List[Permission] { Permission.New(ActorType.Patient, "Record/XYZ", PermissionType.Own) };
-        /// string json = _permissionService.ToJson(permissions);
-        /// // json might be: "[{\"Actor\":0,\"Resource\":\"Record/XYZ\",\"Type\":2,\"MaskedPII\":true}]"
-        /// // (Actual enum values depend on their definitions)
-        /// </code>
-        /// </example>
         string ToJson(List<Permission> permissions);
 
         /**************************************************************/
@@ -267,20 +273,6 @@ namespace MedRecPro.Service
         /// A <see cref="List{T}"/> of <see cref="Permission"/> objects.
         /// Returns an empty list if the JSON string is null, empty, whitespace, or represents an empty/null array.
         /// </returns>
-        /// <remarks>
-        /// This method typically uses a JSON deserialization library like Newtonsoft.Json.
-        /// It's designed to be robust against null or invalid JSON, returning an empty list in such cases.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// string json = "[{\"Actor\":0,\"Resource\":\"Record/XYZ\",\"Type\":2,\"MaskedPII\":true}]";
-        /// List[Permission] permissions = _permissionService.FromJson(json);
-        /// // permissions will contain one Permission object if deserialization is successful.
-        ///
-        /// List[Permission] emptyPermissions = _permissionService.FromJson(null);
-        /// // emptyPermissions will be an empty list.
-        /// </code>
-        /// </example>
         List<Permission> FromJson(string json);
 
         /**************************************************************/
@@ -289,25 +281,6 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="permissions">The list of <see cref="Permission"/> objects to encrypt.</param>
         /// <returns>An encrypted string representing the permissions list.</returns>
-        /// <remarks>
-        /// The encryption mechanism (e.g., algorithm, key) is determined by the service's implementation
-        /// and its configuration (e.g., injected `StringCipher` and encryption key).
-        /// This method will throw an exception if encryption fails (e.g., due to configuration issues or internal errors).
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// var permissionsToStore = new List[Permission] { Permission.New(ActorType.System, "Config", PermissionType.Manage) };
-        /// try
-        /// {
-        ///     string encryptedData = _permissionService.Encrypt(permissionsToStore);
-        ///     // Store encryptedData securely
-        /// }
-        /// catch (Exception ex)
-        /// {
-        ///     // Log encryption error
-        /// }
-        /// </code>
-        /// </example>
         string Encrypt(List<Permission> permissions);
 
         /**************************************************************/
@@ -321,27 +294,6 @@ namespace MedRecPro.Service
         /// This parameter is passed uninitialized.
         /// </param>
         /// <returns><c>true</c> if decryption and deserialization were successful; otherwise, <c>false</c>.</returns>
-        /// <remarks>
-        /// This method is preferred over <see cref="Decrypt"/> when you want to handle decryption failures gracefully
-        /// without exceptions. It internally catches exceptions that might occur during decryption or deserialization.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// string encryptedDataFromStorage = "some_encrypted_string_here";
-        /// List[Permission] decryptedPermissions;
-        ///
-        /// if (_permissionService.TryDecrypt(encryptedDataFromStorage, out decryptedPermissions))
-        /// {
-        ///     // Use decryptedPermissions
-        ///     if (decryptedPermissions.Any()) { /* ... */ }
-        /// }
-        /// else
-        /// {
-        ///     // Handle decryption failure (e.g., log, use default permissions)
-        ///     _logger.LogWarning("Failed to decrypt permissions.");
-        /// }
-        /// </code>
-        /// </example>
         bool TryDecrypt(string encrypted, out List<Permission> result);
 
         /**************************************************************/
@@ -350,26 +302,6 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="encrypted">The encrypted string to decrypt.</param>
         /// <returns>A <see cref="List{T}"/> of <see cref="Permission"/> objects if successful.</returns>
-        /// <remarks>
-        /// This method will throw an exception if decryption or deserialization fails (e.g., invalid key, corrupted data, invalid JSON).
-        /// If robust error handling is required without exceptions, use <see cref="TryDecrypt"/> instead.
-        /// The decryption mechanism is determined by the service's implementation and configuration.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// string validEncryptedData = "previously_encrypted_valid_string";
-        /// try
-        /// {
-        ///     List[Permission] permissions = _permissionService.Decrypt(validEncryptedData);
-        ///     // Use permissions
-        /// }
-        /// catch (Exception ex)
-        /// {
-        ///     // Log decryption/deserialization error
-        ///     _logger.LogError(ex, "Decryption failed.");
-        /// }
-        /// </code>
-        /// </example>
         List<Permission> Decrypt(string encrypted);
     }
 }

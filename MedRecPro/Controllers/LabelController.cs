@@ -1,6 +1,7 @@
 ﻿using MedRecPro.Controllers;
 using MedRecPro.Data;
 using MedRecPro.DataAccess; // From LabelDataAccess.cs (Repository)
+using MedRecPro.Filters;
 using MedRecPro.Helpers;   // From DtoTransformer.cs (DtoTransformer, StringCipher)
 using MedRecPro.Models; // From LabelClasses.cs
 using MedRecPro.Models.Extensions;
@@ -862,6 +863,7 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
 
         [HttpGet("section/{menuSelection}")]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 10)]
         [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]

@@ -1,12 +1,13 @@
-
+﻿
 using Azure;
 using Azure.Identity;
+using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Service;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Configuration;
+using static MedRecPro.Models.UserRole;
 using System.Net;
 
 
@@ -29,39 +30,75 @@ namespace MedRecPro.Controllers
         private readonly ILogger<SettingsController> _logger;
         private readonly IMemoryCache _cache;
         private readonly AzureSqlMetricsService _metricsService;
+        private readonly AzureAppTokenProvider _appTokenProvider;
 
         #endregion
 
         #region constructor
         /**************************************************************/
         /// <summary>
-        /// Initializes a new instance of the SettingsController class.
+        /// Tests the AzureAppTokenProvider credential configuration.
         /// </summary>
-        /// <param name="configuration">Application configuration provider.</param>
-        /// <param name="logger">Logger instance for this controller.</param>
-        /// <param name="sqlMetricsService">Service for querying Azure SQL Database metrics.</param>
-        /// <param name="cache">Memory cache for storing temporary data.</param>
-        /// <exception cref="ArgumentNullException">Thrown when any parameter is null.</exception>
-        /// <seealso cref="IConfiguration"/>
-        /// <seealso cref="ILogger{TCategoryName}"/>
-        /// <seealso cref="AzureSqlMetricsService"/>
-        /// <seealso cref="IMemoryCache"/>
+        /// <returns>
+        /// An OK result if the credential is working, or error details if it fails.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint tests the <see cref="DefaultAzureCredential"/>-based authentication:
+        /// 
+        /// * **In Azure:** Tests managed identity authentication
+        /// * **Locally:** Tests Visual Studio or Azure CLI credential
+        /// 
+        /// Use this endpoint to verify credential configuration before enabling
+        /// the background monitoring service.
+        /// 
+        /// **Security Note:** Consider removing or securing this endpoint in production.
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/test/appcredential
+        /// 
+        /// **Response (200 OK):**
+        /// ```json
+        /// {
+        ///   "success": true,
+        ///   "environment": "Azure App Service",
+        ///   "tokenAcquired": true,
+        ///   "tokenExpiresOn": "2024-01-15T12:00:00Z",
+        ///   "message": "DefaultAzureCredential is working correctly"
+        /// }
+        /// ```
+        /// 
+        /// **Response (500 Error):**
+        /// ```json
+        /// {
+        ///   "success": false,
+        ///   "environment": "Local Development",
+        ///   "error": "No credential available...",
+        ///   "troubleshooting": {
+        ///     "azure": "Ensure managed identity is enabled on App Service",
+        ///     "local": "Run 'az login' or sign in to Visual Studio Azure account"
+        ///   }
+        /// }
+        /// ```
+        /// </example>
         public SettingsController(
             IConfiguration configuration,
             ILogger<SettingsController> logger,
             AzureSqlMetricsService sqlMetricsService,
-            IMemoryCache cache)
+            IMemoryCache cache,
+            AzureAppTokenProvider appTokenProvider)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _metricsService = sqlMetricsService ?? throw new ArgumentNullException(nameof(sqlMetricsService));
+            _appTokenProvider = appTokenProvider ?? throw new ArgumentNullException(nameof(appTokenProvider));
         }
 
         #endregion
 
         #region public methods
 
+      
         /**************************************************************/
         /// <summary>
         /// Gets the current demo mode status and configuration.
@@ -233,6 +270,105 @@ namespace MedRecPro.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Gets database usage monitoring and throttling configuration settings.
+        /// </summary>
+        /// <returns>
+        /// An OK result containing database limit thresholds and monitoring configuration.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint exposes the current database usage monitoring configuration,
+        /// including throttle level thresholds and cost limit settings. Clients can use
+        /// this information to understand current throttling behavior and display
+        /// appropriate warnings to users when approaching usage limits.
+        /// 
+        /// **Throttle Levels:**
+        /// - **None**: No throttling applied (below Warning threshold)
+        /// - **Warning**: Consider reducing non-essential operations
+        /// - **Moderate**: Rate-limit non-critical operations
+        /// - **Aggressive**: Only essential operations proceed without delay
+        /// - **Critical**: Block all non-essential operations
+        /// - **CostLimit**: Block all except critical operations
+        /// 
+        /// **Cost Calculation:**
+        /// Each 10% overage beyond 100% costs approximately $1.45/month.
+        /// Formula: Max cost = (MaxMonthlyCostPercent - 100) × 1000 × $0.000145
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/database-limits
+        /// Response:
+        /// {
+        ///   "enabled": true,
+        ///   "pollingIntervalHours": 2,
+        ///   "initialDelaySeconds": 60,
+        ///   "maxConsecutiveFailures": 5,
+        ///   "thresholds": {
+        ///     "warning": 70,
+        ///     "moderate": 80,
+        ///     "aggressive": 90,
+        ///     "critical": 95
+        ///   },
+        ///   "costLimits": {
+        ///     "maxMonthlyCostPercent": 500,
+        ///     "estimatedMaxOverageCost": 58.00
+        ///   }
+        /// }
+        /// </example>
+        /// <seealso cref="GetFeatures"/>
+        [HttpGet("database-limits")]
+        public IActionResult GetDatabaseLimits()
+        {
+            #region implementation
+            try
+            {
+                var monitorSection = _configuration.GetSection("DatabaseUsageMonitor");
+
+                // Check if the section exists
+                var sectionExists = monitorSection.Exists();
+
+                // Read threshold values with defaults matching the configuration documentation
+                var warningThreshold = monitorSection.GetValue<int>("WarningThreshold", 70);
+                var moderateThreshold = monitorSection.GetValue<int>("ModerateThreshold", 80);
+                var aggressiveThreshold = monitorSection.GetValue<int>("AggressiveThreshold", 90);
+                var criticalThreshold = monitorSection.GetValue<int>("CriticalThreshold", 95);
+                var maxMonthlyCostPercent = monitorSection.GetValue<int>("MaxMonthlyCostPercent", 110);
+
+                // Calculate estimated max overage cost based on the formula:
+                // Max cost = (MaxMonthlyCostPercent - 100) × 1000 × $0.000145
+                var estimatedMaxOverageCost = (Math.Max(0, (maxMonthlyCostPercent - 100)) * 1000 * 0.000145m).ToString("C2");
+
+                var response = new
+                {
+                    enabled = monitorSection.GetValue<bool>("Enabled", true),
+                    pollingIntervalHours = monitorSection.GetValue<double>("PollingIntervalHours", 2.0),
+                    initialDelaySeconds = monitorSection.GetValue<int>("InitialDelaySeconds", 60),
+                    maxConsecutiveFailures = monitorSection.GetValue<int>("MaxConsecutiveFailures", 5),
+                    thresholds = new
+                    {
+                        warning = warningThreshold,
+                        moderate = moderateThreshold,
+                        aggressive = aggressiveThreshold,
+                        critical = criticalThreshold
+                    },
+                    costLimits = new
+                    {
+                        maxMonthlyCostPercent = maxMonthlyCostPercent,
+                        estimatedMaxOverageCost = estimatedMaxOverageCost
+                    },
+                    configured = sectionExists
+                };
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving database limit settings");
+                return StatusCode(500, new { error = "Error retrieving database limits" });
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets current database vCore usage, remaining free-tier quota, and cost
         /// projections for the MedRecPro Azure SQL database.
         /// </summary>
@@ -274,11 +410,13 @@ namespace MedRecPro.Controllers
         ///
         /// **Possible HTTP Status Codes**
         /// 
-        /// - **200 OK** � Metrics retrieved successfully.
-        /// - **400 Bad Request** � Configuration or usage error (for example, missing or invalid Azure resource configuration).
-        /// - **401 Unauthorized** � User is not authenticated or Azure authentication failed.
-        /// - **403 Forbidden** � Authenticated user lacks rights (e.g. missing Monitoring Reader/Contributor permissions on the Azure SQL resource).
-        /// - **500 Internal Server Error** � Unexpected error while querying Azure Monitor or processing the results.
+        /// - **200 OK** – Metrics retrieved successfully.
+        /// - **400 Bad Request** – Configuration or usage error (for example, missing or invalid Azure resource configuration).
+        /// - **401 Unauthorized** – User is not authenticated or Azure authentication failed.
+        /// - **403 Forbidden** – Authenticated user lacks rights (e.g. missing Monitoring Reader/Contributor permissions on the Azure SQL resource).
+        /// - **500 Internal Server Error** – Unexpected error while querying Azure Monitor or processing the results.
+        /// 
+        /// **Security Note:** Requires authentication and Adminstrative role membership
         /// </remarks>
         /// <example>
         /// Sample success payload:
@@ -304,8 +442,9 @@ namespace MedRecPro.Controllers
         /// </example>
         /// <seealso cref="AzureSqlMetricsService"/>
         /// <seealso cref="AzureManagementTokenProvider"/>
-        [HttpGet("metrics/database")]
+        [HttpGet("metrics/database-cost")]
         [Authorize]
+        [RequireUserRole(Admin)] // Using UserRole constants
         [Produces("application/json")]
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
@@ -392,6 +531,238 @@ namespace MedRecPro.Controllers
 
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tests the AzureAppTokenProvider credential configuration.
+        /// </summary>
+        /// <returns>
+        /// An OK result if the credential is working, or error details if it fails.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint tests the <see cref="DefaultAzureCredential"/>-based authentication:
+        /// 
+        /// * **In Azure:** Tests managed identity authentication
+        /// * **Locally:** Tests Visual Studio or Azure CLI credential
+        /// 
+        /// Use this endpoint to verify credential configuration before enabling
+        /// the background monitoring service.
+        /// 
+        /// **Security Note:** Requires authentication and Adminstrative role membership
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/test/appcredential
+        /// 
+        /// **Response (200 OK):**
+        /// ```json
+        /// {
+        ///   "success": true,
+        ///   "environment": "Azure App Service",
+        ///   "tokenAcquired": true,
+        ///   "tokenExpiresOn": "2024-01-15T12:00:00Z",
+        ///   "message": "DefaultAzureCredential is working correctly"
+        /// }
+        /// ```
+        /// 
+        /// **Response (500 Error):**
+        /// ```json
+        /// {
+        ///   "success": false,
+        ///   "environment": "Local Development",
+        ///   "error": "No credential available...",
+        ///   "troubleshooting": {
+        ///     "azure": "Ensure managed identity is enabled on App Service",
+        ///     "local": "Run 'az login' or sign in to Visual Studio Azure account"
+        ///   }
+        /// }
+        /// ```
+        /// </example>
+        /// <seealso cref="RequireUserRoleAttribute"/>
+        /// <seealso cref="MedRecPro.Models.UserRole"/>
+        /// <seealso cref="AzureAppTokenProvider"/>
+        /// <seealso cref="DefaultAzureCredential"/>dotnet list package | grep Azure.Identity
+        [HttpGet("test/app-credential")]
+        [Authorize]
+        [RequireUserRole(Admin)] // Using UserRole constants
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> TestAppCredential()
+        {
+            #region implementation
+
+            try
+            {
+                // Test the credential
+                var token = await _appTokenProvider.GetAccessTokenWithMetadataAsync();
+                var environment = _appTokenProvider.GetEnvironment();
+
+                _logger.LogInformation(
+                    "AzureAppTokenProvider test succeeded. Environment: {Environment}, ExpiresOn: {ExpiresOn}",
+                    environment,
+                    token.ExpiresOn);
+
+                return Ok(new
+                {
+                    Success = true,
+                    Environment = environment,
+                    TokenAcquired = true,
+                    TokenExpiresOn = token.ExpiresOn,
+                    TokenLength = token.Token.Length,
+                    Message = "DefaultAzureCredential is working correctly"
+                });
+            }
+            catch (Azure.Identity.AuthenticationFailedException ex)
+            {
+                var environment = _appTokenProvider.GetEnvironment();
+
+                _logger.LogError(
+                    ex,
+                    "AzureAppTokenProvider test failed in {Environment}",
+                    environment);
+
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    Success = false,
+                    Environment = environment,
+                    Error = ex.Message,
+                    InnerError = ex.InnerException?.Message,
+                    Troubleshooting = new
+                    {
+                        Azure = "Ensure managed identity is enabled on App Service and has 'Monitoring Reader' role on the SQL Database",
+                        Local = "Run 'az login' in terminal, or sign in to Visual Studio (Tools → Options → Azure Service Authentication)"
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                var environment = _appTokenProvider.GetEnvironment();
+
+                _logger.LogError(
+                    ex,
+                    "Unexpected error testing AzureAppTokenProvider in {Environment}",
+                    environment);
+
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    Success = false,
+                    Environment = environment,
+                    Error = ex.Message,
+                    Type = ex.GetType().Name
+                });
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tests the full metrics retrieval pipeline using DefaultAzureCredential.
+        /// </summary>
+        /// <returns>
+        /// An OK result with current metrics if successful, or error details if it fails.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint performs a complete end-to-end test:
+        /// 
+        /// 1. Acquires token using <see cref="AzureAppTokenProvider"/>
+        /// 2. Queries Azure Monitor for SQL Database metrics
+        /// 3. Returns current free tier usage
+        /// 
+        /// Unlike <see cref="TestAppCredential"/>, this tests the entire pipeline
+        /// including the Monitoring Reader role assignment.
+        /// 
+        /// **Security Note:** Requires authentication and Adminstrative role membership
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/test/app-metrics-pipeline
+        /// 
+        /// **Response (200 OK):**
+        /// ```json
+        /// {
+        ///   "success": true,
+        ///   "environment": "Azure App Service",
+        ///   "metrics": {
+        ///     "remainingVCoreSeconds": 85000,
+        ///     "percentUsed": 15.0
+        ///   }
+        /// }
+        /// ```
+        /// </example>
+        /// <seealso cref="AzureAppTokenProvider"/>
+        /// <seealso cref="AzureSqlMetricsService"/>
+        [HttpGet("test/app-metrics-pipeline")]
+        [Authorize]
+        [RequireUserRole(Admin)] // Using UserRole constants
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> TestAppMetricsPipeline()
+        {
+            #region implementation
+
+            var environment = _appTokenProvider.GetEnvironment();
+            var steps = new List<string>();
+
+            try
+            {
+                // Step 1: Test credential
+                steps.Add("Acquiring token...");
+                var token = await _appTokenProvider.GetAccessTokenWithMetadataAsync();
+                steps.Add($"Token acquired (expires: {token.ExpiresOn})");
+
+                // Step 2: Query metrics using existing service
+                steps.Add("Querying Azure Monitor metrics...");
+                var (used, remaining, percentUsed) = await _metricsService.GetFreeTierStatusAsync();
+                steps.Add($"Metrics retrieved successfully");
+
+                _logger.LogInformation(
+                    "Metrics pipeline test succeeded. Environment: {Environment}, Used: {Used:N0}, Remaining: {Remaining:N0}",
+                    environment,
+                    used,
+                    remaining);
+
+                return Ok(new
+                {
+                    Success = true,
+                    Environment = environment,
+                    Steps = steps,
+                    Metrics = new
+                    {
+                        UsedVCoreSeconds = Math.Round(used, 2),
+                        RemainingVCoreSeconds = Math.Round(remaining, 2),
+                        PercentUsed = Math.Round(percentUsed, 2)
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                steps.Add($"FAILED: {ex.Message}");
+
+                _logger.LogError(
+                    ex,
+                    "Metrics pipeline test failed at step {StepCount}. Environment: {Environment}",
+                    steps.Count,
+                    environment);
+
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    Success = false,
+                    Environment = environment,
+                    Steps = steps,
+                    Error = ex.Message,
+                    InnerError = ex.InnerException?.Message,
+                    Type = ex.GetType().Name
+                });
+            }
+
+            #endregion
+        }
+
 
         /**************************************************************/
         /// <summary>

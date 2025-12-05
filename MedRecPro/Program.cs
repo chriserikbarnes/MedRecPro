@@ -121,9 +121,13 @@ builder.Services.AddScoped<UserDataAccess>();
 
 builder.Services.AddMemoryCache();
 
+builder.Services.AddSingleton<AzureAppTokenProvider>();
+
 builder.Services.AddSingleton<AzureManagementTokenProvider>();
 
 builder.Services.AddScoped<AzureSqlMetricsService>();
+
+builder.Services.AddDatabaseUsageMonitoring();
 
 // Configure ClaudeApiService with HttpClient and inject settings
 builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>((serviceProvider, client) =>
@@ -314,7 +318,13 @@ builder.Services.Configure<JsonOptions>(options =>
 #endregion
 
 #region Newtonsoft Options
-builder.Services.AddControllers()
+builder.Services.AddControllers(options =>
+{
+    // Register the authorization exception filter globally
+    // This catches AuthorizationException, UserRoleAuthorizationException, 
+    // and ActorAuthorizationException thrown by the authorization filters
+    options.Filters.Add<MedRecPro.Filters.AuthorizationExceptionFilter>();
+})
 .AddNewtonsoftJson(options =>
 {
     // Ignore null values
@@ -335,6 +345,10 @@ builder.Services.AddControllers()
         options.SerializerSettings.ContractResolver = new ConfigurableIgnoreEmptyContractHelper(
             ignoreEmptyCollections: false,
             ignoreEmptyObjects: false);
+})
+.AddJsonOptions(options =>
+{   
+    options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
 });
 #endregion
 

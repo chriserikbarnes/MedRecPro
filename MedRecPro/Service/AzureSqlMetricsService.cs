@@ -49,6 +49,12 @@ public class AzureSqlMetricsService
     private readonly AzureManagementTokenProvider _tokenProvider;
     private readonly HttpClient _httpClient;
 
+    private readonly double _warningThreshold;
+    private readonly double _moderateThreshold;
+    private readonly double _aggressiveThreshold;
+    private readonly double _criticalThreshold;
+    private readonly double _maxMonthlyCostPercent;
+
     private const double FREE_TIER_MONTHLY_LIMIT = Const.FREE_TIER_MONTHLY_LIMIT;
     private const string FREE_AMOUNT_CONSUMED_METRIC = Const.FREE_AMOUNT_CONSUMED_METRIC;
     private const string FREE_AMOUNT_REMAINING_METRIC = Const.FREE_AMOUNT_REMAINING_METRIC;
@@ -117,6 +123,15 @@ public class AzureSqlMetricsService
         var credential = new AppOnlyTokenCredential(tokenProvider);
 
         _metricsClient = new MetricsClient(endpoint, credential);
+
+        // Load configurable thresholds from DatabaseUsageMonitor section
+        var monitorSection = configuration.GetSection("DatabaseUsageMonitor");
+
+        _warningThreshold = monitorSection.GetValue("WarningThreshold", 70.0);
+        _moderateThreshold = monitorSection.GetValue("ModerateThreshold", 80.0);
+        _aggressiveThreshold = monitorSection.GetValue("AggressiveThreshold", 90.0);
+        _criticalThreshold = monitorSection.GetValue("CriticalThreshold", 95.0);
+        _maxMonthlyCostPercent = monitorSection.GetValue("MaxMonthlyCostPercent", 110.0);
 
         #endregion
     }
@@ -622,49 +637,90 @@ public class AzureSqlMetricsService
     /// <summary>
     /// Determines if throttling should be applied based on current budget consumption.
     /// </summary>
-    /// <param name="aggressiveThreshold">Percentage threshold for aggressive throttling (default: 90%).</param>
-    /// <param name="warningThreshold">Percentage threshold for warning state (default: 80%).</param>
     /// <returns>
     /// A tuple containing:
-    /// - shouldThrottle: True if throttling should be applied
-    /// - throttleLevel: "None", "Warning", or "Aggressive"
+    /// - shouldThrottle: True if throttling should be applied (Warning level or above)
+    /// - throttleLevel: The current <see cref="ThrottleLevel"/> based on configured thresholds
     /// - percentUsed: Current percentage of free tier consumed
     /// </returns>
     /// <remarks>
-    /// Throttle levels:
-    /// - None: Below warning threshold, no action needed
-    /// - Warning: 80-90% used, consider rate limiting expensive operations
-    /// - Aggressive: Above 90% used, apply strict rate limits
+    /// Throttle levels are determined by configurable thresholds in `appsettings.json`:
+    /// 
+    /// ```json
+    /// {
+    ///   "DatabaseUsageMonitor": {
+    ///     "WarningThreshold": 70,
+    ///     "ModerateThreshold": 80,
+    ///     "AggressiveThreshold": 90,
+    ///     "CriticalThreshold": 95,
+    ///     "MaxMonthlyCostPercent": 110
+    ///   }
+    /// }
+    /// ```
+    /// 
+    /// | Level | Default Threshold | Recommended Action |
+    /// |-------|-------------------|-------------------|
+    /// | None | &lt; 70% | Normal operations |
+    /// | Warning | 70-80% | Consider reducing non-essential operations |
+    /// | Moderate | 80-90% | Rate-limit non-critical operations |
+    /// | Aggressive | 90-95% | Only essential operations |
+    /// | Critical | 95-100% | Block non-critical operations |
+    /// | CostLimit | &gt; MaxMonthlyCostPercent | Block all except critical |
     /// </remarks>
     /// <example>
-    /// <code>
+    /// ```csharp
     /// var (shouldThrottle, level, percent) = await service.ShouldThrottleAsync();
     /// 
-    /// if (level == "Aggressive")
+    /// if (level == ThrottleLevel.CostLimit)
+    /// {
+    ///     // Only allow critical operations
+    /// }
+    /// else if (level >= ThrottleLevel.Aggressive)
     /// {
     ///     // Apply strict rate limiting
     /// }
-    /// </code>
+    /// ```
     /// </example>
-    public async Task<(bool shouldThrottle, string throttleLevel, double percentUsed)> ShouldThrottleAsync(
-        double aggressiveThreshold = 90.0,
-        double warningThreshold = 80.0)
+    /// <seealso cref="ThrottleLevel"/>
+    /// <seealso cref="GetFreeTierStatusAsync"/>
+    public async Task<(bool shouldThrottle, ThrottleLevel throttleLevel, double percentUsed)> ShouldThrottleAsync()
     {
         #region implementation
 
         var (_, _, percentUsed) = await GetFreeTierStatusAsync();
 
-        if (percentUsed >= aggressiveThreshold)
+        // Determine throttle level based on configured thresholds
+        ThrottleLevel level;
+
+        if (percentUsed >= _maxMonthlyCostPercent)
         {
-            return (true, "Aggressive", percentUsed);
+            level = ThrottleLevel.CostLimit;
+        }
+        else if (percentUsed >= _criticalThreshold)
+        {
+            level = ThrottleLevel.Critical;
+        }
+        else if (percentUsed >= _aggressiveThreshold)
+        {
+            level = ThrottleLevel.Aggressive;
+        }
+        else if (percentUsed >= _moderateThreshold)
+        {
+            level = ThrottleLevel.Moderate;
+        }
+        else if (percentUsed >= _warningThreshold)
+        {
+            level = ThrottleLevel.Warning;
+        }
+        else
+        {
+            level = ThrottleLevel.None;
         }
 
-        if (percentUsed >= warningThreshold)
-        {
-            return (true, "Warning", percentUsed);
-        }
+        // Throttling is active at Warning level or above
+        var shouldThrottle = level >= ThrottleLevel.Warning;
 
-        return (false, "None", percentUsed);
+        return (shouldThrottle, level, percentUsed);
 
         #endregion
     }
