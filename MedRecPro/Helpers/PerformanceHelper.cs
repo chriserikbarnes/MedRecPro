@@ -1,5 +1,7 @@
 ﻿
+using Newtonsoft.Json;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.Caching;
 
@@ -128,7 +130,7 @@ namespace MedRecPro.Helpers
 
         /******************************************************/
         /// <summary>
-        /// Caches an object for the passed duration in hours. The key could be created
+        /// Caches an object for the passed duration in HOURS. The key could be created
         /// from the concatenation of the calling method and its params
         /// 
         /// e.g. String.Concat("GetEmployeeDiscipline", 
@@ -705,6 +707,88 @@ namespace MedRecPro.Helpers
         public static T? GetCache<T>(string key) =>
             GetCache(key) == null
             ? default : (T?)GetCache(key);
+
+        /******************************************************/
+        /// <summary>
+        /// Retrieves a cached JSON string by key and deserializes it to the specified type.
+        /// This method provides a convenient wrapper for cache retrieval with JSON deserialization,
+        /// handling validation and error cases gracefully.
+        /// </summary>
+        /// <typeparam name="T">The type to deserialize the cached JSON string into.</typeparam>
+        /// <param name="key">The cache key used to retrieve the stored JSON string.</param>
+        /// <returns>
+        /// The deserialized object of type <typeparamref name="T"/> if found and successfully 
+        /// deserialized; otherwise, the default value for <typeparamref name="T"/>.
+        /// </returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the <paramref name="key"/> is null, empty, or whitespace.
+        /// </exception>
+        /// <remarks>
+        /// This method first validates the key, then attempts to retrieve and deserialize
+        /// the cached value. Deserialization errors are logged but do not throw exceptions,
+        /// returning default instead to allow graceful degradation.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Generate a cache key for the operation
+        /// string cacheKey = $"GetCompleteLabels_{userId}".GetSHA1HashString();
+        /// 
+        /// // Attempt to retrieve and deserialize cached documents
+        /// var cachedDocuments = PerformanceHelper.GetCachedJson&lt;List&lt;DocumentDto&gt;&gt;(cacheKey);
+        /// 
+        /// if (cachedDocuments != null)
+        /// {
+        ///     return cachedDocuments;
+        /// }
+        /// </code>
+        /// </example>
+        /// <seealso cref="GetCache(string)"/>
+        /// <seealso cref="GetCache{T}(string)"/>
+        /// <seealso cref="SetCache(string, object)"/>
+        public static T? GetCachedJson<T>(string key)
+        {
+            #region implementation
+
+            // Validate that the key is not null, empty, or whitespace
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                throw new InvalidOperationException($"Failed to generate cache key for {nameof(GetCachedJson)}.");
+            }
+
+            // Attempt to retrieve the cached string value
+            string? cachedResult = (string?)GetCache(key);
+
+#if DEBUG
+            var json = @"{""DocumentGUID"":""c66c2034-75c9-4d2c-ad86-725e59af45eb""}";
+            var result = JsonConvert.DeserializeObject<MedRecPro.Models.Label.Document>(json);
+            Debug.WriteLine($"DocumentGUID: {result?.DocumentGUID}");
+#endif
+
+            // Check if a valid cached string exists
+            if (!string.IsNullOrWhiteSpace(cachedResult) && cachedResult.Length > 0)
+            {
+                try
+                {
+                    // Deserialize the JSON string to the specified type
+                    var deserialized = JsonConvert.DeserializeObject<T>(cachedResult);
+
+                    if (deserialized != null)
+                    {
+                        return deserialized;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log the deserialization error but allow graceful fallback to default
+                    ErrorHelper.AddErrorMsg($"PerformanceHelper.GetCachedJson: Error deserializing cached result for key '{key}'. Exception: {ex}");
+                }
+            }
+
+            // Return default if cache miss or deserialization failed
+            return default;
+
+            #endregion
+        }
 
         /******************************************************/
         /// <summary>

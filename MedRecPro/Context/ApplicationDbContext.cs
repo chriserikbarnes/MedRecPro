@@ -1,4 +1,5 @@
 ﻿using MedRecPro.DataAccess;
+using MedRecPro.Filters;
 using MedRecPro.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -18,6 +19,7 @@ namespace MedRecPro.Data
     /// </summary>
     public class ApplicationDbContext : IdentityDbContext<User, IdentityRole<long>, long, IdentityUserClaim<long>, IdentityUserRole<long>, IdentityUserLogin<long>, IdentityRoleClaim<long>, IdentityUserToken<long>>
     {
+        /**************************************************************/
         /// <summary>
         /// Initializes a new instance of the <see cref="ApplicationDbContext"/> class using the specified options.
         /// </summary>
@@ -27,6 +29,7 @@ namespace MedRecPro.Data
         {
         }
 
+        /**************************************************************/
         /// <summary>
         /// Gets or sets the DbSet for MedRecPro Users in the application.
         /// ASP.NET Core Identity will use `base.Users` for IdentityUser operations.
@@ -39,10 +42,12 @@ namespace MedRecPro.Data
 
         public DbSet<SplData> SplData { get; set; }
 
+        /**************************************************************/
         /// <summary>
         /// Configures the model for the database context.
         /// </summary>
         /// <param name="builder">The model builder used to configure the database schema.</param>
+        [DatabaseLimit(OperationCriticality.Critical, Wait = 10)]
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder); // This is crucial for Identity tables to be configured.

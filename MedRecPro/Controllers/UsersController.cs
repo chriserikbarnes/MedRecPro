@@ -1,5 +1,6 @@
 ﻿
 using MedRecPro.DataAccess;
+using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service;
@@ -386,6 +387,8 @@ namespace MedRecPro.Controllers
         /// <seealso cref="ActivityLog"/>
         /// <seealso cref="ActivityLogDto"/>
         /// <seealso cref="GetUserActivityByDateRange"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [ProducesResponseType(typeof(List<ActivityLogDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -539,6 +542,8 @@ namespace MedRecPro.Controllers
         /// <seealso cref="ActivityLog"/>
         /// <seealso cref="ActivityLogDto"/>
         /// <seealso cref="GetUserActivity"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [ProducesResponseType(typeof(List<ActivityLogDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -710,6 +715,8 @@ namespace MedRecPro.Controllers
         /// <seealso cref="ActivityLog"/>
         /// <seealso cref="EndpointStatisticsResponse"/>
         /// <seealso cref="IActivityLogService.GetActivityByEndpointAsync"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [ProducesResponseType(typeof(EndpointStatisticsResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -900,6 +907,7 @@ namespace MedRecPro.Controllers
         /// <response code="400">If the encryptedUserId is invalid or malformed.</response>
         /// <response code="404">If the user with the specified ID is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [HttpGet("{encryptedUserId}")]
         [ProducesResponseType(typeof(UserManagementDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -962,6 +970,8 @@ namespace MedRecPro.Controllers
         /// <response code="200">Returns a list of users.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [ProducesResponseType(typeof(IEnumerable<UserManagementDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1020,6 +1030,8 @@ namespace MedRecPro.Controllers
         /// <response code="400">If the email is not provided.</response>
         /// <response code="404">If the user with the specified email is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("byemail")]
         [ProducesResponseType(typeof(UserManagementDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1075,6 +1087,8 @@ namespace MedRecPro.Controllers
         /// <response code="200">Returns the requested user.</response>
         /// <response code="404">If the user with the specified email is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("me")]
         [ProducesResponseType(typeof(UserFacingDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -1157,6 +1171,7 @@ namespace MedRecPro.Controllers
         /// <response code="201">User created successfully. Returns the encrypted User ID in the response body or Location header.</response>
         /// <response code="400">If the request is invalid (e.g., missing fields, passwords don't match, email already exists).</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPost("signup")]
         [ProducesResponseType(typeof(string), StatusCodes.Status201Created)] // Assuming encrypted ID is returned
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1222,6 +1237,7 @@ namespace MedRecPro.Controllers
         /// <response code="400">If the request is invalid (e.g., missing email or password).</response>
         /// <response code="401">Authentication failed (e.g., invalid credentials, account locked).</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPost("authenticate")]
         [ProducesResponseType(typeof(UserFacingDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1400,7 +1416,6 @@ namespace MedRecPro.Controllers
         // For this example, we'll assume 'User' can be used, and UserDataAccess.UpdateProfileAsync handles field mapping.
         // public class UserProfileUpdateDto { /* relevant fields like DisplayName, PhoneNumber, Timezone, Locale */ }
 
-
         /**************************************************************/
         /// <summary>
         /// Updates a user's own profile information.
@@ -1429,6 +1444,7 @@ namespace MedRecPro.Controllers
         /// <response code="401">If the user is not authorized to update this profile.</response>
         /// <response code="404">If the user to update is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPut("{encryptedUserId}/profile")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1518,6 +1534,7 @@ namespace MedRecPro.Controllers
         /// <response code ="403">If the user is not authorized to delete this account (e.g., not an admin or self).</response>
         /// <response code="404">If the user to delete is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpDelete("{encryptedUserId}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1636,6 +1653,7 @@ namespace MedRecPro.Controllers
         /// <response code="401">If the current user is not authorized for this action.</response>
         /// <response code="404">If the target user is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPut("admin-update")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1720,6 +1738,7 @@ namespace MedRecPro.Controllers
         /// <response code="401">If the current user is not authorized for this action.</response>
         /// <response code="404">If the target user is not found.</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPost("rotate-password")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]

@@ -770,7 +770,7 @@ namespace MedRecPro.Api.Controllers
         ///   ]
         /// }
         /// ```
-        /// </remarks>
+        /// </remarks>       
         [HttpGet("{menuSelection}/documentation")]
         [ProducesResponseType(typeof(ClassDocumentation), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -861,9 +861,9 @@ namespace MedRecPro.Api.Controllers
         /// If pageNumber is provided for paging, it's 1-based from the client and converted to 0-based for the repository.
         /// All numeric primary keys are replaced with encrypted equivalents for security.
         /// </remarks>
-
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("section/{menuSelection}")]
-        [DatabaseLimit(OperationCriticality.Normal, Wait = 10)]
         [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -988,6 +988,8 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         /// <seealso cref="Label.Document"/>
         /// <seealso cref="Label.Document.DocumentGUID"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("single/{documentGuid}")]
         [ProducesResponseType(typeof(Dictionary<string, object?>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1058,6 +1060,8 @@ namespace MedRecPro.Api.Controllers
         /// This endpoint fetches a deep object graph for each document. The response can be large.
         /// All primary keys within the structure are encrypted for security.
         /// </remarks>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("complete/{pageNumber?}/{pageSize?}")]
         [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1169,6 +1173,8 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="Label.Document.DocumentGUID"/>
         /// <seealso cref="IComparisonService.GenerateDocumentComparisonAsync(Guid)"/>
         /// <seealso cref="GetSingleCompleteLabel(Guid)"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("comparison/analysis/{documentGuid}")]
         [ProducesResponseType(typeof(DocumentComparisonResult), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1258,6 +1264,8 @@ namespace MedRecPro.Api.Controllers
         /// The returned entity has its numeric primary key replaced with 
         /// the encrypted equivalent.
         /// </remarks>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("{menuSelection}/{encryptedId}")]
         [ProducesResponseType(typeof(Dictionary<string, object?>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1345,6 +1353,8 @@ namespace MedRecPro.Api.Controllers
         /// The response includes a Location header pointing to the newly created resource.
         /// Uses reflection to invoke CreateAsync on the appropriate repository.
         /// </remarks>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpPost("{menuSelection}")]
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1511,6 +1521,8 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="ImportOperationStatus"/>
         /// <seealso cref="SplZipImportResult"/>
         /// <seealso cref="Label"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpPost("import")]
         [Authorize]
         [ProducesResponseType(typeof(ImportOperationStatus), StatusCodes.Status202Accepted)]
@@ -1807,6 +1819,8 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="GetComparisonProgress"/>
         /// <seealso cref="ComparisonConstants"/>
         /// <seealso cref="ComparisonService"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpPost("comparison/analysis/{documentGuid}")]
         [ProducesResponseType(typeof(ComparisonOperationStatus), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1886,6 +1900,8 @@ namespace MedRecPro.Api.Controllers
         /// Logs processing time and any errors encountered during generation.
         /// </remarks>
         /// <seealso cref="SplExportService"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("generate/{documentGuid:guid}/{minify:bool}")]
         [ProducesResponseType(typeof(string), 200, "text/xml")]
         [ProducesResponseType(404)]
@@ -1977,6 +1993,8 @@ namespace MedRecPro.Api.Controllers
         /// Validates that the record exists before attempting the update operation.
         /// Uses reflection to invoke repository methods for existence check and update.
         /// </remarks>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpPut("{menuSelection}/{encryptedId}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -2176,6 +2194,8 @@ namespace MedRecPro.Api.Controllers
         /// The Repository throws KeyNotFoundException for non-existent records.
         /// Handles different exception types to provide appropriate HTTP status codes.
         /// </remarks>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpDelete("{menuSelection}/{encryptedId}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]

@@ -1,4 +1,5 @@
 ﻿using MedRecPro.Data;
+using MedRecPro.Filters;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -76,6 +77,7 @@ namespace MedRecPro.Service
         /// </code>
         /// </example>
         /// <seealso cref="ActivityLog"/>
+        [DatabaseLimit(OperationCriticality.Critical, Wait = 10)]
         public async Task LogActivityAsync(ActivityLog log)
         {
             #region Implementation

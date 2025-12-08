@@ -242,6 +242,7 @@ namespace MedRecPro.Controllers
                 var response = new
                 {
                     demoMode = _configuration.GetValue<bool>("DemoModeSettings:Enabled", false),
+                    truncateAtStart = _configuration.GetValue<bool>("DemoModeSettings:AutoTruncateOnStartup", false),
                     externalAuth = featureFlagsSection.GetValue<bool>("ExternalAuthEnabled", true),
                     importEnabled = featureFlagsSection.GetValue<bool>("SplImportEnabled", true),
                     exportEnabled = featureFlagsSection.GetValue<bool>("SplExportEnabled", true),

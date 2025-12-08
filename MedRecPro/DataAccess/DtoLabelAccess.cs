@@ -3,9 +3,11 @@ using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.Diagnostics;
 using static MedRecPro.Models.Label;
+using Cached = MedRecPro.Helpers.PerformanceHelper;
 
 namespace MedRecPro.DataAccess
 {
@@ -56,6 +58,20 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
+            string key = ($"{nameof(DtoLabelAccess)}.{nameof(BuildDocumentsAsync)}_{page}_{size}").Base64Encode();
+
+            var cached = Cached.GetCache<List<DocumentDto>>(key);
+
+            if(cached != null && page == null && size == null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} documents.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(BuildDocumentsAsync)} Cache Hit for {key} ===");
+#endif
+
+                return cached;
+            }
+
             // Build query for paginated documents
             var query = db.Set<Label.Document>().AsNoTracking();
 
@@ -68,7 +84,15 @@ namespace MedRecPro.DataAccess
             }
 
             var docs = await query.ToListAsync();
-            return await buildDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger);
+            var ret = await buildDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger);
+
+            if(ret != null)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} documents.");
+            }
+
+            return ret ?? new List<DocumentDto>();
 
             #endregion
         }
@@ -109,13 +133,34 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
+            string key = ($"{nameof(DtoLabelAccess)}.{nameof(BuildDocumentsAsync)}.{documentGuid}").Base64Encode();
+
+            var cached = Cached.GetCache<List<DocumentDto>>(key);
+
+            if(cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} documents.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(BuildDocumentsAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
             // Build query for specific document by GUID
             var docs = await db.Set<Label.Document>()
                 .AsNoTracking()
                 .Where(d => d.DocumentGUID == documentGuid)
                 .ToListAsync();
 
-            return await buildDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger);
+            var ret = await buildDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger);
+
+            if(ret != null)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} documents.");
+            }
+
+            return ret ?? new List<DocumentDto>();
 
             #endregion
         }

@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using MedRecPro.Helpers;
 using MedRecPro.Data;
 using MedRecPro.Models;
+using Cacher = MedRecPro.Helpers.PerformanceHelper;
+using Newtonsoft.Json;
 
 namespace MedRecPro.DataAccess
 {
@@ -133,7 +135,7 @@ namespace MedRecPro.DataAccess
             // Return the property (column) names of the primary key
             return primaryKey.Properties
                 .Select(p => p.GetColumnName(StoreObjectIdentifier.Table(tableName, entityType.GetSchema())))
-                .FirstOrDefault(); 
+                .FirstOrDefault();
             #endregion
         }
 
@@ -294,7 +296,7 @@ namespace MedRecPro.DataAccess
             #region implementation
             IQueryable<T> query = _dbSet;
 
-            if (pageNumber.HasValue 
+            if (pageNumber.HasValue
                 && pageSize.HasValue)
             {
                 if (pageNumber < 1) throw new ArgumentOutOfRangeException(nameof(pageNumber));
@@ -322,6 +324,15 @@ namespace MedRecPro.DataAccess
         public virtual async Task<List<DocumentDto>> GetCompleteLabelsAsync(int? pageNumber, int? pageSize)
         {
             #region implementation
+            string key = ($"{nameof(GetCompleteLabelsAsync)}_{pageNumber}_{pageSize}").Base64Encode();
+
+            var cached = Cacher.GetCachedJson<List<DocumentDto>>(key);
+
+            if (cached != null)
+            {
+                return cached;
+            }
+
             var results = await DtoLabelAccess.BuildDocumentsAsync(
                 _context,
                 getPkSecret(),
@@ -329,7 +340,12 @@ namespace MedRecPro.DataAccess
                 pageNumber,
                 pageSize);
 
-            return results;
+            if (results != null)
+            {
+                Cacher.SetCacheManageKey(key, JsonConvert.SerializeObject(results), 1.0); // Cache for 1 hour
+            }
+
+            return results ?? new List<DocumentDto>();
             #endregion
         }
 
