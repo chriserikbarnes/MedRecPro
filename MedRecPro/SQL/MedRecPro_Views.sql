@@ -1,0 +1,1678 @@
+/*******************************************************************************/
+/*                                                                             */
+/*  MedRecPro SPL Label Navigation Views                                       */
+/*  SQL Server 2012 Compatible                                                 */
+/*                                                                             */
+/*  Purpose: Creates lightweight views for navigation, cross-referencing,      */
+/*           and discovery of pharmaceutical labeling data. Optimized for      */
+/*           API consumption and AI-assisted query workflows.                  */
+/*                                                                             */
+/*  Information Flow:                                                          */
+/*    User Input -> Claude API -> API Endpoints -> Views -> Results            */
+/*    -> Claude Interpretation -> Report                                       */
+/*                                                                             */
+/*  Author: Generated for MedRecPro                                            */
+/*  Date: 2025-12-08                                                           */
+/*                                                                             */
+/*  Notes:                                                                     */
+/*    - All scripts are idempotent and safe to run multiple times             */
+/*    - Views return lightweight objects with IDs/GUIDs for navigation        */
+/*    - Designed to leverage indexes created in MedRecPro_Indexes.sql         */
+/*    - Extended properties added for documentation                            */
+/*                                                                             */
+/*******************************************************************************/
+
+SET NOCOUNT ON;
+GO
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 1: APPLICATION NUMBER NAVIGATION VIEWS                             */
+/*  Views for locating products by regulatory application number               */
+/*  (NDA, ANDA, BLA, etc.)                                                     */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_ProductsByApplicationNumber
+
+/**************************************************************/
+-- View: vw_ProductsByApplicationNumber
+-- Purpose: Locates all products sharing the same application number
+--          (e.g., NDA014526, ANDA125654, BLA103948)
+-- Usage: Find all label versions and products under a single approval
+-- Returns: Lightweight navigation object with Product and Document IDs
+-- Indexes Used: IX_ProductIdentifier_ProductID, IX_Document_DocumentGUID
+-- See also: Label.MarketingCategory, Label.Product, Label.Document
+
+IF OBJECT_ID('dbo.vw_ProductsByApplicationNumber', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ProductsByApplicationNumber;
+GO
+
+CREATE VIEW dbo.vw_ProductsByApplicationNumber
+AS
+/**************************************************************/
+-- Returns products grouped by application number for cross-referencing
+-- Enables discovery of all labels sharing the same NDA/ANDA/BLA
+/**************************************************************/
+SELECT 
+    -- Application identification
+    mc.ApplicationOrMonographIDValue AS ApplicationNumber,
+    mc.CategoryCode AS MarketingCategoryCode,
+    mc.CategoryDisplayName AS MarketingCategoryName,
+    mc.ApprovalDate,
+    
+    -- Product identification (lightweight for navigation)
+    p.ProductID,
+    p.ProductName,
+    p.FormCode AS DosageFormCode,
+    p.FormDisplayName AS DosageFormName,
+    
+    -- Document identification for full label retrieval
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID,
+    d.VersionNumber,
+    d.EffectiveTime AS LabelEffectiveDate,
+    d.Title AS DocumentTitle,
+    d.DocumentCode,
+    d.DocumentDisplayName AS DocumentType,
+    
+    -- Section path for navigation
+    s.SectionID,
+    s.SectionCode,
+    
+    -- Labeler information
+    o.OrganizationID AS LabelerOrgID,
+    o.OrganizationName AS LabelerName
+
+FROM dbo.MarketingCategory mc
+    INNER JOIN dbo.Product p ON mc.ProductID = p.ProductID
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+    LEFT JOIN dbo.DocumentAuthor da ON d.DocumentID = da.DocumentID 
+        AND da.AuthorType = 'Labeler'
+    LEFT JOIN dbo.Organization o ON da.OrganizationID = o.OrganizationID
+
+WHERE mc.ApplicationOrMonographIDValue IS NOT NULL
+GO
+
+-- Add extended property for documentation
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_ProductsByApplicationNumber') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Locates all products sharing the same regulatory application number (NDA, ANDA, BLA). Enables cross-referencing of labels under a single approval. Returns lightweight navigation objects with IDs/GUIDs.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ProductsByApplicationNumber';
+END
+GO
+
+PRINT 'Created view: vw_ProductsByApplicationNumber';
+GO
+
+--#endregion
+
+--#region vw_ApplicationNumberSummary
+
+/**************************************************************/
+-- View: vw_ApplicationNumberSummary
+-- Purpose: Aggregated summary of application numbers with counts
+-- Usage: Quick lookup to see how many products/labels exist per application
+-- Returns: Application number with product and label counts
+
+IF OBJECT_ID('dbo.vw_ApplicationNumberSummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ApplicationNumberSummary;
+GO
+
+CREATE VIEW dbo.vw_ApplicationNumberSummary
+AS
+/**************************************************************/
+-- Provides counts of products and documents per application number
+-- Useful for understanding the scope of an application
+/**************************************************************/
+SELECT 
+    mc.ApplicationOrMonographIDValue AS ApplicationNumber,
+    mc.CategoryCode AS MarketingCategoryCode,
+    mc.CategoryDisplayName AS MarketingCategoryName,
+    MIN(mc.ApprovalDate) AS EarliestApprovalDate,
+    MAX(mc.ApprovalDate) AS LatestApprovalDate,
+    COUNT(DISTINCT mc.ProductID) AS ProductCount,
+    COUNT(DISTINCT d.DocumentID) AS DocumentCount,
+    COUNT(DISTINCT d.SetGUID) AS LabelSetCount,
+    MAX(d.EffectiveTime) AS MostRecentLabelDate
+
+FROM dbo.MarketingCategory mc
+    INNER JOIN dbo.Product p ON mc.ProductID = p.ProductID
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+
+WHERE mc.ApplicationOrMonographIDValue IS NOT NULL
+
+GROUP BY 
+    mc.ApplicationOrMonographIDValue,
+    mc.CategoryCode,
+    mc.CategoryDisplayName
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_ApplicationNumberSummary') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Aggregated summary showing product and document counts per application number. Use to understand the scope of NDA/ANDA/BLA approvals.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ApplicationNumberSummary';
+END
+GO
+
+PRINT 'Created view: vw_ApplicationNumberSummary';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 2: PHARMACOLOGIC CLASS NAVIGATION VIEWS                            */
+/*  Views for locating products by pharmacologic class                         */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_ProductsByPharmacologicClass
+
+/**************************************************************/
+-- View: vw_ProductsByPharmacologicClass
+-- Purpose: Locates all products within a specific pharmacologic class
+-- Usage: Find all drugs in a therapeutic category (e.g., "Beta-Adrenergic Blockers")
+-- Returns: Lightweight navigation object with Product, Class, and Document IDs
+-- See also: Label.PharmacologicClass, Label.PharmacologicClassLink
+
+IF OBJECT_ID('dbo.vw_ProductsByPharmacologicClass', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ProductsByPharmacologicClass;
+GO
+
+CREATE VIEW dbo.vw_ProductsByPharmacologicClass
+AS
+/**************************************************************/
+-- Links products to their pharmacologic classes via active moieties
+-- Enables therapeutic category-based drug discovery
+/**************************************************************/
+SELECT 
+    -- Pharmacologic class identification
+    pc.PharmacologicClassID,
+    pc.ClassCode AS PharmClassCode,
+    pc.ClassDisplayName AS PharmClassName,
+    
+    -- Active moiety/substance linkage
+    am.ActiveMoietyID,
+    am.MoietyUNII,
+    am.MoietyName,
+    
+    -- Ingredient substance
+    ins.IngredientSubstanceID,
+    ins.UNII AS SubstanceUNII,
+    ins.SubstanceName,
+    
+    -- Product identification
+    p.ProductID,
+    p.ProductName,
+    p.FormCode AS DosageFormCode,
+    p.FormDisplayName AS DosageFormName,
+    
+    -- Document identification for full label retrieval
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID,
+    d.VersionNumber,
+    d.Title AS DocumentTitle,
+    d.EffectiveTime AS LabelEffectiveDate
+
+FROM dbo.PharmacologicClass pc
+    -- Link pharm class to active moiety substance
+    INNER JOIN dbo.PharmacologicClassLink pcl ON pc.PharmacologicClassID = pcl.PharmacologicClassID
+    INNER JOIN dbo.IngredientSubstance ams ON pcl.ActiveMoietySubstanceID = ams.IngredientSubstanceID
+    -- Link via active moiety
+    INNER JOIN dbo.ActiveMoiety am ON ams.IngredientSubstanceID = am.IngredientSubstanceID
+    -- Get the parent ingredient substance
+    INNER JOIN dbo.IngredientSubstance ins ON am.IngredientSubstanceID = ins.IngredientSubstanceID
+    -- Link to products via ingredients
+    INNER JOIN dbo.Ingredient i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
+    INNER JOIN dbo.Product p ON i.ProductID = p.ProductID
+    -- Navigate to document
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_ProductsByPharmacologicClass') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Locates products by pharmacologic/therapeutic class via active moiety linkage. Enables drug discovery by therapeutic category.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ProductsByPharmacologicClass';
+END
+GO
+
+PRINT 'Created view: vw_ProductsByPharmacologicClass';
+GO
+
+--#endregion
+
+--#region vw_PharmacologicClassHierarchy
+
+/**************************************************************/
+-- View: vw_PharmacologicClassHierarchy
+-- Purpose: Shows parent-child relationships between pharmacologic classes
+-- Usage: Navigate the therapeutic classification hierarchy
+-- Returns: Class hierarchy with names and codes
+
+IF OBJECT_ID('dbo.vw_PharmacologicClassHierarchy', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_PharmacologicClassHierarchy;
+GO
+
+CREATE VIEW dbo.vw_PharmacologicClassHierarchy
+AS
+/**************************************************************/
+-- Exposes the pharmacologic class hierarchy for navigation
+-- Enables drill-down through therapeutic categories
+/**************************************************************/
+SELECT 
+    -- Child class (more specific)
+    child.PharmacologicClassID AS ChildClassID,
+    child.ClassCode AS ChildClassCode,
+    child.ClassDisplayName AS ChildClassName,
+    
+    -- Parent class (more general)
+    parent.PharmacologicClassID AS ParentClassID,
+    parent.ClassCode AS ParentClassCode,
+    parent.ClassDisplayName AS ParentClassName,
+    
+    -- Hierarchy linkage
+    pch.PharmClassHierarchyID
+
+FROM dbo.PharmacologicClassHierarchy pch
+    INNER JOIN dbo.PharmacologicClass child ON pch.ChildPharmacologicClassID = child.PharmacologicClassID
+    INNER JOIN dbo.PharmacologicClass parent ON pch.ParentPharmacologicClassID = parent.PharmacologicClassID
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_PharmacologicClassHierarchy') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Shows parent-child relationships in the pharmacologic class hierarchy. Use for navigating therapeutic classification levels.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_PharmacologicClassHierarchy';
+END
+GO
+
+PRINT 'Created view: vw_PharmacologicClassHierarchy';
+GO
+
+--#endregion
+
+--#region vw_PharmacologicClassSummary
+
+/**************************************************************/
+-- View: vw_PharmacologicClassSummary
+-- Purpose: Summary of pharmacologic classes with product counts
+-- Usage: Discover which therapeutic classes have the most products
+-- Returns: Class info with aggregated counts
+
+IF OBJECT_ID('dbo.vw_PharmacologicClassSummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_PharmacologicClassSummary;
+GO
+
+CREATE VIEW dbo.vw_PharmacologicClassSummary
+AS
+/**************************************************************/
+-- Aggregated view of pharmacologic classes with product counts
+/**************************************************************/
+SELECT 
+    pc.PharmacologicClassID,
+    pc.ClassCode AS PharmClassCode,
+    pc.ClassDisplayName AS PharmClassName,
+    COUNT(DISTINCT pcl.ActiveMoietySubstanceID) AS LinkedSubstanceCount,
+    COUNT(DISTINCT i.ProductID) AS ProductCount,
+    COUNT(DISTINCT d.DocumentID) AS DocumentCount
+
+FROM dbo.PharmacologicClass pc
+    LEFT JOIN dbo.PharmacologicClassLink pcl ON pc.PharmacologicClassID = pcl.PharmacologicClassID
+    LEFT JOIN dbo.IngredientSubstance ins ON pcl.ActiveMoietySubstanceID = ins.IngredientSubstanceID
+    LEFT JOIN dbo.ActiveMoiety am ON ins.IngredientSubstanceID = am.IngredientSubstanceID
+    LEFT JOIN dbo.Ingredient i ON am.IngredientSubstanceID = i.IngredientSubstanceID
+    LEFT JOIN dbo.Product p ON i.ProductID = p.ProductID
+    LEFT JOIN dbo.Section s ON p.SectionID = s.SectionID
+    LEFT JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    LEFT JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+
+GROUP BY 
+    pc.PharmacologicClassID,
+    pc.ClassCode,
+    pc.ClassDisplayName
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_PharmacologicClassSummary') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Summary of pharmacologic classes with substance and product counts. Use for therapeutic category analysis.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_PharmacologicClassSummary';
+END
+GO
+
+PRINT 'Created view: vw_PharmacologicClassSummary';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 3: INGREDIENT AND SUBSTANCE NAVIGATION VIEWS                       */
+/*  Views for locating products by active ingredient, UNII, or substance       */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_ProductsByIngredient
+
+/**************************************************************/
+-- View: vw_ProductsByIngredient
+-- Purpose: Locates all products containing a specific ingredient
+-- Usage: Find drugs by active ingredient (UNII or name)
+-- Returns: Product and ingredient details with document navigation
+-- Indexes Used: IX_Ingredient_IngredientSubstanceID, IX_IngredientSubstance_UNII
+
+IF OBJECT_ID('dbo.vw_ProductsByIngredient', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ProductsByIngredient;
+GO
+
+CREATE VIEW dbo.vw_ProductsByIngredient
+AS
+/**************************************************************/
+-- Links products to their ingredients for drug composition queries
+-- Supports lookup by UNII code or substance name
+/**************************************************************/
+SELECT 
+    -- Ingredient substance identification
+    ins.IngredientSubstanceID,
+    ins.UNII,
+    ins.SubstanceName,
+    ins.OriginatingElement AS IngredientType,
+    
+    -- Ingredient details
+    i.IngredientID,
+    i.ClassCode AS IngredientClassCode,
+    i.QuantityNumerator,
+    i.QuantityNumeratorUnit,
+    i.QuantityDenominator,
+    i.DisplayName AS StrengthDisplayName,
+    i.SequenceNumber AS IngredientSequence,
+    
+    -- Active moiety (if applicable)
+    am.ActiveMoietyID,
+    am.MoietyUNII,
+    am.MoietyName,
+    
+    -- Product identification
+    p.ProductID,
+    p.ProductName,
+    p.FormCode AS DosageFormCode,
+    p.FormDisplayName AS DosageFormName,
+    
+    -- Document identification
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID,
+    d.VersionNumber,
+    d.Title AS DocumentTitle,
+    d.EffectiveTime AS LabelEffectiveDate,
+    
+    -- Labeler
+    o.OrganizationID AS LabelerOrgID,
+    o.OrganizationName AS LabelerName
+
+FROM dbo.IngredientSubstance ins
+    INNER JOIN dbo.Ingredient i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
+    INNER JOIN dbo.Product p ON i.ProductID = p.ProductID
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+    LEFT JOIN dbo.ActiveMoiety am ON ins.IngredientSubstanceID = am.IngredientSubstanceID
+    LEFT JOIN dbo.DocumentAuthor da ON d.DocumentID = da.DocumentID 
+        AND da.AuthorType = 'Labeler'
+    LEFT JOIN dbo.Organization o ON da.OrganizationID = o.OrganizationID
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_ProductsByIngredient') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Locates products by active/inactive ingredient. Supports lookup by UNII code or substance name. Includes strength and active moiety information.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ProductsByIngredient';
+END
+GO
+
+PRINT 'Created view: vw_ProductsByIngredient';
+GO
+
+--#endregion
+
+--#region vw_IngredientSummary
+
+/**************************************************************/
+-- View: vw_IngredientSummary
+-- Purpose: Summary of ingredients with product counts
+-- Usage: Discover most common ingredients across products
+-- Returns: Ingredient info with product counts
+
+IF OBJECT_ID('dbo.vw_IngredientSummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_IngredientSummary;
+GO
+
+CREATE VIEW dbo.vw_IngredientSummary
+AS
+/**************************************************************/
+-- Aggregated view of ingredients with product and document counts
+/**************************************************************/
+SELECT 
+    ins.IngredientSubstanceID,
+    ins.UNII,
+    ins.SubstanceName,
+    ins.OriginatingElement AS IngredientType,
+    COUNT(DISTINCT i.ProductID) AS ProductCount,
+    COUNT(DISTINCT d.DocumentID) AS DocumentCount,
+    COUNT(DISTINCT o.OrganizationID) AS LabelerCount
+
+FROM dbo.IngredientSubstance ins
+    LEFT JOIN dbo.Ingredient i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
+    LEFT JOIN dbo.Product p ON i.ProductID = p.ProductID
+    LEFT JOIN dbo.Section s ON p.SectionID = s.SectionID
+    LEFT JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    LEFT JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+    LEFT JOIN dbo.DocumentAuthor da ON d.DocumentID = da.DocumentID 
+        AND da.AuthorType = 'Labeler'
+    LEFT JOIN dbo.Organization o ON da.OrganizationID = o.OrganizationID
+
+GROUP BY 
+    ins.IngredientSubstanceID,
+    ins.UNII,
+    ins.SubstanceName,
+    ins.OriginatingElement
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_IngredientSummary') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Summary of ingredients with product and labeler counts. Use for ingredient prevalence analysis.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_IngredientSummary';
+END
+GO
+
+PRINT 'Created view: vw_IngredientSummary';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 4: PRODUCT IDENTIFIER NAVIGATION VIEWS                             */
+/*  Views for locating products by NDC, GTIN, or other identifiers             */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_ProductsByNDC
+
+/**************************************************************/
+-- View: vw_ProductsByNDC
+-- Purpose: Locates products by NDC (National Drug Code) or other item codes
+-- Usage: Quick lookup by NDC for pharmacy/dispensing systems
+-- Returns: Product details with all associated identifiers
+-- Indexes Used: IX_ProductIdentifier_IdentifierValue_on_IdentifierType
+
+IF OBJECT_ID('dbo.vw_ProductsByNDC', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ProductsByNDC;
+GO
+
+CREATE VIEW dbo.vw_ProductsByNDC
+AS
+/**************************************************************/
+-- Enables product lookup by NDC or other product codes
+-- Critical for pharmacy system integration
+/**************************************************************/
+SELECT 
+    -- Product identifier (NDC, GTIN, etc.)
+    pi.ProductIdentifierID,
+    pi.IdentifierValue AS ProductCode,
+    pi.IdentifierType AS CodeType,
+    pi.IdentifierSystemOID AS CodeSystemOID,
+    
+    -- Product identification
+    p.ProductID,
+    p.ProductName,
+    p.FormCode AS DosageFormCode,
+    p.FormDisplayName AS DosageFormName,
+    
+    -- Generic name
+    gm.GenericMedicineID,
+    gm.GenericName,
+    
+    -- Marketing category
+    mc.CategoryCode AS MarketingCategoryCode,
+    mc.CategoryDisplayName AS MarketingCategoryName,
+    mc.ApplicationOrMonographIDValue AS ApplicationNumber,
+    
+    -- Document identification
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID,
+    d.VersionNumber,
+    d.Title AS DocumentTitle,
+    d.EffectiveTime AS LabelEffectiveDate,
+    
+    -- Labeler
+    o.OrganizationID AS LabelerOrgID,
+    o.OrganizationName AS LabelerName
+
+FROM dbo.ProductIdentifier pi
+    INNER JOIN dbo.Product p ON pi.ProductID = p.ProductID
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+    LEFT JOIN dbo.GenericMedicine gm ON p.ProductID = gm.ProductID
+    LEFT JOIN dbo.MarketingCategory mc ON p.ProductID = mc.ProductID
+    LEFT JOIN dbo.DocumentAuthor da ON d.DocumentID = da.DocumentID 
+        AND da.AuthorType = 'Labeler'
+    LEFT JOIN dbo.Organization o ON da.OrganizationID = o.OrganizationID
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_ProductsByNDC') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Locates products by NDC, GTIN, or other product codes. Critical for pharmacy system integration and product lookup.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ProductsByNDC';
+END
+GO
+
+PRINT 'Created view: vw_ProductsByNDC';
+GO
+
+--#endregion
+
+--#region vw_PackageByNDC
+
+/**************************************************************/
+-- View: vw_PackageByNDC
+-- Purpose: Locates package configurations by NDC package code
+-- Usage: Find specific package sizes/configurations
+-- Returns: Package details with product navigation
+
+IF OBJECT_ID('dbo.vw_PackageByNDC', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_PackageByNDC;
+GO
+
+CREATE VIEW dbo.vw_PackageByNDC
+AS
+/**************************************************************/
+-- Enables package lookup by NDC package code
+-- Shows packaging hierarchy and quantities
+/**************************************************************/
+SELECT 
+    -- Package identifier
+    pki.PackageIdentifierID,
+    pki.IdentifierValue AS PackageCode,
+    pki.IdentifierType AS CodeType,
+    
+    -- Packaging level details
+    pl.PackagingLevelID,
+    pl.PackageCode AS PackageItemCode,
+    pl.PackageFormCode,
+    pl.PackageFormDisplayName AS PackageType,
+    pl.QuantityNumerator,
+    pl.QuantityNumeratorUnit,
+    
+    -- Product identification
+    p.ProductID,
+    p.ProductName,
+    
+    -- Document identification
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID
+
+FROM dbo.PackageIdentifier pki
+    INNER JOIN dbo.PackagingLevel pl ON pki.PackagingLevelID = pl.PackagingLevelID
+    INNER JOIN dbo.Product p ON pl.ProductID = p.ProductID
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_PackageByNDC') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Locates package configurations by NDC package code. Shows packaging hierarchy and quantities.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_PackageByNDC';
+END
+GO
+
+PRINT 'Created view: vw_PackageByNDC';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 5: ORGANIZATION NAVIGATION VIEWS                                   */
+/*  Views for locating products by labeler, manufacturer, or other orgs        */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_ProductsByLabeler
+
+/**************************************************************/
+-- View: vw_ProductsByLabeler
+-- Purpose: Locates all products marketed by a specific labeler
+-- Usage: Find product portfolio for an organization
+-- Returns: Products grouped by labeler organization
+-- Indexes Used: IX_OrganizationIdentifier_IdentifierValue_on_IdentifierType
+
+IF OBJECT_ID('dbo.vw_ProductsByLabeler', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ProductsByLabeler;
+GO
+
+CREATE VIEW dbo.vw_ProductsByLabeler
+AS
+/**************************************************************/
+-- Lists products by labeler/marketing organization
+-- Supports lookup by organization name or identifier (DUNS, Labeler Code)
+/**************************************************************/
+SELECT 
+    -- Labeler organization
+    o.OrganizationID AS LabelerOrgID,
+    o.OrganizationName AS LabelerName,
+    
+    -- Organization identifiers (DUNS, Labeler Code, etc.)
+    oi.OrganizationIdentifierID,
+    oi.IdentifierValue AS OrgIdentifierValue,
+    oi.IdentifierType AS OrgIdentifierType,
+    
+    -- Product identification
+    p.ProductID,
+    p.ProductName,
+    p.FormCode AS DosageFormCode,
+    p.FormDisplayName AS DosageFormName,
+    
+    -- Generic name
+    gm.GenericName,
+    
+    -- Marketing info
+    mc.ApplicationOrMonographIDValue AS ApplicationNumber,
+    mc.CategoryDisplayName AS MarketingCategory,
+    
+    -- Document identification
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID,
+    d.VersionNumber,
+    d.Title AS DocumentTitle,
+    d.EffectiveTime AS LabelEffectiveDate
+
+FROM dbo.Organization o
+    INNER JOIN dbo.DocumentAuthor da ON o.OrganizationID = da.OrganizationID
+    INNER JOIN dbo.Document d ON da.DocumentID = d.DocumentID
+    INNER JOIN dbo.StructuredBody sb ON d.DocumentID = sb.DocumentID
+    INNER JOIN dbo.Section s ON sb.StructuredBodyID = s.StructuredBodyID
+    INNER JOIN dbo.Product p ON s.SectionID = p.SectionID
+    LEFT JOIN dbo.OrganizationIdentifier oi ON o.OrganizationID = oi.OrganizationID
+    LEFT JOIN dbo.GenericMedicine gm ON p.ProductID = gm.ProductID
+    LEFT JOIN dbo.MarketingCategory mc ON p.ProductID = mc.ProductID
+
+WHERE da.AuthorType = 'Labeler'
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_ProductsByLabeler') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Locates products by labeler organization. Supports lookup by name or identifier (DUNS, Labeler Code).',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ProductsByLabeler';
+END
+GO
+
+PRINT 'Created view: vw_ProductsByLabeler';
+GO
+
+--#endregion
+
+--#region vw_LabelerSummary
+
+/**************************************************************/
+-- View: vw_LabelerSummary
+-- Purpose: Summary of labelers with product counts
+-- Usage: Discover labelers by portfolio size
+-- Returns: Labeler info with product counts
+
+IF OBJECT_ID('dbo.vw_LabelerSummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_LabelerSummary;
+GO
+
+CREATE VIEW dbo.vw_LabelerSummary
+AS
+/**************************************************************/
+-- Aggregated view of labelers with portfolio statistics
+/**************************************************************/
+SELECT 
+    o.OrganizationID AS LabelerOrgID,
+    o.OrganizationName AS LabelerName,
+    COUNT(DISTINCT p.ProductID) AS ProductCount,
+    COUNT(DISTINCT d.DocumentID) AS DocumentCount,
+    COUNT(DISTINCT d.SetGUID) AS LabelSetCount,
+    MIN(d.EffectiveTime) AS EarliestLabelDate,
+    MAX(d.EffectiveTime) AS MostRecentLabelDate
+
+FROM dbo.Organization o
+    INNER JOIN dbo.DocumentAuthor da ON o.OrganizationID = da.OrganizationID
+    INNER JOIN dbo.Document d ON da.DocumentID = d.DocumentID
+    INNER JOIN dbo.StructuredBody sb ON d.DocumentID = sb.DocumentID
+    INNER JOIN dbo.Section s ON sb.StructuredBodyID = s.StructuredBodyID
+    LEFT JOIN dbo.Product p ON s.SectionID = p.SectionID
+
+WHERE da.AuthorType = 'Labeler'
+
+GROUP BY 
+    o.OrganizationID,
+    o.OrganizationName
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_LabelerSummary') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Summary of labelers with product and document counts. Use for labeler portfolio analysis.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_LabelerSummary';
+END
+GO
+
+PRINT 'Created view: vw_LabelerSummary';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 6: DOCUMENT NAVIGATION VIEWS                                       */
+/*  Views for document discovery and version tracking                          */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_DocumentNavigation
+
+/**************************************************************/
+-- View: vw_DocumentNavigation
+-- Purpose: Lightweight document index for navigation
+-- Usage: Quick document listing and version tracking
+-- Returns: Document metadata for navigation
+-- Indexes Used: IX_Document_DocumentGUID, IX_Document_SetGUID
+
+IF OBJECT_ID('dbo.vw_DocumentNavigation', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_DocumentNavigation;
+GO
+
+CREATE VIEW dbo.vw_DocumentNavigation
+AS
+/**************************************************************/
+-- Lightweight document index with essential metadata
+-- Use for document listings and version navigation
+/**************************************************************/
+SELECT 
+    -- Document identification
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID,
+    d.VersionNumber,
+    
+    -- Document metadata
+    d.DocumentCode,
+    d.DocumentDisplayName AS DocumentType,
+    d.Title AS DocumentTitle,
+    d.EffectiveTime AS EffectiveDate,
+    
+    -- Labeler
+    o.OrganizationID AS LabelerOrgID,
+    o.OrganizationName AS LabelerName,
+    
+    -- Product count for this document
+    (SELECT COUNT(DISTINCT p.ProductID) 
+     FROM dbo.StructuredBody sb2
+     INNER JOIN dbo.Section s2 ON sb2.StructuredBodyID = s2.StructuredBodyID
+     INNER JOIN dbo.Product p ON s2.SectionID = p.SectionID
+     WHERE sb2.DocumentID = d.DocumentID) AS ProductCount,
+    
+    -- Version info
+    (SELECT COUNT(*) FROM dbo.Document d2 WHERE d2.SetGUID = d.SetGUID) AS TotalVersions,
+    
+    -- Is this the latest version?
+    CASE WHEN d.VersionNumber = (
+        SELECT MAX(d3.VersionNumber) 
+        FROM dbo.Document d3 
+        WHERE d3.SetGUID = d.SetGUID
+    ) THEN 1 ELSE 0 END AS IsLatestVersion
+
+FROM dbo.Document d
+    LEFT JOIN dbo.DocumentAuthor da ON d.DocumentID = da.DocumentID 
+        AND da.AuthorType = 'Labeler'
+    LEFT JOIN dbo.Organization o ON da.OrganizationID = o.OrganizationID
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_DocumentNavigation') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Lightweight document index for navigation. Shows version info, product counts, and latest version flag.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_DocumentNavigation';
+END
+GO
+
+PRINT 'Created view: vw_DocumentNavigation';
+GO
+
+--#endregion
+
+--#region vw_DocumentVersionHistory
+
+/**************************************************************/
+-- View: vw_DocumentVersionHistory
+-- Purpose: Shows all versions of a label set
+-- Usage: Track label revision history
+-- Returns: Version timeline for a label set
+
+IF OBJECT_ID('dbo.vw_DocumentVersionHistory', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_DocumentVersionHistory;
+GO
+
+CREATE VIEW dbo.vw_DocumentVersionHistory
+AS
+/**************************************************************/
+-- Shows version history for label sets
+-- Enables revision tracking and comparison
+/**************************************************************/
+SELECT 
+    d.SetGUID,
+    d.DocumentID,
+    d.DocumentGUID,
+    d.VersionNumber,
+    d.Title AS DocumentTitle,
+    d.EffectiveTime AS EffectiveDate,
+    d.DocumentCode,
+    d.DocumentDisplayName AS DocumentType,
+    
+    -- Previous version reference
+    rd.ReferencedDocumentGUID AS PredecessorDocGUID,
+    rd.ReferencedVersionNumber AS PredecessorVersion,
+    
+    -- Labeler
+    o.OrganizationName AS LabelerName
+
+FROM dbo.Document d
+    LEFT JOIN dbo.RelatedDocument rd ON d.DocumentID = rd.SourceDocumentID 
+        AND rd.RelationshipTypeCode = 'RPLC'
+    LEFT JOIN dbo.DocumentAuthor da ON d.DocumentID = da.DocumentID 
+        AND da.AuthorType = 'Labeler'
+    LEFT JOIN dbo.Organization o ON da.OrganizationID = o.OrganizationID
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_DocumentVersionHistory') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Shows version history for label sets. Includes predecessor document references for revision tracking.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_DocumentVersionHistory';
+END
+GO
+
+PRINT 'Created view: vw_DocumentVersionHistory';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 7: SECTION CONTENT NAVIGATION VIEWS                                */
+/*  Views for navigating section content within documents                      */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_SectionNavigation
+
+/**************************************************************/
+-- View: vw_SectionNavigation
+-- Purpose: Section index for document navigation
+-- Usage: Navigate to specific sections by LOINC code
+-- Returns: Section metadata with document context
+-- Indexes Used: IX_Section_SectionCode_on_DocumentID
+
+IF OBJECT_ID('dbo.vw_SectionNavigation', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_SectionNavigation;
+GO
+
+CREATE VIEW dbo.vw_SectionNavigation
+AS
+/**************************************************************/
+-- Section index for navigating document structure
+-- Supports lookup by LOINC code (e.g., find all Boxed Warnings)
+/**************************************************************/
+SELECT 
+    -- Section identification
+    s.SectionID,
+    s.SectionGUID,
+    s.SectionCode,
+    s.SectionDisplayName AS SectionType,
+    s.Title AS SectionTitle,
+    
+    -- Document context
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID,
+    d.Title AS DocumentTitle,
+    d.VersionNumber,
+    
+    -- Hierarchy info
+    sh.ParentSectionID,
+    ps.SectionCode AS ParentSectionCode,
+    ps.Title AS ParentSectionTitle,
+    
+    -- Content summary
+    (SELECT COUNT(*) FROM dbo.SectionTextContent stc 
+     WHERE stc.SectionID = s.SectionID) AS ContentBlockCount,
+    
+    -- Labeler
+    o.OrganizationName AS LabelerName
+
+FROM dbo.Section s
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+    LEFT JOIN dbo.SectionHierarchy sh ON s.SectionID = sh.ChildSectionID
+    LEFT JOIN dbo.Section ps ON sh.ParentSectionID = ps.SectionID
+    LEFT JOIN dbo.DocumentAuthor da ON d.DocumentID = da.DocumentID 
+        AND da.AuthorType = 'Labeler'
+    LEFT JOIN dbo.Organization o ON da.OrganizationID = o.OrganizationID
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_SectionNavigation') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Section index for document navigation. Supports lookup by LOINC code to find specific section types across documents.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_SectionNavigation';
+END
+GO
+
+PRINT 'Created view: vw_SectionNavigation';
+GO
+
+--#endregion
+
+--#region vw_SectionTypeSummary
+
+/**************************************************************/
+-- View: vw_SectionTypeSummary
+-- Purpose: Summary of section types across all documents
+-- Usage: Discover available section types and their prevalence
+-- Returns: Section type with document counts
+
+IF OBJECT_ID('dbo.vw_SectionTypeSummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_SectionTypeSummary;
+GO
+
+CREATE VIEW dbo.vw_SectionTypeSummary
+AS
+/**************************************************************/
+-- Summary of section types (LOINC codes) across documents
+/**************************************************************/
+SELECT 
+    s.SectionCode,
+    s.SectionDisplayName AS SectionType,
+    COUNT(*) AS SectionCount,
+    COUNT(DISTINCT d.DocumentID) AS DocumentCount,
+    COUNT(DISTINCT d.SetGUID) AS LabelSetCount
+
+FROM dbo.Section s
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+
+WHERE s.SectionCode IS NOT NULL
+
+GROUP BY 
+    s.SectionCode,
+    s.SectionDisplayName
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_SectionTypeSummary') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Summary of section types (LOINC codes) with document counts. Use to understand section type prevalence.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_SectionTypeSummary';
+END
+GO
+
+PRINT 'Created view: vw_SectionTypeSummary';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 8: DRUG INTERACTION AND SAFETY VIEWS                               */
+/*  Views for drug interaction checking and safety lookups                     */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_DrugInteractionLookup
+
+/**************************************************************/
+-- View: vw_DrugInteractionLookup
+-- Purpose: Provides ingredient data for drug interaction checking
+-- Usage: Input for drug interaction analysis systems
+-- Returns: Product ingredients with UNII codes for interaction databases
+
+IF OBJECT_ID('dbo.vw_DrugInteractionLookup', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_DrugInteractionLookup;
+GO
+
+CREATE VIEW dbo.vw_DrugInteractionLookup
+AS
+/**************************************************************/
+-- Drug interaction lookup data
+-- Provides active ingredients for interaction checking systems
+/**************************************************************/
+SELECT 
+    -- Product identification
+    p.ProductID,
+    p.ProductName,
+    pi.IdentifierValue AS NDC,
+    
+    -- Active ingredient (for interaction checking)
+    ins.IngredientSubstanceID,
+    ins.UNII AS IngredientUNII,
+    ins.SubstanceName AS IngredientName,
+    
+    -- Active moiety (often used for interaction databases)
+    am.ActiveMoietyID,
+    am.MoietyUNII,
+    am.MoietyName,
+    
+    -- Ingredient class
+    i.ClassCode AS IngredientClassCode,
+    
+    -- Pharmacologic class (if available)
+    pc.PharmacologicClassID,
+    pc.ClassCode AS PharmClassCode,
+    pc.ClassDisplayName AS PharmClassName,
+    
+    -- Document for label reference
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID
+
+FROM dbo.Product p
+    INNER JOIN dbo.Ingredient i ON p.ProductID = i.ProductID
+    INNER JOIN dbo.IngredientSubstance ins ON i.IngredientSubstanceID = ins.IngredientSubstanceID
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+    LEFT JOIN dbo.ProductIdentifier pi ON p.ProductID = pi.ProductID 
+        AND pi.IdentifierType = 'NDC'
+    LEFT JOIN dbo.ActiveMoiety am ON ins.IngredientSubstanceID = am.IngredientSubstanceID
+    LEFT JOIN dbo.PharmacologicClassLink pcl ON ins.IngredientSubstanceID = pcl.ActiveMoietySubstanceID
+    LEFT JOIN dbo.PharmacologicClass pc ON pcl.PharmacologicClassID = pc.PharmacologicClassID
+
+WHERE i.ClassCode IN ('ACTIB', 'ACTIM', 'ACTIR')  -- Active ingredient class codes
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_DrugInteractionLookup') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Drug interaction lookup data with active ingredients and moieties. Use for drug interaction checking systems.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_DrugInteractionLookup';
+END
+GO
+
+PRINT 'Created view: vw_DrugInteractionLookup';
+GO
+
+--#endregion
+
+--#region vw_DEAScheduleLookup
+
+/**************************************************************/
+-- View: vw_DEAScheduleLookup
+-- Purpose: Shows DEA controlled substance schedule for products
+-- Usage: Regulatory compliance and dispensing restrictions
+-- Returns: Products with DEA schedule classification
+
+IF OBJECT_ID('dbo.vw_DEAScheduleLookup', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_DEAScheduleLookup;
+GO
+
+CREATE VIEW dbo.vw_DEAScheduleLookup
+AS
+/**************************************************************/
+-- DEA controlled substance schedule lookup
+-- Critical for pharmacy dispensing compliance
+/**************************************************************/
+SELECT 
+    -- Product identification
+    p.ProductID,
+    p.ProductName,
+    pi.IdentifierValue AS NDC,
+    
+    -- DEA Schedule
+    pol.PolicyCode AS DEAScheduleCode,
+    pol.PolicyDisplayName AS DEASchedule,
+    
+    -- Generic name
+    gm.GenericName,
+    
+    -- Document reference
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID,
+    
+    -- Labeler
+    o.OrganizationName AS LabelerName
+
+FROM dbo.Policy pol
+    INNER JOIN dbo.Product p ON pol.ProductID = p.ProductID
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+    LEFT JOIN dbo.ProductIdentifier pi ON p.ProductID = pi.ProductID 
+        AND pi.IdentifierType = 'NDC'
+    LEFT JOIN dbo.GenericMedicine gm ON p.ProductID = gm.ProductID
+    LEFT JOIN dbo.DocumentAuthor da ON d.DocumentID = da.DocumentID 
+        AND da.AuthorType = 'Labeler'
+    LEFT JOIN dbo.Organization o ON da.OrganizationID = o.OrganizationID
+
+WHERE pol.PolicyClassCode = 'DEADrugSchedule'
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_DEAScheduleLookup') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'DEA controlled substance schedule lookup. Critical for pharmacy dispensing compliance.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_DEAScheduleLookup';
+END
+GO
+
+PRINT 'Created view: vw_DEAScheduleLookup';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 9: PRODUCT SUMMARY VIEWS                                           */
+/*  Consolidated product information for comprehensive lookups                 */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_ProductSummary
+
+/**************************************************************/
+-- View: vw_ProductSummary
+-- Purpose: Comprehensive product summary with key attributes
+-- Usage: Full product profile for API responses
+-- Returns: Consolidated product information
+
+IF OBJECT_ID('dbo.vw_ProductSummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ProductSummary;
+GO
+
+CREATE VIEW dbo.vw_ProductSummary
+AS
+/**************************************************************/
+-- Comprehensive product summary consolidating key attributes
+-- Primary view for product profile API responses
+/**************************************************************/
+SELECT 
+    -- Product identification
+    p.ProductID,
+    p.ProductName,
+    p.ProductSuffix,
+    p.FormCode AS DosageFormCode,
+    p.FormDisplayName AS DosageFormName,
+    p.DescriptionText,
+    
+    -- Generic name (first one if multiple)
+    (SELECT TOP 1 gm.GenericName 
+     FROM dbo.GenericMedicine gm 
+     WHERE gm.ProductID = p.ProductID) AS GenericName,
+    
+    -- Primary NDC
+    (SELECT TOP 1 pi.IdentifierValue 
+     FROM dbo.ProductIdentifier pi 
+     WHERE pi.ProductID = p.ProductID 
+       AND pi.IdentifierType = 'NDC') AS PrimaryNDC,
+    
+    -- Marketing category
+    mc.CategoryCode AS MarketingCategoryCode,
+    mc.CategoryDisplayName AS MarketingCategory,
+    mc.ApplicationOrMonographIDValue AS ApplicationNumber,
+    mc.ApprovalDate,
+    
+    -- Route of administration (first one if multiple)
+    (SELECT TOP 1 pra.RouteDisplayName 
+     FROM dbo.ProductRouteOfAdministration pra 
+     WHERE pra.ProductID = p.ProductID) AS RouteOfAdministration,
+    
+    -- DEA Schedule (if controlled)
+    (SELECT TOP 1 pol.PolicyDisplayName 
+     FROM dbo.Policy pol 
+     WHERE pol.ProductID = p.ProductID 
+       AND pol.PolicyClassCode = 'DEADrugSchedule') AS DEASchedule,
+    
+    -- Active ingredient count
+    (SELECT COUNT(*) 
+     FROM dbo.Ingredient i 
+     WHERE i.ProductID = p.ProductID 
+       AND i.ClassCode IN ('ACTIB', 'ACTIM', 'ACTIR')) AS ActiveIngredientCount,
+    
+    -- Document identification
+    d.DocumentID,
+    d.DocumentGUID,
+    d.SetGUID,
+    d.VersionNumber,
+    d.Title AS DocumentTitle,
+    d.EffectiveTime AS LabelEffectiveDate,
+    d.DocumentCode,
+    d.DocumentDisplayName AS DocumentType,
+    
+    -- Labeler
+    o.OrganizationID AS LabelerOrgID,
+    o.OrganizationName AS LabelerName,
+    
+    -- Labeler Code
+    (SELECT TOP 1 oi.IdentifierValue 
+     FROM dbo.OrganizationIdentifier oi 
+     WHERE oi.OrganizationID = o.OrganizationID 
+       AND oi.IdentifierType = 'LabelerCode') AS LabelerCode
+
+FROM dbo.Product p
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+    LEFT JOIN dbo.MarketingCategory mc ON p.ProductID = mc.ProductID
+    LEFT JOIN dbo.DocumentAuthor da ON d.DocumentID = da.DocumentID 
+        AND da.AuthorType = 'Labeler'
+    LEFT JOIN dbo.Organization o ON da.OrganizationID = o.OrganizationID
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_ProductSummary') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Comprehensive product summary consolidating key attributes. Primary view for product profile API responses.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ProductSummary';
+END
+GO
+
+PRINT 'Created view: vw_ProductSummary';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 10: CROSS-REFERENCE AND DISCOVERY VIEWS                            */
+/*  Views for discovering relationships and related items                      */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_RelatedProducts
+
+/**************************************************************/
+-- View: vw_RelatedProducts
+-- Purpose: Finds products related by shared attributes
+-- Usage: Discover alternatives, generics, or related drugs
+-- Returns: Product relationships by various criteria
+
+IF OBJECT_ID('dbo.vw_RelatedProducts', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_RelatedProducts;
+GO
+
+CREATE VIEW dbo.vw_RelatedProducts
+AS
+/**************************************************************/
+-- Identifies related products by shared attributes
+-- Useful for finding alternatives, generics, or similar drugs
+/**************************************************************/
+SELECT 
+    -- Source product
+    p1.ProductID AS SourceProductID,
+    p1.ProductName AS SourceProductName,
+    d1.DocumentGUID AS SourceDocumentGUID,
+    
+    -- Related product
+    p2.ProductID AS RelatedProductID,
+    p2.ProductName AS RelatedProductName,
+    d2.DocumentGUID AS RelatedDocumentGUID,
+    
+    -- Relationship type
+    'SameApplicationNumber' AS RelationshipType,
+    mc1.ApplicationOrMonographIDValue AS SharedValue
+
+FROM dbo.Product p1
+    INNER JOIN dbo.MarketingCategory mc1 ON p1.ProductID = mc1.ProductID
+    INNER JOIN dbo.MarketingCategory mc2 ON mc1.ApplicationOrMonographIDValue = mc2.ApplicationOrMonographIDValue
+        AND mc1.ProductID <> mc2.ProductID
+    INNER JOIN dbo.Product p2 ON mc2.ProductID = p2.ProductID
+    INNER JOIN dbo.Section s1 ON p1.SectionID = s1.SectionID
+    INNER JOIN dbo.StructuredBody sb1 ON s1.StructuredBodyID = sb1.StructuredBodyID
+    INNER JOIN dbo.Document d1 ON sb1.DocumentID = d1.DocumentID
+    INNER JOIN dbo.Section s2 ON p2.SectionID = s2.SectionID
+    INNER JOIN dbo.StructuredBody sb2 ON s2.StructuredBodyID = sb2.StructuredBodyID
+    INNER JOIN dbo.Document d2 ON sb2.DocumentID = d2.DocumentID
+
+WHERE mc1.ApplicationOrMonographIDValue IS NOT NULL
+
+UNION ALL
+
+-- Products sharing same active ingredient (by UNII)
+SELECT 
+    p1.ProductID AS SourceProductID,
+    p1.ProductName AS SourceProductName,
+    d1.DocumentGUID AS SourceDocumentGUID,
+    
+    p2.ProductID AS RelatedProductID,
+    p2.ProductName AS RelatedProductName,
+    d2.DocumentGUID AS RelatedDocumentGUID,
+    
+    'SameActiveIngredient' AS RelationshipType,
+    ins.UNII AS SharedValue
+
+FROM dbo.Product p1
+    INNER JOIN dbo.Ingredient i1 ON p1.ProductID = i1.ProductID
+    INNER JOIN dbo.IngredientSubstance ins ON i1.IngredientSubstanceID = ins.IngredientSubstanceID
+    INNER JOIN dbo.Ingredient i2 ON ins.IngredientSubstanceID = i2.IngredientSubstanceID
+        AND i1.ProductID <> i2.ProductID
+    INNER JOIN dbo.Product p2 ON i2.ProductID = p2.ProductID
+    INNER JOIN dbo.Section s1 ON p1.SectionID = s1.SectionID
+    INNER JOIN dbo.StructuredBody sb1 ON s1.StructuredBodyID = sb1.StructuredBodyID
+    INNER JOIN dbo.Document d1 ON sb1.DocumentID = d1.DocumentID
+    INNER JOIN dbo.Section s2 ON p2.SectionID = s2.SectionID
+    INNER JOIN dbo.StructuredBody sb2 ON s2.StructuredBodyID = sb2.StructuredBodyID
+    INNER JOIN dbo.Document d2 ON sb2.DocumentID = d2.DocumentID
+
+WHERE ins.UNII IS NOT NULL
+    AND i1.ClassCode IN ('ACTIB', 'ACTIM', 'ACTIR')
+    AND i2.ClassCode IN ('ACTIB', 'ACTIM', 'ACTIR')
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_RelatedProducts') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Identifies related products by shared application number or active ingredient. Use for finding alternatives or similar drugs.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_RelatedProducts';
+END
+GO
+
+PRINT 'Created view: vw_RelatedProducts';
+GO
+
+--#endregion
+
+--#region vw_APIEndpointGuide
+
+/**************************************************************/
+-- View: vw_APIEndpointGuide
+-- Purpose: Metadata view describing available navigation views
+-- Usage: Claude API can query this to discover available endpoints
+-- Returns: View names and descriptions for AI-assisted navigation
+
+IF OBJECT_ID('dbo.vw_APIEndpointGuide', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_APIEndpointGuide;
+GO
+
+CREATE VIEW dbo.vw_APIEndpointGuide
+AS
+/**************************************************************/
+-- Metadata view for AI-assisted API endpoint discovery
+-- Claude API can query this to understand available data access patterns
+/**************************************************************/
+SELECT 
+    v.name AS ViewName,
+    REPLACE(v.name, 'vw_', '') AS EndpointName,
+    ISNULL(ep.value, 'No description available') AS Description,
+    
+    -- Categorize views for easier discovery
+    CASE 
+        WHEN v.name LIKE '%Application%' THEN 'Application/Regulatory'
+        WHEN v.name LIKE '%Pharmacologic%' THEN 'Pharmacologic Class'
+        WHEN v.name LIKE '%Ingredient%' THEN 'Ingredient/Substance'
+        WHEN v.name LIKE '%NDC%' OR v.name LIKE '%Package%' THEN 'Product Codes'
+        WHEN v.name LIKE '%Labeler%' OR v.name LIKE '%Organization%' THEN 'Organization'
+        WHEN v.name LIKE '%Document%' OR v.name LIKE '%Version%' THEN 'Document Navigation'
+        WHEN v.name LIKE '%Section%' THEN 'Section Content'
+        WHEN v.name LIKE '%Drug%' OR v.name LIKE '%DEA%' THEN 'Drug Safety'
+        WHEN v.name LIKE '%Product%' THEN 'Product Information'
+        WHEN v.name LIKE '%Related%' THEN 'Cross-Reference'
+        ELSE 'General'
+    END AS Category,
+    
+    -- Usage hints for Claude API
+    CASE 
+        WHEN v.name = 'vw_ProductsByApplicationNumber' THEN 
+            'Query with: WHERE ApplicationNumber = ''NDA014526'''
+        WHEN v.name = 'vw_ProductsByPharmacologicClass' THEN 
+            'Query with: WHERE PharmClassName LIKE ''%Beta-Blocker%'''
+        WHEN v.name = 'vw_ProductsByIngredient' THEN 
+            'Query with: WHERE UNII = ''ABC123'' OR SubstanceName LIKE ''%aspirin%'''
+        WHEN v.name = 'vw_ProductsByNDC' THEN 
+            'Query with: WHERE ProductCode = ''12345-678-90'''
+        WHEN v.name = 'vw_ProductsByLabeler' THEN 
+            'Query with: WHERE LabelerName LIKE ''%Pfizer%'''
+        WHEN v.name = 'vw_DocumentNavigation' THEN 
+            'Query with: WHERE IsLatestVersion = 1'
+        WHEN v.name = 'vw_SectionNavigation' THEN 
+            'Query with: WHERE SectionCode = ''34066-1'' (Boxed Warning)'
+        WHEN v.name = 'vw_DrugInteractionLookup' THEN 
+            'Query with: WHERE IngredientUNII IN (''UNII1'', ''UNII2'')'
+        WHEN v.name = 'vw_DEAScheduleLookup' THEN 
+            'Query with: WHERE DEAScheduleCode IS NOT NULL'
+        WHEN v.name = 'vw_ProductSummary' THEN 
+            'Query with: WHERE ProductID = 123 OR ProductName LIKE ''%Lipitor%'''
+        WHEN v.name = 'vw_RelatedProducts' THEN 
+            'Query with: WHERE SourceProductID = 123'
+        ELSE 'See view definition for query patterns'
+    END AS UsageHint
+
+FROM sys.views v
+    LEFT JOIN sys.extended_properties ep ON v.object_id = ep.major_id 
+        AND ep.name = 'MS_Description' 
+        AND ep.minor_id = 0
+
+WHERE v.schema_id = SCHEMA_ID('dbo')
+    AND v.name LIKE 'vw_%'
+    AND v.name <> 'vw_APIEndpointGuide'
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties 
+    WHERE major_id = OBJECT_ID('dbo.vw_APIEndpointGuide') 
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty 
+        @name = N'MS_Description',
+        @value = N'Metadata view for AI-assisted API endpoint discovery. Claude API queries this to understand available navigation views and usage patterns.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_APIEndpointGuide';
+END
+GO
+
+PRINT 'Created view: vw_APIEndpointGuide';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 11: VIEW SUMMARY AND STATISTICS                                    */
+/*  Reports on created views for verification                                  */
+/*                                                                             */
+/*******************************************************************************/
+
+-- Summary of all views created
+PRINT '';
+PRINT '=================================================================';
+PRINT 'MedRecPro SPL Label Navigation Views Creation Complete';
+PRINT '=================================================================';
+PRINT '';
+
+-- Count total views created
+SELECT 
+    'Total Navigation Views Created' AS Summary,
+    COUNT(*) AS ViewCount
+FROM sys.views v
+WHERE v.schema_id = SCHEMA_ID('dbo')
+    AND v.name LIKE 'vw_%';
+
+-- List all views with categories
+SELECT 
+    v.name AS ViewName,
+    CASE 
+        WHEN v.name LIKE '%Application%' THEN 'Application/Regulatory'
+        WHEN v.name LIKE '%Pharmacologic%' THEN 'Pharmacologic Class'
+        WHEN v.name LIKE '%Ingredient%' THEN 'Ingredient/Substance'
+        WHEN v.name LIKE '%NDC%' OR v.name LIKE '%Package%' THEN 'Product Codes'
+        WHEN v.name LIKE '%Labeler%' THEN 'Organization'
+        WHEN v.name LIKE '%Document%' OR v.name LIKE '%Version%' THEN 'Document Navigation'
+        WHEN v.name LIKE '%Section%' THEN 'Section Content'
+        WHEN v.name LIKE '%Drug%' OR v.name LIKE '%DEA%' THEN 'Drug Safety'
+        WHEN v.name LIKE '%Product%' THEN 'Product Information'
+        WHEN v.name LIKE '%Related%' THEN 'Cross-Reference'
+        WHEN v.name LIKE '%API%' THEN 'API Metadata'
+        ELSE 'General'
+    END AS Category
+FROM sys.views v
+WHERE v.schema_id = SCHEMA_ID('dbo')
+    AND v.name LIKE 'vw_%'
+ORDER BY Category, v.name;
+
+GO
+
+PRINT '';
+PRINT 'View creation script completed successfully.';
+PRINT '';
+PRINT 'Available Navigation Patterns:';
+PRINT '  - By Application Number: vw_ProductsByApplicationNumber, vw_ApplicationNumberSummary';
+PRINT '  - By Pharmacologic Class: vw_ProductsByPharmacologicClass, vw_PharmacologicClassHierarchy';
+PRINT '  - By Ingredient/UNII: vw_ProductsByIngredient, vw_IngredientSummary';
+PRINT '  - By NDC/Product Code: vw_ProductsByNDC, vw_PackageByNDC';
+PRINT '  - By Labeler: vw_ProductsByLabeler, vw_LabelerSummary';
+PRINT '  - Document Navigation: vw_DocumentNavigation, vw_DocumentVersionHistory';
+PRINT '  - Section Navigation: vw_SectionNavigation, vw_SectionTypeSummary';
+PRINT '  - Drug Safety: vw_DrugInteractionLookup, vw_DEAScheduleLookup';
+PRINT '  - Product Summary: vw_ProductSummary';
+PRINT '  - Cross-Reference: vw_RelatedProducts';
+PRINT '  - API Discovery: vw_APIEndpointGuide';
+PRINT '';
+GO
