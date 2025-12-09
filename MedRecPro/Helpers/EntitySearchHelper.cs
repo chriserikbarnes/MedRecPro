@@ -1,8 +1,73 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using MedRecPro.Data;
+using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 
 namespace MedRecPro.Helpers
 {
+    /**************************************************************/
+    /// <summary>
+    /// Configuration options for phonetic (Soundex-based) matching.
+    /// </summary>
+    /// <remarks>
+    /// SQL Server's DIFFERENCE function returns a score from 0-4:
+    /// 4 = Identical or nearly identical sounds
+    /// 3 = Strong similarity (recommended for drug names)
+    /// 2 = Moderate similarity
+    /// 1 = Weak similarity  
+    /// 0 = No similarity
+    /// </remarks>
+    public class PhoneticMatchOptions
+    {
+        /// <summary>
+        /// Whether phonetic matching is enabled.
+        /// </summary>
+        public bool Enabled { get; set; }
+
+        /// <summary>
+        /// Minimum DIFFERENCE score required for a match (0-4).
+        /// Default is 3 (strong similarity), recommended for pharmaceutical names.
+        /// </summary>
+        /// <remarks>
+        /// Guidelines:
+        /// - 4: Very strict, only near-exact phonetic matches
+        /// - 3: Recommended for drug names (catches common misspellings)
+        /// - 2: Loose matching, may produce false positives
+        /// - 1-0: Not recommended (too many false positives)
+        /// </remarks>
+        public int MinimumScore { get; set; } = 3;
+
+        /// <summary>
+        /// Disabled phonetic matching (default).
+        /// </summary>
+        public static PhoneticMatchOptions None => new() { Enabled = false };
+
+        /// <summary>
+        /// Standard phonetic matching with threshold of 3.
+        /// Recommended for pharmaceutical/drug name searches.
+        /// </summary>
+        public static PhoneticMatchOptions Standard => new() { Enabled = true, MinimumScore = 3 };
+
+        /// <summary>
+        /// Strict phonetic matching with threshold of 4.
+        /// Only matches nearly identical phonetic sounds.
+        /// </summary>
+        public static PhoneticMatchOptions Strict => new() { Enabled = true, MinimumScore = 4 };
+
+        /// <summary>
+        /// Loose phonetic matching with threshold of 2.
+        /// Use with caution - may produce false positives.
+        /// </summary>
+        public static PhoneticMatchOptions Loose => new() { Enabled = true, MinimumScore = 2 };
+
+        /// <summary>
+        /// Creates custom phonetic matching options.
+        /// </summary>
+        /// <param name="minimumScore">Minimum DIFFERENCE score (0-4).</param>
+        /// <returns>Configured PhoneticMatchOptions.</returns>
+        public static PhoneticMatchOptions WithScore(int minimumScore)
+            => new() { Enabled = true, MinimumScore = Math.Clamp(minimumScore, 0, 4) };
+    }
+
     /**************************************************************/
     /// <summary>
     /// Provides generic LINQ extension methods for flexible search filtering
@@ -12,45 +77,18 @@ namespace MedRecPro.Helpers
     /// Supports single-term partial matching (SQL LIKE) and multi-term exact matching (SQL IN).
     /// All methods are designed for EF Core SQL translation compatibility.
     /// All matching is performed case-insensitively using SQL LOWER() function.
+    /// Optional phonetic matching uses SQL Server's SOUNDEX/DIFFERENCE functions.
     /// </remarks>
-    /// <seealso cref="EF.Functions"/>
-    /// <seealso cref="IQueryable{T}"/>
     public static class SearchFilterExtensions
     {
         #region Public Methods
+
         /**************************************************************/
         /// <summary>
         /// Filters a queryable by applying flexible search term matching to a specified string property.
         /// Single terms use partial matching (LIKE %term%), multiple terms use exact matching (IN clause).
         /// All matching is case-insensitive.
         /// </summary>
-        /// <typeparam name="T">The entity type being queried.</typeparam>
-        /// <param name="query">The source queryable to filter.</param>
-        /// <param name="propertySelector">Expression selecting the string property to filter on.</param>
-        /// <param name="searchInput">
-        /// Search input string. Supports space, comma, or semicolon-delimited terms.
-        /// </param>
-        /// <param name="multiTermBehavior">
-        /// Determines how multiple terms are matched. Defaults to exact matching (IN clause).
-        /// </param>
-        /// <returns>Filtered queryable based on search terms.</returns>
-        /// <example>
-        /// <code>
-        /// // Single property filter (case-insensitive)
-        /// query = query.FilterBySearchTerms(s => s.MarketingCategoryCode, "NDA");
-        /// // Matches: "NDA", "nda", "Nda", etc.
-        /// 
-        /// // Multiple terms with exact matching (default, case-insensitive)
-        /// query = query.FilterBySearchTerms(s => s.MarketingCategoryCode, "NDA, ANDA, BLA");
-        /// // Matches: "nda", "ANDA", "bla", etc.
-        /// 
-        /// // Multiple terms with partial matching (case-insensitive)
-        /// query = query.FilterBySearchTerms(s => s.ProductName, "aspirin tablet", MultiTermBehavior.PartialMatchAny);
-        /// // Matches: "ASPIRIN 100mg", "Tablet Form", etc.
-        /// </code>
-        /// </example>
-        /// <seealso cref="MultiTermBehavior"/>
-        /// <seealso cref="ParseSearchTerms"/>
         public static IQueryable<T> FilterBySearchTerms<T>(
             this IQueryable<T> query,
             Expression<Func<T, string?>> propertySelector,
@@ -59,27 +97,23 @@ namespace MedRecPro.Helpers
         {
             #region implementation
 
-            // Early exit if no search input provided
             if (string.IsNullOrWhiteSpace(searchInput))
                 return query;
 
-            // Parse and normalize search terms (converted to lowercase for case-insensitive matching)
             var searchTerms = ParseSearchTerms(searchInput);
 
             if (!searchTerms.Any())
                 return query;
 
-            // Single term: always use partial matching (LIKE)
             if (searchTerms.Count == 1)
             {
                 return query.Where(buildLikePredicate(propertySelector, searchTerms[0]));
             }
 
-            // Multiple terms: behavior depends on multiTermBehavior parameter
             return multiTermBehavior switch
             {
-                MultiTermBehavior.ExactMatchAny => applyExactMatchAny(query, propertySelector, searchTerms),
-                MultiTermBehavior.PartialMatchAny => applyPartialMatchAny(query, propertySelector, searchTerms),
+                MultiTermBehavior.ExactMatchAny => query.Where(buildExactMatchAnyPredicate(propertySelector, searchTerms)),
+                MultiTermBehavior.PartialMatchAny => query.Where(buildPartialMatchAnyPredicate(propertySelector, searchTerms)),
                 _ => query
             };
 
@@ -89,99 +123,52 @@ namespace MedRecPro.Helpers
         /**************************************************************/
         /// <summary>
         /// Filters a queryable by applying flexible search term matching across multiple string properties.
-        /// Properties are combined with OR logic - matches if ANY property matches ANY term.
-        /// All matching is case-insensitive.
+        /// Properties are combined with OR logic. Supports exclusion terms.
         /// </summary>
-        /// <typeparam name="T">The entity type being queried.</typeparam>
-        /// <param name="query">The source queryable to filter.</param>
-        /// <param name="searchInput">Search input string. Supports space, comma, or semicolon-delimited terms.</param>
-        /// <param name="multiTermBehavior">Determines how multiple terms are matched.</param>
-        /// <param name="propertySelectors">One or more expressions selecting string properties to filter on.</param>
-        /// <returns>Filtered queryable where ANY property matches the search terms.</returns>
-        /// <example>
-        /// <code>
-        /// // Search across multiple properties (OR logic)
-        /// query = query.FilterBySearchTerms("ANDA", MultiTermBehavior.ExactMatchAny,
-        ///     x => x.MarketingCategoryCode,
-        ///     x => x.MarketingCategoryName);
-        /// // Matches if MarketingCategoryCode contains "ANDA" OR MarketingCategoryName contains "ANDA"
-        /// 
-        /// // With partial matching
-        /// query = query.FilterBySearchTerms("aspirin", MultiTermBehavior.PartialMatchAny,
-        ///     x => x.ProductName,
-        ///     x => x.GenericName,
-        ///     x => x.BrandName);
-        /// </code>
-        /// </example>
-        /// <seealso cref="MultiTermBehavior"/>
         public static IQueryable<T> FilterBySearchTerms<T>(
             this IQueryable<T> query,
             string? searchInput,
             MultiTermBehavior multiTermBehavior,
+            string? excludeInput,
             params Expression<Func<T, string?>>[] propertySelectors) where T : class
         {
-            #region implementation
-
-            if (string.IsNullOrWhiteSpace(searchInput) || propertySelectors.Length == 0)
-                return query;
-
-            var searchTerms = ParseSearchTerms(searchInput);
-            if (!searchTerms.Any())
-                return query;
-
-            // Build predicates for each property and combine with OR
-            Expression<Func<T, bool>>? combinedPredicate = null;
-
-            foreach (var propertySelector in propertySelectors)
-            {
-                Expression<Func<T, bool>> propertyPredicate;
-
-                if (searchTerms.Count == 1)
-                {
-                    // Single term: use LIKE
-                    propertyPredicate = buildLikePredicate(propertySelector, searchTerms[0]);
-                }
-                else
-                {
-                    // Multiple terms: build predicate based on behavior
-                    propertyPredicate = multiTermBehavior switch
-                    {
-                        MultiTermBehavior.ExactMatchAny => buildExactMatchAnyPredicate(propertySelector, searchTerms),
-                        MultiTermBehavior.PartialMatchAny => buildPartialMatchAnyPredicate(propertySelector, searchTerms),
-                        _ => throw new ArgumentOutOfRangeException(nameof(multiTermBehavior))
-                    };
-                }
-
-                combinedPredicate = combinedPredicate == null
-                    ? propertyPredicate
-                    : combineOrPredicates(combinedPredicate, propertyPredicate);
-            }
-
-            return combinedPredicate != null ? query.Where(combinedPredicate) : query;
-
-            #endregion implementation
+            return FilterBySearchTerms(query, searchInput, multiTermBehavior, excludeInput, PhoneticMatchOptions.None, propertySelectors);
         }
 
         /**************************************************************/
         /// <summary>
         /// Filters a queryable by applying flexible search term matching across multiple string properties.
         /// Properties are combined with OR logic - matches if ANY property matches ANY term.
-        /// Supports exclusion terms to filter out unwanted matches.
+        /// Supports exclusion terms and optional phonetic (Soundex) matching for misspellings.
         /// All matching is case-insensitive.
         /// </summary>
         /// <typeparam name="T">The entity type being queried.</typeparam>
         /// <param name="query">The source queryable to filter.</param>
         /// <param name="searchInput">Search input string. Supports space, comma, or semicolon-delimited terms.</param>
         /// <param name="multiTermBehavior">Determines how multiple terms are matched.</param>
-        /// <param name="excludeInput">Optional terms to exclude from results. Same delimiter support as searchInput.</param>
+        /// <param name="excludeInput">Optional terms to exclude from results.</param>
+        /// <param name="phoneticOptions">Phonetic matching configuration. Use PhoneticMatchOptions.Standard for drug names.</param>
         /// <param name="propertySelectors">One or more expressions selecting string properties to filter on.</param>
-        /// <returns>Filtered queryable where ANY property matches the search terms, excluding specified terms.</returns>
+        /// <returns>Filtered queryable where ANY property matches the search terms.</returns>
         /// <example>
         /// <code>
-        /// // Search for "NDA" but exclude "ANDA"
-        /// query = query.FilterBySearchTerms("NDA", MultiTermBehavior.PartialMatchAny, "ANDA",
-        ///     x => x.MarketingCategoryCode,
-        ///     x => x.MarketingCategoryName);
+        /// // Search with phonetic matching for misspelled drug names
+        /// query = query.FilterBySearchTerms(
+        ///     "testostone",
+        ///     MultiTermBehavior.PartialMatchAny,
+        ///     null,
+        ///     PhoneticMatchOptions.Standard,
+        ///     x => x.ProductName,
+        ///     x => x.GenericName);
+        /// // Matches "testosterone", "testostone", etc.
+        /// 
+        /// // Custom threshold
+        /// query = query.FilterBySearchTerms(
+        ///     "asprin",
+        ///     MultiTermBehavior.PartialMatchAny,
+        ///     null,
+        ///     PhoneticMatchOptions.WithScore(4),  // Strict matching
+        ///     x => x.ProductName);
         /// </code>
         /// </example>
         public static IQueryable<T> FilterBySearchTerms<T>(
@@ -189,6 +176,7 @@ namespace MedRecPro.Helpers
             string? searchInput,
             MultiTermBehavior multiTermBehavior,
             string? excludeInput,
+            PhoneticMatchOptions phoneticOptions,
             params Expression<Func<T, string?>>[] propertySelectors) where T : class
         {
             #region implementation
@@ -212,6 +200,12 @@ namespace MedRecPro.Helpers
                 if (searchTerms.Count == 1)
                 {
                     propertyPredicate = buildLikePredicate(propertySelector, searchTerms[0]);
+
+                    if (phoneticOptions.Enabled)
+                    {
+                        var phoneticPredicate = buildDifferencePredicate(propertySelector, searchTerms[0], phoneticOptions.MinimumScore);
+                        propertyPredicate = combineOrPredicates(propertyPredicate, phoneticPredicate);
+                    }
                 }
                 else
                 {
@@ -221,6 +215,15 @@ namespace MedRecPro.Helpers
                         MultiTermBehavior.PartialMatchAny => buildPartialMatchAnyPredicate(propertySelector, searchTerms),
                         _ => throw new ArgumentOutOfRangeException(nameof(multiTermBehavior))
                     };
+
+                    if (phoneticOptions.Enabled)
+                    {
+                        foreach (var term in searchTerms)
+                        {
+                            var phoneticPredicate = buildDifferencePredicate(propertySelector, term, phoneticOptions.MinimumScore);
+                            propertyPredicate = combineOrPredicates(propertyPredicate, phoneticPredicate);
+                        }
+                    }
                 }
 
                 combinedPredicate = combinedPredicate == null
@@ -231,10 +234,9 @@ namespace MedRecPro.Helpers
             if (combinedPredicate == null)
                 return query;
 
-            // Apply inclusion filter
             query = query.Where(combinedPredicate);
 
-            // Apply exclusion filters if any
+            // Apply exclusion filters
             if (excludeTerms.Any())
             {
                 foreach (var propertySelector in propertySelectors)
@@ -255,27 +257,7 @@ namespace MedRecPro.Helpers
         /**************************************************************/
         /// <summary>
         /// Parses a search input string into a list of normalized search terms.
-        /// All terms are converted to lowercase for case-insensitive matching.
         /// </summary>
-        /// <param name="searchInput">Raw search input string.</param>
-        /// <param name="delimiters">
-        /// Optional custom delimiters. Defaults to space, comma, and semicolon.
-        /// </param>
-        /// <returns>List of trimmed, lowercase, non-empty search terms.</returns>
-        /// <remarks>
-        /// Terms are normalized to lowercase using <see cref="string.ToLowerInvariant"/>
-        /// to ensure consistent case-insensitive matching across all database operations.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// var terms = SearchFilterExtensions.ParseSearchTerms("NDA, ANDA; BLA");
-        /// // Returns: ["nda", "anda", "bla"]
-        /// 
-        /// var mixedCase = SearchFilterExtensions.ParseSearchTerms("AnDa, bLa");
-        /// // Returns: ["anda", "bla"]
-        /// </code>
-        /// </example>
-        /// <seealso cref="string.ToLowerInvariant"/>
         public static List<string> ParseSearchTerms(
             string? searchInput,
             char[]? delimiters = null)
@@ -285,25 +267,57 @@ namespace MedRecPro.Helpers
             if (string.IsNullOrWhiteSpace(searchInput))
                 return new List<string>();
 
-            // Use default delimiters if none provided
             delimiters ??= new[] { ' ', ',', ';' };
 
             return searchInput
                 .Split(delimiters, StringSplitOptions.RemoveEmptyEntries)
-                .Select(t => t.Trim().ToLowerInvariant()) // Normalize to lowercase for case-insensitive matching
+                .Select(t => t.Trim().ToLowerInvariant())
                 .Where(t => t.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             #endregion implementation
         }
+
         #endregion Public Methods
 
         #region Private Methods
 
         /**************************************************************/
         /// <summary>
-        /// Builds a NOT LIKE predicate expression for excluding matches.
+        /// Builds a LIKE predicate for partial matching.
+        /// </summary>
+        private static Expression<Func<T, bool>> buildLikePredicate<T>(
+            Expression<Func<T, string?>> propertySelector,
+            string searchTerm)
+        {
+            #region implementation
+
+            var parameter = propertySelector.Parameters[0];
+            var propertyAccess = propertySelector.Body;
+
+            var toLowerMethod = typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!;
+            var propertyToLower = Expression.Call(propertyAccess, toLowerMethod);
+
+            var likeMethod = typeof(DbFunctionsExtensions).GetMethod(
+                nameof(DbFunctionsExtensions.Like),
+                new[] { typeof(DbFunctions), typeof(string), typeof(string) })!;
+
+            var pattern = Expression.Constant($"%{searchTerm}%");
+            var efFunctions = Expression.Constant(EF.Functions);
+            var likeCall = Expression.Call(likeMethod, efFunctions, propertyToLower, pattern);
+
+            var nullCheck = Expression.NotEqual(propertyAccess, Expression.Constant(null, typeof(string)));
+            var combinedExpression = Expression.AndAlso(nullCheck, likeCall);
+
+            return Expression.Lambda<Func<T, bool>>(combinedExpression, parameter);
+
+            #endregion implementation
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a NOT LIKE predicate for exclusion matching.
         /// </summary>
         private static Expression<Func<T, bool>> buildNotLikePredicate<T>(
             Expression<Func<T, string?>> propertySelector,
@@ -323,13 +337,9 @@ namespace MedRecPro.Helpers
 
             var pattern = Expression.Constant($"%{excludeTerm}%");
             var efFunctions = Expression.Constant(EF.Functions);
-
             var likeCall = Expression.Call(likeMethod, efFunctions, propertyToLower, pattern);
 
-            // Negate the LIKE: NOT LIKE '%term%'
             var notLike = Expression.Not(likeCall);
-
-            // NULL values should pass through (not be excluded)
             var nullCheck = Expression.Equal(propertyAccess, Expression.Constant(null, typeof(string)));
             var combinedExpression = Expression.OrElse(nullCheck, notLike);
 
@@ -340,7 +350,51 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
-        /// Builds an exact match predicate for multiple terms (IN clause equivalent).
+        /// Builds a DIFFERENCE predicate for phonetic similarity matching.
+        /// Uses SQL Server's DIFFERENCE function which returns 0-4 similarity score.
+        /// </summary>
+        /// <param name="propertySelector">Property to match against.</param>
+        /// <param name="searchTerm">Search term to compare phonetically.</param>
+        /// <param name="minimumScore">Minimum DIFFERENCE score (0-4) required for a match.</param>
+        /// <returns>Predicate expression for WHERE clause.</returns>
+        /// <remarks>
+        /// Generates SQL: WHERE PropertyName IS NOT NULL AND DIFFERENCE(PropertyName, 'term') >= minimumScore
+        /// </remarks>
+        private static Expression<Func<T, bool>> buildDifferencePredicate<T>(
+            Expression<Func<T, string?>> propertySelector,
+            string searchTerm,
+            int minimumScore)
+        {
+            #region implementation
+
+            var parameter = propertySelector.Parameters[0];
+            var propertyAccess = propertySelector.Body;
+
+            // Get DIFFERENCE method from ApplicationDbContext
+            var differenceMethod = typeof(ApplicationDbContext).GetMethod(nameof(ApplicationDbContext.Difference))!;
+
+            // Build: ApplicationDbContext.Difference(property, searchTerm)
+            var differenceCall = Expression.Call(
+                differenceMethod,
+                propertyAccess,
+                Expression.Constant(searchTerm));
+
+            // Build: DIFFERENCE(property, searchTerm) >= minimumScore
+            var scoreThreshold = Expression.Constant(minimumScore);
+            var scoreComparison = Expression.GreaterThanOrEqual(differenceCall, scoreThreshold);
+
+            // Add null check: property != null && DIFFERENCE(...) >= threshold
+            var nullCheck = Expression.NotEqual(propertyAccess, Expression.Constant(null, typeof(string)));
+            var combinedExpression = Expression.AndAlso(nullCheck, scoreComparison);
+
+            return Expression.Lambda<Func<T, bool>>(combinedExpression, parameter);
+
+            #endregion implementation
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds an exact match predicate for multiple terms (IN clause).
         /// </summary>
         private static Expression<Func<T, bool>> buildExactMatchAnyPredicate<T>(
             Expression<Func<T, string?>> propertySelector,
@@ -358,7 +412,6 @@ namespace MedRecPro.Helpers
             var termsConstant = Expression.Constant(searchTerms);
             var containsCall = Expression.Call(termsConstant, containsMethod, propertyToLower);
 
-            // Add null check
             var nullCheck = Expression.NotEqual(propertyAccess, Expression.Constant(null, typeof(string)));
             var combined = Expression.AndAlso(nullCheck, containsCall);
 
@@ -369,7 +422,7 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
-        /// Builds a partial match predicate for multiple terms (multiple LIKE with OR).
+        /// Builds a partial match predicate for multiple terms (OR'd LIKE).
         /// </summary>
         private static Expression<Func<T, bool>> buildPartialMatchAnyPredicate<T>(
             Expression<Func<T, string?>> propertySelector,
@@ -392,175 +445,16 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
-        /// Builds a LIKE predicate expression for case-insensitive partial matching on a string property.
+        /// Combines two predicates with OR logic.
         /// </summary>
-        /// <typeparam name="T">The entity type.</typeparam>
-        /// <param name="propertySelector">Expression selecting the property to match against.</param>
-        /// <param name="searchTerm">The search term to match (should be lowercase, will be wrapped with %).</param>
-        /// <returns>Expression suitable for use in a Where clause.</returns>
-        /// <remarks>
-        /// Generates SQL equivalent to: WHERE LOWER(PropertyName) LIKE '%searchterm%'
-        /// The property value is converted to lowercase using SQL LOWER() function
-        /// to ensure case-insensitive matching regardless of database collation.
-        /// </remarks>
-        /// <seealso cref="DbFunctionsExtensions.Like(DbFunctions, string, string)"/>
-        /// <seealso cref="string.ToLower"/>
-        private static Expression<Func<T, bool>> buildLikePredicate<T>(
-            Expression<Func<T, string?>> propertySelector,
-            string searchTerm)
-        {
-            #region implementation
-
-            // Get the parameter from the property selector (e.g., 's' from s => s.PropertyName)
-            var parameter = propertySelector.Parameters[0];
-
-            // Get the property access expression (e.g., s.PropertyName)
-            var propertyAccess = propertySelector.Body;
-
-            // Build: s.PropertyName.ToLower() for case-insensitive comparison
-            var toLowerMethod = typeof(string).GetMethod(
-                nameof(string.ToLower),
-                Type.EmptyTypes)!;
-            var propertyToLower = Expression.Call(propertyAccess, toLowerMethod);
-
-            // Build: EF.Functions.Like(s.PropertyName.ToLower(), "%term%")
-            var likeMethod = typeof(DbFunctionsExtensions).GetMethod(
-                nameof(DbFunctionsExtensions.Like),
-                new[] { typeof(DbFunctions), typeof(string), typeof(string) })!;
-
-            // Pattern is already lowercase from ParseSearchTerms
-            var pattern = Expression.Constant($"%{searchTerm}%");
-            var efFunctions = Expression.Constant(EF.Functions);
-
-            var likeCall = Expression.Call(
-                likeMethod,
-                efFunctions,
-                propertyToLower, // Use lowercase property value
-                pattern);
-
-            // Build null check: s.PropertyName != null
-            var nullCheck = Expression.NotEqual(
-                propertyAccess,
-                Expression.Constant(null, typeof(string)));
-
-            // Combine: s.PropertyName != null && EF.Functions.Like(s.PropertyName.ToLower(), "%term%")
-            var combinedExpression = Expression.AndAlso(nullCheck, likeCall);
-
-            return Expression.Lambda<Func<T, bool>>(combinedExpression, parameter);
-
-            #endregion implementation
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Applies case-insensitive exact match filtering for any of the provided terms (SQL IN clause).
-        /// </summary>
-        /// <typeparam name="T">The entity type.</typeparam>
-        /// <param name="query">The source queryable.</param>
-        /// <param name="propertySelector">Expression selecting the property to match against.</param>
-        /// <param name="searchTerms">List of lowercase terms to match exactly.</param>
-        /// <returns>Filtered queryable where property equals any of the terms (case-insensitive).</returns>
-        /// <remarks>
-        /// Generates SQL equivalent to: WHERE LOWER(PropertyName) IN ('term1', 'term2', ...)
-        /// The property value is converted to lowercase using SQL LOWER() function
-        /// and compared against lowercase search terms for case-insensitive matching.
-        /// </remarks>
-        /// <seealso cref="List{T}.Contains(T)"/>
-        private static IQueryable<T> applyExactMatchAny<T>(
-            IQueryable<T> query,
-            Expression<Func<T, string?>> propertySelector,
-            List<string> searchTerms) where T : class
-        {
-            #region implementation
-
-            var parameter = propertySelector.Parameters[0];
-            var propertyAccess = propertySelector.Body;
-
-            // Build: s.PropertyName.ToLower() for case-insensitive comparison
-            var toLowerMethod = typeof(string).GetMethod(
-                nameof(string.ToLower),
-                Type.EmptyTypes)!;
-            var propertyToLower = Expression.Call(propertyAccess, toLowerMethod);
-
-            // Build: searchTerms.Contains(s.PropertyName.ToLower())
-            // Note: searchTerms are already lowercase from ParseSearchTerms
-            var containsMethod = typeof(List<string>).GetMethod(
-                nameof(List<string>.Contains),
-                new[] { typeof(string) })!;
-
-            var termsConstant = Expression.Constant(searchTerms);
-            var containsCall = Expression.Call(termsConstant, containsMethod, propertyToLower);
-
-            var predicate = Expression.Lambda<Func<T, bool>>(containsCall, parameter);
-
-            return query.Where(predicate);
-
-            #endregion implementation
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Applies case-insensitive partial match filtering for any of the provided terms (multiple LIKE with OR).
-        /// </summary>
-        /// <typeparam name="T">The entity type.</typeparam>
-        /// <param name="query">The source queryable.</param>
-        /// <param name="propertySelector">Expression selecting the property to match against.</param>
-        /// <param name="searchTerms">List of lowercase terms to partially match.</param>
-        /// <returns>Filtered queryable where property contains any of the terms (case-insensitive).</returns>
-        /// <remarks>
-        /// Generates SQL equivalent to: WHERE LOWER(PropertyName) LIKE '%term1%' OR LOWER(PropertyName) LIKE '%term2%' ...
-        /// </remarks>
-        /// <seealso cref="buildLikePredicate{T}"/>
-        private static IQueryable<T> applyPartialMatchAny<T>(
-            IQueryable<T> query,
-            Expression<Func<T, string?>> propertySelector,
-            List<string> searchTerms) where T : class
-        {
-            #region implementation
-
-            // Start with the first term's predicate
-            var combinedPredicate = buildLikePredicate<T>(propertySelector, searchTerms[0]);
-
-            // OR together predicates for remaining terms
-            foreach (var term in searchTerms.Skip(1))
-            {
-                var termPredicate = buildLikePredicate<T>(propertySelector, term);
-                combinedPredicate = combineOrPredicates(combinedPredicate, termPredicate);
-            }
-
-            return query.Where(combinedPredicate);
-
-            #endregion implementation
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Combines two predicate expressions using logical OR.
-        /// </summary>
-        /// <typeparam name="T">The entity type.</typeparam>
-        /// <param name="left">First predicate expression.</param>
-        /// <param name="right">Second predicate expression.</param>
-        /// <returns>Combined predicate expression (left OR right).</returns>
-        /// <remarks>
-        /// Uses parameter replacement to ensure both expressions share the same parameter,
-        /// which is required for proper EF Core SQL translation.
-        /// </remarks>
-        /// <seealso cref="ParameterReplacer"/>
-        /// <seealso cref="Expression.OrElse"/>
         private static Expression<Func<T, bool>> combineOrPredicates<T>(
             Expression<Func<T, bool>> left,
             Expression<Func<T, bool>> right)
         {
             #region implementation
 
-            // Use the parameter from the left expression
             var parameter = left.Parameters[0];
-
-            // Replace the parameter in the right expression to match the left
-            var rightBody = new ParameterReplacer(right.Parameters[0], parameter)
-                .Visit(right.Body);
-
-            // Combine with OR
+            var rightBody = new ParameterReplacer(right.Parameters[0], parameter).Visit(right.Body);
             var orExpression = Expression.OrElse(left.Body, rightBody);
 
             return Expression.Lambda<Func<T, bool>>(orExpression, parameter);
@@ -574,10 +468,8 @@ namespace MedRecPro.Helpers
 
         /**************************************************************/
         /// <summary>
-        /// Expression visitor that replaces one parameter with another.
-        /// Required for combining expressions that use different parameter instances.
+        /// Expression visitor for parameter replacement.
         /// </summary>
-        /// <seealso cref="ExpressionVisitor"/>
         private class ParameterReplacer : ExpressionVisitor
         {
             private readonly ParameterExpression _oldParameter;
@@ -600,23 +492,17 @@ namespace MedRecPro.Helpers
 
     /**************************************************************/
     /// <summary>
-    /// Specifies how multiple search terms should be matched against a property.
+    /// Specifies how multiple search terms should be matched.
     /// </summary>
-    /// <remarks>
-    /// Single terms always use partial matching regardless of this setting.
-    /// All matching is performed case-insensitively.
-    /// </remarks>
     public enum MultiTermBehavior
     {
         /// <summary>
-        /// Multiple terms are matched exactly using SQL IN clause (case-insensitive).
-        /// Example: "NDA ANDA" matches records where property equals "NDA", "nda", "ANDA", "anda", etc.
+        /// Exact match using IN clause (case-insensitive).
         /// </summary>
         ExactMatchAny,
 
         /// <summary>
-        /// Multiple terms are matched partially using SQL LIKE with OR (case-insensitive).
-        /// Example: "asp tab" matches records where property contains "asp", "ASP", "tab", "TAB", etc.
+        /// Partial match using LIKE with OR (case-insensitive).
         /// </summary>
         PartialMatchAny
     }

@@ -661,123 +661,417 @@ namespace MedRecPro.Service.ParsingServices
             #endregion
         }
 
+        #region Active Moiety Indexing - Orchestrator Pattern
+
         /**************************************************************/
         /// <summary>
-        /// Processes Active Moiety indexing (Spec 8.2.2) by linking moieties to their pharmacologic classes.
-        /// ENHANCED: Now also processes names and hierarchies within generalizedMaterialKind elements.
+        /// Data transfer object containing extracted pharmacologic class information
+        /// from an SPL XML element.
+        /// </summary>
+        /// <remarks>
+        /// Used to pass pharmacologic class data between orchestrator and processing methods
+        /// without coupling to XML element structures.
+        /// </remarks>
+        /// <seealso cref="processActiveMoietyIndexing"/>
+        /// <seealso cref="extractPharmacologicClassFromGeneralizedKind"/>
+        private class PharmacologicClassExtractionResult
+        {
+            #region implementation
+
+            /// <summary>The code value identifying the pharmacologic class.</summary>
+            public string? Code { get; set; }
+
+            /// <summary>The code system OID (e.g., NDF-RT).</summary>
+            public string? System { get; set; }
+
+            /// <summary>The human-readable display name for the class.</summary>
+            public string? DisplayName { get; set; }
+
+            /// <summary>The source generalizedMaterialKind element for further processing.</summary>
+            public XElement? GeneralizedKindElement { get; set; }
+
+            /// <summary>Indicates whether the extraction yielded valid data.</summary>
+            public bool IsValid => !string.IsNullOrWhiteSpace(Code);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Orchestrates Active Moiety indexing (Spec 8.2.2) by coordinating the processing
+        /// of pharmacologic class associations, names, links, and hierarchies.
         /// </summary>
         /// <param name="dbContext">The database context.</param>
         /// <param name="identifiedSubstanceEl">The identified substance XElement.</param>
         /// <param name="mainIdentifiedSubstance">The main identified substance entity.</param>
         /// <returns>The count of records created during processing.</returns>
+        /// <remarks>
+        /// This orchestrator delegates to specialized methods for:
+        /// <list type="bullet">
+        ///   <item>Extracting pharmacologic class information from XML</item>
+        ///   <item>Creating or retrieving pharmacologic class records</item>
+        ///   <item>Processing class names</item>
+        ///   <item>Creating moiety-to-class links</item>
+        ///   <item>Processing nested class hierarchies</item>
+        /// </list>
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var count = await processActiveMoietyIndexing(dbContext, substanceElement, identifiedSubstance);
+        /// </code>
+        /// </example>
+        /// <seealso cref="IdentifiedSubstance"/>
+        /// <seealso cref="PharmacologicClass"/>
+        /// <seealso cref="processSpecializedKindElement"/>
         private async Task<int> processActiveMoietyIndexing(
             ApplicationDbContext dbContext,
             XElement identifiedSubstanceEl,
             IdentifiedSubstance mainIdentifiedSubstance)
         {
-            int count = 0;
+            #region implementation
 
-            // Use direct LINQ to XML with proper namespace handling to bypass SplElements issues
+            int totalCount = 0;
+
+            // Retrieve all asSpecializedKind elements using direct LINQ to XML
+            // to bypass any SplElements wrapper issues
             var specializedKindElements = identifiedSubstanceEl
                 .Elements(ns + sc.E.AsSpecializedKind)
                 .ToList();
 
             Console.WriteLine($"Found {specializedKindElements.Count} asSpecializedKind elements for substance {mainIdentifiedSubstance.SubstanceIdentifierValue}");
 
-            // Process each specialized kind (pharmacologic class association)
+            // Process each specialized kind element through the dedicated handler
             foreach (var specializedKindEl in specializedKindElements)
             {
-                // Extract pharmacologic class information using direct LINQ to XML
-                var generalizedKindEl = specializedKindEl.GetSplElement(sc.E.GeneralizedMaterialKind);
-                if (generalizedKindEl == null)
+                var elementCount = await processSpecializedKindElement(
+                    dbContext,
+                    specializedKindEl,
+                    mainIdentifiedSubstance);
+
+                totalCount += elementCount;
+            }
+
+            Console.WriteLine($"processActiveMoietyIndexing completed. Total records created: {totalCount}");
+            return totalCount;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes a single asSpecializedKind element, extracting pharmacologic class
+        /// information and creating all associated records.
+        /// </summary>
+        /// <param name="dbContext">The database context.</param>
+        /// <param name="specializedKindEl">The asSpecializedKind XElement to process.</param>
+        /// <param name="mainIdentifiedSubstance">The main identified substance entity.</param>
+        /// <returns>The count of records created for this element.</returns>
+        /// <remarks>
+        /// Coordinates extraction, class creation, name processing, link creation,
+        /// and hierarchy processing for a single pharmacologic class association.
+        /// </remarks>
+        /// <seealso cref="processActiveMoietyIndexing"/>
+        /// <seealso cref="extractPharmacologicClassFromGeneralizedKind"/>
+        /// <seealso cref="processPharmacologicClassNames"/>
+        /// <seealso cref="createPharmacologicClassLink"/>
+        /// <seealso cref="processNestedHierarchies"/>
+        private async Task<int> processSpecializedKindElement(
+            ApplicationDbContext dbContext,
+            XElement specializedKindEl,
+            IdentifiedSubstance mainIdentifiedSubstance)
+        {
+            #region implementation
+
+            int count = 0;
+
+            // Extract pharmacologic class information from the generalizedMaterialKind
+            var extractionResult = extractPharmacologicClassFromGeneralizedKind(specializedKindEl);
+
+            // Validate extraction result before proceeding
+            if (extractionResult == null || !extractionResult.IsValid)
+            {
+                return count;
+            }
+
+            Console.WriteLine($"Processing pharmacologic class: Code={extractionResult.Code}, System={extractionResult.System}, DisplayName={extractionResult.DisplayName}");
+
+            try
+            {
+                // Look up substance record by UNII to get the ID
+                var substanceRec = await dbContext.Set<IdentifiedSubstance>()
+                    .FirstOrDefaultAsync(s => s.SubstanceIdentifierValue == mainIdentifiedSubstance.SubstanceIdentifierValue);
+
+                // Create or retrieve the pharmacologic class record
+                var pharmClass = await getOrCreatePharmacologicClassAsync(
+                    dbContext,
+                    substanceRec?.IdentifiedSubstanceID,
+                    extractionResult.Code,
+                    extractionResult.System,
+                    extractionResult.DisplayName);
+
+                count++;
+                Console.WriteLine($"Created/found PharmacologicClass ID: {pharmClass.PharmacologicClassID}");
+
+                // Process names within the generalizedMaterialKind element
+                if (extractionResult?.GeneralizedKindElement != null)                    
+                    count += await processPharmacologicClassNames(
+                        dbContext,
+                        extractionResult.GeneralizedKindElement,
+                        pharmClass.PharmacologicClassID);
+
+                // Create link between the moiety and the pharmacologic class
+                count += await createPharmacologicClassLink(
+                    dbContext,
+                    mainIdentifiedSubstance,
+                    pharmClass.PharmacologicClassID);
+
+                // Process any nested hierarchy relationships
+                if (extractionResult?.GeneralizedKindElement != null && extractionResult?.Code != null)
+                    count += await processNestedHierarchies(
+                      dbContext,
+                      extractionResult.GeneralizedKindElement,
+                      pharmClass,
+                      extractionResult.Code);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing pharmacologic class {extractionResult.Code}: {ex.Message}");
+                throw; // Re-throw to maintain existing error handling behavior
+            }
+
+            return count;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts pharmacologic class information from a generalizedMaterialKind element
+        /// within an asSpecializedKind container.
+        /// </summary>
+        /// <param name="specializedKindEl">The asSpecializedKind XElement containing the class info.</param>
+        /// <returns>
+        /// A <see cref="PharmacologicClassExtractionResult"/> containing the extracted data,
+        /// or null if required elements are missing.
+        /// </returns>
+        /// <remarks>
+        /// Performs validation at each extraction step and logs warnings for missing elements.
+        /// Returns null early if critical elements (generalizedMaterialKind or code) are absent.
+        /// </remarks>
+        /// <seealso cref="PharmacologicClassExtractionResult"/>
+        /// <seealso cref="processSpecializedKindElement"/>
+        private PharmacologicClassExtractionResult? extractPharmacologicClassFromGeneralizedKind(
+            XElement specializedKindEl)
+        {
+            #region implementation
+
+            // Navigate to the generalizedMaterialKind child element
+            var generalizedKindEl = specializedKindEl.GetSplElement(sc.E.GeneralizedMaterialKind);
+            if (generalizedKindEl == null)
+            {
+                Console.WriteLine("Warning: generalizedMaterialKind element not found");
+                return null;
+            }
+
+            // Extract the code element containing class identifiers
+            var classCodeEl = generalizedKindEl.GetSplElement(sc.E.Code);
+            if (classCodeEl == null)
+            {
+                Console.WriteLine("Warning: code element not found in generalizedMaterialKind");
+                return null;
+            }
+
+            // Extract attribute values from the code element
+            var classCode = classCodeEl.GetAttrVal(sc.A.CodeValue);
+            var classSystem = classCodeEl.GetAttrVal(sc.A.CodeSystem);
+            var classDisplayName = classCodeEl.GetAttrVal(sc.A.DisplayName);
+
+            // Validate the required code attribute
+            if (string.IsNullOrWhiteSpace(classCode))
+            {
+                Console.WriteLine("Warning: code attribute is empty or missing");
+                return null;
+            }
+
+            // Return populated extraction result with reference to source element
+            return new PharmacologicClassExtractionResult
+            {
+                Code = classCode,
+                System = classSystem,
+                DisplayName = classDisplayName,
+                GeneralizedKindElement = generalizedKindEl
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes name elements within a generalizedMaterialKind element,
+        /// creating PharmacologicClassName records for each valid name.
+        /// </summary>
+        /// <param name="dbContext">The database context.</param>
+        /// <param name="generalizedKindEl">The generalizedMaterialKind XElement containing names.</param>
+        /// <param name="pharmacologicClassId">The ID of the parent pharmacologic class.</param>
+        /// <returns>The count of name records created.</returns>
+        /// <remarks>
+        /// Iterates through all name child elements, extracting value and use attribute.
+        /// Defaults to "A" (Alternate) for the use attribute if not specified.
+        /// </remarks>
+        /// <seealso cref="PharmacologicClassName"/>
+        /// <seealso cref="getOrCreatePharmacologicClassNameAsync"/>
+        private async Task<int> processPharmacologicClassNames(
+            ApplicationDbContext dbContext,
+            XElement generalizedKindEl,
+            int? pharmacologicClassId)
+        {
+            #region implementation
+
+            int count = 0;
+
+            // Retrieve all name elements from the generalizedMaterialKind
+            var nameElements = generalizedKindEl.Elements(ns + sc.E.Name).ToList();
+            Console.WriteLine($"Found {nameElements.Count} name elements in generalizedMaterialKind");
+
+            foreach (var nameEl in nameElements)
+            {
+                // Extract and clean the name value
+                var nameValue = nameEl.Value?.Trim();
+
+                // Extract use attribute, defaulting to "A" (Alternate) if not present
+                var nameUse = nameEl.GetAttrVal(sc.A.Use) ?? "A";
+
+                // Only create record if name value is non-empty
+                if (!string.IsNullOrWhiteSpace(nameValue))
                 {
-                    Console.WriteLine("Warning: generalizedMaterialKind element not found");
-                    continue;
-                }
+                    await getOrCreatePharmacologicClassNameAsync(
+                        dbContext,
+                        pharmacologicClassId,
+                        nameValue,
+                        nameUse);
 
-                var classCodeEl = generalizedKindEl.GetSplElement(sc.E.Code);
-                if (classCodeEl == null)
-                {
-                    Console.WriteLine("Warning: code element not found in generalizedMaterialKind");
-                    continue;
-                }
-
-                // Extract pharmacologic class information using direct attribute access
-                var classCode = classCodeEl.GetAttrVal(sc.A.CodeValue);
-                var classSystem = classCodeEl.GetAttrVal(sc.A.CodeSystem);
-                var classDisplayName = classCodeEl.GetAttrVal(sc.A.DisplayName);
-
-                // Validate required code value
-                if (string.IsNullOrWhiteSpace(classCode))
-                {
-                    Console.WriteLine("Warning: code attribute is empty or missing");
-                    continue;
-                }
-
-                Console.WriteLine($"Processing pharmacologic class: Code={classCode}, System={classSystem}, DisplayName={classDisplayName}");
-
-                try
-                {
-                    // Create or get the referenced pharmacologic class (not a definition)
-                    var pharmClass = await getOrCreatePharmacologicClassAsync(
-                        dbContext, null, classCode, classSystem, classDisplayName);
                     count++;
-                    Console.WriteLine($"Created/found PharmacologicClass ID: {pharmClass.PharmacologicClassID}");
-
-                    // ENHANCED: Process names within the generalizedMaterialKind
-                    var nameElements = generalizedKindEl.Elements(ns + sc.E.Name).ToList();
-                    Console.WriteLine($"Found {nameElements.Count} name elements in generalizedMaterialKind");
-
-                    foreach (var nameEl in nameElements)
-                    {
-                        var nameValue = nameEl.Value?.Trim();
-                        var nameUse = nameEl.GetAttrVal(sc.A.Use) ?? "A"; // Default to Alternate
-
-                        if (!string.IsNullOrWhiteSpace(nameValue))
-                        {
-                            await getOrCreatePharmacologicClassNameAsync(
-                                dbContext, pharmClass.PharmacologicClassID, nameValue, nameUse);
-                            count++;
-                            Console.WriteLine($"Created PharmacologicClassName: {nameValue} (use: {nameUse})");
-                        }
-                    }
-
-                    // Create the link between the moiety and the class
-                    var link = await getOrCreatePharmacologicClassLinkAsync(
-                        dbContext, mainIdentifiedSubstance.IdentifiedSubstanceID, pharmClass.PharmacologicClassID);
-                    count++;
-                    Console.WriteLine($"Created/found PharmacologicClassLink ID: {link.PharmacologicClassLinkID}");
-
-                    // ENHANCED: Process any nested asSpecializedKind elements for hierarchies
-                    // Note: This would be for complex hierarchies within ActiveMoiety indexing
-                    var nestedSpecializedKinds = generalizedKindEl.Elements(ns + sc.E.AsSpecializedKind).ToList();
-                    foreach (var nestedKindEl in nestedSpecializedKinds)
-                    {
-                        var nestedInfo = extractPharmacologicClassInfoFromElement(nestedKindEl);
-                        if (nestedInfo != null)
-                        {
-                            var parentClass = await getOrCreatePharmacologicClassAsync(
-                                dbContext, null, nestedInfo.Code, nestedInfo.System, nestedInfo.DisplayName);
-                            count++;
-
-                            // Create hierarchy relationship
-                            await getOrCreatePharmacologicClassHierarchyAsync(
-                                dbContext, pharmClass.PharmacologicClassID, parentClass.PharmacologicClassID);
-                            count++;
-                            Console.WriteLine($"Created hierarchy: {classCode} -> {nestedInfo.Code}");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error processing pharmacologic class {classCode}: {ex.Message}");
-                    throw; // Re-throw to maintain existing error handling behavior
+                    Console.WriteLine($"Created PharmacologicClassName: {nameValue} (use: {nameUse})");
                 }
             }
 
-            Console.WriteLine($"processActiveMoietyIndexing completed. Total records created: {count}");
             return count;
+
+            #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates or retrieves a link between an identified substance (moiety)
+        /// and a pharmacologic class.
+        /// </summary>
+        /// <param name="dbContext">The database context.</param>
+        /// <param name="mainIdentifiedSubstance">The identified substance to link.</param>
+        /// <param name="pharmacologicClassId">The ID of the pharmacologic class.</param>
+        /// <returns>1 if a link was created/found, 0 otherwise.</returns>
+        /// <remarks>
+        /// Performs a database lookup for the UNII on active moiety.
+        /// If the substance is not found, no link is recorded and the method returns 0.
+        /// </remarks>
+        /// <seealso cref="PharmacologicClassLink"/>
+        /// <seealso cref="getOrCreatePharmacologicClassLinkAsync"/>
+        private async Task<int> createPharmacologicClassLink(
+            ApplicationDbContext dbContext,
+            IdentifiedSubstance mainIdentifiedSubstance,
+            int? pharmacologicClassId)
+        {
+            #region implementation
+
+            // Attempt to create the link between moiety and pharmacologic class
+            var link = await getOrCreatePharmacologicClassLinkAsync(
+                dbContext,
+                mainIdentifiedSubstance.IdentifiedSubstanceID,
+                pharmacologicClassId,
+                mainIdentifiedSubstance.SubstanceIdentifierValue);
+
+            // Log result based on link creation outcome
+            if (link != null && link?.PharmacologicClassLinkID >= 0)
+            {
+                Console.WriteLine($"Created/found PharmacologicClassLink ID: {link?.PharmacologicClassLinkID}");
+            }
+            else
+            {
+                Console.WriteLine($"Created/found PharmacologicClassLink ID: No link was available for passed moiety");
+            }
+
+            // Return 1 to indicate the operation was performed
+            return 1;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes nested asSpecializedKind elements within a generalizedMaterialKind
+        /// to establish pharmacologic class hierarchy relationships.
+        /// </summary>
+        /// <param name="dbContext">The database context.</param>
+        /// <param name="generalizedKindEl">The generalizedMaterialKind element containing nested hierarchies.</param>
+        /// <param name="childPharmClass">The child pharmacologic class in the hierarchy.</param>
+        /// <param name="childClassCode">The code of the child class for logging purposes.</param>
+        /// <returns>The count of hierarchy records created (2 per hierarchy: parent class + relationship).</returns>
+        /// <remarks>
+        /// Complex pharmacologic class structures may contain nested asSpecializedKind elements
+        /// that define parent-child relationships. This method processes those relationships,
+        /// creating parent class records and establishing hierarchy links.
+        /// </remarks>
+        /// <seealso cref="PharmacologicClassHierarchy"/>
+        /// <seealso cref="extractPharmacologicClassInfoFromElement"/>
+        /// <seealso cref="getOrCreatePharmacologicClassHierarchyAsync"/>
+        private async Task<int> processNestedHierarchies(
+            ApplicationDbContext dbContext,
+            XElement generalizedKindEl,
+            PharmacologicClass childPharmClass,
+            string childClassCode)
+        {
+            #region implementation
+
+            int count = 0;
+
+            // Find all nested asSpecializedKind elements representing hierarchy relationships
+            var nestedSpecializedKinds = generalizedKindEl
+                .Elements(ns + sc.E.AsSpecializedKind)
+                .ToList();
+
+            foreach (var nestedKindEl in nestedSpecializedKinds)
+            {
+                // Extract parent class information from nested element
+                var nestedInfo = extractPharmacologicClassInfoFromElement(nestedKindEl);
+
+                if (nestedInfo != null)
+                {
+                    // Create or retrieve the parent pharmacologic class
+                    // Note: null passed for IdentifiedSubstanceID as this is a hierarchy reference
+                    var parentClass = await getOrCreatePharmacologicClassAsync(
+                        dbContext,
+                        null,
+                        nestedInfo.Code,
+                        nestedInfo.System,
+                        nestedInfo.DisplayName);
+                    count++;
+
+                    // Establish the hierarchy relationship between child and parent
+                    await getOrCreatePharmacologicClassHierarchyAsync(
+                        dbContext,
+                        childPharmClass.PharmacologicClassID,
+                        parentClass.PharmacologicClassID);
+                    count++;
+
+                    Console.WriteLine($"Created hierarchy: {childClassCode} -> {nestedInfo.Code}");
+                }
+            }
+
+            return count;
+
+            #endregion
+        }
+
+        #endregion
 
         /**************************************************************/
         /// <summary>
@@ -863,7 +1157,8 @@ namespace MedRecPro.Service.ParsingServices
         /// <seealso cref="XElement"/>
         /// <seealso cref="PharmacologicClass"/>
         /// <seealso cref="getOrCreatePharmacologicClassNameAsync"/>
-        /// <seealso cref="Label"/>
+        /// <seealso cref="SectionIndexingParser.processPharmacologicClassNames(ApplicationDbContext, XElement, int?)"/>
+        /// <seealso cref="SectionIndexingParser.processPharmacologicClassNames(ApplicationDbContext, XElement, Label.PharmacologicClass)"/>
         private async Task<int> processPharmacologicClassNames(
             ApplicationDbContext dbContext,
             XElement identifiedSubstanceEl,
@@ -1282,15 +1577,17 @@ namespace MedRecPro.Service.ParsingServices
         /// <param name="dbContext">The database context.</param>
         /// <param name="activeMoietySubstanceId">The ID of the active moiety IdentifiedSubstance.</param>
         /// <param name="pharmacologicClassId">The ID of the associated PharmacologicClass.</param>
+        /// <param name="substanceIdentifierValue">The UNII for the ActiveMoiety to link</param>
         /// <returns>The existing or newly created PharmacologicClassLink entity.</returns>
         /// <seealso cref="PharmacologicClassLink"/>
         /// <seealso cref="IdentifiedSubstance"/>
         /// <seealso cref="PharmacologicClass"/>
         /// <seealso cref="ApplicationDbContext"/>
-        private async Task<PharmacologicClassLink> getOrCreatePharmacologicClassLinkAsync(
+        private async Task<PharmacologicClassLink?> getOrCreatePharmacologicClassLinkAsync(
             ApplicationDbContext dbContext,
             int? activeMoietySubstanceId,
-            int? pharmacologicClassId)
+            int? pharmacologicClassId,
+            string? substanceIdentifierValue)
         {
             #region implementation
             // Search for existing link between active moiety and pharmacologic class
@@ -1305,19 +1602,32 @@ namespace MedRecPro.Service.ParsingServices
                 return existing;
             }
 
-            // Create new PharmacologicClassLink entity connecting active moiety to pharmacologic class
-            var newLink = new PharmacologicClassLink
+            //Find Existing Active Moiety to Link the to the class. NOTE: this depends upon
+            //Order of operation in terms of Label vs Index file. If a matching label exists
+            //then the moiety will be found. If the index file is imported with no matching
+            //label then there will be no link.
+
+            var moiety = await dbContext.Set<ActiveMoiety>().FirstOrDefaultAsync(pcl =>
+                pcl.MoietyUNII == substanceIdentifierValue);
+
+            if (moiety != null && moiety.IngredientSubstanceID >= 0)
             {
-                ActiveMoietySubstanceID = activeMoietySubstanceId,
-                PharmacologicClassID = pharmacologicClassId
-            };
+                // Create new PharmacologicClassLink entity connecting active moiety to pharmacologic class
+                var newLink = new PharmacologicClassLink
+                {
+                    ActiveMoietySubstanceID = moiety.IngredientSubstanceID,
+                    PharmacologicClassID = pharmacologicClassId
+                };
 
-            // Save the new pharmacologic class link to the database and persist changes immediately
-            dbContext.Set<PharmacologicClassLink>().Add(newLink);
-            await dbContext.SaveChangesAsync();
+                // Save the new pharmacologic class link to the database and persist changes immediately
+                dbContext.Set<PharmacologicClassLink>().Add(newLink);
+                await dbContext.SaveChangesAsync();
 
-            // Return the newly created and persisted pharmacologic class link
-            return newLink;
+                // Return the newly created and persisted pharmacologic class link
+                return newLink;
+            }
+
+            else return null;
             #endregion
         }
 

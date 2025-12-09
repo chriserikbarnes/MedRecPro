@@ -5541,8 +5541,12 @@ namespace MedRecPro.Models
 
         public required Dictionary<string, object?> StructuredBody { get; set; }
 
+        [Newtonsoft.Json.JsonIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
         public StructuredBodyViewModel? StructuredBodyView { get; set; }
 
+        [Newtonsoft.Json.JsonIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
         public DocumentDto? Document { get; set; }
 
         public List<SectionDto> Sections { get; set; } = new();

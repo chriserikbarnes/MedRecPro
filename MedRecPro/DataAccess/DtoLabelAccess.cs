@@ -604,8 +604,20 @@ namespace MedRecPro.DataAccess
             }
             else if (!string.IsNullOrWhiteSpace(substanceNameSearch))
             {
-                query = query.FilterBySearchTerms(p => p.SubstanceName, substanceNameSearch, MultiTermBehavior.PartialMatchAny);
+                query = query.FilterBySearchTerms(
+                    substanceNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.Strict,
+                    x => x.SubstanceName);
             }
+
+
+#if DEBUG
+            var sql = query.ToQueryString();
+            Debug.WriteLine($"Generated SQL: {sql}");
+#endif
+
 
             query = query.OrderBy(p => p.SubstanceName).ThenBy(p => p.ProductName);
 

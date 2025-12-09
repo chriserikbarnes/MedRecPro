@@ -3211,6 +3211,10 @@ namespace MedRecPro.Api.Controllers
         /// <response code="404">If no document is found with the specified GUID.</response>
         /// <response code="500">If an internal server error occurs during analysis.</response>
         /// <remarks>
+        /// **Limitation:** This endpoint only supports SPL Label document types. Other SPL sub-types
+        /// (e.g., indexing files, establishment registrations, product listings) are not supported
+        /// and will not produce accurate comparison results.
+        /// 
         /// This endpoint delegates the comparison analysis to the ComparisonService, which handles:
         /// - Retrieving the complete label DTO structure from the database
         /// - Finding the corresponding SplData record containing original XML
@@ -3859,6 +3863,10 @@ namespace MedRecPro.Api.Controllers
         /// The status includes the operation ID for progress polling and the progress URL endpoint.
         /// </returns>
         /// <remarks>
+        /// **Limitation:** This endpoint only supports SPL Label document types. Other SPL sub-types
+        /// (e.g., indexing files, establishment registrations, product listings) are not supported
+        /// and will not produce accurate comparison results.
+        /// 
         /// This endpoint initiates a long-running AI-powered document comparison analysis that:
         /// - Retrieves the complete Label DTO structure from the database
         /// - Finds the corresponding SplData record containing original XML
@@ -3971,7 +3979,11 @@ namespace MedRecPro.Api.Controllers
         /// GET /api/xmldocument/generate/12345678-1234-1234-1234-123456789012/true
         /// </example>
         /// <remarks>
-        /// Returns XML with FDA URLs for downloads/validation, or local URLs for browser viewing.
+        /// **Limitation:** This endpoint only supports SPL Label document types. Other SPL sub-types
+        /// (e.g., indexing files, establishment registrations, product listings) are not supported
+        /// and will not produce accurate XML output.
+        /// 
+        /// Returns XML with URLs for downloads/validation, or local URLs for browser viewing.
         /// Automatically detects request type based on Accept headers.
         /// Logs processing time and any errors encountered during generation.
         /// </remarks>

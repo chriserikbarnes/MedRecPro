@@ -42,6 +42,54 @@ namespace MedRecPro.Data
 
         public DbSet<SplData> SplData { get; set; }
 
+        #region Custom Database Functions
+
+        /**************************************************************/
+        /// <summary>
+        /// Maps to SQL Server's SOUNDEX function for phonetic encoding.
+        /// </summary>
+        /// <param name="value">The string to compute Soundex for.</param>
+        /// <returns>Four-character Soundex code.</returns>
+        /// <remarks>
+        /// This method is for EF Core query translation only.
+        /// Do not call directly - use within LINQ queries.
+        /// </remarks>
+        public static string Soundex(string value)
+            => throw new NotSupportedException("Use only in EF Core queries.");
+
+        /**************************************************************/
+        /// <summary>
+        /// Maps to SQL Server's DIFFERENCE function for phonetic similarity comparison.
+        /// Compares the Soundex values of two strings and returns a score indicating similarity.
+        /// </summary>
+        /// <param name="value1">First string to compare.</param>
+        /// <param name="value2">Second string to compare.</param>
+        /// <returns>
+        /// Integer from 0-4 indicating phonetic similarity:
+        /// 4 = Identical or nearly identical sounds
+        /// 3 = Strong similarity (recommended threshold for drug names)
+        /// 2 = Moderate similarity
+        /// 1 = Weak similarity
+        /// 0 = No similarity (different Soundex codes)
+        /// </returns>
+        /// <remarks>
+        /// This method is for EF Core query translation only.
+        /// Do not call directly - use within LINQ queries.
+        /// Particularly useful for pharmaceutical names where misspellings are common.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // In a LINQ query:
+        /// var matches = db.Products
+        ///     .Where(p => ApplicationDbContext.Difference(p.Name, "testostone") >= 3)
+        ///     .ToList();
+        /// </code>
+        /// </example>
+        public static int Difference(string value1, string value2)
+            => throw new NotSupportedException("Use only in EF Core queries.");
+
+        #endregion
+
         /**************************************************************/
         /// <summary>
         /// Configures the model for the database context.
@@ -184,6 +232,16 @@ namespace MedRecPro.Data
             {
                 entity.ToTable("AspNetRoles"); // Default table name
             });
+
+            // Register SOUNDEX function
+            builder.HasDbFunction(typeof(ApplicationDbContext).GetMethod(nameof(Soundex))!)
+                .HasName("SOUNDEX")
+                .IsBuiltIn();
+
+            // Register DIFFERENCE function
+            builder.HasDbFunction(typeof(ApplicationDbContext).GetMethod(nameof(Difference))!)
+                .HasName("DIFFERENCE")
+                .IsBuiltIn();
         }
 
         /**************************************************************/
