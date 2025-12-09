@@ -637,7 +637,7 @@ namespace MedRecPro.DataAccess
         /// <param name="page">Optional page number.</param>
         /// <param name="size">Optional page size.</param>
         /// <returns>Base64-encoded cache key string.</returns>
-        private static string generateViewCacheKey(string viewName, string? searchTerm, int? page, int? size)
+        private static string generateCacheKey(string viewName, string? searchTerm, int? page, int? size)
         {
             #region implementation
 

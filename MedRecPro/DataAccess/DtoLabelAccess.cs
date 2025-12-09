@@ -224,7 +224,7 @@ namespace MedRecPro.DataAccess
             #region implementation
 
             // Generate cache key including search and pagination parameters
-            string key = generateViewCacheKey(nameof(SearchByApplicationNumberAsync), applicationNumber, page, size);
+            string key = generateCacheKey(nameof(SearchByApplicationNumberAsync), applicationNumber, page, size);
 
             var cached = Cached.GetCache<List<ProductsByApplicationNumberDto>>(key);
 
@@ -282,7 +282,7 @@ namespace MedRecPro.DataAccess
         /// Useful for understanding the scope of regulatory approvals.
         /// </summary>
         /// <param name="db">The application database context.</param>
-        /// <param name="marketingCategoryCode">Optional filter by marketing category (NDA, ANDA, BLA).</param>
+        /// <param name="marketingCategory">Optional filter by marketing category (NDA, ANDA, BLA).</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <param name="page">Optional 1-based page number for pagination.</param>
@@ -296,7 +296,7 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="LabelView.ApplicationNumberSummary"/>
         public static async Task<List<ApplicationNumberSummaryDto>> GetApplicationNumberSummariesAsync(
             ApplicationDbContext db,
-            string? marketingCategoryCode,
+            string? marketingCategory,
             string pkSecret,
             ILogger logger,
             int? page = null,
@@ -304,7 +304,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(GetApplicationNumberSummariesAsync), marketingCategoryCode, page, size);
+            string key = generateCacheKey(nameof(GetApplicationNumberSummariesAsync), marketingCategory, page, size);
 
             var cached = Cached.GetCache<List<ApplicationNumberSummaryDto>>(key);
 
@@ -322,9 +322,24 @@ namespace MedRecPro.DataAccess
                 .AsNoTracking()
                 .AsQueryable();
 
-            if (!string.IsNullOrWhiteSpace(marketingCategoryCode))
+            if (!string.IsNullOrWhiteSpace(marketingCategory))
             {
-                query = query.Where(s => s.MarketingCategoryCode == marketingCategoryCode);
+                // Handle NDA/ANDA edge case - "NDA" is a substring of "ANDA"
+                string? exclusion = marketingCategory.Equals("NDA", StringComparison.OrdinalIgnoreCase)
+                    ? "ANDA"
+                    : null;
+
+                query = query.FilterBySearchTerms(
+                    marketingCategory,
+                    MultiTermBehavior.PartialMatchAny,
+                    exclusion,
+                    x => x.MarketingCategoryCode,
+                    x => x.MarketingCategoryName);
+
+#if DEBUG
+                var sql = query.ToQueryString();
+                Debug.WriteLine($"Generated SQL: {sql}");
+#endif
             }
 
             query = query.OrderByDescending(s => s.ProductCount);
@@ -377,8 +392,12 @@ namespace MedRecPro.DataAccess
             int? size = null)
         {
             #region implementation
+            if(string.IsNullOrWhiteSpace(classNameSearch) || string.IsNullOrWhiteSpace(pkSecret))
+            {
+                throw new ArgumentException("Class name search and PK secret must be provided.");
+            }
 
-            string key = generateViewCacheKey(nameof(SearchByPharmacologicClassAsync), classNameSearch, page, size);
+            string key = generateCacheKey(nameof(SearchByPharmacologicClassAsync), classNameSearch, page, size);
 
             var cached = Cached.GetCache<List<ProductsByPharmacologicClassDto>>(key);
 
@@ -394,7 +413,7 @@ namespace MedRecPro.DataAccess
             // Build query with class name search
             var query = db.Set<LabelView.ProductsByPharmacologicClass>()
                 .AsNoTracking()
-                .Where(p => p.PharmClassName != null && p.PharmClassName.Contains(classNameSearch))
+                .FilterBySearchTerms(p => p.PharmClassName, classNameSearch, MultiTermBehavior.PartialMatchAny)
                 .OrderBy(p => p.PharmClassName)
                 .ThenBy(p => p.ProductName);
 
@@ -435,7 +454,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(GetPharmacologicClassHierarchyAsync), null, page, size);
+            string key = generateCacheKey(nameof(GetPharmacologicClassHierarchyAsync), null, page, size);
 
             var cached = Cached.GetCache<List<PharmacologicClassHierarchyViewDto>>(key);
 
@@ -490,7 +509,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(GetPharmacologicClassSummariesAsync), null, page, size);
+            string key = generateCacheKey(nameof(GetPharmacologicClassSummariesAsync), null, page, size);
 
             var cached = Cached.GetCache<List<PharmacologicClassSummaryDto>>(key);
 
@@ -561,7 +580,7 @@ namespace MedRecPro.DataAccess
             #region implementation
 
             string searchKey = $"{unii ?? ""}-{substanceNameSearch ?? ""}";
-            string key = generateViewCacheKey(nameof(SearchByIngredientAsync), searchKey, page, size);
+            string key = generateCacheKey(nameof(SearchByIngredientAsync), searchKey, page, size);
 
             var cached = Cached.GetCache<List<ProductsByIngredientDto>>(key);
 
@@ -585,7 +604,7 @@ namespace MedRecPro.DataAccess
             }
             else if (!string.IsNullOrWhiteSpace(substanceNameSearch))
             {
-                query = query.Where(p => p.SubstanceName != null && p.SubstanceName.Contains(substanceNameSearch));
+                query = query.FilterBySearchTerms(p => p.SubstanceName, substanceNameSearch, MultiTermBehavior.PartialMatchAny);
             }
 
             query = query.OrderBy(p => p.SubstanceName).ThenBy(p => p.ProductName);
@@ -629,7 +648,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(GetIngredientSummariesAsync), minProductCount?.ToString(), page, size);
+            string key = generateCacheKey(nameof(GetIngredientSummariesAsync), minProductCount?.ToString(), page, size);
 
             var cached = Cached.GetCache<List<IngredientSummaryDto>>(key);
 
@@ -702,7 +721,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(SearchByNDCAsync), productCode, page, size);
+            string key = generateCacheKey(nameof(SearchByNDCAsync), productCode, page, size);
 
             var cached = Cached.GetCache<List<ProductsByNDCDto>>(key);
 
@@ -718,7 +737,7 @@ namespace MedRecPro.DataAccess
             // Build query with product code filter - supports partial matches
             var query = db.Set<LabelView.ProductsByNDC>()
                 .AsNoTracking()
-                .Where(p => p.ProductCode != null && p.ProductCode.Contains(productCode))
+                .FilterBySearchTerms(x => x.ProductCode, productCode, MultiTermBehavior.PartialMatchAny)
                 .OrderBy(p => p.ProductCode);
 
             query = (IOrderedQueryable<LabelView.ProductsByNDC>)applyPagination(query, page, size);
@@ -761,7 +780,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(SearchByPackageNDCAsync), packageCode, page, size);
+            string key = generateCacheKey(nameof(SearchByPackageNDCAsync), packageCode, page, size);
 
             var cached = Cached.GetCache<List<PackageByNDCDto>>(key);
 
@@ -776,7 +795,7 @@ namespace MedRecPro.DataAccess
 
             var query = db.Set<LabelView.PackageByNDC>()
                 .AsNoTracking()
-                .Where(p => p.PackageCode != null && p.PackageCode.Contains(packageCode))
+                .FilterBySearchTerms(x => x.PackageCode, packageCode, MultiTermBehavior.PartialMatchAny)
                 .OrderBy(p => p.PackageCode);
 
             query = (IOrderedQueryable<LabelView.PackageByNDC>)applyPagination(query, page, size);
@@ -828,7 +847,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(SearchByLabelerAsync), labelerNameSearch, page, size);
+            string key = generateCacheKey(nameof(SearchByLabelerAsync), labelerNameSearch, page, size);
 
             var cached = Cached.GetCache<List<ProductsByLabelerDto>>(key);
 
@@ -843,7 +862,7 @@ namespace MedRecPro.DataAccess
 
             var query = db.Set<LabelView.ProductsByLabeler>()
                 .AsNoTracking()
-                .Where(p => p.LabelerName != null && p.LabelerName.Contains(labelerNameSearch))
+                .FilterBySearchTerms(x => x.LabelerName, labelerNameSearch, MultiTermBehavior.PartialMatchAny)
                 .OrderBy(p => p.LabelerName)
                 .ThenBy(p => p.ProductName);
 
@@ -884,7 +903,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(GetLabelerSummariesAsync), null, page, size);
+            string key = generateCacheKey(nameof(GetLabelerSummariesAsync), null, page, size);
 
             var cached = Cached.GetCache<List<LabelerSummaryDto>>(key);
 
@@ -954,7 +973,7 @@ namespace MedRecPro.DataAccess
             #region implementation
 
             string searchKey = $"{latestOnly}-{setGuid?.ToString() ?? "all"}";
-            string key = generateViewCacheKey(nameof(GetDocumentNavigationAsync), searchKey, page, size);
+            string key = generateCacheKey(nameof(GetDocumentNavigationAsync), searchKey, page, size);
 
             var cached = Cached.GetCache<List<DocumentNavigationDto>>(key);
 
@@ -1004,23 +1023,23 @@ namespace MedRecPro.DataAccess
         /**************************************************************/
         /// <summary>
         /// Gets document version history for a specific document set.
-        /// Tracks all versions over time within a SetGUID.
+        /// Tracks all versions over time within a SetGUID or DocumentGUID.
         /// </summary>
         /// <param name="db">The application database context.</param>
-        /// <param name="setGuid">The SetGUID to retrieve version history for.</param>
+        /// <param name="setGuidOrDocumentGuid">The SetGUID to retrieve version history for.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of <see cref="DocumentVersionHistoryDto"/> with version history.</returns>
         /// <seealso cref="LabelView.DocumentVersionHistory"/>
         public static async Task<List<DocumentVersionHistoryDto>> GetDocumentVersionHistoryAsync(
             ApplicationDbContext db,
-            Guid setGuid,
+            Guid setGuidOrDocumentGuid,
             string pkSecret,
             ILogger logger)
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(GetDocumentVersionHistoryAsync), setGuid.ToString(), null, null);
+            string key = generateCacheKey(nameof(GetDocumentVersionHistoryAsync), setGuidOrDocumentGuid.ToString(), null, null);
 
             var cached = Cached.GetCache<List<DocumentVersionHistoryDto>>(key);
 
@@ -1035,7 +1054,8 @@ namespace MedRecPro.DataAccess
 
             var entities = await db.Set<LabelView.DocumentVersionHistory>()
                 .AsNoTracking()
-                .Where(d => d.SetGUID == setGuid)
+                .Where(d => d.SetGUID == setGuidOrDocumentGuid 
+                    || d.DocumentGUID == setGuidOrDocumentGuid)
                 .OrderByDescending(d => d.VersionNumber)
                 .ToListAsync();
 
@@ -1085,7 +1105,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(SearchBySectionCodeAsync), sectionCode, page, size);
+            string key = generateCacheKey(nameof(SearchBySectionCodeAsync), sectionCode, page, size);
 
             var cached = Cached.GetCache<List<SectionNavigationDto>>(key);
 
@@ -1100,7 +1120,7 @@ namespace MedRecPro.DataAccess
 
             var query = db.Set<LabelView.SectionNavigation>()
                 .AsNoTracking()
-                .Where(s => s.SectionCode == sectionCode)
+                .FilterBySearchTerms(x => x.SectionCode, sectionCode)
                 .OrderBy(s => s.DocumentTitle);
 
             query = (IOrderedQueryable<LabelView.SectionNavigation>)applyPagination(query, page, size);
@@ -1140,7 +1160,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(GetSectionTypeSummariesAsync), null, page, size);
+            string key = generateCacheKey(nameof(GetSectionTypeSummariesAsync), null, page, size);
 
             var cached = Cached.GetCache<List<SectionTypeSummaryDto>>(key);
 
@@ -1206,7 +1226,7 @@ namespace MedRecPro.DataAccess
             #region implementation
 
             string searchKey = string.Join(",", ingredientUNIIs.OrderBy(u => u));
-            string key = generateViewCacheKey(nameof(GetDrugInteractionsAsync), searchKey, page, size);
+            string key = generateCacheKey(nameof(GetDrugInteractionsAsync), searchKey, page, size);
 
             var cached = Cached.GetCache<List<DrugInteractionLookupDto>>(key);
 
@@ -1223,7 +1243,7 @@ namespace MedRecPro.DataAccess
 
             var query = db.Set<LabelView.DrugInteractionLookup>()
                 .AsNoTracking()
-                .Where(d => d.IngredientUNII != null && uniiList.Contains(d.IngredientUNII))
+                .FilterBySearchTerms(x => x.IngredientUNII, searchKey, MultiTermBehavior.PartialMatchAny)
                 .OrderBy(d => d.ProductName);
 
             query = (IOrderedQueryable<LabelView.DrugInteractionLookup>)applyPagination(query, page, size);
@@ -1265,7 +1285,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(GetDEAScheduleProductsAsync), scheduleCode, page, size);
+            string key = generateCacheKey(nameof(GetDEAScheduleProductsAsync), scheduleCode, page, size);
 
             var cached = Cached.GetCache<List<DEAScheduleLookupDto>>(key);
 
@@ -1285,7 +1305,7 @@ namespace MedRecPro.DataAccess
 
             if (!string.IsNullOrWhiteSpace(scheduleCode))
             {
-                query = query.Where(d => d.DEAScheduleCode == scheduleCode);
+                query = query.FilterBySearchTerms(x => x.DEAScheduleCode, scheduleCode);
             }
 
             query = query.OrderBy(d => d.DEAScheduleCode).ThenBy(d => d.ProductName);
@@ -1338,7 +1358,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(SearchProductSummaryAsync), productNameSearch, page, size);
+            string key = generateCacheKey(nameof(SearchProductSummaryAsync), productNameSearch, page, size);
 
             var cached = Cached.GetCache<List<ProductSummaryViewDto>>(key);
 
@@ -1353,7 +1373,7 @@ namespace MedRecPro.DataAccess
 
             var query = db.Set<LabelView.ProductSummary>()
                 .AsNoTracking()
-                .Where(p => p.ProductName != null && p.ProductName.Contains(productNameSearch))
+                .FilterBySearchTerms(x => x.ProductName, productNameSearch, MultiTermBehavior.PartialMatchAny)
                 .OrderBy(p => p.ProductName);
 
             query = (IOrderedQueryable<LabelView.ProductSummary>)applyPagination(query, page, size);
@@ -1398,7 +1418,7 @@ namespace MedRecPro.DataAccess
             #region implementation
 
             string searchKey = $"{sourceProductId}-{relationshipType ?? "all"}";
-            string key = generateViewCacheKey(nameof(GetRelatedProductsAsync), searchKey, page, size);
+            string key = generateCacheKey(nameof(GetRelatedProductsAsync), searchKey, page, size);
 
             var cached = Cached.GetCache<List<RelatedProductsDto>>(key);
 
@@ -1458,7 +1478,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateViewCacheKey(nameof(GetAPIEndpointGuideAsync), category, null, null);
+            string key = generateCacheKey(nameof(GetAPIEndpointGuideAsync), category, null, null);
 
             var cached = Cached.GetCache<List<APIEndpointGuideDto>>(key);
 

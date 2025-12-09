@@ -136,6 +136,73 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Validates pagination parameters and returns a BadRequest result if invalid.
+        /// </summary>
+        /// <param name="pageNumber">The page number to validate.</param>
+        /// <param name="pageSize">The page size to validate.</param>
+        /// <returns>BadRequest result if validation fails, null if validation passes.</returns>
+        /// <remarks>
+        /// Validates that:
+        /// - If pageNumber is provided, it must be greater than 0
+        /// - If pageSize is provided, it must be greater than 0
+        /// - If one paging parameter is provided, both must be provided
+        /// </remarks>
+        private BadRequestObjectResult? validatePagingParameters(int? pageNumber, int? pageSize)
+        {
+            #region implementation
+
+            // Validate pageNumber if provided
+            if (pageNumber.HasValue && pageNumber.Value <= 0)
+            {
+                return BadRequest($"Invalid page number: {pageNumber.Value}. Page number must be greater than 0 if provided.");
+            }
+
+            // Validate pageSize if provided
+            if (pageSize.HasValue && pageSize.Value <= 0)
+            {
+                return BadRequest($"Invalid page size: {pageSize.Value}. Page size must be greater than 0 if provided.");
+            }
+
+            // Enforce both or neither for paging
+            if (pageNumber.HasValue != pageSize.HasValue)
+            {
+                return BadRequest("If providing paging, both pageNumber and pageSize must be specified.");
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Adds pagination response headers to the HTTP response.
+        /// </summary>
+        /// <param name="pageNumber">The current page number.</param>
+        /// <param name="pageSize">The page size.</param>
+        /// <param name="totalCount">The total count of records in the current response.</param>
+        /// <remarks>
+        /// Adds the following headers when pagination is applied:
+        /// - X-Page-Number: The current page number
+        /// - X-Page-Size: The number of records per page
+        /// - X-Total-Count: The total count of records returned
+        /// </remarks>
+        private void addPaginationHeaders(int? pageNumber, int? pageSize, int totalCount)
+        {
+            #region implementation
+
+            if (pageNumber.HasValue && pageSize.HasValue)
+            {
+                Response.Headers.Append("X-Page-Number", pageNumber.Value.ToString());
+                Response.Headers.Append("X-Page-Size", pageSize.Value.ToString());
+                Response.Headers.Append("X-Total-Count", totalCount.ToString());
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Determines if the request is from a browser attempting to view the XML directly.
         /// </summary>
         /// <param name="request">The HTTP request to analyze.</param>
@@ -682,6 +749,2015 @@ namespace MedRecPro.Api.Controllers
         }
 
         #endregion Private Methods
+
+        #region Application Number Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches products by regulatory application number (NDA, ANDA, BLA).
+        /// Returns products sharing the same regulatory approval with navigation data.
+        /// </summary>
+        /// <param name="applicationNumber">
+        /// The application number to search for (e.g., "NDA014526", "ANDA125669", "BLA103795").
+        /// Supports flexible matching including exact match, prefix-only, and number-only searches.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// If provided, pageSize must also be provided for paging to apply.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// If provided, pageNumber must also be provided for paging to apply.
+        /// </param>
+        /// <returns>List of products matching the application number criteria with navigation data.</returns>
+        /// <response code="200">Returns the list of products matching the application number.</response>
+        /// <response code="400">If the applicationNumber is null/empty or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/application-number/search?applicationNumber=NDA014526
+        /// GET /api/views/application-number/search?applicationNumber=ANDA&amp;pageNumber=1&amp;pageSize=25
+        /// 
+        /// The search supports multiple matching strategies:
+        /// - Exact match after normalization (e.g., "ANDA125669" == "ANDA125669")
+        /// - Prefix-only search (e.g., "ANDA" matches all ANDA applications)
+        /// - Number-only search (e.g., "125669" matches "ANDA125669")
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedProductID": "encrypted_string",
+        ///     "ProductName": "LIPITOR",
+        ///     "ApplicationNumber": "NDA020702",
+        ///     "MarketingCategoryCode": "NDA"
+        ///   }
+        /// ]
+        /// ```
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Search for all products under NDA014526
+        /// GET /api/views/application-number/search?applicationNumber=NDA014526
+        /// 
+        /// // Search for all ANDA products with pagination
+        /// GET /api/views/application-number/search?applicationNumber=ANDA&amp;pageNumber=1&amp;pageSize=50
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.SearchByApplicationNumberAsync"/>
+        /// <seealso cref="LabelView.ProductsByApplicationNumber"/>
+        /// <seealso cref="Label.MarketingCategory"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("application-number/search")]
+        [ProducesResponseType(typeof(IEnumerable<ProductsByApplicationNumberDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ProductsByApplicationNumberDto>>> SearchByApplicationNumber(
+            [FromQuery] string applicationNumber,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate application number is provided
+            if (string.IsNullOrWhiteSpace(applicationNumber))
+            {
+                return BadRequest("Application number is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Searching products by application number: {ApplicationNumber}, Page: {PageNumber}, Size: {PageSize}",
+                    applicationNumber, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.SearchByApplicationNumberAsync(
+                    _dbContext,
+                    applicationNumber,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching products by application number {ApplicationNumber}", applicationNumber);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching products by application number.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets aggregated summaries of application numbers with product and document counts.
+        /// Useful for understanding the scope of regulatory approvals across the database.
+        /// </summary>
+        /// <param name="marketingCategory">
+        /// Optional filter by marketing category code (e.g., "NDA", "ANDA", "BLA").
+        /// If not provided, returns summaries for all marketing categories.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of application number summaries with aggregated counts.</returns>
+        /// <response code="200">Returns the list of application number summaries.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/application-number/summaries
+        /// GET /api/views/application-number/summaries?marketingCategoryCode=NDA
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "ApplicationNumber": "NDA020702",
+        ///     "MarketingCategoryCode": "NDA",
+        ///     "ProductCount": 15,
+        ///     "DocumentCount": 45
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ProductCount in descending order.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Get all application number summaries
+        /// GET /api/views/application-number/summaries
+        /// 
+        /// // Get only NDA summaries
+        /// GET /api/views/application-number/summaries?marketingCategoryCode=NDA
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.GetApplicationNumberSummariesAsync"/>
+        /// <seealso cref="LabelView.ApplicationNumberSummary"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("application-number/summaries")]
+        [ProducesResponseType(typeof(IEnumerable<ApplicationNumberSummaryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ApplicationNumberSummaryDto>>> GetApplicationNumberSummaries(
+            [FromQuery] string? marketingCategory,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting application number summaries. Category: {MarketingCategoryCode}, Page: {PageNumber}, Size: {PageSize}",
+                    marketingCategory ?? "all", pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetApplicationNumberSummariesAsync(
+                    _dbContext,
+                    marketingCategory,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving application number summaries");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving application number summaries.");
+            }
+
+            #endregion
+        }
+
+        #endregion Application Number Navigation
+
+        #region Pharmacologic Class Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches products by pharmacologic/therapeutic class.
+        /// Enables drug discovery by therapeutic category (e.g., "Beta-Adrenergic Blockers", "ACE Inhibitors").
+        /// </summary>
+        /// <param name="classNameSearch">
+        /// Search term to match against pharmacologic class names. 
+        /// Supports partial matching for flexible searches.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of products matching the therapeutic class criteria.</returns>
+        /// <response code="200">Returns the list of products matching the pharmacologic class.</response>
+        /// <response code="400">If classNameSearch is null/empty or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/pharmacologic-class/search?classNameSearch=Beta-Blocker
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedProductID": "encrypted_string",
+        ///     "ProductName": "ATENOLOL",
+        ///     "PharmClassName": "Beta-Adrenergic Blockers",
+        ///     "PharmClassType": "EPC"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by PharmClassName, then ProductName.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Search for beta blocker products
+        /// GET /api/views/pharmacologic-class/search?classNameSearch=Beta-Blocker
+        /// 
+        /// // Search with pagination
+        /// GET /api/views/pharmacologic-class/search?classNameSearch=ACE&amp;pageNumber=1&amp;pageSize=25
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.SearchByPharmacologicClassAsync"/>
+        /// <seealso cref="LabelView.ProductsByPharmacologicClass"/>
+        /// <seealso cref="Label.PharmacologicClass"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("pharmacologic-class/search")]
+        [ProducesResponseType(typeof(IEnumerable<ProductsByPharmacologicClassDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ProductsByPharmacologicClassDto>>> SearchByPharmacologicClass(
+            [FromQuery] string classNameSearch,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate class name search term is provided
+            if (string.IsNullOrWhiteSpace(classNameSearch))
+            {
+                return BadRequest("Pharmacologic class name search term is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Searching products by pharmacologic class: {ClassNameSearch}, Page: {PageNumber}, Size: {PageSize}",
+                    classNameSearch, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.SearchByPharmacologicClassAsync(
+                    _dbContext,
+                    classNameSearch,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid argument for pharmacologic class search: {ClassNameSearch}", classNameSearch);
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching products by pharmacologic class {ClassNameSearch}", classNameSearch);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching products by pharmacologic class.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the pharmacologic class hierarchy showing parent-child relationships.
+        /// Enables navigation through therapeutic classification levels.
+        /// </summary>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of pharmacologic class hierarchy relationships.</returns>
+        /// <response code="200">Returns the pharmacologic class hierarchy.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/pharmacologic-class/hierarchy
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "ParentClassID": "encrypted_string",
+        ///     "ParentClassName": "Cardiovascular Agents",
+        ///     "ChildClassID": "encrypted_string",
+        ///     "ChildClassName": "Beta-Adrenergic Blockers"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ParentClassName, then ChildClassName.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetPharmacologicClassHierarchyAsync"/>
+        /// <seealso cref="LabelView.PharmacologicClassHierarchy"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("pharmacologic-class/hierarchy")]
+        [ProducesResponseType(typeof(IEnumerable<PharmacologicClassHierarchyViewDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<PharmacologicClassHierarchyViewDto>>> GetPharmacologicClassHierarchy(
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting pharmacologic class hierarchy. Page: {PageNumber}, Size: {PageSize}",
+                    pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetPharmacologicClassHierarchyAsync(
+                    _dbContext,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving pharmacologic class hierarchy");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving pharmacologic class hierarchy.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets pharmacologic class summaries with product counts.
+        /// Discover which therapeutic classes have the most products in the database.
+        /// </summary>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of pharmacologic class summaries with aggregated product counts.</returns>
+        /// <response code="200">Returns the pharmacologic class summaries.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/pharmacologic-class/summaries
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "PharmClassName": "Beta-Adrenergic Blockers",
+        ///     "PharmClassType": "EPC",
+        ///     "ProductCount": 150
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ProductCount in descending order.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetPharmacologicClassSummariesAsync"/>
+        /// <seealso cref="LabelView.PharmacologicClassSummary"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("pharmacologic-class/summaries")]
+        [ProducesResponseType(typeof(IEnumerable<PharmacologicClassSummaryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<PharmacologicClassSummaryDto>>> GetPharmacologicClassSummaries(
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting pharmacologic class summaries. Page: {PageNumber}, Size: {PageSize}",
+                    pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetPharmacologicClassSummariesAsync(
+                    _dbContext,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving pharmacologic class summaries");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving pharmacologic class summaries.");
+            }
+
+            #endregion
+        }
+
+        #endregion Pharmacologic Class Navigation
+
+        #region Ingredient Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches products by ingredient UNII code or substance name.
+        /// Enables drug composition queries and ingredient-based product discovery.
+        /// </summary>
+        /// <param name="unii">
+        /// Optional UNII (Unique Ingredient Identifier) code to search for (e.g., "R16CO5Y76E" for aspirin).
+        /// </param>
+        /// <param name="substanceNameSearch">
+        /// Optional substance name search term. Supports partial matching.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of products matching the ingredient criteria.</returns>
+        /// <response code="200">Returns the list of products matching the ingredient.</response>
+        /// <response code="400">If neither unii nor substanceNameSearch is provided, or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/ingredient/search?unii=R16CO5Y76E
+        /// GET /api/views/ingredient/search?substanceNameSearch=aspirin
+        /// 
+        /// At least one of `unii` or `substanceNameSearch` must be provided.
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedProductID": "encrypted_string",
+        ///     "ProductName": "BAYER ASPIRIN",
+        ///     "UNII": "R16CO5Y76E",
+        ///     "SubstanceName": "ASPIRIN"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by SubstanceName, then ProductName.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Search by UNII code
+        /// GET /api/views/ingredient/search?unii=R16CO5Y76E
+        /// 
+        /// // Search by substance name
+        /// GET /api/views/ingredient/search?substanceNameSearch=aspirin
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.SearchByIngredientAsync"/>
+        /// <seealso cref="LabelView.ProductsByIngredient"/>
+        /// <seealso cref="Label.Ingredient"/>
+        /// <seealso cref="Label.IngredientSubstance"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("ingredient/search")]
+        [ProducesResponseType(typeof(IEnumerable<ProductsByIngredientDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ProductsByIngredientDto>>> SearchByIngredient(
+            [FromQuery] string? unii,
+            [FromQuery] string? substanceNameSearch,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate at least one search parameter is provided
+            if (string.IsNullOrWhiteSpace(unii) && string.IsNullOrWhiteSpace(substanceNameSearch))
+            {
+                return BadRequest("At least one search parameter (unii or substanceNameSearch) is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Searching products by ingredient. UNII: {UNII}, SubstanceName: {SubstanceName}, Page: {PageNumber}, Size: {PageSize}",
+                    unii ?? "null", substanceNameSearch ?? "null", pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.SearchByIngredientAsync(
+                    _dbContext,
+                    unii,
+                    substanceNameSearch,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching products by ingredient. UNII: {UNII}, SubstanceName: {SubstanceName}",
+                    unii ?? "null", substanceNameSearch ?? "null");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching products by ingredient.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets ingredient summaries with product counts.
+        /// Discover the most common ingredients across products in the database.
+        /// </summary>
+        /// <param name="minProductCount">
+        /// Optional minimum product count filter. Only returns ingredients appearing in at least this many products.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of ingredient summaries with aggregated product counts.</returns>
+        /// <response code="200">Returns the ingredient summaries.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/ingredient/summaries
+        /// GET /api/views/ingredient/summaries?minProductCount=10
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "UNII": "R16CO5Y76E",
+        ///     "SubstanceName": "ASPIRIN",
+        ///     "ProductCount": 250
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ProductCount in descending order.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetIngredientSummariesAsync"/>
+        /// <seealso cref="LabelView.IngredientSummary"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("ingredient/summaries")]
+        [ProducesResponseType(typeof(IEnumerable<IngredientSummaryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<IngredientSummaryDto>>> GetIngredientSummaries(
+            [FromQuery] int? minProductCount,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate minProductCount if provided
+            if (minProductCount.HasValue && minProductCount.Value < 0)
+            {
+                return BadRequest("Minimum product count cannot be negative.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting ingredient summaries. MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
+                    minProductCount, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetIngredientSummariesAsync(
+                    _dbContext,
+                    minProductCount,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving ingredient summaries");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving ingredient summaries.");
+            }
+
+            #endregion
+        }
+
+        #endregion Ingredient Navigation
+
+        #region Product Identifier Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches products by NDC (National Drug Code) or other product identifiers.
+        /// Critical for pharmacy system integration and product lookup by code.
+        /// </summary>
+        /// <param name="productCode">
+        /// The NDC or product code to search for (e.g., "12345-678-90").
+        /// Supports partial matching for flexible searches.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of products matching the product code criteria.</returns>
+        /// <response code="200">Returns the list of products matching the NDC code.</response>
+        /// <response code="400">If productCode is null/empty or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/ndc/search?productCode=12345-678
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedProductID": "encrypted_string",
+        ///     "ProductName": "LIPITOR",
+        ///     "ProductCode": "12345-678-90",
+        ///     "LabelerName": "PFIZER INC"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ProductCode.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Search by full NDC
+        /// GET /api/views/ndc/search?productCode=12345-678-90
+        /// 
+        /// // Search by partial NDC
+        /// GET /api/views/ndc/search?productCode=12345
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.SearchByNDCAsync"/>
+        /// <seealso cref="LabelView.ProductsByNDC"/>
+        /// <seealso cref="Label.ProductIdentifier"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("ndc/search")]
+        [ProducesResponseType(typeof(IEnumerable<ProductsByNDCDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ProductsByNDCDto>>> SearchByNDC(
+            [FromQuery] string productCode,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate product code is provided
+            if (string.IsNullOrWhiteSpace(productCode))
+            {
+                return BadRequest("Product code (NDC) is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Searching products by NDC: {ProductCode}, Page: {PageNumber}, Size: {PageSize}",
+                    productCode, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.SearchByNDCAsync(
+                    _dbContext,
+                    productCode,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching products by NDC {ProductCode}", productCode);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching products by NDC.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches package configurations by NDC package code.
+        /// Shows packaging hierarchy and quantities for specific package codes.
+        /// </summary>
+        /// <param name="packageCode">
+        /// The NDC package code to search for.
+        /// Supports partial matching for flexible searches.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of package configurations matching the package code.</returns>
+        /// <response code="200">Returns the list of packages matching the code.</response>
+        /// <response code="400">If packageCode is null/empty or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/ndc/package/search?packageCode=12345-678-90
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedPackagingLevelID": "encrypted_string",
+        ///     "PackageCode": "12345-678-90",
+        ///     "PackageDescription": "100 TABLETS in 1 BOTTLE",
+        ///     "PackageQuantity": 100
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by PackageCode.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.SearchByPackageNDCAsync"/>
+        /// <seealso cref="LabelView.PackageByNDC"/>
+        /// <seealso cref="Label.PackageIdentifier"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("ndc/package/search")]
+        [ProducesResponseType(typeof(IEnumerable<PackageByNDCDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<PackageByNDCDto>>> SearchByPackageNDC(
+            [FromQuery] string packageCode,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate package code is provided
+            if (string.IsNullOrWhiteSpace(packageCode))
+            {
+                return BadRequest("Package code is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Searching packages by NDC: {PackageCode}, Page: {PageNumber}, Size: {PageSize}",
+                    packageCode, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.SearchByPackageNDCAsync(
+                    _dbContext,
+                    packageCode,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching packages by NDC {PackageCode}", packageCode);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching packages by NDC.");
+            }
+
+            #endregion
+        }
+
+        #endregion Product Identifier Navigation
+
+        #region Organization Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches products by labeler (marketing organization) name.
+        /// Lists products associated with a specific pharmaceutical company or distributor.
+        /// </summary>
+        /// <param name="labelerNameSearch">
+        /// Search term to match against labeler names (e.g., "Pfizer", "Johnson").
+        /// Supports partial matching for flexible searches.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of products matching the labeler name criteria.</returns>
+        /// <response code="200">Returns the list of products by labeler.</response>
+        /// <response code="400">If labelerNameSearch is null/empty or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/labeler/search?labelerNameSearch=Pfizer
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedProductID": "encrypted_string",
+        ///     "ProductName": "LIPITOR",
+        ///     "LabelerName": "PFIZER INC",
+        ///     "LabelerDUNS": "123456789"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by LabelerName, then ProductName.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Search for Pfizer products
+        /// GET /api/views/labeler/search?labelerNameSearch=Pfizer
+        /// 
+        /// // Search with pagination
+        /// GET /api/views/labeler/search?labelerNameSearch=Johnson&amp;pageNumber=1&amp;pageSize=50
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.SearchByLabelerAsync"/>
+        /// <seealso cref="LabelView.ProductsByLabeler"/>
+        /// <seealso cref="Label.Organization"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("labeler/search")]
+        [ProducesResponseType(typeof(IEnumerable<ProductsByLabelerDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ProductsByLabelerDto>>> SearchByLabeler(
+            [FromQuery] string labelerNameSearch,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate labeler name search term is provided
+            if (string.IsNullOrWhiteSpace(labelerNameSearch))
+            {
+                return BadRequest("Labeler name search term is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Searching products by labeler: {LabelerNameSearch}, Page: {PageNumber}, Size: {PageSize}",
+                    labelerNameSearch, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.SearchByLabelerAsync(
+                    _dbContext,
+                    labelerNameSearch,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching products by labeler {LabelerNameSearch}", labelerNameSearch);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching products by labeler.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets labeler (marketing organization) summaries with product counts.
+        /// Discover which pharmaceutical companies have the most products in the database.
+        /// </summary>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of labeler summaries with aggregated product counts.</returns>
+        /// <response code="200">Returns the labeler summaries.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/labeler/summaries
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "LabelerName": "PFIZER INC",
+        ///     "LabelerDUNS": "123456789",
+        ///     "ProductCount": 500
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ProductCount in descending order.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetLabelerSummariesAsync"/>
+        /// <seealso cref="LabelView.LabelerSummary"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("labeler/summaries")]
+        [ProducesResponseType(typeof(IEnumerable<LabelerSummaryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<LabelerSummaryDto>>> GetLabelerSummaries(
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting labeler summaries. Page: {PageNumber}, Size: {PageSize}",
+                    pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetLabelerSummariesAsync(
+                    _dbContext,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving labeler summaries");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving labeler summaries.");
+            }
+
+            #endregion
+        }
+
+        #endregion Organization Navigation
+
+        #region Document Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets document navigation data with version tracking capabilities.
+        /// Supports discovery of latest document versions and version history navigation.
+        /// </summary>
+        /// <param name="latestOnly">
+        /// If true, returns only the latest version of each document set.
+        /// If false, returns all versions.
+        /// </param>
+        /// <param name="setGuid">
+        /// Optional filter by SetGUID to get all versions of a specific document set.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of document navigation data with version information.</returns>
+        /// <response code="200">Returns the document navigation data.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/document/navigation?latestOnly=true
+        /// GET /api/views/document/navigation?latestOnly=false&amp;setGuid=12345678-1234-1234-1234-123456789012
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedDocumentID": "encrypted_string",
+        ///     "DocumentGUID": "12345678-1234-1234-1234-123456789012",
+        ///     "SetGUID": "abcdefgh-1234-1234-1234-123456789012",
+        ///     "VersionNumber": 3,
+        ///     "IsLatestVersion": true,
+        ///     "EffectiveDate": "2024-01-15"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by EffectiveDate in descending order.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Get only latest document versions
+        /// GET /api/views/document/navigation?latestOnly=true
+        /// 
+        /// // Get all versions of a specific document set
+        /// GET /api/views/document/navigation?latestOnly=false&amp;setGuid=12345678-1234-1234-1234-123456789012
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.GetDocumentNavigationAsync"/>
+        /// <seealso cref="LabelView.DocumentNavigation"/>
+        /// <seealso cref="Label.Document"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("document/navigation")]
+        [ProducesResponseType(typeof(IEnumerable<DocumentNavigationDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<DocumentNavigationDto>>> GetDocumentNavigation(
+            [FromQuery] bool latestOnly = false,
+            [FromQuery] Guid? setGuid = null,
+            [FromQuery] int? pageNumber = null,
+            [FromQuery] int? pageSize = null)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting document navigation. LatestOnly: {LatestOnly}, SetGUID: {SetGUID}, Page: {PageNumber}, Size: {PageSize}",
+                    latestOnly, setGuid, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetDocumentNavigationAsync(
+                    _dbContext,
+                    latestOnly,
+                    setGuid,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving document navigation");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving document navigation.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets document version history for a specific document set.
+        /// Tracks all versions over time within a SetGUID or for a specific DocumentGUID.
+        /// </summary>
+        /// <param name="setGuidOrDocumentGuid">
+        /// The SetGUID or DocumentGUID to retrieve version history for.
+        /// When a DocumentGUID is provided, returns the history for its associated document set.
+        /// </param>
+        /// <returns>List of document version history records.</returns>
+        /// <response code="200">Returns the document version history.</response>
+        /// <response code="400">If setGuidOrDocumentGuid is empty.</response>
+        /// <response code="404">If no version history is found for the specified GUID.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/document/version-history/12345678-1234-1234-1234-123456789012
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedDocumentID": "encrypted_string",
+        ///     "DocumentGUID": "12345678-1234-1234-1234-123456789012",
+        ///     "SetGUID": "abcdefgh-1234-1234-1234-123456789012",
+        ///     "VersionNumber": 3,
+        ///     "EffectiveDate": "2024-01-15",
+        ///     "ChangeDescription": "Annual update"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by VersionNumber in descending order (newest first).
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetDocumentVersionHistoryAsync"/>
+        /// <seealso cref="LabelView.DocumentVersionHistory"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("document/version-history/{setGuidOrDocumentGuid}")]
+        [ProducesResponseType(typeof(IEnumerable<DocumentVersionHistoryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<DocumentVersionHistoryDto>>> GetDocumentVersionHistory(
+            Guid setGuidOrDocumentGuid)
+        {
+            #region Input Validation
+
+            // Validate GUID is not empty
+            if (setGuidOrDocumentGuid == Guid.Empty)
+            {
+                return BadRequest("SetGUID or DocumentGUID cannot be empty.");
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting document version history for GUID: {SetGuidOrDocumentGuid}",
+                    setGuidOrDocumentGuid);
+
+                var results = await DtoLabelAccess.GetDocumentVersionHistoryAsync(
+                    _dbContext,
+                    setGuidOrDocumentGuid,
+                    _pkEncryptionSecret,
+                    _logger);
+
+                // Check if any history was found
+                if (results == null || !results.Any())
+                {
+                    _logger.LogWarning("No version history found for GUID: {SetGuidOrDocumentGuid}", setGuidOrDocumentGuid);
+                    return NotFound($"No version history found for GUID {setGuidOrDocumentGuid}.");
+                }
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving document version history for GUID {SetGuidOrDocumentGuid}",
+                    setGuidOrDocumentGuid);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving document version history.");
+            }
+
+            #endregion
+        }
+
+        #endregion Document Navigation
+
+        #region Section Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches sections by LOINC section code.
+        /// Enables navigation to specific labeling sections across documents.
+        /// </summary>
+        /// <param name="sectionCode">
+        /// The LOINC section code to search for (e.g., "34066-1" for Boxed Warning, "34067-9" for Indications).
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of sections matching the section code.</returns>
+        /// <response code="200">Returns the list of sections matching the code.</response>
+        /// <response code="400">If sectionCode is null/empty or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/section/search?sectionCode=34066-1
+        /// 
+        /// Common LOINC section codes:
+        /// - 34066-1: Boxed Warning
+        /// - 34067-9: Indications and Usage
+        /// - 34068-7: Dosage and Administration
+        /// - 34069-5: Contraindications
+        /// - 34070-3: Warnings
+        /// - 34071-1: Warnings and Precautions
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedSectionID": "encrypted_string",
+        ///     "SectionCode": "34066-1",
+        ///     "SectionTitle": "BOXED WARNING",
+        ///     "DocumentTitle": "LIPITOR Prescribing Information"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by DocumentTitle.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Search for all boxed warnings
+        /// GET /api/views/section/search?sectionCode=34066-1
+        /// 
+        /// // Search for indications with pagination
+        /// GET /api/views/section/search?sectionCode=34067-9&amp;pageNumber=1&amp;pageSize=50
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.SearchBySectionCodeAsync"/>
+        /// <seealso cref="LabelView.SectionNavigation"/>
+        /// <seealso cref="Label.Section"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("section/search")]
+        [ProducesResponseType(typeof(IEnumerable<SectionNavigationDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<SectionNavigationDto>>> SearchBySectionCode(
+            [FromQuery] string sectionCode,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate section code is provided
+            if (string.IsNullOrWhiteSpace(sectionCode))
+            {
+                return BadRequest("Section code (LOINC) is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Searching sections by code: {SectionCode}, Page: {PageNumber}, Size: {PageSize}",
+                    sectionCode, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.SearchBySectionCodeAsync(
+                    _dbContext,
+                    sectionCode,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching sections by code {SectionCode}", sectionCode);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching sections by code.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets section type summaries with document counts.
+        /// Discover which section types (LOINC codes) are most common across all documents.
+        /// </summary>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of section type summaries with aggregated document counts.</returns>
+        /// <response code="200">Returns the section type summaries.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/section/summaries
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "SectionCode": "34067-9",
+        ///     "SectionTitle": "INDICATIONS AND USAGE",
+        ///     "DocumentCount": 15000
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by DocumentCount in descending order.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetSectionTypeSummariesAsync"/>
+        /// <seealso cref="LabelView.SectionTypeSummary"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("section/summaries")]
+        [ProducesResponseType(typeof(IEnumerable<SectionTypeSummaryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<SectionTypeSummaryDto>>> GetSectionTypeSummaries(
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting section type summaries. Page: {PageNumber}, Size: {PageSize}",
+                    pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetSectionTypeSummariesAsync(
+                    _dbContext,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving section type summaries");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving section type summaries.");
+            }
+
+            #endregion
+        }
+
+        #endregion Section Navigation
+
+        #region Drug Safety Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets potential drug interactions based on shared active ingredients.
+        /// Supports pharmacist review and clinical decision support systems.
+        /// </summary>
+        /// <param name="ingredientUNIIs">
+        /// Comma-separated list of UNII codes to check for potential interactions.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of potential drug interactions based on shared ingredients.</returns>
+        /// <response code="200">Returns the list of potential drug interactions.</response>
+        /// <response code="400">If ingredientUNIIs is null/empty or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/drug-safety/interactions?ingredientUNIIs=R16CO5Y76E,YOW8V9698H
+        /// 
+        /// This endpoint identifies products that share common active ingredients,
+        /// which may indicate potential drug-drug interactions requiring clinical review.
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedProductID": "encrypted_string",
+        ///     "ProductName": "BAYER ASPIRIN",
+        ///     "IngredientUNII": "R16CO5Y76E",
+        ///     "SubstanceName": "ASPIRIN",
+        ///     "InteractionRisk": "Moderate"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ProductName.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Check interactions for multiple ingredients
+        /// GET /api/views/drug-safety/interactions?ingredientUNIIs=R16CO5Y76E,YOW8V9698H
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.GetDrugInteractionsAsync"/>
+        /// <seealso cref="LabelView.DrugInteractionLookup"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("drug-safety/interactions")]
+        [ProducesResponseType(typeof(IEnumerable<DrugInteractionLookupDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<DrugInteractionLookupDto>>> GetDrugInteractions(
+            [FromQuery] string ingredientUNIIs,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate ingredient UNIIs are provided
+            if (string.IsNullOrWhiteSpace(ingredientUNIIs))
+            {
+                return BadRequest("At least one ingredient UNII is required.");
+            }
+
+            // Parse comma-separated UNII list
+            var uniiList = ingredientUNIIs.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (uniiList.Length == 0)
+            {
+                return BadRequest("At least one valid ingredient UNII is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting drug interactions for UNIIs: {IngredientUNIIs}, Page: {PageNumber}, Size: {PageSize}",
+                    ingredientUNIIs, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetDrugInteractionsAsync(
+                    _dbContext,
+                    uniiList,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving drug interactions for UNIIs {IngredientUNIIs}", ingredientUNIIs);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving drug interactions.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets products with DEA controlled substance schedules.
+        /// Important for pharmacy compliance and controlled substance management.
+        /// </summary>
+        /// <param name="scheduleCode">
+        /// Optional filter by specific DEA schedule code (e.g., "CII", "CIII", "CIV", "CV").
+        /// If not provided, returns all controlled substances.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of products with DEA schedule classifications.</returns>
+        /// <response code="200">Returns the list of DEA scheduled products.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/drug-safety/dea-schedule
+        /// GET /api/views/drug-safety/dea-schedule?scheduleCode=CII
+        /// 
+        /// DEA Schedule Codes:
+        /// - CI: Schedule I (no accepted medical use)
+        /// - CII: Schedule II (high potential for abuse)
+        /// - CIII: Schedule III (moderate to low potential for abuse)
+        /// - CIV: Schedule IV (low potential for abuse)
+        /// - CV: Schedule V (lower potential for abuse than Schedule IV)
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedProductID": "encrypted_string",
+        ///     "ProductName": "OXYCONTIN",
+        ///     "DEAScheduleCode": "CII",
+        ///     "DEAScheduleName": "Schedule II Controlled Substance"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by DEAScheduleCode, then ProductName.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetDEAScheduleProductsAsync"/>
+        /// <seealso cref="LabelView.DEAScheduleLookup"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("drug-safety/dea-schedule")]
+        [ProducesResponseType(typeof(IEnumerable<DEAScheduleLookupDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<DEAScheduleLookupDto>>> GetDEAScheduleProducts(
+            [FromQuery] string? scheduleCode,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting DEA schedule products. ScheduleCode: {ScheduleCode}, Page: {PageNumber}, Size: {PageSize}",
+                    scheduleCode ?? "all", pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetDEAScheduleProductsAsync(
+                    _dbContext,
+                    scheduleCode,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving DEA schedule products");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving DEA schedule products.");
+            }
+
+            #endregion
+        }
+
+        #endregion Drug Safety Navigation
+
+        #region Product Summary and Cross-Reference
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches for products with comprehensive summary information.
+        /// Provides a complete product overview with key attributes for quick reference.
+        /// </summary>
+        /// <param name="productNameSearch">
+        /// Search term to match against product names (e.g., "Lipitor", "Aspirin").
+        /// Supports partial matching for flexible searches.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of product summaries matching the product name.</returns>
+        /// <response code="200">Returns the list of product summaries.</response>
+        /// <response code="400">If productNameSearch is null/empty or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/product/search?productNameSearch=Lipitor
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedProductID": "encrypted_string",
+        ///     "ProductName": "LIPITOR",
+        ///     "LabelerName": "PFIZER INC",
+        ///     "ApplicationNumber": "NDA020702",
+        ///     "ActiveIngredients": "ATORVASTATIN CALCIUM",
+        ///     "DosageForm": "TABLET, FILM COATED"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ProductName.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Search for Lipitor
+        /// GET /api/views/product/search?productNameSearch=Lipitor
+        /// 
+        /// // Search with pagination
+        /// GET /api/views/product/search?productNameSearch=Aspirin&amp;pageNumber=1&amp;pageSize=50
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.SearchProductSummaryAsync"/>
+        /// <seealso cref="LabelView.ProductSummary"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("product/search")]
+        [ProducesResponseType(typeof(IEnumerable<ProductSummaryViewDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ProductSummaryViewDto>>> SearchProductSummary(
+            [FromQuery] string productNameSearch,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate product name search term is provided
+            if (string.IsNullOrWhiteSpace(productNameSearch))
+            {
+                return BadRequest("Product name search term is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Searching product summaries: {ProductNameSearch}, Page: {PageNumber}, Size: {PageSize}",
+                    productNameSearch, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.SearchProductSummaryAsync(
+                    _dbContext,
+                    productNameSearch,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching product summaries for {ProductNameSearch}", productNameSearch);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching product summaries.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets related products by shared application number or active ingredient.
+        /// Useful for finding alternatives, generics, or similar drugs.
+        /// </summary>
+        /// <param name="sourceProductId">
+        /// The source product ID (decrypted) to find related products for.
+        /// </param>
+        /// <param name="relationshipType">
+        /// Optional filter by relationship type. Valid values:
+        /// - "SameApplicationNumber": Products under the same NDA/ANDA/BLA
+        /// - "SameActiveIngredient": Products with the same active ingredient(s)
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of products related to the source product.</returns>
+        /// <response code="200">Returns the list of related products.</response>
+        /// <response code="400">If sourceProductId is invalid or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/product/related?sourceProductId=12345
+        /// GET /api/views/product/related?sourceProductId=12345&amp;relationshipType=SameActiveIngredient
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedRelatedProductID": "encrypted_string",
+        ///     "RelatedProductName": "GENERIC LIPITOR",
+        ///     "RelationshipType": "SameActiveIngredient",
+        ///     "SharedAttribute": "ATORVASTATIN CALCIUM"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by RelatedProductName.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetRelatedProductsAsync"/>
+        /// <seealso cref="LabelView.RelatedProducts"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("product/related")]
+        [ProducesResponseType(typeof(IEnumerable<RelatedProductsDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<RelatedProductsDto>>> GetRelatedProducts(
+            [FromQuery] int sourceProductId,
+            [FromQuery] string? relationshipType,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate source product ID
+            if (sourceProductId <= 0)
+            {
+                return BadRequest("Valid source product ID is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting related products for ProductID: {SourceProductId}, RelationshipType: {RelationshipType}, Page: {PageNumber}, Size: {PageSize}",
+                    sourceProductId, relationshipType ?? "all", pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetRelatedProductsAsync(
+                    _dbContext,
+                    sourceProductId,
+                    relationshipType,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving related products for ProductID {SourceProductId}", sourceProductId);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving related products.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the API endpoint guide for AI-assisted endpoint discovery.
+        /// Claude API and other AI integrations query this endpoint to understand
+        /// available navigation views and usage patterns.
+        /// </summary>
+        /// <param name="category">
+        /// Optional filter by endpoint category (e.g., "Navigation", "Search", "Summary").
+        /// If not provided, returns all endpoint metadata.
+        /// </param>
+        /// <returns>List of API endpoint metadata for discovery purposes.</returns>
+        /// <response code="200">Returns the API endpoint guide.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/views/guide
+        /// GET /api/views/guide?category=Navigation
+        /// 
+        /// This endpoint provides metadata about available view-based endpoints,
+        /// including descriptions, parameters, and usage examples. Designed for
+        /// programmatic discovery by AI assistants and integration tools.
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "ViewName": "ProductsByApplicationNumber",
+        ///     "Category": "Navigation",
+        ///     "Description": "Search products by regulatory application number",
+        ///     "EndpointPath": "/api/views/application-number/search",
+        ///     "Parameters": "applicationNumber (required), pageNumber, pageSize"
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by Category, then ViewName.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetAPIEndpointGuideAsync"/>
+        /// <seealso cref="LabelView.APIEndpointGuide"/>
+        [HttpGet("guide")]
+        [ProducesResponseType(typeof(IEnumerable<APIEndpointGuideDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<APIEndpointGuideDto>>> GetAPIEndpointGuide(
+            [FromQuery] string? category)
+        {
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting API endpoint guide. Category: {Category}", category ?? "all");
+
+                var results = await DtoLabelAccess.GetAPIEndpointGuideAsync(
+                    _dbContext,
+                    category,
+                    _pkEncryptionSecret,
+                    _logger);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving API endpoint guide");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving API endpoint guide.");
+            }
+
+            #endregion
+        }
+
+        #endregion Product Summary and Cross-Reference
+
 
         /**************************************************************/
         /// <summary>

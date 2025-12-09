@@ -20,7 +20,7 @@ namespace MedRecPro.DataAccess
     /// <seealso cref="DocumentDto"/>
     public static partial class DtoLabelAccess
     {
-        #region Private Implementation Methods
+        #region Document Level Methods
 
         /**************************************************************/
         /// <summary>

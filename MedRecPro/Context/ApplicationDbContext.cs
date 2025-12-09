@@ -63,6 +63,7 @@ namespace MedRecPro.Data
 
             // Register each nested entity type with the model builder.
             if (nestedLabelEntityTypes != null)
+            {
                 foreach (var entityType in nestedLabelEntityTypes)
                 {
                     var entityBuilder = builder.Entity(entityType);
@@ -72,6 +73,32 @@ namespace MedRecPro.Data
                     // In some cases the primary keys are resolved with a [Column("fieldId")] attribute,
                     entityBuilder.ToTable(entityType.Name);
                 }
+            }
+
+            // Dynamically discover and register public nested
+            // classes from MedRecPro.Models.LabelView as view entities.
+            var labelViewContainerType = typeof(MedRecPro.Models.LabelView);
+
+            var nestedViewEntityTypes = labelViewContainerType?.GetNestedTypes(BindingFlags.Public)
+                ?.Where(t => t.IsClass && !t.IsAbstract);
+
+            if (nestedViewEntityTypes != null)
+            {
+                foreach (var entityType in nestedViewEntityTypes)
+                {
+                    var entityBuilder = builder.Entity(entityType);
+
+                    // Check for [Table] attribute to get view name
+                    var tableAttr = entityType.GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
+                    var viewName = tableAttr?.Name ?? entityType.Name;
+
+                    // Views are keyless - they're read-only query types
+                    entityBuilder.HasNoKey();
+
+                    // Register as a view (read-only, no migrations)
+                    entityBuilder.ToView(viewName);
+                }
+            }
 
             // CONFIGURE SPECIFIC ENTITIES AFTER REFLECTION REGISTRATION
             configureDocumentRelationshipIdentifier(builder);

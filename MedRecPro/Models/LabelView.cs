@@ -77,7 +77,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Primary key for navigation to Product entity.
             /// </summary>
-            [Key]
+            
             public int? ProductID { get; set; }
 
             /**************************************************************/
@@ -199,17 +199,13 @@ namespace MedRecPro.Models
             /**************************************************************/
             /// <summary>
             /// Application number (part of composite key).
-            /// </summary>
-            [Key]
-            [Column(Order = 0)]
+            /// </summary>            
             public string? ApplicationNumber { get; set; }
 
             /**************************************************************/
             /// <summary>
             /// Marketing category code (part of composite key).
             /// </summary>
-            [Key]
-            [Column(Order = 1)]
             public string? MarketingCategoryCode { get; set; }
 
             /**************************************************************/
@@ -343,7 +339,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Product ID (primary key for navigation).
             /// </summary>
-            [Key]
+            
             public int? ProductID { get; set; }
 
             /**************************************************************/
@@ -466,7 +462,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Hierarchy linkage ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? PharmClassHierarchyID { get; set; }
 
             #endregion properties
@@ -500,7 +496,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Pharmacologic class ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? PharmacologicClassID { get; set; }
 
             /**************************************************************/
@@ -593,7 +589,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Ingredient ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? IngredientID { get; set; }
 
             /**************************************************************/
@@ -753,7 +749,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Ingredient substance ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? IngredientSubstanceID { get; set; }
 
             /**************************************************************/
@@ -826,7 +822,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Product identifier ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? ProductIdentifierID { get; set; }
 
             /**************************************************************/
@@ -980,7 +976,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Package identifier ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? PackageIdentifierID { get; set; }
 
             /**************************************************************/
@@ -1127,7 +1123,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Product ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? ProductID { get; set; }
 
             /**************************************************************/
@@ -1233,7 +1229,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Labeler organization ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? LabelerOrgID { get; set; }
 
             /**************************************************************/
@@ -1307,7 +1303,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Document ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? DocumentID { get; set; }
 
             /**************************************************************/
@@ -1420,7 +1416,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Document ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? DocumentID { get; set; }
 
             /**************************************************************/
@@ -1512,7 +1508,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Section ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? SectionID { get; set; }
 
             /**************************************************************/
@@ -1629,7 +1625,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Section code (LOINC) - primary key.
             /// </summary>
-            [Key]
+            
             public string? SectionCode { get; set; }
 
             /**************************************************************/
@@ -1691,7 +1687,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Product ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? ProductID { get; set; }
 
             /**************************************************************/
@@ -1814,7 +1810,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Product ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? ProductID { get; set; }
 
             /**************************************************************/
@@ -1905,7 +1901,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// Product ID (primary key).
             /// </summary>
-            [Key]
+            
             public int? ProductID { get; set; }
 
             /**************************************************************/
@@ -2094,8 +2090,6 @@ namespace MedRecPro.Models
             /// <summary>
             /// Source product ID.
             /// </summary>
-            [Key]
-            [Column(Order = 0)]
             public int? SourceProductID { get; set; }
 
             /**************************************************************/
@@ -2114,8 +2108,6 @@ namespace MedRecPro.Models
             /// <summary>
             /// Related product ID.
             /// </summary>
-            [Key]
-            [Column(Order = 1)]
             public int? RelatedProductID { get; set; }
 
             /**************************************************************/
@@ -2134,8 +2126,6 @@ namespace MedRecPro.Models
             /// <summary>
             /// Relationship type (SameApplicationNumber, SameActiveIngredient).
             /// </summary>
-            [Key]
-            [Column(Order = 2)]
             public string? RelationshipType { get; set; }
 
             /**************************************************************/
@@ -2173,7 +2163,7 @@ namespace MedRecPro.Models
             /// <summary>
             /// View name (primary key).
             /// </summary>
-            [Key]
+            
             public string? ViewName { get; set; }
 
             /**************************************************************/
