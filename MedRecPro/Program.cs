@@ -140,6 +140,8 @@ builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>((serviceProv
 
 builder.Services.AddScoped<IComparisonService, ComparisonService>();
 
+builder.Services.AddSingleton<ConversationStore>();
+
 builder.Services.AddUserLogger(); // custom service
 
 builder.Services.AddScoped<IActivityLogService, ActivityLogService>();

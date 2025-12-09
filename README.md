@@ -457,12 +457,211 @@ Results are cached for 5 minutes to minimize API overhead. The service queries 1
 
 ### Cost Reference
 
-| Metric | Value |
-|--------|-------|
-| Monthly Free Allowance | 100,000 vCore seconds |
-| Overage Rate | ~$0.000145 per vCore second |
-| Break-even (100% usage) | $0.00/month |
-| 2x free tier usage | ~$14.50/month |
+| Metric                   | Value                          |
+|--------------------------|--------------------------------|
+| Monthly Free Allowance   | 100,000 vCore seconds          |
+| Overage Rate             | ~$0.000145 per vCore second    |
+| Break-even (100% usage)  | $0.00/month                    |
+| 2x free tier usage       | ~$14.50/month                  |
+
+
+# MedRecPro AI Skills System
+
+## Overview
+
+This package implements an agentic AI layer for the MedRecPro pharmaceutical labeling management system. It enables natural language interaction with the system, allowing users to query pharmaceutical data, manage SPL documents, and perform system operations through conversational requests processed by Claude AI.
+
+## Architecture
+
+The system implements a **request-interpret-execute-synthesize** pattern:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          Client Application                         │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                    1. User submits natural language query
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    POST /api/ai/interpret                           │
+│                         AiController                                │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                    2. Claude interprets → returns API specs
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    AiAgentInterpretation                            │
+│   { endpoints: [{ method, path, queryParameters, ... }] }           │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                    3. Client executes specified endpoints
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    MedRecPro API Endpoints                          │
+│         /api/views/..., /api/labels/..., etc.                       │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                    4. Client sends results back
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    POST /api/ai/synthesize                          │
+│                         AiController                                │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                    5. Claude synthesizes → human-readable response
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    AiAgentSynthesis                                 │
+│   { response: "I found 47 products...", suggestedFollowUps: [...] } │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Files Included
+
+### Core Service Files
+
+| File                 | Description                                                    |
+|----------------------|----------------------------------------------------------------|
+| `AiAgentDtos.cs`     | Data transfer objects for requests/responses                   |
+| `AiController.cs`    | API controller exposing AI endpoints                           |
+
+### Skills Documentation
+
+| File                    | Description                                                  |
+|------|---------------------------------------------------------------------------------|
+| `SKILLS.md`             | Human-readable markdown documentation of available endpoints |
+| `medrecpro-skills.json` | Structured JSON skills document for AI interpretation        |
+
+
+## API Endpoints
+
+### GET /api/ai/context
+Returns current system state (authentication, demo mode, data counts).
+
+### POST /api/ai/interpret
+Interprets natural language query and returns API endpoint specifications.
+
+**Request:**
+```json
+{
+  "userMessage": "Find all products containing aspirin",
+  "conversationId": "conv-123"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "endpoints": [{
+    "method": "GET",
+    "path": "/api/views/ingredient/search",
+    "queryParameters": { "substanceNameSearch": "aspirin" },
+    "description": "Search products by ingredient name"
+  }],
+  "explanation": "I'll search for products containing aspirin."
+}
+```
+
+### POST /api/ai/synthesize
+Synthesizes API execution results into human-readable response.
+
+**Request:**
+```json
+{
+  "originalQuery": "Find all products containing aspirin",
+  "executedEndpoints": [{
+    "specification": { "method": "GET", "path": "/api/views/ingredient/search", ... },
+    "statusCode": 200,
+    "result": [{ "ProductName": "Bayer Aspirin", ... }]
+  }]
+}
+```
+
+**Response:**
+```json
+{
+  "response": "I found 47 products containing aspirin...",
+  "dataHighlights": { "totalProducts": 47 },
+  "suggestedFollowUps": ["Show details for Bayer Aspirin"]
+}
+```
+
+### GET /api/ai/skills
+Returns the skills document describing available API capabilities.
+
+### GET /api/ai/chat?message={query}
+Convenience endpoint for simple queries (calls interpret internally).
+
+## Key Features
+
+### 1. System Context Awareness
+The AI agent checks:
+- Authentication status (determines available operations)
+- Demo mode state (warns about data persistence)
+- Database population (suggests import if empty)
+- Available capabilities
+
+### 2. Demo Mode Detection
+When `isDatabaseEmpty == true`, the agent suggests importing SPL data from DailyMed.
+
+### 3. Authentication Enforcement
+Write operations are flagged as requiring authentication. If user is not authenticated, the interpretation includes appropriate guidance.
+
+### 4. Comprehensive Skills Document
+The skills document includes:
+- All navigation view endpoints
+- CRUD operations for all label sections
+- Import/export capabilities
+- Common LOINC section codes
+- Trigger phrases for intent matching
+
+## Example Conversations
+
+### Query: "Find all drugs manufactured by Pfizer"
+```json
+// Interpretation
+{
+  "endpoints": [{
+    "method": "GET",
+    "path": "/api/views/labeler/search",
+    "queryParameters": { "labelerNameSearch": "Pfizer" }
+  }]
+}
+
+// Synthesis (after execution)
+{
+  "response": "I found 47 products manufactured by Pfizer Inc. Notable products include LIPITOR, VIAGRA, and ZOLOFT...",
+  "suggestedFollowUps": ["Show details for LIPITOR"]
+}
+```
+
+### Query: "Import some SPL data" (not authenticated)
+```json
+{
+  "success": false,
+  "requiresAuthentication": true,
+  "error": "This operation requires authentication. Please log in first."
+}
+```
+
+### Query: "What can you do?" (empty database)
+```json
+{
+  "isDirectResponse": true,
+  "directResponse": "The database is currently empty. To get started, import SPL ZIP files from DailyMed..."
+}
+```
+
+## Notes
+
+1. **Security**: The client executes API calls, preserving authentication context. The AI only returns specifications.
+
+2. **Encrypted IDs**: All IDs in responses are encrypted. Use these values in subsequent requests.
+
+3. **Error Handling**: Both interpretation and synthesis include fallback responses when Claude API fails.
+
+4. **Caching**: Skills document is cached for 1 hour to minimize overhead.
 
 
 ## License
