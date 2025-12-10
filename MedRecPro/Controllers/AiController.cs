@@ -78,7 +78,6 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="AiSynthesisRequest"/>
     /// <seealso cref="AiAgentSynthesis"/>
     [ApiController]
-    [Route("api/[controller]")]
     public class AiController : ApiControllerBase
     {
         #region private properties

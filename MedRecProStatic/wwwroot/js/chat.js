@@ -8,18 +8,66 @@
 
     /**************************************************************/
     // Configuration
+    // <remarks>
+    // Determines API base URL based on environment:
+    // - Local development (localhost): Uses production API with CORS
+    // - Production: Uses relative URLs for same-origin requests
+    // </remarks>
     /**************************************************************/
-    const API_CONFIG = {
-        baseUrl: 'https://www.medrecpro.com/api/',
-        endpoints: {
-            context: '/context',
-            interpret: '/interpret',
-            synthesize: '/synthesize',
-            chat: '/chat',
-            upload: '/api/Labels/import' // File upload endpoint
-        },
-        pollInterval: 1000
-    };
+
+    /**
+     * Detects if the application is running in a local development environment.
+     * @returns {boolean} True if running on localhost or local IP
+     */
+    function isLocalDevelopment() {
+     
+        const hostname = window.location.hostname;
+        return hostname === 'localhost' ||
+            hostname === '127.0.0.1' ||
+            hostname.startsWith('192.168.') ||
+            hostname.startsWith('10.') ||
+            hostname === '::1';
+        
+    }
+
+    /**
+     * Builds the API configuration based on the current environment.
+     * @returns {Object} API configuration object with baseUrl and endpoints
+     * <remarks>
+     * When running locally, all API calls are routed to the production server
+     * at https://www.medrecpro.com. CORS must be configured on the server
+     * to accept requests from localhost origins.
+     * </remarks>
+     */
+    function buildApiConfig() {
+     
+        // Base URL differs by environment
+        const baseUrl = isLocalDevelopment()
+            ? 'https://www.medrecpro.com'  // Production API for local dev (requires CORS)
+            : '';                           // Relative URLs for production (same-origin)
+
+        return {
+            baseUrl: baseUrl,
+            endpoints: {
+                // AI Controller endpoints
+                context: '/api/Ai/context',
+                interpret: '/api/Ai/interpret',
+                synthesize: '/api/Ai/synthesize',
+                chat: '/api/Ai/chat',
+                // Labels Controller endpoint for file upload
+                upload: '/api/Labels/import'
+            },
+            pollInterval: 1000
+        };
+        
+    }
+
+    // Initialize API configuration
+    const API_CONFIG = buildApiConfig();
+
+    // Log environment info for debugging
+    console.log('[MedRecPro Chat] Environment:', isLocalDevelopment() ? 'Local Development' : 'Production');
+    console.log('[MedRecPro Chat] API Base URL:', API_CONFIG.baseUrl || '(relative)');
 
     /**************************************************************/
     // State Management
@@ -60,7 +108,7 @@
 
     /**
      * Generates a UUID v4 for conversation tracking.
-     * @@returns {string} UUID string
+     * @returns {string} UUID string
      */
     function generateUUID() {
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -71,9 +119,25 @@
     }
 
     /**
+     * Builds a full API URL from an endpoint path.
+     * @param {string} endpointPath - The endpoint path (e.g., '/api/Ai/context')
+     * @returns {string} Full URL for the API call
+     * <remarks>
+     * Combines the base URL with the endpoint path.
+     * In production (empty baseUrl), returns just the endpoint for same-origin requests.
+     * In local development, prepends the production server URL.
+     * </remarks>
+     */
+    function buildUrl(endpointPath) {
+     
+        return API_CONFIG.baseUrl + endpointPath;
+        
+    }
+
+    /**
      * Escapes HTML special characters to prevent XSS.
-     * @@param {string} text - Raw text to escape
-     * @@returns {string} Escaped HTML string
+     * @param {string} text - Raw text to escape
+     * @returns {string} Escaped HTML string
      */
     function escapeHtml(text) {
         const div = document.createElement('div');
@@ -83,8 +147,8 @@
 
     /**
      * Formats file size for display.
-     * @@param {number} bytes - File size in bytes
-     * @@returns {string} Formatted size string
+     * @param {number} bytes - File size in bytes
+     * @returns {string} Formatted size string
      */
     function formatFileSize(bytes) {
         if (bytes < 1024) return bytes + ' B';
@@ -107,8 +171,8 @@
 
     /**
      * Renders markdown content to HTML with proper escaping.
-     * @@param {string} text - Markdown text to render
-     * @@returns {string} HTML string
+     * @param {string} text - Markdown text to render
+     * @returns {string} HTML string
      */
     function renderMarkdown(text) {
         if (!text) return '';
@@ -230,8 +294,8 @@
 
     /**
      * Copies code block content to clipboard.
-     * @@param {HTMLElement} btn - The copy button element
-     * @@param {string} index - Code block index
+     * @param {HTMLElement} btn - The copy button element
+     * @param {string} index - Code block index
      */
     window.copyCode = function (btn, index) {
         const codeContent = btn.closest('.code-block').querySelector('pre').textContent;
@@ -257,8 +321,8 @@
 
     /**
      * Renders a single message to HTML.
-     * @@param {Object} message - Message object
-     * @@returns {string} HTML string for the message
+     * @param {Object} message - Message object
+     * @returns {string} HTML string for the message
      */
     function renderMessage(message) {
         const isUser = message.role === 'user';
@@ -389,7 +453,7 @@
 
     /**
      * Toggles the thinking block expansion state.
-     * @@param {HTMLElement} header - The thinking header element
+     * @param {HTMLElement} header - The thinking header element
      */
     window.toggleThinking = function (header) {
         const icon = header.querySelector('.thinking-icon');
@@ -400,7 +464,7 @@
 
     /**
      * Copies a message's content to clipboard.
-     * @@param {string} messageId - The message ID
+     * @param {string} messageId - The message ID
      */
     window.copyMessage = function (messageId) {
         const message = state.messages.find(m => m.id === messageId);
@@ -421,7 +485,7 @@
 
     /**
      * Retries a failed message.
-     * @@param {string} messageId - The failed message ID
+     * @param {string} messageId - The failed message ID
      */
     window.retryMessage = function (messageId) {
         const messageIndex = state.messages.findIndex(m => m.id === messageId);
@@ -461,7 +525,7 @@
 
     /**
      * Updates a specific message in the DOM.
-     * @@param {string} messageId - The message ID to update
+     * @param {string} messageId - The message ID to update
      */
     function updateMessage(messageId) {
         const message = state.messages.find(m => m.id === messageId);
@@ -508,7 +572,7 @@
 
     /**
      * Removes a file from the upload list.
-     * @@param {number} index - File index to remove
+     * @param {number} index - File index to remove
      */
     window.removeFile = function (index) {
         state.files.splice(index, 1);
@@ -517,7 +581,7 @@
 
     /**
      * Adds files to the upload list (ZIP only).
-     * @@param {FileList} files - Files to add
+     * @param {FileList} files - Files to add
      */
     function addFiles(files) {
         const zipFiles = Array.from(files).filter(f =>
@@ -533,15 +597,24 @@
 
     /**
      * Uploads files to the server.
-     * @@returns {Promise<string[]>} Array of file IDs
+     * @returns {Promise<string[]>} Array of file IDs
+     * <remarks>
+     * Uses the buildUrl helper to construct the full URL,
+     * ensuring proper handling in both local and production environments.
+     * </remarks>
      */
     async function uploadFiles() {
+     
         if (state.files.length === 0) return [];
 
         const formData = new FormData();
         state.files.forEach(file => formData.append('files', file));
 
-        const response = await fetch(API_CONFIG.endpoints.upload, {
+        // Build full URL using the helper function
+        const uploadUrl = buildUrl(API_CONFIG.endpoints.upload);
+        console.log('[MedRecPro Chat] Uploading files to:', uploadUrl);
+
+        const response = await fetch(uploadUrl, {
             method: 'POST',
             body: formData,
             signal: state.abortController?.signal
@@ -553,6 +626,7 @@
 
         const result = await response.json();
         return result.fileIds || [];
+        
     }
 
     /**************************************************************/
@@ -561,10 +635,18 @@
 
     /**
      * Fetches the system context from the API.
+     * <remarks>
+     * Retrieves demo mode status and other system configuration.
+     * Uses buildUrl helper for proper cross-origin handling.
+     * </remarks>
      */
     async function fetchSystemContext() {
+     
         try {
-            const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.context);
+            const contextUrl = buildUrl(API_CONFIG.endpoints.context);
+            console.log('[MedRecPro Chat] Fetching context from:', contextUrl);
+
+            const response = await fetch(contextUrl);
             if (response.ok) {
                 state.systemContext = await response.json();
 
@@ -576,14 +658,28 @@
                 }
             }
         } catch (error) {
-            console.error('Failed to fetch system context:', error);
+            console.error('[MedRecPro Chat] Failed to fetch system context:', error);
+            // In local dev, this might fail if CORS isn't configured - show helpful message
+            if (isLocalDevelopment()) {
+                console.warn('[MedRecPro Chat] CORS may not be configured on the server. ' +
+                    'Ensure the API at medrecpro.com allows localhost origins.');
+            }
         }
+        
     }
 
     /**
      * Sends a message to the AI API.
+     * <remarks>
+     * Handles the full message flow:
+     * 1. Creates user and assistant message placeholders
+     * 2. Uploads any attached files
+     * 3. Calls interpret endpoint for intent analysis
+     * 4. Processes response and updates UI
+     * </remarks>
      */
     async function sendMessage() {
+     
         const input = elements.messageInput.value.trim();
         if (!input && state.files.length === 0) return;
         if (state.isLoading) return;
@@ -633,7 +729,10 @@
                 .map(m => ({ role: m.role, content: m.content }));
 
             // Call the interpret endpoint
-            const interpretResponse = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.interpret, {
+            const interpretUrl = buildUrl(API_CONFIG.endpoints.interpret);
+            console.log('[MedRecPro Chat] Calling interpret endpoint:', interpretUrl);
+
+            const interpretResponse = await fetch(interpretUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -651,84 +750,97 @@
 
             const interpretation = await interpretResponse.json();
 
-            // Update thinking content
-            if (interpretation.explanation) {
-                assistantMessage.thinking = interpretation.explanation;
+            // Handle the interpretation response
+            if (interpretation.thinking) {
+                assistantMessage.thinking = interpretation.thinking;
                 updateMessage(assistantMessage.id);
             }
 
-            // Handle direct response (no API calls needed)
-            if (interpretation.isDirectResponse && interpretation.directResponse) {
+            // Check if this is a direct response (no API call needed)
+            if (interpretation.directResponse) {
                 assistantMessage.content = interpretation.directResponse;
                 assistantMessage.isStreaming = false;
                 updateMessage(assistantMessage.id);
             }
-            // Handle clarifying questions
-            else if (interpretation.clarifyingQuestions && interpretation.clarifyingQuestions.length > 0) {
-                assistantMessage.content = interpretation.clarifyingQuestions.join('\n\n');
-                assistantMessage.isStreaming = false;
+            // Check if we need to execute API endpoints
+            else if (interpretation.suggestedEndpoints && interpretation.suggestedEndpoints.length > 0) {
+                assistantMessage.progress = 0;
+                assistantMessage.progressStatus = 'Executing queries...';
                 updateMessage(assistantMessage.id);
-            }
-            // Handle endpoint execution
-            else if (interpretation.endpoints && interpretation.endpoints.length > 0) {
-                // Execute the suggested endpoints
-                const executedEndpoints = [];
 
-                for (const endpoint of interpretation.endpoints) {
+                // Execute each endpoint
+                const results = [];
+                const totalEndpoints = interpretation.suggestedEndpoints.length;
+
+                for (let i = 0; i < totalEndpoints; i++) {
+                    const endpoint = interpretation.suggestedEndpoints[i];
+                    assistantMessage.progress = (i / totalEndpoints);
+                    assistantMessage.progressStatus = `Executing ${endpoint.description || 'query'}...`;
+                    updateMessage(assistantMessage.id);
+
                     try {
-                        const url = buildApiUrl(endpoint);
-                        const options = {
+                        const apiUrl = buildApiUrl(endpoint);
+                        const fullApiUrl = buildUrl(apiUrl);
+                        console.log('[MedRecPro Chat] Executing API call:', fullApiUrl);
+
+                        const apiResponse = await fetch(fullApiUrl, {
                             method: endpoint.method || 'GET',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: endpoint.method === 'POST' ? { 'Content-Type': 'application/json' } : {},
+                            body: endpoint.method === 'POST' ? JSON.stringify(endpoint.body) : undefined,
                             signal: state.abortController.signal
-                        };
-
-                        if (endpoint.method === 'POST' && endpoint.body) {
-                            options.body = JSON.stringify(endpoint.body);
-                        }
-
-                        const startTime = Date.now();
-                        const apiResponse = await fetch(url, options);
-                        const executionTime = Date.now() - startTime;
-
-                        let result = null;
-                        if (apiResponse.ok) {
-                            result = await apiResponse.json();
-                        }
-
-                        executedEndpoints.push({
-                            specification: endpoint,
-                            statusCode: apiResponse.status,
-                            result: result,
-                            executionTimeMs: executionTime
                         });
+
+                        if (apiResponse.ok) {
+                            const data = await apiResponse.json();
+                            results.push({
+                                endpoint: endpoint.path,
+                                description: endpoint.description,
+                                success: true,
+                                data: data
+                            });
+                        } else {
+                            results.push({
+                                endpoint: endpoint.path,
+                                description: endpoint.description,
+                                success: false,
+                                error: `HTTP ${apiResponse.status}`
+                            });
+                        }
                     } catch (endpointError) {
-                        executedEndpoints.push({
-                            specification: endpoint,
-                            statusCode: 500,
-                            error: endpointError.message,
-                            executionTimeMs: 0
+                        results.push({
+                            endpoint: endpoint.path,
+                            description: endpoint.description,
+                            success: false,
+                            error: endpointError.message
                         });
                     }
                 }
 
-                // Synthesize the results
-                const synthesisResponse = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.synthesize, {
+                // Call synthesize to format the results
+                assistantMessage.progress = 0.9;
+                assistantMessage.progressStatus = 'Synthesizing results...';
+                updateMessage(assistantMessage.id);
+
+                const synthesizeUrl = buildUrl(API_CONFIG.endpoints.synthesize);
+                console.log('[MedRecPro Chat] Calling synthesize endpoint:', synthesizeUrl);
+
+                const synthesizeResponse = await fetch(synthesizeUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        originalQuery: input,
-                        conversationId: state.conversationId,
-                        executedEndpoints: executedEndpoints
+                        originalQuestion: input,
+                        interpretation: interpretation,
+                        results: results,
+                        conversationId: state.conversationId
                     }),
                     signal: state.abortController.signal
                 });
 
-                if (synthesisResponse.ok) {
-                    const synthesis = await synthesisResponse.json();
-                    assistantMessage.content = synthesis.response || 'No response generated.';
+                if (synthesizeResponse.ok) {
+                    const synthesis = await synthesizeResponse.json();
+                    assistantMessage.content = synthesis.response || 'No results found.';
 
-                    // Add suggested follow-ups if available
+                    // Add any follow-up suggestions
                     if (synthesis.suggestedFollowUps && synthesis.suggestedFollowUps.length > 0) {
                         assistantMessage.content += '\n\n**Suggested follow-ups:**\n';
                         synthesis.suggestedFollowUps.forEach(followUp => {
@@ -756,6 +868,11 @@
                 assistantMessage.error = 'Request cancelled';
             } else {
                 assistantMessage.error = error.message || 'An error occurred';
+                // Provide more helpful error message for CORS issues
+                if (isLocalDevelopment() && error.message.includes('Failed to fetch')) {
+                    assistantMessage.error = 'CORS error: The API server may not be configured to accept requests from localhost. ' +
+                        'Check browser console for details.';
+                }
             }
             assistantMessage.isStreaming = false;
             updateMessage(assistantMessage.id);
@@ -763,14 +880,21 @@
             state.isLoading = false;
             updateUI();
         }
+        
     }
 
     /**
      * Builds a full API URL from an endpoint specification.
-     * @@param {Object} endpoint - Endpoint specification
-     * @@returns {string} Full URL
+     * @param {Object} endpoint - Endpoint specification object
+     * @returns {string} URL path with query parameters
+     * <remarks>
+     * This handles the endpoint object from interpretation results,
+     * constructing the path with any query parameters.
+     * The result should be passed to buildUrl() for full URL construction.
+     * </remarks>
      */
     function buildApiUrl(endpoint) {
+     
         let url = endpoint.path;
 
         // Handle query parameters
@@ -788,6 +912,7 @@
         }
 
         return url;
+        
     }
 
     /**
