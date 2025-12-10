@@ -235,6 +235,83 @@ builder.Services.ConfigureApplicationCookie(options =>
     };
 });
 
+// Add CORS for local testing if needed
+builder.Services.AddCors(options =>
+{
+    #region implementation
+
+    /**************************************************************/
+    /// <summary>
+    /// AllowLocalDevelopment - Permits cross-origin requests from localhost
+    /// </summary>
+    /// <remarks>
+    /// This policy allows:
+    /// - HTTP and HTTPS on localhost (various ports)
+    /// - HTTP and HTTPS on 127.0.0.1 (various ports)
+    /// - Local network IPs (192.168.x.x, 10.x.x.x)
+    /// 
+    /// Common development ports included:
+    /// - 5000/5001: Default Kestrel HTTP/HTTPS
+    /// - 7000-7299: Visual Studio HTTPS auto-assigned range
+    /// - 3000: Common for Node.js/React dev servers
+    /// - 8080: Common alternative HTTP port
+    /// </remarks>
+    /**************************************************************/
+    options.AddPolicy("AllowLocalDevelopment", policy =>
+    {
+        policy.WithOrigins(
+            // Localhost HTTP variants
+            "http://localhost",
+            "http://localhost:5000",
+            "http://localhost:5001",
+            "http://localhost:5173",   // Vite default
+            "http://localhost:3000",   // React/Node default
+            "http://localhost:8080",   // Common alternative
+
+            // Localhost HTTPS variants
+            "https://localhost",
+            "https://localhost:5001",
+            "https://localhost:7000",
+            "https://localhost:7001",
+            "https://localhost:7100",
+            "https://localhost:7200",
+
+            // 127.0.0.1 variants
+            "http://127.0.0.1",
+            "http://127.0.0.1:5000",
+            "http://127.0.0.1:5001",
+            "https://127.0.0.1:5001",
+            "https://127.0.0.1:7000",
+            "https://127.0.0.1:7001"
+        )
+        .AllowAnyMethod()        // Allow GET, POST, PUT, DELETE, etc.
+        .AllowAnyHeader()        // Allow Content-Type, Authorization, etc.
+        .AllowCredentials();     // Allow cookies/auth headers if needed
+    });
+
+    /**************************************************************/
+    /// <summary>
+    /// Production policy for same-origin and trusted domains
+    /// </summary>
+    /// <remarks>
+    /// This policy is more restrictive and used in production.
+    /// Adjust the origins to match your actual deployment domains.
+    /// </remarks>
+    /**************************************************************/
+    options.AddPolicy("Production", policy =>
+    {
+        policy.WithOrigins(
+            "https://www.medrecpro.com",
+            "https://medrecpro.com"
+        )
+        .AllowAnyMethod()
+        .AllowAnyHeader()
+        .AllowCredentials();
+    });
+
+    #endregion
+});
+
 // Authentication schemes for Google, Microsoft and BasicAuthentication.
 builder.Services.AddAuthentication(options =>
 {
@@ -988,6 +1065,35 @@ if (Directory.Exists(stylesheetsPath))
 app.UseHttpsRedirection();
 
 app.UseRouting();
+
+// Apply CORS policies based on environment
+if (app.Environment.IsDevelopment())
+{
+    // In development, allow both local and production origins
+    app.UseCors("AllowLocalDevelopment");
+}
+else
+{
+    // In production, use both policies to allow local dev testing against prod
+    // This enables developers to test against the live API
+    app.UseCors(policy => policy
+        .SetIsOriginAllowed(origin =>
+        {
+            // Allow production domains
+            if (origin.Contains("medrecpro.com")) return true;
+
+            // Allow localhost for remote development
+            var uri = new Uri(origin);
+            return uri.Host == "localhost" ||
+                   uri.Host == "127.0.0.1" ||
+                   uri.Host.StartsWith("192.168.") ||
+                   uri.Host.StartsWith("10.");
+        })
+        .AllowAnyMethod()
+        .AllowAnyHeader()
+        .AllowCredentials()
+    );
+}
 
 // Authentication & Authorization must come after UseRouting and before UseEndpoints
 app.UseAuthentication(); // Enables authentication capabilities

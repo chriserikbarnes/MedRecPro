@@ -847,11 +847,31 @@
 
     /**
      * Auto-resizes the textarea based on content.
+     * Grows without scrollbars until max-height is reached.
+     * When max-height is reached, enables thin scrollbar.
      */
     function autoResizeTextarea() {
         const textarea = elements.messageInput;
+
+        // Reset height to auto to get accurate scrollHeight
         textarea.style.height = 'auto';
-        textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+
+        // Get the computed max-height from CSS (50vh by default)
+        const computedStyle = window.getComputedStyle(textarea);
+        const maxHeight = parseInt(computedStyle.maxHeight, 10) || (window.innerHeight * 0.5);
+
+        // Calculate the new height based on content
+        const newHeight = textarea.scrollHeight;
+
+        // If content exceeds max-height, cap it and enable scrolling
+        if (newHeight >= maxHeight) {
+            textarea.style.height = maxHeight + 'px';
+            textarea.classList.add('has-scroll');
+        } else {
+            // Content fits within bounds - grow to fit without scrollbar
+            textarea.style.height = newHeight + 'px';
+            textarea.classList.remove('has-scroll');
+        }
     }
 
     /**************************************************************/
