@@ -5,11 +5,12 @@ namespace MedRecPro.Static.Controllers
 {
     /**************************************************************/
     /// <summary>
-    /// Controller for handling static content pages including home, terms, and privacy.
+    /// Controller for handling static content pages including home, terms, privacy, and AI chat interface.
     /// </summary>
     /// <remarks>
     /// This controller serves the public-facing pages for MedRecPro.
     /// All content is loaded from JSON files via the ContentService.
+    /// The AI Chat interface provides a conversational UI for interacting with the MedRecPro API.
     /// </remarks>
     /// <seealso cref="ContentService"/>
     public class HomeController : Controller
@@ -78,6 +79,68 @@ namespace MedRecPro.Static.Controllers
             var content = _contentService.GetPrivacyPage();
             ViewBag.Config = _contentService.GetConfig();
             return View(content);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Displays the AI Chat interface for natural language interaction with MedRecPro.
+        /// </summary>
+        /// <returns>View with the AI chat interface.</returns>
+        /// <remarks>
+        /// <para>
+        /// This page provides a conversational interface for querying the MedRecPro system
+        /// using natural language. The interface communicates with the AI API endpoints:
+        /// </para>
+        /// 
+        /// <list type="bullet">
+        ///   <item>
+        ///     <term>GET /api/Ai/context</term>
+        ///     <description>Retrieves system context including authentication status and capabilities.</description>
+        ///   </item>
+        ///   <item>
+        ///     <term>POST /api/Ai/interpret</term>
+        ///     <description>Interprets natural language queries into API endpoint specifications.</description>
+        ///   </item>
+        ///   <item>
+        ///     <term>POST /api/Ai/synthesize</term>
+        ///     <description>Synthesizes API results into human-readable responses.</description>
+        ///   </item>
+        ///   <item>
+        ///     <term>GET /api/Ai/chat</term>
+        ///     <description>Convenience endpoint for simple queries.</description>
+        ///   </item>
+        /// </list>
+        /// 
+        /// <para>
+        /// The interface supports:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description>Streaming responses with real-time text display</description></item>
+        ///   <item><description>Thinking process visualization (collapsible blocks)</description></item>
+        ///   <item><description>Drag and drop file upload for ZIP files</description></item>
+        ///   <item><description>Markdown rendering with syntax highlighting</description></item>
+        ///   <item><description>Conversation history management</description></item>
+        ///   <item><description>Request cancellation support</description></item>
+        /// </list>
+        /// 
+        /// <example>
+        /// Example URL: /Home/Chat
+        /// </example>
+        /// </remarks>
+        /// <seealso cref="ContentService"/>
+        public IActionResult Chat()
+        {
+            #region implementation
+
+            // Load configuration for API base URL and branding
+            ViewBag.Config = _contentService.GetConfig();
+
+            // Set page title for the chat interface
+            ViewBag.Title = "AI Assistant";
+
+            #endregion
+
+            return View();
         }
     }
 }
