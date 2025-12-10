@@ -185,7 +185,6 @@ namespace MedRecPro.Api.Controllers
         /// ```
         /// </remarks>
         /// <seealso cref="AiSystemContext"/>
-        /// <seealso cref="IAiAgentService.GetSystemContextAsync"/>
         [HttpGet("context")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(AiSystemContext), StatusCodes.Status200OK)]
@@ -308,7 +307,6 @@ namespace MedRecPro.Api.Controllers
         /// </example>
         /// <seealso cref="AiAgentRequest"/>
         /// <seealso cref="AiAgentInterpretation"/>
-        /// <seealso cref="IAiAgentService.InterpretRequestAsync"/>
         [HttpPost("interpret")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(AiAgentInterpretation), StatusCodes.Status200OK)]
@@ -426,7 +424,6 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         /// <seealso cref="AiSynthesisRequest"/>
         /// <seealso cref="AiAgentSynthesis"/>
-        /// <seealso cref="IAiAgentService.SynthesizeResultsAsync"/>
         [HttpPost("synthesize")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(AiAgentSynthesis), StatusCodes.Status200OK)]
@@ -512,8 +509,7 @@ namespace MedRecPro.Api.Controllers
         /// - Available sections and parameters
         /// 
         /// This document is also used internally by Claude when interpreting requests.
-        /// </remarks>
-        /// <seealso cref="IAiAgentService.GetSkillsDocumentAsync"/>
+        /// </remarks>   
         [HttpGet("skills")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
