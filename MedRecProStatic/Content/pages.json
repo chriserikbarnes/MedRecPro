@@ -2,33 +2,172 @@
   "home": {
     "title": "MedRecPro - SPL Management System",
     "hero": {
+      "eyebrow": "Open Source Pharmaceutical Data Management",
       "headline": "Structured Product Labeling Made Simple",
-      "subheadline": "Open-source pharmaceutical labeling management system built on FDA and HL7 standards",
+      "subheadline": "The intelligent platform for managing FDA SPL documents with AI-powered analysis, HL7 compliance, and enterprise-grade security.",
       "ctaText": "Get Started",
-      "ctaLink": "/api/auth/login"
+      "ctaLink": "#index-how-it-works",
+      "secondaryCtaText": "View API Docs",
+      "secondaryCtaLink": "/api/swagger/index.html"
     },
+    "stats": [
+      {
+        "value": "HL7",
+        "label": "Standards Compliant",
+        "description": "FDA SPL Implementation Guide (Dec 2023)"
+      },
+      {
+        "value": "REST",
+        "label": "API Architecture",
+        "description": "Full OpenAPI/Swagger documentation"
+      },
+      {
+        "value": "AI",
+        "label": "Powered Analysis",
+        "description": "Natural language queries via Claude"
+      }
+    ],
     "features": [
       {
         "icon": "📋",
-        "title": "SPL Parsing",
-        "description": "Parse and normalize pharmaceutical labeling data according to HL7 standards"
+        "title": "SPL Parsing & Normalization",
+        "description": "Import and process pharmaceutical labeling data from DailyMed ZIP files. Automatic parsing according to FDA SPL specifications with complete HL7 compliance.",
+        "color": "blue"
       },
       {
         "icon": "🔍",
-        "title": "Data Analysis",
-        "description": "Comprehensive analysis of drug products, ingredients, and packaging hierarchies"
+        "title": "Intelligent Data Analysis",
+        "description": "Comprehensive navigation views for products, ingredients, packaging hierarchies, and labeler information. Search and filter across all label sections.",
+        "color": "green"
+      },
+      {
+        "icon": "🤖",
+        "title": "AI-Powered Interface",
+        "description": "Natural language interaction with your pharmaceutical data. Ask questions like 'Find all products containing aspirin' and get structured responses.",
+        "color": "yellow"
       },
       {
         "icon": "🔒",
-        "title": "Secure Authentication",
-        "description": "Enterprise-grade security with Microsoft and Google authentication"
+        "title": "Enterprise Security",
+        "description": "Encrypted identifiers, OAuth authentication with Microsoft and Google, role-based access control, and comprehensive activity logging.",
+        "color": "red"
       },
       {
         "icon": "⚡",
         "title": "High Performance",
-        "description": "Optimized batch processing and efficient data structures"
+        "description": "Optimized batch processing, intelligent caching, and efficient data structures designed for Azure SQL and scalable cloud deployment.",
+        "color": "purple"
+      },
+      {
+        "icon": "📤",
+        "title": "Import & Export",
+        "description": "Bulk import from DailyMed data sources with progress tracking. Generate valid SPL XML output from database records for regulatory submission.",
+        "color": "teal"
       }
-    ]
+    ],
+    "howItWorks": {
+      "title": "How MedRecPro Works",
+      "subtitle": "A modern approach to pharmaceutical labeling management",
+      "steps": [
+        {
+          "number": "01",
+          "title": "Import SPL Data",
+          "description": "Upload ZIP files containing SPL XML documents from DailyMed. MedRecPro parses and normalizes the data according to FDA specifications.",
+          "icon": "📥"
+        },
+        {
+          "number": "02",
+          "title": "Explore & Analyze",
+          "description": "Navigate through products, ingredients, organizations, and packaging hierarchies using the REST API or AI-powered natural language queries.",
+          "icon": "🔬"
+        },
+        {
+          "number": "03",
+          "title": "Manage & Update",
+          "description": "Full CRUD operations for all label sections. Track changes, compare versions, and maintain compliance with regulatory requirements.",
+          "icon": "✏️"
+        },
+        {
+          "number": "04",
+          "title": "Export & Submit",
+          "description": "Generate valid SPL XML files from your database records. Export complete document packages ready for FDA submission.",
+          "icon": "📤"
+        }
+      ]
+    },
+    "useCases": {
+      "title": "Built for Pharmaceutical Professionals",
+      "subtitle": "Explore what you can accomplish with MedRecPro",
+      "cases": [
+        {
+          "title": "Search Drug Products",
+          "description": "Find products by ingredient, labeler, or NDC code",
+          "color": "light-red",
+          "icon": "💊"
+        },
+        {
+          "title": "Analyze Formulations",
+          "description": "Explore active moieties and ingredient relationships",
+          "color": "light-yellow",
+          "icon": "🧪"
+        },
+        {
+          "title": "Track Packaging",
+          "description": "Navigate complex packaging hierarchies and NDC codes",
+          "color": "light-blue",
+          "icon": "📦"
+        },
+        {
+          "title": "Compare Documents",
+          "description": "Validate rendered output against source XML",
+          "color": "light-green",
+          "icon": "📊"
+        },
+        {
+          "title": "Query with AI",
+          "description": "Ask questions in natural language, get structured data",
+          "color": "light-purple",
+          "icon": "💬"
+        },
+        {
+          "title": "Generate Reports",
+          "description": "Export SPL XML for regulatory submissions",
+          "color": "light-teal",
+          "icon": "📄"
+        }
+      ]
+    },
+    "api": {
+      "title": "Comprehensive REST API",
+      "subtitle": "Full programmatic access to all functionality",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/labels/section/{section}",
+          "description": "Retrieve paginated records for any label section"
+        },
+        {
+          "method": "POST",
+          "path": "/api/labels/import",
+          "description": "Import SPL data from ZIP files with progress tracking"
+        },
+        {
+          "method": "GET",
+          "path": "/api/ai/chat",
+          "description": "Natural language queries to the pharmaceutical database"
+        },
+        {
+          "method": "GET",
+          "path": "/api/labels/generate/{guid}",
+          "description": "Generate valid SPL XML from database records"
+        }
+      ]
+    },
+    "cta": {
+      "title": "Ready to Simplify Your SPL Workflow?",
+      "subtitle": "Sign in with your Microsoft or Google account to access the full API",
+      "note": "Open source under MIT License. Contributions welcome on GitHub."
+    }
   },
   "terms": {
     "title": "Terms of Service",
