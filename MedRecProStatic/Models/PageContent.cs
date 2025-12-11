@@ -14,6 +14,16 @@ namespace MedRecPro.Static.Models
     /// Contains branding, API URLs, and contact information used throughout the application.
     /// </remarks>
     /// <seealso cref="ContentService"/>
+    /**************************************************************/
+    /// <summary>
+    /// Site-wide configuration settings loaded from config.json.
+    /// </summary>
+    /// <remarks>
+    /// Contains branding, API URLs, authentication URLs, and contact information 
+    /// used throughout the application. Includes both production and development
+    /// URLs to support environment-aware configuration.
+    /// </remarks>
+    /// <seealso cref="ContentService"/>
     public class SiteConfig
     {
         /**************************************************************/
@@ -32,24 +42,85 @@ namespace MedRecPro.Static.Models
 
         /**************************************************************/
         /// <summary>
-        /// Base URL for the API endpoints.
+        /// Base URL for the production API endpoints.
         /// </summary>
         [JsonPropertyName("apiUrl")]
         public string? ApiUrl { get; set; }
 
         /**************************************************************/
         /// <summary>
-        /// Base URL for authentication endpoints.
+        /// Base URL for the development API endpoints.
         /// </summary>
+        /// <remarks>
+        /// Used when the site is accessed from localhost.
+        /// Format: http://localhost:5093/api
+        /// </remarks>
+        [JsonPropertyName("apiUrlDev")]
+        public string? ApiUrlDev { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Production OAuth login endpoint URL.
+        /// </summary>
+        /// <remarks>
+        /// Format: https://medrecpro.com/api/auth/login/
+        /// Append the provider name (e.g., /Google, /Microsoft) when constructing links.
+        /// </remarks>
         [JsonPropertyName("authUrl")]
         public string? AuthUrl { get; set; }
 
         /**************************************************************/
         /// <summary>
-        /// URL to the Swagger/OpenAPI documentation.
+        /// Development OAuth login endpoint URL.
+        /// </summary>
+        /// <remarks>
+        /// Used when the site is accessed from localhost.
+        /// This ensures authentication cookies are set for the localhost
+        /// domain, allowing them to be sent with subsequent API calls.
+        /// Format: http://localhost:5093/api/auth/login
+        /// </remarks>
+        [JsonPropertyName("authUrlDev")]
+        public string? AuthUrlDev { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Production post-authentication redirect URL.
+        /// </summary>
+        /// <remarks>
+        /// Where to redirect the user after successful OAuth authentication
+        /// in the production environment.
+        /// Format: https://www.medrecpro.com/Home/Chat
+        /// </remarks>
+        [JsonPropertyName("returnUrl")]
+        public string? ReturnUrl { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Development post-authentication redirect URL.
+        /// </summary>
+        /// <remarks>
+        /// Where to redirect the user after successful OAuth authentication
+        /// in the local development environment. This ensures the user lands
+        /// on the local static site where the auth cookie (set for localhost)
+        /// will be sent with subsequent API requests.
+        /// Format: http://localhost:5001/Home/Chat
+        /// </remarks>
+        [JsonPropertyName("returnUrlDev")]
+        public string? ReturnUrlDev { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// URL to the production Swagger/OpenAPI documentation.
         /// </summary>
         [JsonPropertyName("swaggerUrl")]
         public string? SwaggerUrl { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// URL to the development Swagger/OpenAPI documentation.
+        /// </summary>
+        [JsonPropertyName("swaggerUrlDev")]
+        public string? SwaggerUrlDev { get; set; }
 
         /**************************************************************/
         /// <summary>
@@ -65,6 +136,11 @@ namespace MedRecPro.Static.Models
         [JsonPropertyName("lastUpdated")]
         public string? LastUpdated { get; set; }
     }
+
+
+
+
+
 
     /**************************************************************/
     /// <summary>

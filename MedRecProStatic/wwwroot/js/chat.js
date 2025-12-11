@@ -43,7 +43,7 @@
      
         // Base URL differs by environment
         const baseUrl = isLocalDevelopment()
-            ? 'https://www.medrecpro.com'  // Production API for local dev (requires CORS)
+            ? 'http://localhost:5093'       // Production API for local dev (requires CORS)
             : '';                           // Relative URLs for production (same-origin)
 
         return {
@@ -132,6 +132,22 @@
      
         return API_CONFIG.baseUrl + endpointPath;
         
+    }
+
+    /**
+     * Gets fetch options with credentials included for cookie-based auth.
+     * @param {Object} options - Additional fetch options to merge
+     * @returns {Object} Fetch options with credentials: 'include'
+     * <remarks>
+     * Ensures cookies are sent with all API requests, required for
+     * authentication to work in both local and production environments.
+     * </remarks>
+     */
+    function getFetchOptions(options = {}) {
+        return {
+            credentials: 'include',
+            ...options
+        };
     }
 
     /**
@@ -614,11 +630,11 @@
         const uploadUrl = buildUrl(API_CONFIG.endpoints.upload);
         console.log('[MedRecPro Chat] Uploading files to:', uploadUrl);
 
-        const response = await fetch(uploadUrl, {
+        const response = await fetch(uploadUrl, getFetchOptions({
             method: 'POST',
             body: formData,
             signal: state.abortController?.signal
-        });
+        }));
 
         if (!response.ok) {
             throw new Error('File upload failed');
@@ -646,7 +662,7 @@
             const contextUrl = buildUrl(API_CONFIG.endpoints.context);
             console.log('[MedRecPro Chat] Fetching context from:', contextUrl);
 
-            const response = await fetch(contextUrl);
+            const response = await fetch(contextUrl, getFetchOptions());
             if (response.ok) {
                 state.systemContext = await response.json();
 
@@ -732,7 +748,7 @@
             const interpretUrl = buildUrl(API_CONFIG.endpoints.interpret);
             console.log('[MedRecPro Chat] Calling interpret endpoint:', interpretUrl);
 
-            const interpretResponse = await fetch(interpretUrl, {
+            const interpretResponse = await fetch(interpretUrl, getFetchOptions({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -742,7 +758,7 @@
                     fileIds: fileIds
                 }),
                 signal: state.abortController.signal
-            });
+            }));
 
             if (!interpretResponse.ok) {
                 throw new Error(`API error: ${interpretResponse.status}`);
@@ -783,12 +799,12 @@
                         const fullApiUrl = buildUrl(apiUrl);
                         console.log('[MedRecPro Chat] Executing API call:', fullApiUrl);
 
-                        const apiResponse = await fetch(fullApiUrl, {
+                        const apiResponse = await fetch(fullApiUrl, getFetchOptions({
                             method: endpoint.method || 'GET',
                             headers: endpoint.method === 'POST' ? { 'Content-Type': 'application/json' } : {},
                             body: endpoint.method === 'POST' ? JSON.stringify(endpoint.body) : undefined,
                             signal: state.abortController.signal
-                        });
+                        }));
 
                         if (apiResponse.ok) {
                             const data = await apiResponse.json();
@@ -824,7 +840,7 @@
                 const synthesizeUrl = buildUrl(API_CONFIG.endpoints.synthesize);
                 console.log('[MedRecPro Chat] Calling synthesize endpoint:', synthesizeUrl);
 
-                const synthesizeResponse = await fetch(synthesizeUrl, {
+                const synthesizeResponse = await fetch(synthesizeUrl, getFetchOptions({
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -834,7 +850,7 @@
                         conversationId: state.conversationId
                     }),
                     signal: state.abortController.signal
-                });
+                }));
 
                 if (synthesizeResponse.ok) {
                     const synthesis = await synthesizeResponse.json();

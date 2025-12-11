@@ -135,7 +135,7 @@ namespace MedRecPro.Controllers
             {
                 await updateExternalAuthenticationTokensAsync(info); // Persist tokens if needed
                 await updateLoginTimestampsAsync(user);
-                return LocalRedirect(returnUrl);
+                return Redirect(returnUrl);
             }
             else if (signInResult.IsLockedOut)
             {
@@ -364,6 +364,84 @@ namespace MedRecPro.Controllers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Validates the return URL to prevent open redirect attacks and returns a safe URL.
+        /// </summary>
+        /// <param name="returnUrl">The URL requested by the client.</param>
+        /// <returns>
+        /// The validated return URL if safe, or a default URL (Swagger) if invalid or missing.
+        /// </returns>
+        /// <remarks>
+        /// Accepts URLs that are:
+        /// - Relative URLs (starting with ~/ or /)
+        /// - Absolute URLs to allowed domains (localhost, medrecpro.com, medrec.pro)
+        /// 
+        /// This allows the static site to pass its own URL (including localhost for dev)
+        /// while preventing malicious redirects to external sites.
+        /// </remarks>
+        /// <seealso cref="ExternalLoginCallback"/>
+        /**************************************************************/
+        private string getValidatedReturnUrl(string? returnUrl)
+        {
+            #region implementation
+
+            // If no URL provided, use default
+            if (string.IsNullOrWhiteSpace(returnUrl))
+            {
+                _logger.LogDebug("No returnUrl provided, using default Swagger redirect");
+                return Url.Content("~/swagger/");
+            }
+
+            // Allow relative URLs
+            if (returnUrl.StartsWith("~/") || returnUrl.StartsWith("/"))
+            {
+                _logger.LogDebug("Using relative returnUrl: {ReturnUrl}", returnUrl);
+                return returnUrl;
+            }
+
+            // Validate absolute URLs against allowed domains
+            if (Uri.TryCreate(returnUrl, UriKind.Absolute, out var uri))
+            {
+                var allowedHosts = new[]
+                {
+            // Production domains
+            "medrecpro.com",
+            "www.medrecpro.com",
+            "medrec.pro",
+            "www.medrec.pro",
+            // Local development
+            "localhost",
+            "127.0.0.1"
+        };
+
+                // Check if the host matches or is a subdomain of allowed hosts
+                var isAllowed = allowedHosts.Any(allowed =>
+                    uri.Host.Equals(allowed, StringComparison.OrdinalIgnoreCase) ||
+                    uri.Host.EndsWith("." + allowed, StringComparison.OrdinalIgnoreCase));
+
+                if (isAllowed)
+                {
+                    _logger.LogDebug("Using validated absolute returnUrl: {ReturnUrl}", returnUrl);
+                    return returnUrl;
+                }
+
+                _logger.LogWarning(
+                    "Rejected returnUrl with disallowed host: {ReturnUrl} (host: {Host})",
+                    returnUrl,
+                    uri.Host);
+            }
+            else
+            {
+                _logger.LogWarning("Rejected malformed returnUrl: {ReturnUrl}", returnUrl);
+            }
+
+            // Fall back to default for invalid URLs
+            return Url.Content("~/swagger/");
+
+            #endregion
+        }
+
 #if DEBUG
         /**************************************************************/
         /// <summary>
@@ -431,47 +509,76 @@ namespace MedRecPro.Controllers
         /// <summary>
         /// Initiates the external login flow for a specific authentication provider.
         /// </summary>
-        /// <param name="provider">The name of the authentication provider (e.g., Google).</param>
+        /// <param name="provider">The name of the authentication provider (e.g., Google, Microsoft).</param>
+        /// <param name="returnUrl">Optional URL to redirect to after successful authentication.</param>
         /// <returns>A Challenge result that redirects to the external provider.</returns>
         /// <remarks>
         /// This endpoint configures the authentication properties, including the callback URL,
         /// and issues a challenge to the specified external provider. The user will be redirected
         /// to the provider's login page.
+        /// 
+        /// **Return URL Handling:**
+        /// - If `returnUrl` is provided, it will be passed through to the callback for post-auth redirect
+        /// - If `returnUrl` is omitted, defaults to Swagger UI (backward compatible behavior)
+        /// - The returnUrl is validated in the callback to prevent open redirect attacks
+        /// 
+        /// **Example URLs:**
+        /// - Without returnUrl: `GET /api/auth/login/Google` → redirects to Swagger after auth
+        /// - With returnUrl: `GET /api/auth/login/Google?returnUrl=http%3A%2F%2Flocalhost%3A5001%2FHome%2FChat` → redirects to Chat page
         /// </remarks>
         /// <example>
         /// GET /api/auth/login/Google
+        /// GET /api/auth/login/Google?returnUrl=http%3A%2F%2Flocalhost%3A5001%2FHome%2FChat
+        /// GET /api/auth/login/Microsoft?returnUrl=https%3A%2F%2Fwww.medrecpro.com%2FHome%2FChat
         /// </example>
+        /// <seealso cref="ExternalLoginCallback"/>
         [HttpGet("login/{provider}")]
         [ProducesResponseType(503)]
-        public IActionResult LoginExternalProvider(string provider)
+        public IActionResult LoginExternalProvider(string provider, [FromQuery] string? returnUrl = null)
         {
             #region implementation
 
             var extAuthEnabled = _configuration.GetValue<bool>("FeatureFlags:ExternalAuthEnabled", true);
-
             if (!extAuthEnabled)
             {
                 return StatusCode(503, new
                 {
-                    error = "Exnternal auth functionality is currently disabled"
+                    error = "External auth functionality is currently disabled"
                 });
             }
 
-            // Path to Swagger UI (environment-aware based on build configuration)
+            // Determine the final return URL for after authentication
+            // If no returnUrl provided, fall back to Swagger UI (backward compatible)
+            string finalReturnUrl;
+
+            if (string.IsNullOrWhiteSpace(returnUrl))
+            {
+                // Default behavior: redirect to Swagger UI
 #if DEBUG
-            var swaggerPath = "/swagger/index.html"; // Local development
+                finalReturnUrl = "/swagger/index.html"; // Local development
 #else
-            var swaggerPath = "/api/swagger/index.html"; // Azure production
+        finalReturnUrl = "/api/swagger/index.html"; // Azure production
 #endif
+            }
+            else
+            {
+                // Use the provided returnUrl (will be validated in callback)
+                finalReturnUrl = returnUrl;
+            }
 
             // Configure the redirect URL for after successful external authentication
-            var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Auth", new { ReturnUrl = swaggerPath });
+            // This passes the returnUrl to the callback endpoint
+            var redirectUrl = Url.Action(
+                nameof(ExternalLoginCallback),
+                "Auth",
+                new { ReturnUrl = finalReturnUrl });
 
             // Configure the external authentication properties
             var properties = _signInManager.ConfigureExternalAuthenticationProperties(provider, redirectUrl);
 
             // Challenge the specified provider, which will redirect to the provider's login page
             return Challenge(properties, provider);
+
             #endregion
         }
 
@@ -481,7 +588,7 @@ namespace MedRecPro.Controllers
         /// </summary>
         /// <param name="returnUrl">The URL to redirect to after successful login.</param>
         /// <param name="remoteError">Error information from the external provider, if any.</param>
-        /// <param name="cancellationToken">For stoping operations</param>
+        /// <param name="cancellationToken">For stopping operations.</param>
         /// <returns>A redirect to either the return URL or an error page.</returns>
         /// <remarks>
         /// This endpoint is automatically called by the external provider after the user 
@@ -490,20 +597,26 @@ namespace MedRecPro.Controllers
         /// 2. Successful login for existing user (redirects to returnUrl)
         /// 3. Successful login for new user (creates account, links provider, then redirects)
         /// 4. Account lockout (redirects to Lockout)
+        /// 
+        /// The returnUrl is passed from the initiating login request (from the static site)
+        /// and is validated before use to prevent open redirect vulnerabilities.
         /// </remarks>
+        /// <seealso cref="handleLinkedExternalUser"/>
+        /// <seealso cref="handleUnlinkedExternalUser"/>
+        /// <seealso cref="getValidatedReturnUrl"/>
         [HttpGet("external-logincallback")]
         public async Task<IActionResult> ExternalLoginCallback(
             string? returnUrl = null, string? remoteError = null, CancellationToken cancellationToken = default(CancellationToken))
         {
             #region implementation
 
-            returnUrl = returnUrl ?? Url.Content("~/swagger/");
+            // Validate and resolve the return URL
+            returnUrl = getValidatedReturnUrl(returnUrl);
 
             // Handle errors from remote authentication provider
             if (remoteError != null)
             {
                 _logger.LogWarning("External login error: {RemoteError}", remoteError);
-
                 return RedirectToAction(nameof(LoginFailure), new { Message = $"Error from external provider: {remoteError}" });
             }
 
@@ -511,7 +624,6 @@ namespace MedRecPro.Controllers
             if (info == null)
             {
                 _logger.LogWarning("External login information is null.");
-
                 return RedirectToAction(nameof(LoginFailure), new { Message = "Error loading external login information." });
             }
 
@@ -521,7 +633,6 @@ namespace MedRecPro.Controllers
 
             // Try to find a user linked to this external login
             var user = await _userManager.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
-
             if (user != null)
             {
                 // Existing user linked to this login

@@ -2,8 +2,20 @@
   "siteName": "MedRecPro",
   "tagline": "Pharmaceutical Labeling Management System",
   "apiUrl": "https://medrecpro.com/api",
+  "apiUrlDev": "http://localhost:5093/api",
   "authUrl": "https://medrecpro.com/api/auth/login/",
+  "authUrlDev": "http://localhost:5093/api/auth/login",
+  "returnUrl": "https://www.medrecpro.com/Home/Chat",
+  "returnUrlDev": "http://localhost:5001/Home/Chat",
   "swaggerUrl": "https://www.medrecpro.com/api/swagger/index.html",
+  "swaggerUrlDev": "http://localhost:5093/api/swagger/index.html",
   "contactEmail": "support@medrecpro.com",
-  "lastUpdated": "2025-10-27"
+  "lastUpdated": "2025-12-11",
+  "_comments": {
+    "authUrl": "Production OAuth login endpoint",
+    "authUrlDev": "Local OAuth login endpoint",
+    "returnUrl": "Where to redirect after successful production authentication",
+    "returnUrlDev": "Where to redirect after successful local authentication",
+    "usage": "Index.cshtml automatically selects prod vs dev URLs based on request host"
+  }
 }
