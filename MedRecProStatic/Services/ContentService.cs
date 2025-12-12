@@ -23,6 +23,8 @@ namespace MedRecPro.Static.Services
     /// <seealso cref="SiteConfig"/>
     /// <seealso cref="PagesData"/>
     /// <seealso cref="PageContent"/>
+    /// <seealso cref="TermsPageContent"/>
+    /// <seealso cref="PrivacyPageContent"/>
     public class ContentService
     {
         #region fields
@@ -107,18 +109,50 @@ namespace MedRecPro.Static.Services
         /// <summary>
         /// Gets the content for the Terms of Service page.
         /// </summary>
-        /// <returns>Page content containing legal sections for terms of service.</returns>
-        /// <seealso cref="PageContent"/>
+        /// <returns>
+        /// Page content containing legal sections, summary table, subsections,
+        /// and contact information for the Terms of Service.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// The Terms of Service content includes:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description>Effective date and last updated date</description></item>
+        ///   <item><description>Introduction section</description></item>
+        ///   <item><description>Summary table for quick navigation</description></item>
+        ///   <item><description>Main sections (A-Q) with nested subsections</description></item>
+        ///   <item><description>Contact information</description></item>
+        /// </list>
+        /// </remarks>
+        /// <seealso cref="TermsPageContent"/>
         /// <seealso cref="LegalSection"/>
-        public PageContent GetTermsPage() => _pages.Terms;
+        /// <seealso cref="LegalSummary"/>
+        public TermsPageContent GetTermsPage() => _pages.Terms;
 
         /**************************************************************/
         /// <summary>
         /// Gets the content for the Privacy Policy page.
         /// </summary>
-        /// <returns>Page content containing legal sections for privacy policy.</returns>
-        /// <seealso cref="PageContent"/>
+        /// <returns>
+        /// Page content containing legal sections, subsections, subprocessors list,
+        /// and contact information for the Privacy Policy.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// The Privacy Policy content includes:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description>Effective date and last updated date</description></item>
+        ///   <item><description>Introduction section</description></item>
+        ///   <item><description>Main sections with nested subsections</description></item>
+        ///   <item><description>Third-party subprocessors list</description></item>
+        ///   <item><description>Contact information</description></item>
+        /// </list>
+        /// </remarks>
+        /// <seealso cref="PrivacyPageContent"/>
         /// <seealso cref="LegalSection"/>
+        /// <seealso cref="SubprocessorInfo"/>
         public PrivacyPageContent GetPrivacyPage() => _pages.Privacy;
     }
 }

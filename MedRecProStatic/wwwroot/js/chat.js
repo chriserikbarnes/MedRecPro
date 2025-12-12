@@ -55,7 +55,7 @@
                 synthesize: '/api/Ai/synthesize',
                 chat: '/api/Ai/chat',
                 // Labels Controller endpoint for file upload
-                upload: '/api/Labels/import'
+                upload: '/api/Label/import'
             },
             pollInterval: 1000
         };
@@ -611,22 +611,77 @@
         }
     }
 
+    /**************************************************************/
     /**
-     * Uploads files to the server.
-     * @returns {Promise<string[]>} Array of file IDs
+     * Polls the import progress endpoint until the operation completes.
+     * @param {string} progressUrl - The URL to poll for progress
+     * @param {number} maxWaitMs - Maximum time to wait (default: 60 seconds)
+     * @returns {Promise<Object>} The final import status with results
      * <remarks>
-     * Uses the buildUrl helper to construct the full URL,
-     * ensuring proper handling in both local and production environments.
+     * Uses exponential backoff starting at pollInterval (1 second).
+     * Stops polling when status is "Completed", "Failed", or "Canceled".
+     * </remarks>
+     */
+    async function pollImportProgress(progressUrl, maxWaitMs = 60000) {
+        // #region implementation
+
+        const startTime = Date.now();
+        let pollDelay = API_CONFIG.pollInterval;
+
+        while (Date.now() - startTime < maxWaitMs) {
+            try {
+                const response = await fetch(buildUrl(progressUrl), getFetchOptions({
+                    signal: state.abortController?.signal
+                }));
+
+                if (!response.ok) {
+                    console.warn('[MedRecPro Chat] Progress poll failed:', response.status);
+                    await new Promise(r => setTimeout(r, pollDelay));
+                    pollDelay = Math.min(pollDelay * 1.5, 5000);
+                    continue;
+                }
+
+                const status = await response.json();
+                console.log('[MedRecPro Chat] Import progress:', status.percentComplete + '%', status.status);
+
+                // Check for terminal states
+                if (status.status === 'Completed' || status.status === 'Failed' || status.status === 'Canceled') {
+                    return status;
+                }
+
+                await new Promise(r => setTimeout(r, pollDelay));
+            } catch (error) {
+                if (error.name === 'AbortError') throw error;
+                console.warn('[MedRecPro Chat] Progress poll error:', error);
+                await new Promise(r => setTimeout(r, pollDelay));
+            }
+        }
+
+        return { status: 'Timeout', error: 'Import operation timed out' };
+
+        // #endregion
+    }
+
+    /**************************************************************/
+    /**
+     * Uploads files to the server and waits for import completion.
+     * @returns {Promise<Object>} Import result containing documentIds and status
+     * <remarks>
+     * Uses the buildUrl helper to construct the full URL.
+     * Polls the progress endpoint to wait for async import completion.
+     * Returns an object with importResults instead of just fileIds.
      * </remarks>
      */
     async function uploadFiles() {
-     
-        if (state.files.length === 0) return [];
+        // #region implementation
+
+        if (state.files.length === 0) {
+            return { success: false, documentIds: [], message: 'No files to upload' };
+        }
 
         const formData = new FormData();
         state.files.forEach(file => formData.append('files', file));
 
-        // Build full URL using the helper function
         const uploadUrl = buildUrl(API_CONFIG.endpoints.upload);
         console.log('[MedRecPro Chat] Uploading files to:', uploadUrl);
 
@@ -637,12 +692,81 @@
         }));
 
         if (!response.ok) {
-            throw new Error('File upload failed');
+            const errorText = await response.text();
+            throw new Error(`File upload failed: ${response.status} - ${errorText}`);
         }
 
         const result = await response.json();
-        return result.fileIds || [];
-        
+        console.log('[MedRecPro Chat] Upload response:', result);
+
+        // Handle async import response (returns OperationId and ProgressUrl)
+        if (result.operationId && result.progressUrl) {
+            console.log('[MedRecPro Chat] Import operation queued:', result.operationId);
+
+            // Poll for completion
+            const finalStatus = await pollImportProgress(result.progressUrl);
+
+            if (finalStatus.status === 'Completed' && finalStatus.results) {
+                // Extract document IDs from successful imports
+                const documentIds = finalStatus.results
+                    .filter(r => r.success && r.documentGuid)
+                    .map(r => r.documentGuid);
+
+                const documentNames = finalStatus.results
+                    .filter(r => r.success)
+                    .map(r => r.documentDisplayName || r.fileName || 'Unknown');
+
+                console.log('[MedRecPro Chat] Import completed. Documents:', documentIds);
+
+                return {
+                    success: true,
+                    documentIds: documentIds,
+                    documentNames: documentNames,
+                    results: finalStatus.results,
+                    message: `Successfully imported ${documentIds.length} document(s)`
+                };
+            } else if (finalStatus.status === 'Failed') {
+                return {
+                    success: false,
+                    documentIds: [],
+                    error: finalStatus.error || 'Import failed',
+                    message: `Import failed: ${finalStatus.error}`
+                };
+            } else if (finalStatus.status === 'Canceled') {
+                return {
+                    success: false,
+                    documentIds: [],
+                    message: 'Import was canceled'
+                };
+            } else {
+                return {
+                    success: false,
+                    documentIds: [],
+                    operationId: result.operationId,
+                    progressUrl: result.progressUrl,
+                    message: 'Import is still processing. Check progress later.'
+                };
+            }
+        }
+
+        // Fallback for legacy response format
+        if (result.fileIds) {
+            return {
+                success: true,
+                documentIds: result.fileIds,
+                message: `Files uploaded: ${result.fileIds.length}`
+            };
+        }
+
+        console.warn('[MedRecPro Chat] Unexpected upload response format:', result);
+        return {
+            success: false,
+            documentIds: [],
+            rawResponse: result,
+            message: 'Unexpected response from server'
+        };
+
+        // #endregion
     }
 
     /**************************************************************/
@@ -730,19 +854,44 @@
 
         try {
             // Upload files if any
-            let fileIds = [];
+            let importResult = null;
             if (state.files.length > 0) {
-                fileIds = await uploadFiles();
+                assistantMessage.progress = 0.1;
+                assistantMessage.progressStatus = 'Uploading files...';
+                updateMessage(assistantMessage.id);
+
+                importResult = await uploadFiles();
                 state.files = [];
                 renderFileList();
                 hideFileUpload();
+
+                if (importResult.success) {
+                    assistantMessage.progress = 0.5;
+                    assistantMessage.progressStatus = 'Files imported successfully, processing...';
+                } else {
+                    assistantMessage.progress = 0.3;
+                    assistantMessage.progressStatus = 'Processing import status...';
+                }
+                updateMessage(assistantMessage.id);
             }
 
             // Build conversation history for context
             const conversationHistory = state.messages
                 .filter(m => m.id !== assistantMessage.id)
-                .slice(-10) // Last 10 messages for context
+                .slice(-10)
                 .map(m => ({ role: m.role, content: m.content }));
+
+            // Build user message with import context if files were uploaded
+            let enhancedUserMessage = input;
+            if (importResult) {
+                if (importResult.success && importResult.documentIds.length > 0) {
+                    enhancedUserMessage = `[IMPORT COMPLETED: Successfully imported ${importResult.documentIds.length} document(s): ${importResult.documentNames?.join(', ') || 'documents imported'}. Document GUIDs: ${importResult.documentIds.join(', ')}]\n\nUser request: ${input || 'Please acknowledge the import and provide information about the imported documents.'}`;
+                } else if (importResult.success) {
+                    enhancedUserMessage = `[IMPORT COMPLETED: Files were processed but no new documents were created. ${importResult.message}]\n\nUser request: ${input}`;
+                } else {
+                    enhancedUserMessage = `[IMPORT ISSUE: ${importResult.message}]\n\nUser request: ${input}`;
+                }
+            }
 
             // Call the interpret endpoint
             const interpretUrl = buildUrl(API_CONFIG.endpoints.interpret);
@@ -752,10 +901,10 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userMessage: input,
+                    userMessage: enhancedUserMessage,
                     conversationId: state.conversationId,
                     conversationHistory: conversationHistory,
-                    fileIds: fileIds
+                    importResult: importResult
                 }),
                 signal: state.abortController.signal
             }));

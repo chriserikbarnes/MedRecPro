@@ -135,12 +135,14 @@ namespace MedRecPro.Static.Models
         /// </summary>
         [JsonPropertyName("lastUpdated")]
         public string? LastUpdated { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Version for the app
+        /// </summary>
+        [JsonPropertyName("version")]
+        public string? Version { get; set; }
     }
-
-
-
-
-
 
     /**************************************************************/
     /// <summary>
@@ -151,6 +153,8 @@ namespace MedRecPro.Static.Models
     /// containing content for the home, terms, and privacy pages.
     /// </remarks>
     /// <seealso cref="PageContent"/>
+    /// <seealso cref="TermsPageContent"/>
+    /// <seealso cref="PrivacyPageContent"/>
     /// <seealso cref="ContentService"/>
     public class PagesData
     {
@@ -165,15 +169,154 @@ namespace MedRecPro.Static.Models
         /// <summary>
         /// Content for the Terms of Service page.
         /// </summary>
+        /// <remarks>
+        /// Uses the expanded TermsPageContent model with support for
+        /// summary table, subsections, and contact information.
+        /// </remarks>
+        /// <seealso cref="TermsPageContent"/>
         [JsonPropertyName("terms")]
-        public PageContent Terms { get; set; } = new();
+        public TermsPageContent Terms { get; set; } = new();
 
         /**************************************************************/
         /// <summary>
         /// Content for the Privacy Policy page.
         /// </summary>
+        /// <remarks>
+        /// Uses the expanded PrivacyPageContent model with support for
+        /// introduction, subsections, and subprocessors list.
+        /// </remarks>
+        /// <seealso cref="PrivacyPageContent"/>
         [JsonPropertyName("privacy")]
         public PrivacyPageContent Privacy { get; set; } = new();
+    }
+
+    // ============================================================
+    // ADD: New classes for Terms of Service support
+    // Add these after the existing legal classes (around line 920)
+    // ============================================================
+
+    /**************************************************************/
+    /// <summary>
+    /// Summary item for Terms of Service quick reference table.
+    /// </summary>
+    /// <remarks>
+    /// Provides a brief overview of each section for user convenience.
+    /// This summary is non-binding and for reference only.
+    /// </remarks>
+    /// <seealso cref="LegalSummary"/>
+    public class LegalSummaryItem
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Section identifier (e.g., "A. Definitions").
+        /// </summary>
+        [JsonPropertyName("section")]
+        public string? Section { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Brief description of what the section covers.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Summary section for legal documents providing a quick reference.
+    /// </summary>
+    /// <remarks>
+    /// Contains a non-binding overview of document sections.
+    /// Commonly used in Terms of Service to help users navigate the document.
+    /// </remarks>
+    /// <seealso cref="LegalSummaryItem"/>
+    public class LegalSummary
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Descriptive text explaining the summary's purpose.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collection of summary items, one per section.
+        /// </summary>
+        /// <seealso cref="LegalSummaryItem"/>
+        [JsonPropertyName("items")]
+        public List<LegalSummaryItem>? Items { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Extended page content model for Terms of Service.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This model supports the expanded Terms of Service schema including:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><description>Effective date and last updated date</description></item>
+    ///   <item><description>Introduction section</description></item>
+    ///   <item><description>Summary table for quick reference</description></item>
+    ///   <item><description>Main sections with nested subsections and items</description></item>
+    ///   <item><description>Contact information</description></item>
+    /// </list>
+    /// </remarks>
+    /// <seealso cref="LegalSection"/>
+    /// <seealso cref="LegalIntroduction"/>
+    /// <seealso cref="LegalSummary"/>
+    public class TermsPageContent
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Page title (e.g., "MedRecPro Terms of Service").
+        /// </summary>
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Date when the Terms become effective.
+        /// </summary>
+        [JsonPropertyName("effectiveDate")]
+        public string? EffectiveDate { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Date when the Terms were last updated.
+        /// </summary>
+        [JsonPropertyName("lastUpdated")]
+        public string? LastUpdated { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Introduction section displayed before main content.
+        /// </summary>
+        /// <seealso cref="LegalIntroduction"/>
+        [JsonPropertyName("introduction")]
+        public LegalIntroduction? Introduction { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional summary table for quick reference.
+        /// </summary>
+        /// <remarks>
+        /// The summary provides a non-binding overview of document sections
+        /// to help users navigate the Terms of Service.
+        /// </remarks>
+        /// <seealso cref="LegalSummary"/>
+        [JsonPropertyName("summary")]
+        public LegalSummary? Summary { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collection of legal sections comprising the main content.
+        /// </summary>
+        /// <seealso cref="LegalSection"/>
+        [JsonPropertyName("sections")]
+        public List<LegalSection>? Sections { get; set; }
     }
 
     // ============================================================
@@ -635,7 +778,7 @@ namespace MedRecPro.Static.Models
 
         /**************************************************************/
         /// <summary>
-        /// API endpoint path (e.g., "/api/labels/section/{section}").
+        /// API endpoint path (e.g., "/api/label/section/{section}").
         /// </summary>
         [JsonPropertyName("path")]
         public string? Path { get; set; }

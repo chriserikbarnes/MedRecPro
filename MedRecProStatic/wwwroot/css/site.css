@@ -1158,7 +1158,75 @@ footer .container {
         font-size: 1.05rem;
     }
 
-/* Main sections */
+/* ============================================================
+   TERMS SUMMARY TABLE
+   Quick reference table at the start of Terms of Service
+   ============================================================ */
+
+.terms-summary {
+    margin-bottom: 3rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border-color, #e5e5e5);
+}
+
+    .terms-summary h2 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        color: var(--text-primary, #1a1a1a);
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--primary-color, #0066cc);
+    }
+
+.summary-disclaimer {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background-color: var(--bg-warning, #fff8e6);
+    border-radius: 6px;
+    border-left: 4px solid var(--warning-color, #f0ad4e);
+    font-size: 0.95rem;
+    color: var(--text-body, #333);
+}
+
+.summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+}
+
+    .summary-table th,
+    .summary-table td {
+        padding: 0.875rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color, #e5e5e5);
+        vertical-align: top;
+    }
+
+    .summary-table th {
+        background-color: var(--bg-subtle, #f8f9fa);
+        font-weight: 600;
+        color: var(--text-primary, #1a1a1a);
+        white-space: nowrap;
+        width: 30%;
+    }
+
+        .summary-table th:last-child {
+            width: 70%;
+        }
+
+    .summary-table tbody tr:hover {
+        background-color: var(--bg-hover, #f5f5f5);
+    }
+
+    .summary-table td:first-child {
+        font-weight: 500;
+        color: var(--primary-color, #0066cc);
+    }
+
+/* ============================================================
+   MAIN SECTIONS
+   ============================================================ */
+
 .legal-section {
     margin-bottom: 2.5rem;
 }
@@ -1220,7 +1288,10 @@ footer .container {
         border-left: 2px solid var(--border-light, #ddd);
     }
 
-/* Contact information */
+/* ============================================================
+   CONTACT INFORMATION
+   ============================================================ */
+
 .contact-info {
     margin-top: 1.5rem;
     padding: 1.25rem;
@@ -1249,7 +1320,10 @@ footer .container {
             text-decoration: underline;
         }
 
-/* Subprocessors section */
+/* ============================================================
+   SUBPROCESSORS SECTION (Privacy Policy)
+   ============================================================ */
+
 .subprocessors-section {
     margin-top: 3rem;
     padding-top: 2rem;
@@ -1270,14 +1344,20 @@ footer .container {
         color: var(--text-body, #333);
     }
 
-/* Responsive table wrapper */
+/* ============================================================
+   RESPONSIVE TABLE WRAPPER
+   ============================================================ */
+
 .table-responsive {
     overflow-x: auto;
     margin: 1rem 0;
     -webkit-overflow-scrolling: touch;
 }
 
-/* Subprocessors table */
+/* ============================================================
+   SUBPROCESSORS TABLE
+   ============================================================ */
+
 .subprocessors-table {
     width: 100%;
     border-collapse: collapse;
@@ -1306,14 +1386,19 @@ footer .container {
         font-weight: 500;
     }
 
-/* Dark mode support */
+/* ============================================================
+   DARK MODE SUPPORT
+   ============================================================ */
+
 @media (prefers-color-scheme: dark) {
     .legal-page h1,
     .legal-section h2,
     .legal-subsection h3,
     .legal-items dt,
     .subprocessors-section h2,
-    .subprocessors-table th {
+    .terms-summary h2,
+    .subprocessors-table th,
+    .summary-table th {
         color: var(--text-primary-dark, #f0f0f0);
     }
 
@@ -1323,30 +1408,46 @@ footer .container {
 
     .legal-page .introduction,
     .contact-info,
-    .subprocessors-table th {
+    .subprocessors-table th,
+    .summary-table th {
         background-color: var(--bg-subtle-dark, #2a2a2a);
+    }
+
+    .summary-disclaimer {
+        background-color: var(--bg-warning-dark, #3d3520);
+        border-left-color: var(--warning-color-dark, #d4a84b);
     }
 
     .legal-section > p,
     .legal-subsection > p,
     .legal-items dd,
-    .subprocessors-section > p {
+    .subprocessors-section > p,
+    .summary-disclaimer {
         color: var(--text-body-dark, #ccc);
     }
 
-    .subprocessors-table tbody tr:hover {
+    .subprocessors-table tbody tr:hover,
+    .summary-table tbody tr:hover {
         background-color: var(--bg-hover-dark, #333);
+    }
+
+    .summary-table td:first-child {
+        color: var(--primary-color-dark, #6fb3ff);
     }
 }
 
-/* Mobile responsive adjustments */
+/* ============================================================
+   MOBILE RESPONSIVE ADJUSTMENTS
+   ============================================================ */
+
 @media (max-width: 768px) {
     .legal-page h1 {
         font-size: 1.75rem;
     }
 
     .legal-section h2,
-    .subprocessors-section h2 {
+    .subprocessors-section h2,
+    .terms-summary h2 {
         font-size: 1.25rem;
     }
 
@@ -1363,13 +1464,27 @@ footer .container {
     }
 
     .subprocessors-table th,
-    .subprocessors-table td {
+    .subprocessors-table td,
+    .summary-table th,
+    .summary-table td {
         padding: 0.625rem 0.75rem;
         font-size: 0.9rem;
     }
+
+        /* Stack summary table on mobile */
+        .summary-table th:first-child {
+            width: 35%;
+        }
+
+        .summary-table th:last-child {
+            width: 65%;
+        }
 }
 
-/* Print styles */
+/* ============================================================
+   PRINT STYLES
+   ============================================================ */
+
 @media print {
     .legal-page {
         padding: 0;
@@ -1380,15 +1495,25 @@ footer .container {
         }
 
         .legal-page .introduction,
-        .contact-info {
+        .contact-info,
+        .summary-disclaimer {
             background-color: #f5f5f5 !important;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }
 
-    .subprocessors-table th {
+    .subprocessors-table th,
+    .summary-table th {
         background-color: #f5f5f5 !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
+    }
+
+    .legal-section {
+        page-break-inside: avoid;
+    }
+
+    .terms-summary {
+        page-break-after: always;
     }
 }

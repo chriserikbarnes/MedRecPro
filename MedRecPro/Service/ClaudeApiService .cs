@@ -1042,7 +1042,7 @@ namespace MedRecPro.Service
                 if (request.SystemContext.IsDatabaseEmpty)
                 {
                     sb.AppendLine("DATABASE IS EMPTY: User should import SPL label ZIP files to populate data.");
-                    sb.AppendLine("Suggest using POST /api/labels/import with ZIP files from DailyMed.");
+                    sb.AppendLine("Suggest using POST /api/label/import with ZIP files from DailyMed.");
                 }
                 else
                 {
@@ -1052,6 +1052,55 @@ namespace MedRecPro.Service
 
                 sb.AppendLine($"Import Enabled: {request.SystemContext.ImportEnabled}");
                 sb.AppendLine();
+
+                // Include import result context if present
+                if (request.ImportResult != null)
+                {
+                    sb.AppendLine("=== RECENT IMPORT OPERATION ===");
+
+                    if (request.ImportResult.Success)
+                    {
+                        sb.AppendLine($"Status: Import COMPLETED SUCCESSFULLY");
+                        sb.AppendLine($"Documents Imported: {request.ImportResult.DocumentIds?.Count ?? 0}");
+
+                        if (request.ImportResult.DocumentIds?.Any() == true)
+                        {
+                            sb.AppendLine("Imported Document GUIDs:");
+                            foreach (var docId in request.ImportResult.DocumentIds)
+                            {
+                                sb.AppendLine($"  - {docId}");
+                            }
+                        }
+
+                        if (request.ImportResult.DocumentNames?.Any() == true)
+                        {
+                            sb.AppendLine("Imported Documents:");
+                            foreach (var name in request.ImportResult.DocumentNames)
+                            {
+                                sb.AppendLine($"  - {name}");
+                            }
+                        }
+
+                        sb.AppendLine();
+                        sb.AppendLine("IMPORTANT: Acknowledge the successful import to the user.");
+                        sb.AppendLine("Suggest using GET /api/label/single/{documentGuid} to view imported documents.");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"Status: Import FAILED or INCOMPLETE");
+                        sb.AppendLine($"Message: {request.ImportResult.Message}");
+
+                        if (!string.IsNullOrEmpty(request.ImportResult.Error))
+                        {
+                            sb.AppendLine($"Error: {request.ImportResult.Error}");
+                        }
+
+                        sb.AppendLine();
+                        sb.AppendLine("IMPORTANT: Inform the user about the import issue and suggest next steps.");
+                    }
+
+                    sb.AppendLine();
+                }
             }
 
             // Include conversation history if present
@@ -1435,21 +1484,21 @@ namespace MedRecPro.Service
             sb.AppendLine();
 
             sb.AppendLine("### Discovery");
-            sb.AppendLine("- `GET /api/labels/sectionMenu` - List all available sections");
-            sb.AppendLine("- `GET /api/labels/{menuSelection}/documentation` - Get schema for a section");
+            sb.AppendLine("- `GET /api/label/sectionMenu` - List all available sections");
+            sb.AppendLine("- `GET /api/label/{menuSelection}/documentation` - Get schema for a section");
             sb.AppendLine();
 
             sb.AppendLine("### Read Operations");
-            sb.AppendLine("- `GET /api/labels/section/{menuSelection}?pageNumber={n}&pageSize={n}` - Get all records for section");
-            sb.AppendLine("- `GET /api/labels/{menuSelection}/{encryptedId}` - Get single record by encrypted ID");
-            sb.AppendLine("- `GET /api/labels/single/{documentGuid}` - Get complete document by GUID");
-            sb.AppendLine("- `GET /api/labels/complete/{pageNumber}/{pageSize}` - Get all complete documents");
+            sb.AppendLine("- `GET /api/label/section/{menuSelection}?pageNumber={n}&pageSize={n}` - Get all records for section");
+            sb.AppendLine("- `GET /api/label/{menuSelection}/{encryptedId}` - Get single record by encrypted ID");
+            sb.AppendLine("- `GET /api/label/single/{documentGuid}` - Get complete document by GUID");
+            sb.AppendLine("- `GET /api/label/complete/{pageNumber}/{pageSize}` - Get all complete documents");
             sb.AppendLine();
 
             sb.AppendLine("### Write Operations (Requires Authentication)");
-            sb.AppendLine("- `POST /api/labels/{menuSelection}` - Create new record (body: JSON object)");
-            sb.AppendLine("- `PUT /api/labels/{menuSelection}/{encryptedId}` - Update record (body: JSON object)");
-            sb.AppendLine("- `DELETE /api/labels/{menuSelection}/{encryptedId}` - Delete record");
+            sb.AppendLine("- `POST /api/label/{menuSelection}` - Create new record (body: JSON object)");
+            sb.AppendLine("- `PUT /api/label/{menuSelection}/{encryptedId}` - Update record (body: JSON object)");
+            sb.AppendLine("- `DELETE /api/label/{menuSelection}/{encryptedId}` - Delete record");
             sb.AppendLine();
 
             sb.AppendLine("### Available Sections (menuSelection values):");
@@ -1463,16 +1512,16 @@ namespace MedRecPro.Service
             sb.AppendLine("## Import/Export Operations");
             sb.AppendLine();
             sb.AppendLine("### SPL Import (Requires Authentication)");
-            sb.AppendLine("- `POST /api/labels/import` - Import SPL data from ZIP file(s)");
+            sb.AppendLine("- `POST /api/label/import` - Import SPL data from ZIP file(s)");
             sb.AppendLine("  - Body: multipart/form-data with 'files' containing ZIP files");
             sb.AppendLine("  - Returns: operationId for progress tracking");
-            sb.AppendLine("- `GET /api/labels/import/progress/{operationId}` - Check import progress");
+            sb.AppendLine("- `GET /api/label/import/progress/{operationId}` - Check import progress");
             sb.AppendLine("  - Note: ZIP files containing SPL XML can be obtained from DailyMed");
             sb.AppendLine("  - URL: https://dailymed.nlm.nih.gov/dailymed/spl-resources-all-drug-labels.cfm");
             sb.AppendLine();
 
             sb.AppendLine("### SPL Export");
-            sb.AppendLine("- `GET /api/labels/generate/{documentGuid}/{minify}` - Generate SPL XML from document");
+            sb.AppendLine("- `GET /api/label/generate/{documentGuid}/{minify}` - Generate SPL XML from document");
             sb.AppendLine("  - minify: true/false for compact output");
             sb.AppendLine();
 
@@ -1480,9 +1529,9 @@ namespace MedRecPro.Service
             sb.AppendLine("## AI Comparison Analysis");
             sb.AppendLine();
             sb.AppendLine("Compare original SPL XML with database representation.");
-            sb.AppendLine("- `POST /api/labels/comparison/analysis/{documentGuid}` - Queue analysis");
-            sb.AppendLine("- `GET /api/labels/comparison/analysis/{documentGuid}` - Get cached results");
-            sb.AppendLine("- `GET /api/labels/comparison/progress/{operationId}` - Check analysis progress");
+            sb.AppendLine("- `POST /api/label/comparison/analysis/{documentGuid}` - Queue analysis");
+            sb.AppendLine("- `GET /api/label/comparison/analysis/{documentGuid}` - Get cached results");
+            sb.AppendLine("- `GET /api/label/comparison/progress/{operationId}` - Check analysis progress");
             sb.AppendLine();
 
             // Authentication

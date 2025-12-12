@@ -143,12 +143,12 @@
       "endpoints": [
         {
           "method": "GET",
-          "path": "/api/labels/section/{section}",
+          "path": "/api/label/section/{section}",
           "description": "Retrieve paginated records for any label section"
         },
         {
           "method": "POST",
-          "path": "/api/labels/import",
+          "path": "/api/label/import",
           "description": "Import SPL data from ZIP files with progress tracking"
         },
         {
@@ -158,7 +158,7 @@
         },
         {
           "method": "GET",
-          "path": "/api/labels/generate/{guid}",
+          "path": "/api/label/generate/{guid}",
           "description": "Generate valid SPL XML from database records"
         }
       ]
@@ -170,36 +170,714 @@
     }
   },
   "terms": {
-    "title": "Terms of Service",
-    "lastUpdated": "2025-10-27",
+    "title": "MedRecPro Terms of Service",
+    "effectiveDate": "2025-01-01",
+    "lastUpdated": "2025-12-12",
+    "introduction": {
+      "content": "Thank you for using MedRecPro! Please read these Terms of Service ('Terms') carefully before accessing or using MedRecPro. These Terms constitute a legally binding agreement between you and MedRecPro governing your access to and use of our pharmaceutical labeling management platform and related services."
+    },
+    "summary": {
+      "description": "For your convenience, we have presented a brief summary of key sections. This summary is not legally binding; please read the full Terms below.",
+      "items": [
+        {
+          "section": "A. Definitions",
+          "description": "Key terms used throughout this agreement with specific meanings."
+        },
+        {
+          "section": "B. Account Terms",
+          "description": "Requirements for creating and maintaining an account on MedRecPro."
+        },
+        {
+          "section": "C. Acceptable Use",
+          "description": "Rules you must follow when using MedRecPro."
+        },
+        {
+          "section": "D. User Content and SPL Data",
+          "description": "Your rights and responsibilities regarding content you upload."
+        },
+        {
+          "section": "E. Intellectual Property",
+          "description": "Open source licensing and intellectual property rights."
+        },
+        {
+          "section": "F. AI-Powered Features",
+          "description": "Terms governing use of AI analysis features."
+        },
+        {
+          "section": "G. Regulatory Compliance",
+          "description": "Your responsibility for FDA and other regulatory compliance."
+        },
+        {
+          "section": "H. Payment",
+          "description": "Terms for free and paid service tiers."
+        },
+        {
+          "section": "I. Cancellation and Termination",
+          "description": "How to cancel your account and what happens to your data."
+        },
+        {
+          "section": "J. Disclaimer of Warranties",
+          "description": "The service is provided 'as is' without warranties."
+        },
+        {
+          "section": "K. Limitation of Liability",
+          "description": "Limits on our liability for damages."
+        },
+        {
+          "section": "L. Changes to Terms",
+          "description": "How we will notify you of changes to these Terms."
+        },
+        {
+          "section": "M. Governing Law",
+          "description": "These Terms are governed by U.S. federal law and the laws of Maryland."
+        }
+      ]
+    },
     "sections": [
       {
-        "heading": "1. Acceptance of Terms",
-        "content": "By accessing and using MedRecPro, you accept and agree to be bound by the terms and provisions of this agreement."
+        "heading": "A. Definitions",
+        "content": "The following terms have specific meanings throughout this agreement. Understanding these definitions will help you interpret these Terms correctly.",
+        "subsections": [
+          {
+            "subheading": "A.1 Core Terms",
+            "content": "These are the foundational terms used throughout this agreement:",
+            "items": [
+              {
+                "item": "Account",
+                "description": "Your registered user account on MedRecPro, which represents your legal relationship with us and provides access to the Service."
+              },
+              {
+                "item": "Agreement",
+                "description": "Refers collectively to these Terms of Service, our Privacy Policy, and all other operating rules, policies, and procedures published on MedRecPro."
+              },
+              {
+                "item": "Content",
+                "description": "All materials available through the Service, including text, data, articles, images, software, SPL documents, and other materials, whether provided by MedRecPro or Users."
+              },
+              {
+                "item": "MedRecPro, We, Us",
+                "description": "Refers to MedRecPro, the pharmaceutical labeling management platform, and its operators."
+              },
+              {
+                "item": "Service",
+                "description": "The applications, software, products, and services provided by MedRecPro, including the web application, API, and any related tools or features."
+              },
+              {
+                "item": "User, You, Your",
+                "description": "The individual, company, or organization that has registered for an Account, accesses the Service, or uses any part of the Service."
+              },
+              {
+                "item": "User Content",
+                "description": "Content that you create, upload, or submit to the Service, including SPL documents, annotations, notes, and other materials."
+              }
+            ]
+          },
+          {
+            "subheading": "A.2 Pharmaceutical Terms",
+            "content": "Terms specific to pharmaceutical labeling:",
+            "items": [
+              {
+                "item": "SPL (Structured Product Labeling)",
+                "description": "The FDA's standard for submitting product labeling content in XML format, as defined by HL7 specifications."
+              },
+              {
+                "item": "HL7",
+                "description": "Health Level Seven International, the organization that develops standards for healthcare data exchange, including SPL specifications."
+              },
+              {
+                "item": "FDA",
+                "description": "The United States Food and Drug Administration, the regulatory body responsible for pharmaceutical product labeling requirements."
+              },
+              {
+                "item": "21 CFR Part 11",
+                "description": "FDA regulations establishing criteria for electronic records and electronic signatures."
+              }
+            ]
+          }
+        ]
       },
       {
-        "heading": "2. Use License",
-        "content": "MedRecPro is an open-source application for managing pharmaceutical Structured Product Labeling (SPL) data. The software is provided under the Apache 2.0 License."
+        "heading": "B. Account Terms",
+        "content": "To use certain features of MedRecPro, you must create an Account. This section describes your responsibilities regarding your Account.",
+        "subsections": [
+          {
+            "subheading": "B.1 Account Registration",
+            "content": "You must register for an Account to access most features of the Service. Registration requires:",
+            "items": [
+              {
+                "item": "Authentication",
+                "description": "You must authenticate using a supported provider (Microsoft, Google, or Apple). We do not store passwords directly."
+              },
+              {
+                "item": "Accurate Information",
+                "description": "You must provide accurate and complete information during registration and keep your account information current."
+              },
+              {
+                "item": "Professional Use",
+                "description": "MedRecPro is designed for professional use by pharmaceutical, healthcare, and regulatory professionals."
+              }
+            ]
+          },
+          {
+            "subheading": "B.2 Account Requirements",
+            "content": "The following requirements apply to all Accounts:",
+            "items": [
+              {
+                "item": "Age Requirement",
+                "description": "You must be at least 18 years old to create an Account. MedRecPro is a professional tool not intended for minors."
+              },
+              {
+                "item": "One Account Per Person",
+                "description": "Each individual may maintain only one personal Account. Organizations may have multiple user accounts under an organization subscription."
+              },
+              {
+                "item": "Human Users",
+                "description": "Accounts must be registered by humans. Automated account creation is not permitted without prior written authorization."
+              },
+              {
+                "item": "Legal Compliance",
+                "description": "You may not use MedRecPro in violation of applicable laws, including export control or sanctions laws of the United States."
+              }
+            ]
+          },
+          {
+            "subheading": "B.3 Account Security",
+            "content": "You are responsible for maintaining the security of your Account:",
+            "items": [
+              {
+                "item": "Security Responsibility",
+                "description": "You are responsible for all activity that occurs under your Account, including actions taken by others with access to your Account."
+              },
+              {
+                "item": "Unauthorized Access",
+                "description": "You must notify us immediately at support@medrecpro.com if you become aware of any unauthorized access to or use of your Account."
+              },
+              {
+                "item": "Authentication Provider Security",
+                "description": "Your Account security depends in part on your authentication provider. Ensure your Microsoft, Google, or Apple account is properly secured."
+              }
+            ]
+          },
+          {
+            "subheading": "B.4 Organization Accounts",
+            "content": "If you access MedRecPro through an organization account provided by your employer or institution, additional terms may apply as specified in your organization's agreement with us. Your organization's administrator may have control over your account and access to your data."
+          }
+        ]
       },
       {
-        "heading": "3. Data Processing",
-        "content": "MedRecPro processes SPL XML files in accordance with FDA and HL7 specifications. Users are responsible for ensuring compliance with applicable regulations when using this tool."
+        "heading": "C. Acceptable Use",
+        "content": "Your use of MedRecPro must comply with this Acceptable Use Policy. Violation of these policies may result in termination of your Account.",
+        "subsections": [
+          {
+            "subheading": "C.1 Lawful Use",
+            "content": "You agree to use the Service only for lawful purposes and in compliance with:",
+            "items": [
+              {
+                "item": "Applicable Laws",
+                "description": "All applicable federal, state, local, and international laws and regulations."
+              },
+              {
+                "item": "FDA Regulations",
+                "description": "FDA regulations regarding pharmaceutical labeling, including 21 CFR Part 201 and related requirements."
+              },
+              {
+                "item": "Export Controls",
+                "description": "U.S. export control and sanctions laws. You may not use the Service if you are subject to U.S. sanctions or export restrictions."
+              }
+            ]
+          },
+          {
+            "subheading": "C.2 Prohibited Activities",
+            "content": "You may not engage in the following activities:",
+            "items": [
+              {
+                "item": "Unauthorized Access",
+                "description": "Attempting to access accounts, systems, or data without authorization, or bypassing security measures."
+              },
+              {
+                "item": "Service Disruption",
+                "description": "Interfering with or disrupting the Service, servers, or networks connected to the Service."
+              },
+              {
+                "item": "Malicious Code",
+                "description": "Uploading or transmitting viruses, malware, or other malicious code."
+              },
+              {
+                "item": "Scraping and Harvesting",
+                "description": "Using automated means to scrape, harvest, or extract data from the Service without authorization."
+              },
+              {
+                "item": "Impersonation",
+                "description": "Impersonating another person or entity, or falsely claiming affiliation with any person or entity."
+              },
+              {
+                "item": "Fraudulent Submissions",
+                "description": "Using the Service to create or process fraudulent or intentionally misleading pharmaceutical labeling documents."
+              }
+            ]
+          },
+          {
+            "subheading": "C.3 Rate Limits and Fair Use",
+            "content": "To ensure service availability for all users, we may implement rate limits on API requests and certain features. Excessive or abusive use that impacts service performance for other users is prohibited."
+          }
+        ]
       },
       {
-        "heading": "4. Authentication",
-        "content": "We use Microsoft and Google authentication to provide secure access. Your authentication data is handled in accordance with our Privacy Policy."
+        "heading": "D. User Content and SPL Data",
+        "content": "You retain ownership of content you upload to MedRecPro. This section describes your rights and responsibilities regarding User Content.",
+        "subsections": [
+          {
+            "subheading": "D.1 Ownership of User Content",
+            "content": "You retain all ownership rights to User Content you upload, create, or submit to the Service. MedRecPro does not claim ownership of your SPL documents, annotations, or other User Content."
+          },
+          {
+            "subheading": "D.2 License Grant to MedRecPro",
+            "content": "By uploading User Content to the Service, you grant MedRecPro a limited license to:",
+            "items": [
+              {
+                "item": "Service Operation",
+                "description": "Store, process, display, and transmit your User Content as necessary to provide the Service."
+              },
+              {
+                "item": "Technical Processing",
+                "description": "Parse, validate, render, and transform SPL documents according to FDA and HL7 specifications."
+              },
+              {
+                "item": "Backup and Recovery",
+                "description": "Create backup copies of your User Content for data protection and disaster recovery purposes."
+              }
+            ]
+          },
+          {
+            "subheading": "D.3 Responsibility for User Content",
+            "content": "You are solely responsible for:",
+            "items": [
+              {
+                "item": "Content Accuracy",
+                "description": "The accuracy, completeness, and regulatory compliance of all User Content, including SPL documents."
+              },
+              {
+                "item": "Rights to Content",
+                "description": "Ensuring you have all necessary rights, licenses, and permissions to upload and use the User Content."
+              },
+              {
+                "item": "Regulatory Submissions",
+                "description": "Reviewing and verifying all content before submission to regulatory authorities. MedRecPro is a tool to assist your workflow, not a substitute for professional judgment."
+              },
+              {
+                "item": "Confidential Information",
+                "description": "Appropriately handling any confidential, proprietary, or trade secret information in your User Content."
+              }
+            ]
+          },
+          {
+            "subheading": "D.4 Content Removal",
+            "content": "We reserve the right to remove User Content that violates these Terms, applicable law, or poses security risks. We will attempt to notify you before removing content except where prohibited by law or in emergency situations."
+          },
+          {
+            "subheading": "D.5 No Protected Health Information",
+            "content": "MedRecPro is not designed to store or process Protected Health Information (PHI) as defined by HIPAA. Do not upload patient-identifiable health information to the Service. If you inadvertently upload PHI, notify us immediately at privacy@medrecpro.com."
+          }
+        ]
       },
       {
-        "heading": "5. Open Source",
-        "content": "This software is provided 'as is' without warranty of any kind. The source code is available on GitHub and contributions are welcome under the terms of the Apache 2.0 License."
+        "heading": "E. Intellectual Property and Open Source",
+        "content": "MedRecPro is an open-source application. This section describes the applicable licenses and intellectual property rights.",
+        "subsections": [
+          {
+            "subheading": "E.1 Open Source License",
+            "content": "The MedRecPro software is provided under the Apache License, Version 2.0. You may obtain a copy of the License at https://www.apache.org/licenses/LICENSE-2.0. Subject to the terms of the Apache 2.0 License, you are free to use, modify, and distribute the software."
+          },
+          {
+            "subheading": "E.2 Source Code",
+            "content": "The source code for MedRecPro is available on GitHub. Contributions to the project are welcome under the terms of the Apache 2.0 License and our Contributor License Agreement."
+          },
+          {
+            "subheading": "E.3 Trademarks",
+            "content": "The MedRecPro name, logo, and other branding are trademarks of MedRecPro. The Apache 2.0 License does not grant rights to use these trademarks. You may not use our trademarks in a way that suggests endorsement or affiliation without prior written permission."
+          },
+          {
+            "subheading": "E.4 Third-Party Components",
+            "content": "MedRecPro incorporates third-party open-source components, each subject to its own license terms. A list of third-party components and their licenses is available in the project repository."
+          },
+          {
+            "subheading": "E.5 Feedback",
+            "content": "If you provide feedback, suggestions, or ideas about the Service ('Feedback'), you grant MedRecPro a non-exclusive, royalty-free, perpetual, irrevocable license to use, modify, and incorporate the Feedback into the Service without obligation to you."
+          }
+        ]
       },
       {
-        "heading": "6. Regulatory Compliance",
-        "content": "While MedRecPro is designed to work with FDA SPL data, users are responsible for ensuring their use complies with all applicable regulations, including 21 CFR Part 11 if applicable."
+        "heading": "F. AI-Powered Features",
+        "content": "MedRecPro offers AI-powered analysis features. This section describes the terms governing use of these features.",
+        "subsections": [
+          {
+            "subheading": "F.1 AI Service Providers",
+            "content": "AI-powered features are provided through third-party AI services, including Anthropic's Claude API. Your use of AI features is subject to both these Terms and the applicable third-party terms of service."
+          },
+          {
+            "subheading": "F.2 Data Processing for AI Features",
+            "content": "When you use AI-powered features, relevant portions of your queries and document content may be sent to AI service providers for processing. We do not use your content to train AI models. See our Privacy Policy for details on data processing."
+          },
+          {
+            "subheading": "F.3 AI Output Limitations",
+            "content": "AI-generated analysis and suggestions are provided for informational purposes only:",
+            "items": [
+              {
+                "item": "Not Professional Advice",
+                "description": "AI outputs do not constitute regulatory, legal, medical, or professional advice."
+              },
+              {
+                "item": "Verification Required",
+                "description": "You must independently verify all AI-generated content before relying on it for regulatory submissions or business decisions."
+              },
+              {
+                "item": "No Warranty",
+                "description": "We make no warranties regarding the accuracy, completeness, or suitability of AI-generated content."
+              }
+            ]
+          },
+          {
+            "subheading": "F.4 AI Feature Availability",
+            "content": "AI features may be modified, limited, or discontinued at any time. Availability may vary based on your subscription tier and usage limits."
+          }
+        ]
       },
       {
-        "heading": "7. Contact",
-        "content": "For questions about these terms, please contact: support@medrecpro.com"
+        "heading": "G. Regulatory Compliance",
+        "content": "MedRecPro is designed to support pharmaceutical labeling workflows. This section clarifies compliance responsibilities.",
+        "subsections": [
+          {
+            "subheading": "G.1 User Responsibility",
+            "content": "You are solely responsible for ensuring your use of MedRecPro complies with all applicable regulatory requirements, including:",
+            "items": [
+              {
+                "item": "FDA Requirements",
+                "description": "FDA regulations for pharmaceutical labeling, including 21 CFR Part 201, SPL submission requirements, and related guidance documents."
+              },
+              {
+                "item": "21 CFR Part 11",
+                "description": "If your use of MedRecPro is subject to 21 CFR Part 11 requirements for electronic records and signatures, you are responsible for implementing appropriate controls."
+              },
+              {
+                "item": "International Regulations",
+                "description": "Applicable pharmaceutical labeling regulations in other jurisdictions where your products are marketed."
+              },
+              {
+                "item": "Industry Standards",
+                "description": "HL7 SPL Implementation Guide specifications and other applicable industry standards."
+              }
+            ]
+          },
+          {
+            "subheading": "G.2 Tool Limitations",
+            "content": "MedRecPro is a tool to assist pharmaceutical labeling workflows. It is not a validated system under 21 CFR Part 11 and does not replace your organization's quality management systems, validation procedures, or regulatory compliance programs."
+          },
+          {
+            "subheading": "G.3 No Regulatory Advice",
+            "content": "MedRecPro does not provide regulatory advice. Information displayed in the Service regarding FDA requirements or SPL specifications is for reference only. Consult with qualified regulatory professionals for compliance guidance."
+          },
+          {
+            "subheading": "G.4 Audit Trail",
+            "content": "MedRecPro maintains activity logs for security and operational purposes. If you require specific audit trail capabilities for regulatory compliance, you are responsible for verifying that MedRecPro's logging meets your requirements."
+          }
+        ]
+      },
+      {
+        "heading": "H. Payment",
+        "content": "MedRecPro offers both free and paid service tiers. This section describes payment terms for paid features.",
+        "subsections": [
+          {
+            "subheading": "H.1 Free Tier",
+            "content": "MedRecPro provides a free tier with basic functionality. Free tier features and limitations are described on our website and may change over time."
+          },
+          {
+            "subheading": "H.2 Paid Subscriptions",
+            "content": "Paid subscription tiers provide access to additional features, higher usage limits, and priority support. Current pricing is available at https://medrecpro.com/pricing."
+          },
+          {
+            "subheading": "H.3 Billing",
+            "content": "For paid subscriptions:",
+            "items": [
+              {
+                "item": "Billing Cycle",
+                "description": "Subscriptions are billed in advance on a monthly or annual basis as selected during signup."
+              },
+              {
+                "item": "Payment Methods",
+                "description": "We accept payment via credit card and other methods as displayed during checkout."
+              },
+              {
+                "item": "Price Changes",
+                "description": "Subscription prices may change. We will provide at least 30 days' notice of price increases, and changes will apply at your next billing cycle."
+              },
+              {
+                "item": "Taxes",
+                "description": "Prices do not include applicable taxes. You are responsible for all taxes associated with your subscription."
+              }
+            ]
+          },
+          {
+            "subheading": "H.4 Refunds",
+            "content": "Subscription fees are generally non-refundable. We may, at our discretion, provide refunds or credits in cases of billing errors or service issues."
+          }
+        ]
+      },
+      {
+        "heading": "I. Cancellation and Termination",
+        "content": "You may cancel your Account at any time. This section describes cancellation procedures and data retention.",
+        "subsections": [
+          {
+            "subheading": "I.1 Account Cancellation by You",
+            "content": "You may cancel your Account at any time through your account settings or by contacting support@medrecpro.com. Upon cancellation, your right to access the Service terminates immediately."
+          },
+          {
+            "subheading": "I.2 Data Upon Cancellation",
+            "content": "Upon Account cancellation:",
+            "items": [
+              {
+                "item": "Data Export",
+                "description": "You may export your User Content before cancellation. We recommend downloading all data you wish to retain."
+              },
+              {
+                "item": "Data Deletion",
+                "description": "We will delete your User Content within 90 days of cancellation, except where retention is required for legal obligations."
+              },
+              {
+                "item": "Backup Retention",
+                "description": "Deleted content may persist in encrypted backups for up to 30 additional days."
+              }
+            ]
+          },
+          {
+            "subheading": "I.3 Termination by MedRecPro",
+            "content": "We may suspend or terminate your Account if you violate these Terms, engage in prohibited activities, or for other reasons with notice. In cases of severe violations, we may terminate immediately without notice."
+          },
+          {
+            "subheading": "I.4 Effect of Termination",
+            "content": "Upon termination, your right to use the Service ceases. Provisions of these Terms that by their nature should survive termination will survive, including ownership provisions, warranty disclaimers, and limitations of liability."
+          }
+        ]
+      },
+      {
+        "heading": "J. Disclaimer of Warranties",
+        "content": "THE SERVICE IS PROVIDED 'AS IS' AND 'AS AVAILABLE' WITHOUT WARRANTY OF ANY KIND.",
+        "subsections": [
+          {
+            "subheading": "J.1 No Warranties",
+            "content": "TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, MEDRECPRO DISCLAIMS ALL WARRANTIES, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WITHOUT LIMITATION:",
+            "items": [
+              {
+                "item": "Merchantability",
+                "description": "Any warranty of merchantability or fitness for a particular purpose."
+              },
+              {
+                "item": "Accuracy",
+                "description": "Any warranty that the Service will be accurate, reliable, error-free, or uninterrupted."
+              },
+              {
+                "item": "Regulatory Compliance",
+                "description": "Any warranty that the Service will meet your regulatory compliance requirements."
+              },
+              {
+                "item": "Security",
+                "description": "Any warranty that the Service will be secure or free from vulnerabilities."
+              },
+              {
+                "item": "Third-Party Services",
+                "description": "Any warranty regarding third-party services integrated with MedRecPro."
+              }
+            ]
+          },
+          {
+            "subheading": "J.2 Open Source Disclaimer",
+            "content": "As open-source software provided under the Apache 2.0 License, MedRecPro is provided WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including without limitation any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE."
+          },
+          {
+            "subheading": "J.3 Professional Judgment",
+            "content": "MedRecPro is a tool to assist your work. It does not replace professional judgment, regulatory expertise, or compliance programs. You assume full responsibility for decisions made based on Service outputs."
+          }
+        ]
+      },
+      {
+        "heading": "K. Limitation of Liability",
+        "content": "This section limits our liability for damages arising from your use of the Service.",
+        "subsections": [
+          {
+            "subheading": "K.1 Exclusion of Damages",
+            "content": "TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL MEDRECPRO BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING WITHOUT LIMITATION:",
+            "items": [
+              {
+                "item": "Loss of Profits",
+                "description": "Loss of profits, revenue, business opportunities, or goodwill."
+              },
+              {
+                "item": "Data Loss",
+                "description": "Loss of data, including User Content or SPL documents."
+              },
+              {
+                "item": "Service Interruption",
+                "description": "Costs arising from service interruption or inability to use the Service."
+              },
+              {
+                "item": "Third-Party Claims",
+                "description": "Claims by third parties arising from your use of the Service."
+              },
+              {
+                "item": "Regulatory Actions",
+                "description": "Regulatory enforcement actions, fines, or penalties related to your use of the Service."
+              }
+            ]
+          },
+          {
+            "subheading": "K.2 Liability Cap",
+            "content": "TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, MEDRECPRO'S TOTAL LIABILITY ARISING OUT OF OR RELATED TO THESE TERMS OR YOUR USE OF THE SERVICE SHALL NOT EXCEED THE GREATER OF (A) THE AMOUNTS PAID BY YOU TO MEDRECPRO IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM, OR (B) ONE HUNDRED DOLLARS ($100)."
+          },
+          {
+            "subheading": "K.3 Basis of the Bargain",
+            "content": "The limitations and exclusions in this section apply regardless of the theory of liability and even if MedRecPro has been advised of the possibility of such damages. These limitations are an essential basis of the bargain between you and MedRecPro."
+          },
+          {
+            "subheading": "K.4 State Law Variations",
+            "content": "Some jurisdictions do not allow the exclusion of certain warranties or limitation of liability. In such jurisdictions, our liability shall be limited to the maximum extent permitted by law."
+          }
+        ]
+      },
+      {
+        "heading": "L. Indemnification",
+        "content": "You agree to indemnify, defend, and hold harmless MedRecPro and its officers, directors, employees, agents, and affiliates from and against any claims, liabilities, damages, losses, and expenses (including reasonable attorneys' fees) arising out of or related to:",
+        "subsections": [
+          {
+            "subheading": "L.1 Indemnified Claims",
+            "content": "Your indemnification obligation covers:",
+            "items": [
+              {
+                "item": "Terms Violation",
+                "description": "Your violation of these Terms or any applicable law or regulation."
+              },
+              {
+                "item": "User Content",
+                "description": "Your User Content, including any claims that your content infringes third-party rights."
+              },
+              {
+                "item": "Regulatory Non-Compliance",
+                "description": "Your failure to comply with applicable regulatory requirements in your use of the Service."
+              },
+              {
+                "item": "Third-Party Disputes",
+                "description": "Disputes between you and third parties related to your use of the Service."
+              }
+            ]
+          },
+          {
+            "subheading": "L.2 Defense Cooperation",
+            "content": "We will provide reasonable cooperation in the defense of any claim and you will not settle any claim without our prior written consent if the settlement would impose obligations on us or admit liability on our behalf."
+          }
+        ]
+      },
+      {
+        "heading": "M. Communications",
+        "content": "This section describes how we will communicate with you regarding the Service.",
+        "subsections": [
+          {
+            "subheading": "M.1 Electronic Communications",
+            "content": "You consent to receive communications from us electronically via the email address associated with your Account or through the Service. You agree that electronic communications satisfy any legal requirement for written communications."
+          },
+          {
+            "subheading": "M.2 Service Notifications",
+            "content": "We may send you notifications about your Account, service changes, security alerts, and other matters related to the Service. You may not opt out of critical service and security notifications."
+          },
+          {
+            "subheading": "M.3 Support Communications",
+            "content": "MedRecPro provides support via email and in-Service communications. We do not currently offer telephone support. Contact us at support@medrecpro.com for assistance."
+          }
+        ]
+      },
+      {
+        "heading": "N. Changes to These Terms",
+        "content": "We may modify these Terms from time to time. This section describes how we will notify you of changes.",
+        "subsections": [
+          {
+            "subheading": "N.1 Right to Modify",
+            "content": "We reserve the right to modify these Terms at any time. We will update the 'Last Updated' date at the top of these Terms when we make changes."
+          },
+          {
+            "subheading": "N.2 Notice of Material Changes",
+            "content": "For material changes, we will provide at least 30 days' notice before the changes take effect. Notice may be provided via email to your registered email address or through a prominent notice on the Service."
+          },
+          {
+            "subheading": "N.3 Acceptance of Changes",
+            "content": "Your continued use of the Service after the effective date of revised Terms constitutes your acceptance of the changes. If you do not agree to the revised Terms, you must stop using the Service and cancel your Account."
+          },
+          {
+            "subheading": "N.4 Version History",
+            "content": "Previous versions of these Terms may be available upon request for reference purposes."
+          }
+        ]
+      },
+      {
+        "heading": "O. Governing Law and Dispute Resolution",
+        "content": "This section describes the law that governs these Terms and how disputes will be resolved.",
+        "subsections": [
+          {
+            "subheading": "O.1 Governing Law",
+            "content": "These Terms and any dispute arising out of or related to these Terms or the Service shall be governed by and construed in accordance with the laws of the United States of America and the State of Maryland, without regard to conflict of law principles."
+          },
+          {
+            "subheading": "O.2 Jurisdiction and Venue",
+            "content": "You agree to submit to the exclusive jurisdiction of the state and federal courts located in the State of Maryland for any dispute arising out of or related to these Terms or the Service. You waive any objection to venue in such courts."
+          },
+          {
+            "subheading": "O.3 Informal Resolution",
+            "content": "Before initiating any formal dispute resolution, you agree to first contact us at legal@medrecpro.com to attempt to resolve the dispute informally. We will attempt to resolve disputes within 30 days of receiving notice."
+          },
+          {
+            "subheading": "O.4 Class Action Waiver",
+            "content": "TO THE EXTENT PERMITTED BY APPLICABLE LAW, YOU AND MEDRECPRO AGREE THAT EACH MAY BRING CLAIMS AGAINST THE OTHER ONLY IN YOUR OR OUR INDIVIDUAL CAPACITY AND NOT AS A PLAINTIFF OR CLASS MEMBER IN ANY PURPORTED CLASS OR REPRESENTATIVE ACTION."
+          }
+        ]
+      },
+      {
+        "heading": "P. Miscellaneous",
+        "content": "This section contains additional legal provisions.",
+        "subsections": [
+          {
+            "subheading": "P.1 Entire Agreement",
+            "content": "These Terms, together with the Privacy Policy and any other agreements expressly incorporated by reference, constitute the entire agreement between you and MedRecPro regarding the Service and supersede all prior agreements and understandings."
+          },
+          {
+            "subheading": "P.2 Severability",
+            "content": "If any provision of these Terms is held to be invalid or unenforceable, that provision shall be modified to the minimum extent necessary to make it enforceable, or if modification is not possible, severed from these Terms. The remaining provisions shall continue in full force and effect."
+          },
+          {
+            "subheading": "P.3 Waiver",
+            "content": "Our failure to enforce any provision of these Terms shall not constitute a waiver of that provision or our right to enforce it in the future."
+          },
+          {
+            "subheading": "P.4 Assignment",
+            "content": "You may not assign or transfer these Terms or your rights under these Terms without our prior written consent. We may assign these Terms without restriction in connection with a merger, acquisition, or sale of assets."
+          },
+          {
+            "subheading": "P.5 Force Majeure",
+            "content": "MedRecPro shall not be liable for any failure or delay in performance due to causes beyond our reasonable control, including natural disasters, war, terrorism, strikes, government actions, or internet service provider failures."
+          },
+          {
+            "subheading": "P.6 Headings",
+            "content": "Section headings are for convenience only and do not affect the interpretation of these Terms."
+          },
+          {
+            "subheading": "P.7 Survival",
+            "content": "Provisions that by their nature should survive termination shall survive, including without limitation: ownership provisions, warranty disclaimers, indemnification, limitations of liability, and dispute resolution provisions."
+          }
+        ]
+      },
+      {
+        "heading": "Q. Contact Information",
+        "content": "If you have questions about these Terms, please contact us:",
+        "contactInfo": {
+          "email": "legal@medrecpro.com",
+          "support": "support@medrecpro.com",
+          "website": "https://www.medrecpro.com/"
+        }
       }
     ]
   },
@@ -633,7 +1311,7 @@
         "contactInfo": {
           "email": "privacy@medrecpro.com",
           "support": "support@medrecpro.com",
-          "website": "https://www.medrecpro.com"
+          "website": "https://www.medrecpro.com/"
         }
       }
     ],

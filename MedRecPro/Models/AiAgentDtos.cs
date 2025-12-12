@@ -178,6 +178,19 @@ namespace MedRecPro.Models
         [JsonPropertyName("systemContext")]
         public AiSystemContext? SystemContext { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Contains the results of a file import operation, if applicable.
+        /// </summary>
+        /// <remarks>
+        /// When files are uploaded through the chat interface, this property
+        /// contains information about the import operation including success
+        /// status, imported document IDs, and any error messages.
+        /// </remarks>
+        [JsonPropertyName("importResult")]
+        public ImportResultContext? ImportResult { get; set; }
+
+
         #endregion
     }
 

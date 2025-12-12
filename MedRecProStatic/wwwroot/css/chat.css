@@ -133,7 +133,7 @@ html, body {
 }
 
 .brand-logo {
-    width: 40px;
+    width: 50px;
     height: 40px;
     border-radius: var(--radius-lg);
     background: linear-gradient(135deg, var(--color-accent) 0%, #1d4ed8 100%);
@@ -239,7 +239,7 @@ html, body {
 }
 
 .empty-state-logo {
-    width: 80px;
+    width: 200px;
     height: 80px;
     border-radius: var(--radius-xl);
     background: linear-gradient(135deg, var(--color-accent) 0%, #1d4ed8 100%);
@@ -249,7 +249,7 @@ html, body {
     font-weight: 700;
     font-size: 1.5rem;
     color: white;
-    margin-bottom: var(--space-lg);
+    margin-bottom: var(--space-sm);
 }
 
 .empty-state-title {
