@@ -222,7 +222,7 @@
 
         function flushList() {
             if (listItems.length > 0) {
-                processed.push('<ul>' + listItems.join('') + '</ul>');
+                processed.push('<ul style="padding-left:15px;margin:0.25rem 0;">' + listItems.join('') + '</ul>');
                 listItems = [];
                 inList = false;
             }

@@ -1,5 +1,4 @@
-﻿
-using MedRecPro.Data;
+﻿using MedRecPro.Data;
 using MedRecPro.Models;
 using Microsoft.Extensions.Options;
 using System.Text;
@@ -1568,6 +1567,130 @@ namespace MedRecPro.Service
             sb.AppendLine("3. Write operations (POST, PUT, DELETE) require authentication");
             sb.AppendLine("4. Demo mode: Database may be periodically reset");
             sb.AppendLine("5. Empty database: Suggest importing SPL ZIP files from DailyMed");
+            sb.AppendLine();
+
+            // Data Discovery Workflow
+            sb.AppendLine("## Data Discovery Workflow (IMPORTANT)");
+            sb.AppendLine();
+            sb.AppendLine("When views return 404 or do not provide the data needed, use the Label CRUD system:");
+            sb.AppendLine();
+            sb.AppendLine("### Step 1: Discover Available Tables");
+            sb.AppendLine("- `GET /api/label/sectionMenu` - Returns list of all available data sections/tables");
+            sb.AppendLine("- This is the PRIMARY discovery endpoint - always works when database has data");
+            sb.AppendLine();
+            sb.AppendLine("### Step 2: Get Data from Tables");
+            sb.AppendLine("- `GET /api/label/section/{menuSelection}?pageNumber=1&pageSize=50` - Get records from any table");
+            sb.AppendLine("- menuSelection = exact table name from sectionMenu (e.g., \"Document\", \"Product\", \"ActiveIngredient\")");
+            sb.AppendLine();
+            sb.AppendLine("### Step 3: Get Table Schema (Optional)");
+            sb.AppendLine("- `GET /api/label/{menuSelection}/documentation` - Get field definitions for a table");
+            sb.AppendLine();
+
+            // Query Decision Tree
+            sb.AppendLine("## Query Decision Tree");
+            sb.AppendLine();
+            sb.AppendLine("Use this decision tree to select the correct endpoint:");
+            sb.AppendLine();
+            sb.AppendLine("### User asks: 'What products/documents do you have?'");
+            sb.AppendLine("1. FIRST TRY: `GET /api/label/section/Document?pageNumber=1&pageSize=50`");
+            sb.AppendLine("2. FALLBACK: `GET /api/label/section/Product?pageNumber=1&pageSize=50`");
+            sb.AppendLine();
+            sb.AppendLine("### User asks: 'What are the document/product IDs?'");
+            sb.AppendLine("1. `GET /api/label/section/Document?pageNumber=1&pageSize=50` - returns encryptedId for each");
+            sb.AppendLine("2. Look for 'documentGuid' or 'encryptedId' fields in response");
+            sb.AppendLine();
+            sb.AppendLine("### User asks: 'What ingredients are in the database?'");
+            sb.AppendLine("1. FIRST TRY: `GET /api/views/ingredient/summaries?pageNumber=1&pageSize=50`");
+            sb.AppendLine("2. FALLBACK: `GET /api/label/section/ActiveIngredient?pageNumber=1&pageSize=50`");
+            sb.AppendLine("3. ALSO: `GET /api/label/section/InactiveIngredient?pageNumber=1&pageSize=50`");
+            sb.AppendLine();
+            sb.AppendLine("### User asks: 'What manufacturers/labelers?'");
+            sb.AppendLine("1. FIRST TRY: `GET /api/views/labeler/summaries?pageNumber=1&pageSize=50`");
+            sb.AppendLine("2. FALLBACK: `GET /api/label/section/Organization?pageNumber=1&pageSize=50`");
+            sb.AppendLine();
+            sb.AppendLine("### User asks: 'What tables/sections are available?'");
+            sb.AppendLine("1. `GET /api/label/sectionMenu` - Returns: Document, Organization, Product, etc.");
+            sb.AppendLine();
+            sb.AppendLine("### User asks about a specific product by name");
+            sb.AppendLine("1. FIRST TRY: `GET /api/views/document/search?productNameSearch={name}`");
+            sb.AppendLine("2. FALLBACK: `GET /api/label/section/Product?pageNumber=1&pageSize=100` and filter results");
+            sb.AppendLine();
+
+            // Table-to-Data Mapping
+            sb.AppendLine("## Table-to-Data Mapping Reference");
+            sb.AppendLine();
+            sb.AppendLine("| Data Question | Primary Table (menuSelection) | Key Fields |");
+            sb.AppendLine("|--------------|------------------------------|------------|");
+            sb.AppendLine("| Documents/Labels | Document | documentGuid, setGuid, versionNumber |");
+            sb.AppendLine("| Products | Product | productName, ndcCode, productGuid |");
+            sb.AppendLine("| Active Ingredients | ActiveIngredient | substanceName, unii, strength |");
+            sb.AppendLine("| Inactive Ingredients | InactiveIngredient | substanceName, unii |");
+            sb.AppendLine("| Manufacturers/Labelers | Organization | organizationName, dunsNumber |");
+            sb.AppendLine("| Sections/Content | Section | sectionCode, sectionTitle, contentText |");
+            sb.AppendLine("| NDC Codes | ProductIdentifier, PackageIdentifier | code, codeSystem |");
+            sb.AppendLine("| Packaging | PackagingLevel, PackageItem | quantity, formCode |");
+            sb.AppendLine("| Drug Classes | PharmacologicClass | className, classCode |");
+            sb.AppendLine("| Routes | Route | routeName, routeCode |");
+            sb.AppendLine("| Marketing Categories | MarketingCategory | categoryCode, categoryName |");
+            sb.AppendLine("| Drug Interactions | DrugInteraction | interactionDescription |");
+            sb.AppendLine("| Characteristics | Characteristic | characteristicName, value |");
+            sb.AppendLine();
+
+            // Fallback Strategy
+            sb.AppendLine("## Fallback Strategy for 404 Errors");
+            sb.AppendLine();
+            sb.AppendLine("If a view endpoint returns 404, the view may not be implemented. Use this fallback:");
+            sb.AppendLine();
+            sb.AppendLine("1. **404 on /api/views/* endpoint:**");
+            sb.AppendLine("   - Switch to `GET /api/label/section/{relatedTable}?pageNumber=1&pageSize=50`");
+            sb.AppendLine("   - Use Table-to-Data Mapping above to find the right table");
+            sb.AppendLine();
+            sb.AppendLine("2. **Empty results from any endpoint:**");
+            sb.AppendLine("   - Check if database has data: `GET /api/ai/context` (check documentCount)");
+            sb.AppendLine("   - If documentCount=0, suggest user import SPL data");
+            sb.AppendLine();
+            sb.AppendLine("3. **Unknown search parameter:**");
+            sb.AppendLine("   - Get all records: `GET /api/label/section/{table}?pageNumber=1&pageSize=100`");
+            sb.AppendLine("   - Filter/search results in synthesis response");
+            sb.AppendLine();
+
+            // Complete Examples
+            sb.AppendLine("## Complete Request Examples");
+            sb.AppendLine();
+            sb.AppendLine("### Example 1: 'What products do you have?'");
+            sb.AppendLine("```");
+            sb.AppendLine("Endpoint: GET /api/label/section/Product?pageNumber=1&pageSize=50");
+            sb.AppendLine("Response: Array of product records with productName, ndcCode, etc.");
+            sb.AppendLine("```");
+            sb.AppendLine();
+            sb.AppendLine("### Example 2: 'List all document IDs'");
+            sb.AppendLine("```");
+            sb.AppendLine("Endpoint: GET /api/label/section/Document?pageNumber=1&pageSize=50");
+            sb.AppendLine("Response: Array with encryptedId and documentGuid for each document");
+            sb.AppendLine("```");
+            sb.AppendLine();
+            sb.AppendLine("### Example 3: 'What ingredients are available?'");
+            sb.AppendLine("```");
+            sb.AppendLine("Endpoint: GET /api/label/section/ActiveIngredient?pageNumber=1&pageSize=100");
+            sb.AppendLine("Response: Array with substanceName, unii, strength for each ingredient");
+            sb.AppendLine("```");
+            sb.AppendLine();
+            sb.AppendLine("### Example 4: 'Show me all tables in the system'");
+            sb.AppendLine("```");
+            sb.AppendLine("Endpoint: GET /api/label/sectionMenu");
+            sb.AppendLine("Response: [\"Document\", \"Organization\", \"Product\", \"ActiveMoiety\", ...]");
+            sb.AppendLine("```");
+            sb.AppendLine();
+
+            // Critical Reminders
+            sb.AppendLine("## Critical Reminders for Data Queries");
+            sb.AppendLine();
+            sb.AppendLine("1. **ALWAYS try /api/label/section/{table} if views fail** - This is the reliable fallback");
+            sb.AppendLine("2. **Use sectionMenu to discover tables** - `GET /api/label/sectionMenu`");
+            sb.AppendLine("3. **Table names are case-sensitive** - Use exactly: Document, Product, ActiveIngredient, etc.");
+            sb.AppendLine("4. **Pagination is required for large datasets** - Always include pageNumber and pageSize");
+            sb.AppendLine("5. **IDs are encrypted** - Use the encryptedId values returned, not raw database IDs");
+            sb.AppendLine("6. **Check context first** - `GET /api/ai/context` tells you document/product counts");
 
             return sb.ToString();
 
@@ -1629,7 +1752,7 @@ namespace MedRecPro.Service
 
         [JsonProperty("service_tier")]
         public string? ServiceTier { get; set; }
-    } 
+    }
 
     #endregion
 }
