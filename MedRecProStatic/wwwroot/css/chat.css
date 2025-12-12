@@ -947,3 +947,45 @@ html, body {
         max-height: 40vh;
     }
 }
+
+/**************************************************************/
+/* Version in Chat Header */
+/**************************************************************/
+
+.version-badge {
+    background-color: #7aad14;
+    color: #fff;
+    font-size: 0.55em;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    vertical-align: middle;
+    margin-left: 4px;
+}
+
+/**************************************************************/
+/* Animated Progress Ring */
+/**************************************************************/
+.progress-ring-animated {
+    display: flex;
+    align-items: center;
+    justify-content: left;
+}
+
+    .progress-ring-animated svg {
+        animation: progress-rotate 1.2s linear infinite;
+    }
+
+.progress-ring-spinner {
+    transform-origin: left;
+}
+
+@keyframes progress-rotate {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}

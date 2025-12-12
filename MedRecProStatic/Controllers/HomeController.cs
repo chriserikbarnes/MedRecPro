@@ -137,6 +137,7 @@ namespace MedRecPro.Static.Controllers
 
             // Set page title for the chat interface
             ViewBag.Title = "AI Assistant";
+            ViewBag.Version = _contentService.GetConfig().Version;
 
             #endregion
 

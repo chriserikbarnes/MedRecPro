@@ -4,7 +4,7 @@ using MedRecPro.Models;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 
 namespace MedRecPro.Service
 {
@@ -569,7 +569,7 @@ namespace MedRecPro.Service
             }
                 };
 
-                var json = JsonSerializer.Serialize(request);
+                var json = JsonConvert.SerializeObject(request);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 var response = await _httpClient.PostAsync("https://api.anthropic.com/v1/messages", content);
@@ -581,7 +581,7 @@ namespace MedRecPro.Service
                 }
 
                 var responseContent = await response.Content.ReadAsStringAsync();
-                var claudeResponse = JsonSerializer.Deserialize<ClaudeApiResponse>(responseContent);
+                var claudeResponse = JsonConvert.DeserializeObject<ClaudeApiResponse>(responseContent);
 
                 return claudeResponse?.Content?.FirstOrDefault()?.Text ?? "No response generated";
             }
@@ -684,8 +684,8 @@ namespace MedRecPro.Service
             try
             {
                 // Check demo mode from configuration
-                var isDemoMode = _configuration.GetValue<bool>("DemoMode:Enabled", false);
-                var demoResetMinutes = _configuration.GetValue<int>("DemoMode:ResetIntervalMinutes", 1440);
+                var isDemoMode = _configuration.GetValue<bool>("DemoModeSettings:Enabled", false);
+                var demoResetMinutes = _configuration.GetValue<int>("DemoModeSettings:ResetIntervalMinutes", 1440);
                 var importEnabled = _configuration.GetValue<bool>("FeatureFlags:SplImportEnabled", true);
                 var comparisonEnabled = _configuration.GetValue<bool>("FeatureFlags:ComparisonAnalysisEnabled", true);
 
@@ -1054,6 +1054,7 @@ namespace MedRecPro.Service
                 sb.AppendLine();
 
                 // Include import result context if present
+                // Include import result context if present
                 if (request.ImportResult != null)
                 {
                     sb.AppendLine("=== RECENT IMPORT OPERATION ===");
@@ -1062,6 +1063,27 @@ namespace MedRecPro.Service
                     {
                         sb.AppendLine($"Status: Import COMPLETED SUCCESSFULLY");
                         sb.AppendLine($"Documents Imported: {request.ImportResult.DocumentIds?.Count ?? 0}");
+                        sb.AppendLine($"Files Processed: {request.ImportResult.TotalFilesProcessed}");
+                        sb.AppendLine($"Files Succeeded: {request.ImportResult.TotalFilesSucceeded}");
+
+                        // Include statistics if available
+                        if (request.ImportResult.Statistics != null)
+                        {
+                            var stats = request.ImportResult.Statistics;
+                            sb.AppendLine("Import Statistics:");
+                            if (stats.DocumentsCreated > 0)
+                                sb.AppendLine($"  - Documents Created: {stats.DocumentsCreated}");
+                            if (stats.OrganizationsCreated > 0)
+                                sb.AppendLine($"  - Organizations Created: {stats.OrganizationsCreated}");
+                            if (stats.ProductsCreated > 0)
+                                sb.AppendLine($"  - Products Created: {stats.ProductsCreated}");
+                            if (stats.SectionsCreated > 0)
+                                sb.AppendLine($"  - Sections Created: {stats.SectionsCreated}");
+                            if (stats.IngredientsCreated > 0)
+                                sb.AppendLine($"  - Ingredients Created: {stats.IngredientsCreated}");
+                            if (stats.ProductElementsCreated > 0)
+                                sb.AppendLine($"  - Product Elements Created: {stats.ProductElementsCreated}");
+                        }
 
                         if (request.ImportResult.DocumentIds?.Any() == true)
                         {
@@ -1074,7 +1096,7 @@ namespace MedRecPro.Service
 
                         if (request.ImportResult.DocumentNames?.Any() == true)
                         {
-                            sb.AppendLine("Imported Documents:");
+                            sb.AppendLine("Imported Document Files:");
                             foreach (var name in request.ImportResult.DocumentNames)
                             {
                                 sb.AppendLine($"  - {name}");
@@ -1082,8 +1104,9 @@ namespace MedRecPro.Service
                         }
 
                         sb.AppendLine();
-                        sb.AppendLine("IMPORTANT: Acknowledge the successful import to the user.");
-                        sb.AppendLine("Suggest using GET /api/label/single/{documentGuid} to view imported documents.");
+                        sb.AppendLine("IMPORTANT: Acknowledge the successful import to the user with specific details.");
+                        sb.AppendLine("Mention the number of documents, sections, and other entities created.");
+                        sb.AppendLine("Suggest using GET /api/label/single/{documentGuid} to view the imported document.");
                     }
                     else
                     {
@@ -1097,6 +1120,7 @@ namespace MedRecPro.Service
 
                         sb.AppendLine();
                         sb.AppendLine("IMPORTANT: Inform the user about the import issue and suggest next steps.");
+                        sb.AppendLine("Possible suggestions: try different files, check file format, verify authentication.");
                     }
 
                     sb.AppendLine();
@@ -1173,12 +1197,7 @@ namespace MedRecPro.Service
                 {
                     var jsonContent = response.Substring(jsonStart, jsonEnd - jsonStart + 1);
 
-                    var options = new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    };
-
-                    var interpretation = JsonSerializer.Deserialize<AiAgentInterpretation>(jsonContent, options);
+                    var interpretation = JsonConvert.DeserializeObject<AiAgentInterpretation>(jsonContent);
 
                     if (interpretation != null)
                     {
@@ -1206,7 +1225,7 @@ namespace MedRecPro.Service
                     DirectResponse = response
                 };
             }
-            catch (JsonException ex)
+            catch (Newtonsoft.Json.JsonException ex)
             {
                 _logger.LogWarning(ex, "JSON parsing error in interpretation response");
 
@@ -1258,11 +1277,7 @@ namespace MedRecPro.Service
                 }
                 else if (result.Result != null)
                 {
-                    var resultJson = JsonSerializer.Serialize(result.Result, new JsonSerializerOptions
-                    {
-                        WriteIndented = true,
-                        MaxDepth = 5
-                    });
+                    var resultJson = Newtonsoft.Json.JsonConvert.SerializeObject(result.Result, Newtonsoft.Json.Formatting.Indented);
 
                     // Truncate large results
                     if (resultJson.Length > 10000)
@@ -1312,12 +1327,7 @@ namespace MedRecPro.Service
                 {
                     var jsonContent = response.Substring(jsonStart, jsonEnd - jsonStart + 1);
 
-                    var options = new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    };
-
-                    var synthesis = JsonSerializer.Deserialize<AiAgentSynthesis>(jsonContent, options);
+                    var synthesis = JsonConvert.DeserializeObject<AiAgentSynthesis>(jsonContent);
 
                     if (synthesis != null)
                     {
@@ -1332,7 +1342,7 @@ namespace MedRecPro.Service
                     IsComplete = true
                 };
             }
-            catch (JsonException)
+            catch (Newtonsoft.Json.JsonException)
             {
                 return new AiAgentSynthesis
                 {
@@ -1569,55 +1579,55 @@ namespace MedRecPro.Service
 
     public class ClaudeApiResponse
     {
-        [JsonPropertyName("id")]
+        [JsonProperty("id")]
         public string? Id { get; set; }
 
-        [JsonPropertyName("type")]
+        [JsonProperty("type")]
         public string? Type { get; set; }
 
-        [JsonPropertyName("role")]
+        [JsonProperty("role")]
         public string? Role { get; set; }
 
-        [JsonPropertyName("model")]
+        [JsonProperty("model")]
         public string? Model { get; set; }
 
-        [JsonPropertyName("content")]
+        [JsonProperty("content")]
         public ClaudeContent[]? Content { get; set; }
 
-        [JsonPropertyName("stop_reason")]
+        [JsonProperty("stop_reason")]
         public string? StopReason { get; set; }
 
-        [JsonPropertyName("stop_sequence")]
+        [JsonProperty("stop_sequence")]
         public string? StopSequence { get; set; }
 
-        [JsonPropertyName("usage")]
+        [JsonProperty("usage")]
         public ClaudeUsage? Usage { get; set; }
     }
 
     public class ClaudeContent
     {
-        [JsonPropertyName("type")]
+        [JsonProperty("type")]
         public string? Type { get; set; }
 
-        [JsonPropertyName("text")]
+        [JsonProperty("text")]
         public string? Text { get; set; }
     }
 
     public class ClaudeUsage
     {
-        [JsonPropertyName("input_tokens")]
+        [JsonProperty("input_tokens")]
         public int InputTokens { get; set; }
 
-        [JsonPropertyName("cache_creation_input_tokens")]
+        [JsonProperty("cache_creation_input_tokens")]
         public int CacheCreationInputTokens { get; set; }
 
-        [JsonPropertyName("cache_read_input_tokens")]
+        [JsonProperty("cache_read_input_tokens")]
         public int CacheReadInputTokens { get; set; }
 
-        [JsonPropertyName("output_tokens")]
+        [JsonProperty("output_tokens")]
         public int OutputTokens { get; set; }
 
-        [JsonPropertyName("service_tier")]
+        [JsonProperty("service_tier")]
         public string? ServiceTier { get; set; }
     } 
 

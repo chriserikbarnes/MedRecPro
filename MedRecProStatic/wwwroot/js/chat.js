@@ -20,14 +20,14 @@
      * @returns {boolean} True if running on localhost or local IP
      */
     function isLocalDevelopment() {
-     
+
         const hostname = window.location.hostname;
         return hostname === 'localhost' ||
             hostname === '127.0.0.1' ||
             hostname.startsWith('192.168.') ||
             hostname.startsWith('10.') ||
             hostname === '::1';
-        
+
     }
 
     /**
@@ -40,7 +40,7 @@
      * </remarks>
      */
     function buildApiConfig() {
-     
+
         // Base URL differs by environment
         const baseUrl = isLocalDevelopment()
             ? 'http://localhost:5093'       // Production API for local dev (requires CORS)
@@ -59,7 +59,7 @@
             },
             pollInterval: 1000
         };
-        
+
     }
 
     // Initialize API configuration
@@ -79,7 +79,8 @@
         showFileUpload: false,
         systemContext: null,
         conversationId: generateUUID(),
-        abortController: null
+        abortController: null,
+        currentProgressCallback: null  // For real-time import progress updates
     };
 
     /**************************************************************/
@@ -129,9 +130,9 @@
      * </remarks>
      */
     function buildUrl(endpointPath) {
-     
+
         return API_CONFIG.baseUrl + endpointPath;
-        
+
     }
 
     /**
@@ -388,20 +389,26 @@
 
         let progressHtml = '';
         if (message.progress !== undefined && message.progress < 1) {
-            const circumference = 2 * Math.PI * 16;
-            const offset = circumference - (message.progress * circumference);
             progressHtml = `
-                        <div class="progress-indicator">
-                            <div class="progress-ring">
-                                <svg width="44" height="44">
-                                    <circle class="progress-ring-bg" cx="22" cy="22" r="16"></circle>
-                                    <circle class="progress-ring-fill" cx="22" cy="22" r="16"
-                                        stroke-dasharray="${message.progress * circumference} ${circumference}"></circle>
+                        <div class="progress-indicator" style="min-width: 320px;">
+                            <div class="progress-ring-animated">
+                                <svg width="44" height="44" viewBox="0 0 44 44">
+                                    <defs>
+                                        <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                            <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+                                            <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
+                                            <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0.3" />
+                                        </linearGradient>
+                                    </defs>
+                                    <circle class="progress-ring-track" cx="22" cy="22" r="16" 
+                                        fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="3"></circle>
+                                    <circle class="progress-ring-spinner" cx="22" cy="22" r="16"
+                                        fill="none" stroke="url(#progressGradient)" stroke-width="3"
+                                        stroke-linecap="round" stroke-dasharray="60 40"></circle>
                                 </svg>
-                                <span class="progress-percent">${Math.round(message.progress * 100)}%</span>
                             </div>
-                            <div class="progress-info">
-                                <div class="progress-status">${escapeHtml(message.progressStatus || 'Processing...')}</div>
+                            <div class="progress-info" style="min-width: 240px;">
+                                <div class="progress-status-text">${escapeHtml(message.progressStatus || 'Processing...')}</div>
                                 <div class="progress-hint">Please wait</div>
                             </div>
                         </div>
@@ -549,6 +556,13 @@
 
         const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
         if (msgEl) {
+            // Try to update just the progress status text to avoid flickering
+            const statusTextEl = msgEl.querySelector('.progress-status-text');
+            if (statusTextEl && message.progressStatus && message.isStreaming) {
+                statusTextEl.textContent = message.progressStatus;
+                return;
+            }
+            // Full rebuild for content changes
             msgEl.outerHTML = renderMessage(message);
         }
         scrollToBottom();
@@ -622,7 +636,7 @@
      * Stops polling when status is "Completed", "Failed", or "Canceled".
      * </remarks>
      */
-    async function pollImportProgress(progressUrl, maxWaitMs = 60000) {
+    async function pollImportProgress(progressUrl, onProgress, maxWaitMs = 120000) {
         // #region implementation
 
         const startTime = Date.now();
@@ -644,7 +658,13 @@
                 const status = await response.json();
                 console.log('[MedRecPro Chat] Import progress:', status.percentComplete + '%', status.status);
 
+                // Call progress callback for UI updates
+                if (onProgress) {
+                    onProgress(status);
+                }
+
                 // Check for terminal states
+
                 if (status.status === 'Completed' || status.status === 'Failed' || status.status === 'Canceled') {
                     return status;
                 }
@@ -703,27 +723,23 @@
         if (result.operationId && result.progressUrl) {
             console.log('[MedRecPro Chat] Import operation queued:', result.operationId);
 
-            // Poll for completion
-            const finalStatus = await pollImportProgress(result.progressUrl);
+            //Poll for completion with progress callback
+            const finalStatus = await pollImportProgress(result.progressUrl, state.currentProgressCallback);
 
             if (finalStatus.status === 'Completed' && finalStatus.results) {
-                // Extract document IDs from successful imports
-                const documentIds = finalStatus.results
-                    .filter(r => r.success && r.documentGuid)
-                    .map(r => r.documentGuid);
-
-                const documentNames = finalStatus.results
-                    .filter(r => r.success)
-                    .map(r => r.documentDisplayName || r.fileName || 'Unknown');
-
-                console.log('[MedRecPro Chat] Import completed. Documents:', documentIds);
+                // Extract document IDs from the nested response structure
+                // Response format: results[].fileResults[].splGUID
+                const extracted = extractImportResults(finalStatus);
 
                 return {
                     success: true,
-                    documentIds: documentIds,
-                    documentNames: documentNames,
+                    documentIds: extracted.documentIds,
+                    documentNames: extracted.documentNames,
+                    statistics: extracted.statistics,
+                    totalFilesProcessed: extracted.totalFilesProcessed,
+                    totalFilesSucceeded: extracted.totalFilesSucceeded,
                     results: finalStatus.results,
-                    message: `Successfully imported ${documentIds.length} document(s)`
+                    message: `Successfully imported ${extracted.documentIds.length} document(s)`
                 };
             } else if (finalStatus.status === 'Failed') {
                 return {
@@ -781,7 +797,7 @@
      * </remarks>
      */
     async function fetchSystemContext() {
-     
+
         try {
             const contextUrl = buildUrl(API_CONFIG.endpoints.context);
             console.log('[MedRecPro Chat] Fetching context from:', contextUrl);
@@ -805,7 +821,7 @@
                     'Ensure the API at medrecpro.com allows localhost origins.');
             }
         }
-        
+
     }
 
     /**
@@ -819,7 +835,7 @@
      * </remarks>
      */
     async function sendMessage() {
-     
+
         const input = elements.messageInput.value.trim();
         if (!input && state.files.length === 0) return;
         if (state.isLoading) return;
@@ -856,21 +872,32 @@
             // Upload files if any
             let importResult = null;
             if (state.files.length > 0) {
-                assistantMessage.progress = 0.1;
+                assistantMessage.progress = 0.05;
                 assistantMessage.progressStatus = 'Uploading files...';
                 updateMessage(assistantMessage.id);
 
+                // Set up progress callback for real-time updates
+                state.currentProgressCallback = (status) => {
+                    const percent = status.percentComplete || 0;
+                    assistantMessage.progress = percent / 100;
+                    assistantMessage.progressStatus = status.status || 'Processing...';
+                    updateMessage(assistantMessage.id);
+                };
+
                 importResult = await uploadFiles();
+                state.currentProgressCallback = null; // Clear callback
                 state.files = [];
                 renderFileList();
                 hideFileUpload();
 
-                if (importResult.success) {
-                    assistantMessage.progress = 0.5;
-                    assistantMessage.progressStatus = 'Files imported successfully, processing...';
+                // Final status update
+                if (importResult.success && importResult.documentIds.length > 0) {
+                    assistantMessage.progress = 1.0;
+                    assistantMessage.progressStatus = `Import complete: ${importResult.documentIds.length} document(s)`;
+                } else if (importResult.success) {
+                    assistantMessage.progressStatus = 'Import completed (no new documents)';
                 } else {
-                    assistantMessage.progress = 0.3;
-                    assistantMessage.progressStatus = 'Processing import status...';
+                    assistantMessage.progressStatus = importResult.message || 'Import issue';
                 }
                 updateMessage(assistantMessage.id);
             }
@@ -885,7 +912,14 @@
             let enhancedUserMessage = input;
             if (importResult) {
                 if (importResult.success && importResult.documentIds.length > 0) {
-                    enhancedUserMessage = `[IMPORT COMPLETED: Successfully imported ${importResult.documentIds.length} document(s): ${importResult.documentNames?.join(', ') || 'documents imported'}. Document GUIDs: ${importResult.documentIds.join(', ')}]\n\nUser request: ${input || 'Please acknowledge the import and provide information about the imported documents.'}`;
+                    // Build statistics summary
+                    const stats = importResult.statistics || {};
+                    const statsText = Object.entries(stats)
+                        .filter(([k, v]) => v > 0)
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join(', ');
+
+                    enhancedUserMessage = `[IMPORT COMPLETED SUCCESSFULLY: Imported ${importResult.documentIds.length} document(s). Document GUIDs: ${importResult.documentIds.join(', ')}. Statistics: ${statsText || 'N/A'}]\n\nUser request: ${input || 'Please acknowledge the successful import and provide information about the imported documents.'}`;
                 } else if (importResult.success) {
                     enhancedUserMessage = `[IMPORT COMPLETED: Files were processed but no new documents were created. ${importResult.message}]\n\nUser request: ${input}`;
                 } else {
@@ -914,6 +948,11 @@
             }
 
             const interpretation = await interpretResponse.json();
+
+            // Normalize endpoint property name (backend may return 'endpoints' or 'suggestedEndpoints')
+            if (interpretation.endpoints && !interpretation.suggestedEndpoints) {
+                interpretation.suggestedEndpoints = interpretation.endpoints;
+            }
 
             // Handle the interpretation response
             if (interpretation.thinking) {
@@ -944,6 +983,7 @@
                     updateMessage(assistantMessage.id);
 
                     try {
+                        const startTime = Date.now();
                         const apiUrl = buildApiUrl(endpoint);
                         const fullApiUrl = buildUrl(apiUrl);
                         console.log('[MedRecPro Chat] Executing API call:', fullApiUrl);
@@ -958,17 +998,18 @@
                         if (apiResponse.ok) {
                             const data = await apiResponse.json();
                             results.push({
-                                endpoint: endpoint.path,
-                                description: endpoint.description,
-                                success: true,
-                                data: data
+                                specification: endpoint,
+                                statusCode: apiResponse.status,
+                                result: data,
+                                executionTimeMs: Date.now() - startTime
                             });
                         } else {
                             results.push({
-                                endpoint: endpoint.path,
-                                description: endpoint.description,
-                                success: false,
-                                error: `HTTP ${apiResponse.status}`
+                                specification: endpoint,
+                                statusCode: apiResponse.status,
+                                result: null,
+                                error: `HTTP ${apiResponse.status}`,
+                                executionTimeMs: Date.now() - startTime
                             });
                         }
                     } catch (endpointError) {
@@ -993,14 +1034,13 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        originalQuestion: input,
+                        originalQuery: input,
                         interpretation: interpretation,
-                        results: results,
+                        executedEndpoints: results,
                         conversationId: state.conversationId
                     }),
                     signal: state.abortController.signal
                 }));
-
                 if (synthesizeResponse.ok) {
                     const synthesis = await synthesizeResponse.json();
                     assistantMessage.content = synthesis.response || 'No results found.';
@@ -1016,6 +1056,9 @@
                     assistantMessage.content = 'Unable to synthesize results. Please try again.';
                 }
 
+                // Clear progress state
+                assistantMessage.progress = undefined;
+                assistantMessage.progressStatus = undefined;
                 assistantMessage.isStreaming = false;
                 updateMessage(assistantMessage.id);
             }
@@ -1045,7 +1088,7 @@
             state.isLoading = false;
             updateUI();
         }
-        
+
     }
 
     /**
@@ -1059,7 +1102,7 @@
      * </remarks>
      */
     function buildApiUrl(endpoint) {
-     
+
         let url = endpoint.path;
 
         // Handle query parameters
@@ -1077,7 +1120,7 @@
         }
 
         return url;
-        
+
     }
 
     /**
@@ -1228,6 +1271,85 @@
             elements.messageInput.focus();
         });
     });
+
+    /**************************************************************/
+    // Import Result Extraction
+    // <remarks>
+    // Extracts document information from the nested import response structure.
+    // The backend returns: results[].fileResults[].splGUID (not results[].documentGuid)
+    // </remarks>
+    /**************************************************************/
+
+    /**
+     * Extracts document information from the completed import response.
+     * @param {Object} finalStatus - The completed import status with results
+     * @returns {Object} Extracted document IDs, names, and statistics
+     * <remarks>
+     * Navigates the nested structure: results[].fileResults[] to find splGUID.
+     * Aggregates statistics across all imported files.
+     * </remarks>
+     */
+    function extractImportResults(finalStatus) {
+        // #region implementation
+
+        const documentIds = [];
+        const documentNames = [];
+        const statistics = {
+            documentsCreated: 0,
+            organizationsCreated: 0,
+            productsCreated: 0,
+            sectionsCreated: 0,
+            ingredientsCreated: 0,
+            productElementsCreated: 0
+        };
+        let totalFilesProcessed = 0;
+        let totalFilesSucceeded = 0;
+
+        // Iterate through ZIP file results
+        if (finalStatus.results && Array.isArray(finalStatus.results)) {
+            for (const zipResult of finalStatus.results) {
+                totalFilesProcessed += zipResult.totalFilesProcessed || 0;
+                totalFilesSucceeded += zipResult.totalFilesSucceeded || 0;
+
+                // Iterate through individual file results within each ZIP
+                if (zipResult.fileResults && Array.isArray(zipResult.fileResults)) {
+                    for (const fileResult of zipResult.fileResults) {
+                        // Extract document ID (splGUID is the correct field name)
+                        if (fileResult.success && fileResult.splGUID) {
+                            documentIds.push(fileResult.splGUID);
+                            documentNames.push(fileResult.fileName || fileResult.splGUID);
+                        }
+
+                        // Aggregate statistics
+                        if (fileResult.documentsCreated) statistics.documentsCreated += fileResult.documentsCreated;
+                        if (fileResult.organizationsCreated) statistics.organizationsCreated += fileResult.organizationsCreated;
+                        if (fileResult.productsCreated) statistics.productsCreated += fileResult.productsCreated;
+                        if (fileResult.sectionsCreated) statistics.sectionsCreated += fileResult.sectionsCreated;
+                        if (fileResult.ingredientsCreated) statistics.ingredientsCreated += fileResult.ingredientsCreated;
+                        if (fileResult.productElementsCreated) statistics.productElementsCreated += fileResult.productElementsCreated;
+                    }
+                }
+            }
+        }
+
+        console.log('[MedRecPro Chat] Extracted import results:', {
+            documentIds,
+            documentNames,
+            statistics,
+            totalFilesProcessed,
+            totalFilesSucceeded
+        });
+
+        return {
+            documentIds,
+            documentNames,
+            statistics,
+            totalFilesProcessed,
+            totalFilesSucceeded
+        };
+
+        // #endregion
+    }
 
     /**************************************************************/
     // Initialization
