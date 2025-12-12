@@ -166,7 +166,7 @@
     "cta": {
       "title": "Ready to Simplify Your SPL Workflow?",
       "subtitle": "Sign in with your Microsoft or Google account to access the full API",
-      "note": "Open source under MIT License. Contributions welcome on GitHub."
+      "note": "Open source under Apache 2.0 License. Contributions welcome on GitHub."
     }
   },
   "terms": {
@@ -179,7 +179,7 @@
       },
       {
         "heading": "2. Use License",
-        "content": "MedRecPro is an open-source application for managing pharmaceutical Structured Product Labeling (SPL) data. The software is provided under the MIT License."
+        "content": "MedRecPro is an open-source application for managing pharmaceutical Structured Product Labeling (SPL) data. The software is provided under the Apache 2.0 License."
       },
       {
         "heading": "3. Data Processing",
@@ -191,7 +191,7 @@
       },
       {
         "heading": "5. Open Source",
-        "content": "This software is provided 'as is' without warranty of any kind. The source code is available on GitHub and contributions are welcome under the terms of the MIT License."
+        "content": "This software is provided 'as is' without warranty of any kind. The source code is available on GitHub and contributions are welcome under the terms of the Apache 2.0 License."
       },
       {
         "heading": "6. Regulatory Compliance",
@@ -204,49 +204,473 @@
     ]
   },
   "privacy": {
-    "title": "Privacy Policy",
-    "lastUpdated": "2025-10-27",
+    "title": "MedRecPro Privacy Policy",
+    "effectiveDate": "2025-01-01",
+    "lastUpdated": "2025-12-12",
+    "introduction": {
+      "content": "Welcome to the MedRecPro Privacy Policy. This document describes how MedRecPro ('we', 'us', or 'our') handles your Personal Data when you interact with our pharmaceutical labeling management platform and related services (collectively, 'Services'). MedRecPro is committed to protecting your privacy and ensuring the security of your information in compliance with applicable data protection laws."
+    },
     "sections": [
       {
-        "heading": "1. Information We Collect",
-        "content": "When you authenticate with MedRecPro using Microsoft or Google, we collect your name, email address, and profile information provided by the authentication provider."
+        "heading": "1. Data Controller",
+        "content": "MedRecPro operates as the Data Controller for Personal Data processed through our Services. For questions about data processing or to exercise your privacy rights, contact our Data Protection Officer at privacy@medrecpro.com.",
+        "subsections": [
+          {
+            "subheading": "1.1 Organization-Provided Accounts",
+            "content": "If your employer, healthcare organization, or pharmaceutical company provides your MedRecPro account, they assume the role of Data Controller for most Personal Data used in our Services. In such cases, MedRecPro functions as a Data Processor, adhering to the Data Controller's instructions. Please refer to your organization's privacy policies for additional information."
+          },
+          {
+            "subheading": "1.2 Professional Services",
+            "content": "When we provide training, consulting, or implementation services, the data protection terms in your service agreement govern the processing of your data."
+          }
+        ]
       },
       {
-        "heading": "2. How We Use Your Information",
-        "content": "We use your information to authenticate and authorize access to the application, maintain user sessions, and improve application functionality."
+        "heading": "2. Personal Data We Collect",
+        "content": "The Personal Data we collect depends on how you interact with our Services, including which features you use and how you access them.",
+        "subsections": [
+          {
+            "subheading": "2.1 Information You Provide",
+            "content": "We collect information you provide directly, including:",
+            "items": [
+              {
+                "item": "Account Data",
+                "description": "When you create an account, we collect your name, email address, and profile information provided by your authentication provider (Microsoft, Google, or Apple)."
+              },
+              {
+                "item": "Profile Information",
+                "description": "Optional information you provide such as professional title, organization name, pharmacy license numbers, or other professional credentials."
+              },
+              {
+                "item": "User Content and Files",
+                "description": "Pharmaceutical labeling documents, SPL files, annotations, notes, and other content you upload or create within the Services."
+              },
+              {
+                "item": "Support Data",
+                "description": "Information you provide when contacting customer support, including descriptions of issues, screenshots, and communication history."
+              },
+              {
+                "item": "Feedback Data",
+                "description": "Information you submit through surveys, feature requests, or interactive feedback mechanisms."
+              },
+              {
+                "item": "Payment Information",
+                "description": "For paid subscriptions, billing details including name, billing address, and payment method information processed through our payment provider."
+              }
+            ]
+          },
+          {
+            "subheading": "2.2 Information Collected Automatically",
+            "content": "When you use our Services, we automatically collect certain information:",
+            "items": [
+              {
+                "item": "Service Usage Information",
+                "description": "Data about your interactions with the Services, including IP address, device information, browser type, session details, date and time of requests, pages viewed, features used, and search queries."
+              },
+              {
+                "item": "Device Information",
+                "description": "Operating system, device type, device identifiers, screen resolution, and application version."
+              },
+              {
+                "item": "Geolocation Data",
+                "description": "Approximate geographic location based on IP address to provide region-appropriate services and comply with jurisdictional requirements."
+              },
+              {
+                "item": "Log Data",
+                "description": "Server logs that record your access to the Services, including timestamps, referring URLs, and actions performed."
+              },
+              {
+                "item": "Performance Data",
+                "description": "Information about service performance, error reports, and diagnostic data to maintain and improve the Services."
+              }
+            ]
+          },
+          {
+            "subheading": "2.3 Information from Third Parties",
+            "content": "We may receive information about you from third-party sources:",
+            "items": [
+              {
+                "item": "Authentication Providers",
+                "description": "When you authenticate using Microsoft, Google, or Apple, we receive your name, email address, and profile information as permitted by your settings with those services."
+              },
+              {
+                "item": "Publicly Available Sources",
+                "description": "We may collect publicly available professional information such as pharmacy license verification data from state boards of pharmacy."
+              },
+              {
+                "item": "Organization Administrators",
+                "description": "If you are part of an organization account, administrators may provide information about you for account management purposes."
+              }
+            ]
+          }
+        ]
       },
       {
-        "heading": "3. Data Storage",
-        "content": "Your authentication data is stored securely on Microsoft Azure infrastructure in the East US 2 region. We implement industry-standard security measures including encryption at rest and in transit."
+        "heading": "3. How We Use Your Information",
+        "content": "We process your Personal Data for the following purposes:",
+        "subsections": [
+          {
+            "subheading": "3.1 Service Provision",
+            "content": "To provide, maintain, and improve our pharmaceutical labeling management Services, including processing SPL documents, managing labeling workflows, and delivering personalized experiences."
+          },
+          {
+            "subheading": "3.2 Authentication and Security",
+            "content": "To authenticate your identity, authorize access to features based on your role and permissions, maintain session security, detect and prevent fraud, abuse, and security threats."
+          },
+          {
+            "subheading": "3.3 Communication",
+            "content": "To send service-related notifications, respond to support requests, provide updates about features or policy changes, and deliver information you have requested."
+          },
+          {
+            "subheading": "3.4 Analytics and Improvement",
+            "content": "To analyze usage patterns, identify accessibility gaps, troubleshoot issues, and improve the Services' functionality, performance, and user experience."
+          },
+          {
+            "subheading": "3.5 AI-Assisted Features",
+            "content": "When you use AI-powered features, your queries and relevant document content may be processed by third-party AI services (such as Anthropic's Claude) to generate responses and analysis. We do not use your content to train AI models."
+          },
+          {
+            "subheading": "3.6 Compliance and Legal Obligations",
+            "content": "To comply with applicable laws, regulations, and legal processes, including FDA regulations, healthcare data requirements, and responding to lawful requests from authorities."
+          },
+          {
+            "subheading": "3.7 Business Operations",
+            "content": "To conduct billing, accounting, capacity planning, and other business operations necessary to provide the Services."
+          }
+        ]
       },
       {
-        "heading": "4. Third-Party Services",
-        "content": "We use Microsoft and Google authentication services. Please refer to their respective privacy policies: Microsoft Privacy Statement (https://privacy.microsoft.com) and Google Privacy Policy (https://policies.google.com/privacy)."
+        "heading": "4. SPL Data Processing",
+        "content": "MedRecPro is designed to process pharmaceutical labeling data in compliance with FDA and HL7 specifications.",
+        "subsections": [
+          {
+            "subheading": "4.1 Data Ownership",
+            "content": "You retain full ownership of all SPL documents, labeling content, and related data you upload or create through the Services. MedRecPro processes this data solely to provide the Services you request."
+          },
+          {
+            "subheading": "4.2 FDA Compliance",
+            "content": "We process SPL data according to FDA Structured Product Labeling specifications and HL7 standards. Our processing supports, but does not replace, your organization's regulatory compliance obligations."
+          },
+          {
+            "subheading": "4.3 Data Accuracy",
+            "content": "While we strive for accuracy in rendering and processing SPL data, you remain responsible for verifying the accuracy of pharmaceutical labeling content before submission to regulatory authorities."
+          },
+          {
+            "subheading": "4.4 Protected Health Information",
+            "content": "MedRecPro is not designed to process Protected Health Information (PHI) as defined by HIPAA. Do not upload patient-identifiable health information to the Services."
+          }
+        ]
       },
       {
-        "heading": "5. SPL Data Processing",
-        "content": "MedRecPro processes pharmaceutical labeling data you upload or access. This data is processed according to FDA and HL7 specifications. You retain ownership of all data you upload or process through the system."
+        "heading": "5. Sharing of Personal Data",
+        "content": "We may share your Personal Data with the following categories of recipients:",
+        "subsections": [
+          {
+            "subheading": "5.1 Service Providers",
+            "content": "We engage trusted third-party service providers to perform functions on our behalf, including cloud hosting (Microsoft Azure), content delivery (Cloudflare), authentication services, payment processing, and analytics. These providers are contractually obligated to protect your data and use it only for the services they provide to us."
+          },
+          {
+            "subheading": "5.2 AI Service Providers",
+            "content": "When you use AI-powered features, relevant data is processed by Anthropic's Claude API. Anthropic's data processing is governed by their privacy policy and our data processing agreement with them."
+          },
+          {
+            "subheading": "5.3 Organization Administrators",
+            "content": "If you use MedRecPro through an organization account, your organization's administrators may have access to your account information and usage data as permitted by your organization's agreement with us."
+          },
+          {
+            "subheading": "5.4 Legal and Safety Purposes",
+            "content": "We may disclose Personal Data when we believe in good faith that disclosure is necessary to comply with applicable laws or legal processes, protect the rights, property, or safety of MedRecPro, our users, or the public, or detect, prevent, or address fraud, security, or technical issues."
+          },
+          {
+            "subheading": "5.5 Business Transfers",
+            "content": "In the event of a merger, acquisition, reorganization, or sale of assets, your Personal Data may be transferred as part of that transaction. We will notify you of any such change and the choices you may have regarding your data."
+          },
+          {
+            "subheading": "5.6 With Your Consent",
+            "content": "We may share your Personal Data with other parties when you explicitly consent to such sharing."
+          }
+        ]
       },
       {
-        "heading": "6. Data Retention",
-        "content": "We retain your authentication information for as long as your account is active. You may request account deletion at any time by contacting support@medrecpro.com."
+        "heading": "6. Data Storage and Security",
+        "content": "We implement comprehensive security measures to protect your Personal Data.",
+        "subsections": [
+          {
+            "subheading": "6.1 Infrastructure",
+            "content": "Your data is stored securely on Microsoft Azure infrastructure in the East US 2 region. Azure maintains SOC 2 Type II, ISO 27001, and other security certifications."
+          },
+          {
+            "subheading": "6.2 Encryption",
+            "content": "We implement encryption at rest using AES-256 encryption for stored data and encryption in transit using TLS 1.2 or higher for all data transmission."
+          },
+          {
+            "subheading": "6.3 Access Controls",
+            "content": "We employ role-based access controls, secure authentication mechanisms, and the principle of least privilege to limit access to Personal Data to authorized personnel who require it for legitimate business purposes."
+          },
+          {
+            "subheading": "6.4 Security Practices",
+            "content": "We conduct regular security assessments, maintain security logs and monitoring, implement secure software development practices, and promptly address identified vulnerabilities."
+          },
+          {
+            "subheading": "6.5 Incident Response",
+            "content": "We maintain incident response procedures to detect, respond to, and recover from security incidents. In the event of a data breach affecting your Personal Data, we will notify you and relevant authorities as required by applicable law."
+          }
+        ]
       },
       {
-        "heading": "7. Your Rights",
-        "content": "You have the right to access your personal data, request correction of your data, request deletion of your account, and export your data."
+        "heading": "7. Data Retention",
+        "content": "We retain your Personal Data for as long as necessary to fulfill the purposes described in this Privacy Policy.",
+        "subsections": [
+          {
+            "subheading": "7.1 Account Data",
+            "content": "We retain your account information for as long as your account remains active. Upon account deletion, we will delete or anonymize your Personal Data within 90 days, except where retention is required for legal obligations or legitimate business purposes."
+          },
+          {
+            "subheading": "7.2 SPL Documents and Content",
+            "content": "User-uploaded documents and content are retained until you delete them or request account deletion. Deleted content may be retained in backups for up to 30 days."
+          },
+          {
+            "subheading": "7.3 Usage and Log Data",
+            "content": "Service usage logs and analytics data are typically retained for up to 24 months for service improvement and security purposes, then deleted or anonymized."
+          },
+          {
+            "subheading": "7.4 Legal Requirements",
+            "content": "We may retain certain data for longer periods when required by law, to resolve disputes, enforce our agreements, or protect our legal rights."
+          }
+        ]
       },
       {
-        "heading": "8. Cookies and Tracking",
-        "content": "We use essential cookies for authentication and session management. We do not use advertising or tracking cookies."
+        "heading": "8. Your Privacy Rights",
+        "content": "Depending on your location, you may have specific legal rights regarding your Personal Data.",
+        "subsections": [
+          {
+            "subheading": "8.1 General Rights",
+            "content": "Subject to applicable law, you have the right to:",
+            "items": [
+              {
+                "item": "Access",
+                "description": "Request access to the Personal Data we hold about you."
+              },
+              {
+                "item": "Correction",
+                "description": "Request correction of inaccurate or incomplete Personal Data."
+              },
+              {
+                "item": "Deletion",
+                "description": "Request deletion of your Personal Data, subject to certain exceptions."
+              },
+              {
+                "item": "Portability",
+                "description": "Receive your Personal Data in a structured, commonly used, machine-readable format."
+              },
+              {
+                "item": "Restriction",
+                "description": "Request restriction of processing of your Personal Data under certain circumstances."
+              },
+              {
+                "item": "Objection",
+                "description": "Object to processing of your Personal Data for certain purposes."
+              },
+              {
+                "item": "Withdraw Consent",
+                "description": "Where processing is based on consent, withdraw that consent at any time."
+              }
+            ]
+          },
+          {
+            "subheading": "8.2 Exercising Your Rights",
+            "content": "To exercise your privacy rights, contact us at privacy@medrecpro.com. We will respond to your request within the timeframe required by applicable law (typically 30-45 days). We may need to verify your identity before processing your request."
+          },
+          {
+            "subheading": "8.3 Account Settings",
+            "content": "You can access, update, and manage much of your account information directly through your account settings in the Services."
+          },
+          {
+            "subheading": "8.4 Appeals",
+            "content": "If we deny your rights request, you have the right to appeal that decision. We will provide you with information on how to submit an appeal at that time."
+          }
+        ]
       },
       {
-        "heading": "9. Security",
-        "content": "We implement industry-standard security measures including HTTPS encryption, secure authentication flows, and regular security audits."
+        "heading": "9. Lawful Bases for Processing (EEA, UK, and Switzerland)",
+        "content": "If you are located in the European Economic Area (EEA), United Kingdom, or Switzerland, we process your Personal Data based on the following lawful bases under the GDPR:",
+        "subsections": [
+          {
+            "subheading": "9.1 Contractual Necessity",
+            "content": "Processing necessary to perform our contract with you, including providing the Services, managing your account, and delivering features you request."
+          },
+          {
+            "subheading": "9.2 Legitimate Interests",
+            "content": "Processing necessary for our legitimate interests, including improving the Services, ensuring security, conducting analytics, and communicating with you, provided these interests are not overridden by your data protection rights."
+          },
+          {
+            "subheading": "9.3 Legal Obligation",
+            "content": "Processing necessary to comply with applicable laws and regulations."
+          },
+          {
+            "subheading": "9.4 Consent",
+            "content": "Where required by law, we will obtain your consent before processing your Personal Data. You may withdraw consent at any time."
+          }
+        ]
       },
       {
-        "heading": "10. Contact Us",
-        "content": "For privacy-related questions, contact: support@medrecpro.com"
+        "heading": "10. International Data Transfers",
+        "content": "MedRecPro is based in the United States, and your Personal Data may be transferred to and processed in the United States and other countries where our service providers operate.",
+        "subsections": [
+          {
+            "subheading": "10.1 Transfer Mechanisms",
+            "content": "When we transfer Personal Data from the EEA, UK, or Switzerland to countries not recognized as providing adequate data protection, we rely on appropriate safeguards such as Standard Contractual Clauses approved by the European Commission."
+          },
+          {
+            "subheading": "10.2 Data Privacy Framework",
+            "content": "We are committed to complying with applicable data transfer requirements and protecting your Personal Data regardless of where it is processed."
+          }
+        ]
+      },
+      {
+        "heading": "11. Cookies and Tracking Technologies",
+        "content": "We use cookies and similar technologies to provide and improve our Services.",
+        "subsections": [
+          {
+            "subheading": "11.1 Essential Cookies",
+            "content": "We use essential cookies for authentication, session management, security, and core functionality. These cookies are necessary for the Services to function and cannot be disabled."
+          },
+          {
+            "subheading": "11.2 Analytics Cookies",
+            "content": "We may use analytics cookies to understand how users interact with the Services, identify usage patterns, and improve functionality. You can opt out of analytics cookies through your browser settings."
+          },
+          {
+            "subheading": "11.3 No Advertising Cookies",
+            "content": "We do not use advertising or third-party tracking cookies. We do not sell your Personal Data or share it for targeted advertising purposes."
+          },
+          {
+            "subheading": "11.4 Cookie Controls",
+            "content": "You can manage cookie preferences through your browser settings. Note that disabling essential cookies may affect the functionality of the Services."
+          },
+          {
+            "subheading": "11.5 Do Not Track",
+            "content": "We honor Do Not Track (DNT) signals sent by your browser. When we detect a DNT signal, we will not set non-essential cookies."
+          }
+        ]
+      },
+      {
+        "heading": "12. Third-Party Services",
+        "content": "Our Services integrate with or link to third-party services. This Privacy Policy does not apply to third-party services, and we encourage you to review their privacy policies.",
+        "subsections": [
+          {
+            "subheading": "12.1 Authentication Providers",
+            "content": "We use Microsoft, Google, and Apple for authentication. Their privacy policies govern their collection and use of your data: Microsoft Privacy Statement (https://privacy.microsoft.com), Google Privacy Policy (https://policies.google.com/privacy), Apple Privacy Policy (https://www.apple.com/legal/privacy/)."
+          },
+          {
+            "subheading": "12.2 Cloud Infrastructure",
+            "content": "Our Services are hosted on Microsoft Azure. Microsoft's privacy practices are governed by the Microsoft Privacy Statement and applicable data processing agreements."
+          },
+          {
+            "subheading": "12.3 AI Services",
+            "content": "AI-powered features are provided through Anthropic's Claude API. Anthropic's privacy policy (https://www.anthropic.com/privacy) governs their processing of data."
+          },
+          {
+            "subheading": "12.4 Content Delivery",
+            "content": "We use Cloudflare for DNS management and content delivery. Cloudflare's privacy policy (https://www.cloudflare.com/privacypolicy/) governs their data processing."
+          }
+        ]
+      },
+      {
+        "heading": "13. US State-Specific Information",
+        "content": "This section provides additional information for residents of US states with specific data privacy laws.",
+        "subsections": [
+          {
+            "subheading": "13.1 California Residents",
+            "content": "If you are a California resident, you have additional rights under the California Consumer Privacy Act (CCPA) and California Privacy Rights Act (CPRA):",
+            "items": [
+              {
+                "item": "Right to Know",
+                "description": "You have the right to request information about the categories and specific pieces of Personal Data we have collected about you."
+              },
+              {
+                "item": "Right to Delete",
+                "description": "You have the right to request deletion of your Personal Data, subject to certain exceptions."
+              },
+              {
+                "item": "Right to Correct",
+                "description": "You have the right to request correction of inaccurate Personal Data."
+              },
+              {
+                "item": "Right to Opt-Out of Sale/Sharing",
+                "description": "We do not sell your Personal Data or share it for cross-context behavioral advertising."
+              },
+              {
+                "item": "Right to Non-Discrimination",
+                "description": "We will not discriminate against you for exercising your privacy rights."
+              }
+            ]
+          },
+          {
+            "subheading": "13.2 Virginia, Colorado, and Connecticut Residents",
+            "content": "Residents of Virginia, Colorado, and Connecticut have similar rights to access, correct, delete, and port their Personal Data, as well as the right to opt out of targeted advertising, sale of Personal Data, and profiling. You also have the right to appeal our decision regarding a rights request."
+          },
+          {
+            "subheading": "13.3 Categories of Personal Information",
+            "content": "In the past 12 months, we have collected the following categories of Personal Information: identifiers (name, email address, IP address), professional information (job title, organization), internet activity information (usage data, log data), and geolocation data (approximate location based on IP address)."
+          },
+          {
+            "subheading": "13.4 Exercising Your Rights",
+            "content": "To exercise your rights under state privacy laws, email privacy@medrecpro.com or submit a request through your account settings. You may also designate an authorized agent to make requests on your behalf."
+          }
+        ]
+      },
+      {
+        "heading": "14. Children's Privacy",
+        "content": "MedRecPro is designed for professional use and is not intended for individuals under the age of 18. We do not knowingly collect Personal Data from minors. If you become aware that a minor has provided us with Personal Data, please contact us at privacy@medrecpro.com, and we will take steps to delete such information."
+      },
+      {
+        "heading": "15. Changes to This Privacy Policy",
+        "content": "We may update this Privacy Policy from time to time to reflect changes in our practices, technologies, legal requirements, or other factors. If we make material changes, we will provide notice through the Services or by other means (such as email) at least 30 days before the changes take effect. Your continued use of the Services after the effective date of the updated Privacy Policy constitutes your acceptance of the changes."
+      },
+      {
+        "heading": "16. Contact Us",
+        "content": "If you have questions, concerns, or requests regarding this Privacy Policy or our data practices, please contact us:",
+        "contactInfo": {
+          "email": "privacy@medrecpro.com",
+          "support": "support@medrecpro.com",
+          "website": "https://www.medrecpro.com"
+        }
       }
-    ]
+    ],
+    "subprocessors": {
+      "description": "The following third-party subprocessors may process Personal Data on our behalf:",
+      "list": [
+        {
+          "name": "Microsoft Azure",
+          "purpose": "Cloud infrastructure, hosting, and data storage",
+          "location": "United States (East US 2)"
+        },
+        {
+          "name": "Cloudflare",
+          "purpose": "DNS management, content delivery, and security",
+          "location": "Global"
+        },
+        {
+          "name": "Anthropic",
+          "purpose": "AI-powered analysis and assistance features",
+          "location": "United States"
+        },
+        {
+          "name": "Microsoft (Authentication)",
+          "purpose": "User authentication via Microsoft accounts",
+          "location": "Global"
+        },
+        {
+          "name": "Google (Authentication)",
+          "purpose": "User authentication via Google accounts",
+          "location": "Global"
+        },
+        {
+          "name": "Apple (Authentication)",
+          "purpose": "User authentication via Apple accounts",
+          "location": "Global"
+        }
+      ]
+    }
   }
 }

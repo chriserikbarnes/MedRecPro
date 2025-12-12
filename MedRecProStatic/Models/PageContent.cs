@@ -173,7 +173,7 @@ namespace MedRecPro.Static.Models
         /// Content for the Privacy Policy page.
         /// </summary>
         [JsonPropertyName("privacy")]
-        public PageContent Privacy { get; set; } = new();
+        public PrivacyPageContent Privacy { get; set; } = new();
     }
 
     // ============================================================
@@ -690,7 +690,14 @@ namespace MedRecPro.Static.Models
     /**************************************************************/
     /// <summary>
     /// Legal section item for terms of service and privacy policy pages.
+    /// Supports nested subsections, items, and contact information.
     /// </summary>
+    /// <remarks>
+    /// This model supports the expanded privacy policy schema with
+    /// hierarchical content structure including subsections and itemized lists.
+    /// </remarks>
+    /// <seealso cref="LegalSubsection"/>
+    /// <seealso cref="LegalContactInfo"/>
     public class LegalSection
     {
         /**************************************************************/
@@ -706,5 +713,268 @@ namespace MedRecPro.Static.Models
         /// </summary>
         [JsonPropertyName("content")]
         public string? Content { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional collection of subsections within this section.
+        /// </summary>
+        /// <remarks>
+        /// Subsections provide additional detail and may contain their own
+        /// itemized lists for structured content like rights or data categories.
+        /// </remarks>
+        /// <seealso cref="LegalSubsection"/>
+        [JsonPropertyName("subsections")]
+        public List<LegalSubsection>? Subsections { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional contact information for sections like "Contact Us".
+        /// </summary>
+        /// <seealso cref="LegalContactInfo"/>
+        [JsonPropertyName("contactInfo")]
+        public LegalContactInfo? ContactInfo { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Represents a subsection within a legal section.
+    /// </summary>
+    /// <remarks>
+    /// Subsections provide hierarchical organization for complex legal content,
+    /// such as breaking down "Personal Data We Collect" into categories like
+    /// "Information You Provide" and "Information Collected Automatically".
+    /// </remarks>
+    /// <seealso cref="LegalSection"/>
+    /// <seealso cref="LegalItem"/>
+    public class LegalSubsection
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Subsection heading (e.g., "2.1 Information You Provide").
+        /// </summary>
+        [JsonPropertyName("subheading")]
+        public string? Subheading { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Subsection content/body text.
+        /// </summary>
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional collection of items within this subsection.
+        /// </summary>
+        /// <remarks>
+        /// Items provide structured lists of specific data types, rights,
+        /// or other enumerable content within the subsection.
+        /// </remarks>
+        /// <example>
+        /// Items might include "Account Data", "Profile Information", etc.
+        /// under the "Information You Provide" subsection.
+        /// </example>
+        /// <seealso cref="LegalItem"/>
+        [JsonPropertyName("items")]
+        public List<LegalItem>? Items { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Represents an individual item within a legal subsection.
+    /// </summary>
+    /// <remarks>
+    /// Items are used for definition-list style content where each item
+    /// has a name/title and a corresponding description.
+    /// </remarks>
+    /// <example>
+    /// Item: "Account Data"
+    /// Description: "When you create an account, we collect your name, email address..."
+    /// </example>
+    /// <seealso cref="LegalSubsection"/>
+    public class LegalItem
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Item name or title (e.g., "Account Data", "Right to Access").
+        /// </summary>
+        [JsonPropertyName("item")]
+        public string? Item { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Item description explaining the item in detail.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Contact information for legal pages.
+    /// </summary>
+    /// <remarks>
+    /// Provides structured contact details for privacy and support inquiries.
+    /// </remarks>
+    /// <seealso cref="LegalSection"/>
+    public class LegalContactInfo
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Privacy-related email address.
+        /// </summary>
+        [JsonPropertyName("email")]
+        public string? Email { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// General support email address.
+        /// </summary>
+        [JsonPropertyName("support")]
+        public string? Support { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Website URL for contact form or additional information.
+        /// </summary>
+        [JsonPropertyName("website")]
+        public string? Website { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Introduction section for legal pages.
+    /// </summary>
+    /// <remarks>
+    /// Provides introductory content that appears before the main sections.
+    /// </remarks>
+    public class LegalIntroduction
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Introduction content/body text.
+        /// </summary>
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Represents a third-party subprocessor that processes personal data.
+    /// </summary>
+    /// <remarks>
+    /// Subprocessors are third-party services that process personal data
+    /// on behalf of MedRecPro, such as cloud hosting providers or
+    /// authentication services.
+    /// </remarks>
+    /// <seealso cref="SubprocessorInfo"/>
+    public class Subprocessor
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Name of the subprocessor (e.g., "Microsoft Azure").
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Purpose of data processing by this subprocessor.
+        /// </summary>
+        [JsonPropertyName("purpose")]
+        public string? Purpose { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Geographic location(s) where data is processed.
+        /// </summary>
+        [JsonPropertyName("location")]
+        public string? Location { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Container for subprocessor information including description and list.
+    /// </summary>
+    /// <remarks>
+    /// Provides transparency about third-party data processors as required
+    /// by GDPR and other privacy regulations.
+    /// </remarks>
+    /// <seealso cref="Subprocessor"/>
+    public class SubprocessorInfo
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Descriptive text explaining the subprocessor list.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collection of subprocessors.
+        /// </summary>
+        /// <seealso cref="Subprocessor"/>
+        [JsonPropertyName("list")]
+        public List<Subprocessor>? List { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Extended page content model for privacy policy with additional schema support.
+    /// </summary>
+    /// <remarks>
+    /// This model extends the base page content to support the expanded privacy
+    /// policy schema including effective date, introduction, and subprocessors.
+    /// </remarks>
+    /// <seealso cref="LegalSection"/>
+    /// <seealso cref="LegalIntroduction"/>
+    /// <seealso cref="SubprocessorInfo"/>
+    public class PrivacyPageContent
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Page title (e.g., "MedRecPro Privacy Policy").
+        /// </summary>
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Date when the policy becomes effective.
+        /// </summary>
+        [JsonPropertyName("effectiveDate")]
+        public string? EffectiveDate { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Date when the policy was last updated.
+        /// </summary>
+        [JsonPropertyName("lastUpdated")]
+        public string? LastUpdated { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Introduction section displayed before main content.
+        /// </summary>
+        /// <seealso cref="LegalIntroduction"/>
+        [JsonPropertyName("introduction")]
+        public LegalIntroduction? Introduction { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collection of legal sections comprising the main content.
+        /// </summary>
+        /// <seealso cref="LegalSection"/>
+        [JsonPropertyName("sections")]
+        public List<LegalSection>? Sections { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Information about third-party subprocessors.
+        /// </summary>
+        /// <seealso cref="SubprocessorInfo"/>
+        [JsonPropertyName("subprocessors")]
+        public SubprocessorInfo? Subprocessors { get; set; }
     }
 }

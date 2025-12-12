@@ -1,19 +1,132 @@
-﻿@using MedRecPro.Static.Models
-@model PageContent
+@using MedRecPro.Static.Models
+@model PrivacyPageContent
 @{
     ViewData["Title"] = "Privacy Policy";
 }
-
 <div class="legal-page">
     <div class="container">
         <h1>@Model.Title</h1>
-        <p class="last-updated">Last updated: @Model.LastUpdated</p>
         
-        @foreach (var item in Model.Sections)
+        <div class="legal-meta">
+            @if (!string.IsNullOrEmpty(Model.EffectiveDate))
+            {
+                <p class="effective-date">Effective date: @Model.EffectiveDate</p>
+            }
+            @if (!string.IsNullOrEmpty(Model.LastUpdated))
+            {
+                <p class="last-updated">Last updated: @Model.LastUpdated</p>
+            }
+        </div>
+
+        @if (Model.Introduction != null && !string.IsNullOrEmpty(Model.Introduction.Content))
         {
-            <section>
-                <h2>@item.Heading</h2>
-                <p>@item.Content</p>
+            <section class="introduction">
+                <p>@Model.Introduction.Content</p>
+            </section>
+        }
+
+        @if (Model.Sections != null)
+        {
+            @foreach (var item in Model.Sections)
+            {
+                <section class="legal-section">
+                    <h2>@item.Heading</h2>
+                    
+                    @if (!string.IsNullOrEmpty(item.Content))
+                    {
+                        <p>@item.Content</p>
+                    }
+
+                    @if (item.Subsections != null && item.Subsections.Any())
+                    {
+                        @foreach (var subsection in item.Subsections)
+                        {
+                            <div class="legal-subsection">
+                                <h3>@subsection.Subheading</h3>
+                                
+                                @if (!string.IsNullOrEmpty(subsection.Content))
+                                {
+                                    <p>@subsection.Content</p>
+                                }
+
+                                @if (subsection.Items != null && subsection.Items.Any())
+                                {
+                                    <dl class="legal-items">
+                                        @foreach (var subItem in subsection.Items)
+                                        {
+                                            <dt>@subItem.Item</dt>
+                                            <dd>@subItem.Description</dd>
+                                        }
+                                    </dl>
+                                }
+                            </div>
+                        }
+                    }
+
+                    @if (item.ContactInfo != null)
+                    {
+                        <div class="contact-info">
+                            @if (!string.IsNullOrEmpty(item.ContactInfo.Email))
+                            {
+                                <p>
+                                    <strong>Privacy inquiries:</strong> 
+                                    <a href="mailto:@item.ContactInfo.Email">@item.ContactInfo.Email</a>
+                                </p>
+                            }
+                            @if (!string.IsNullOrEmpty(item.ContactInfo.Support))
+                            {
+                                <p>
+                                    <strong>General support:</strong> 
+                                    <a href="mailto:@item.ContactInfo.Support">@item.ContactInfo.Support</a>
+                                </p>
+                            }
+                            @if (!string.IsNullOrEmpty(item.ContactInfo.Website))
+                            {
+                                <p>
+                                    <strong>Website:</strong> 
+                                    <a href="@item.ContactInfo.Website" target="_blank" rel="noopener noreferrer">@item.ContactInfo.Website</a>
+                                </p>
+                            }
+                        </div>
+                    }
+                </section>
+            }
+        }
+
+        @if (Model.Subprocessors != null)
+        {
+            <section class="subprocessors-section">
+                <h2>Subprocessors</h2>
+                
+                @if (!string.IsNullOrEmpty(Model.Subprocessors.Description))
+                {
+                    <p>@Model.Subprocessors.Description</p>
+                }
+
+                @if (Model.Subprocessors.List != null && Model.Subprocessors.List.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="subprocessors-table">
+                            <thead>
+                                <tr>
+                                    <th>Service Provider</th>
+                                    <th>Purpose</th>
+                                    <th>Location</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var subprocessor in Model.Subprocessors.List)
+                                {
+                                    <tr>
+                                        <td>@subprocessor.Name</td>
+                                        <td>@subprocessor.Purpose</td>
+                                        <td>@subprocessor.Location</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
             </section>
         }
     </div>

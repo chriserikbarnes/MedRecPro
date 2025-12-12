@@ -119,6 +119,6 @@ namespace MedRecPro.Static.Services
         /// <returns>Page content containing legal sections for privacy policy.</returns>
         /// <seealso cref="PageContent"/>
         /// <seealso cref="LegalSection"/>
-        public PageContent GetPrivacyPage() => _pages.Privacy;
+        public PrivacyPageContent GetPrivacyPage() => _pages.Privacy;
     }
 }
