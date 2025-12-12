@@ -458,6 +458,60 @@ namespace MedRecPro.Service
         /// <seealso cref="InterpretRequestAsync"/>
         Task<string> GetSkillsDocumentAsync();
 
+        /**************************************************************/
+        /// <summary>
+        /// Attempts to re-interpret a user request when initial API endpoints fail.
+        /// Uses Claude to suggest alternative endpoints based on the failed results,
+        /// implementing a recursive retry strategy before giving up.
+        /// </summary>
+        /// <param name="originalRequest">The original user request that was interpreted.</param>
+        /// <param name="failedResults">The endpoint execution results that failed (404, 500, etc.).</param>
+        /// <param name="attemptNumber">Current retry attempt number (starts at 1, max 3).</param>
+        /// <returns>
+        /// A task that resolves to an <see cref="AiAgentInterpretation"/> containing
+        /// alternative endpoint specifications to try, or a direct response explaining
+        /// why the data cannot be retrieved.
+        /// </returns>
+        /// <remarks>
+        /// This method implements intelligent retry logic for failed API calls:
+        /// 
+        /// <list type="number">
+        /// <item>Analyzes why endpoints failed (404 = not found, 500 = server error)</item>
+        /// <item>Consults the skills document for alternative endpoints</item>
+        /// <item>Suggests fallback paths (e.g., views → label/section)</item>
+        /// <item>After 3 attempts, returns a direct response with explanation</item>
+        /// </list>
+        /// 
+        /// Common retry scenarios:
+        /// - View endpoint returns 404 → Try label/section/{table}
+        /// - Search returns empty → Try broader query or different table
+        /// - Table name incorrect → Try case variations or related tables
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // First interpretation suggested /api/views/ingredient/summaries but it returned 404
+        /// var failedResults = new List&lt;AiEndpointResult&gt; {
+        ///     new AiEndpointResult {
+        ///         Specification = new AiEndpointSpecification { Path = "/api/views/ingredient/summaries" },
+        ///         StatusCode = 404,
+        ///         Error = "Not Found"
+        ///     }
+        /// };
+        /// 
+        /// var retryInterpretation = await claudeService.RetryInterpretationAsync(
+        ///     originalRequest, failedResults, attemptNumber: 1);
+        /// 
+        /// // Returns new endpoints to try:
+        /// // { Endpoints: [{ Path: "/api/label/section/ActiveIngredient" }] }
+        /// </code>
+        /// </example>
+        /// <seealso cref="InterpretRequestAsync"/>
+        /// <seealso cref="SynthesizeResultsAsync"/>
+        Task<AiAgentInterpretation> RetryInterpretationAsync(
+            AiAgentRequest originalRequest,
+            List<AiEndpointResult> failedResults,
+            int attemptNumber);
+
         #endregion
     }
 
@@ -1691,6 +1745,232 @@ namespace MedRecPro.Service
             sb.AppendLine("4. **Pagination is required for large datasets** - Always include pageNumber and pageSize");
             sb.AppendLine("5. **IDs are encrypted** - Use the encryptedId values returned, not raw database IDs");
             sb.AppendLine("6. **Check context first** - `GET /api/ai/context` tells you document/product counts");
+
+            return sb.ToString();
+
+            #endregion
+        }
+
+        #endregion
+
+        #region retry interpretation methods
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <summary>
+        /// Implements recursive retry logic for failed API endpoint calls.
+        /// Analyzes failure reasons and suggests alternative endpoints from the skills document.
+        /// </summary>
+        public async Task<AiAgentInterpretation> RetryInterpretationAsync(
+            AiAgentRequest originalRequest,
+            List<AiEndpointResult> failedResults,
+            int attemptNumber)
+        {
+            #region input validation
+
+            if (originalRequest == null)
+            {
+                throw new ArgumentNullException(nameof(originalRequest));
+            }
+
+            if (failedResults == null || !failedResults.Any())
+            {
+                throw new ArgumentException("Failed results are required for retry interpretation.", nameof(failedResults));
+            }
+
+            // Maximum 3 retry attempts
+            const int maxAttempts = 3;
+            if (attemptNumber > maxAttempts)
+            {
+                _logger.LogWarning("Max retry attempts ({MaxAttempts}) reached for query: {Query}",
+                    maxAttempts, originalRequest.UserMessage);
+
+                return new AiAgentInterpretation
+                {
+                    Success = true,
+                    IsDirectResponse = true,
+                    DirectResponse = buildMaxRetryResponse(originalRequest.UserMessage, failedResults),
+                    Explanation = $"Unable to retrieve data after {maxAttempts} attempts."
+                };
+            }
+
+            #endregion
+
+            #region implementation
+
+            _logger.LogInformation("Retry attempt {AttemptNumber} for query: {QueryPreview}",
+                attemptNumber,
+                originalRequest.UserMessage.Length > 100
+                    ? originalRequest.UserMessage[..100] + "..."
+                    : originalRequest.UserMessage);
+
+            try
+            {
+                // Build the retry prompt
+                var prompt = buildRetryPrompt(originalRequest, failedResults, attemptNumber);
+
+                // Call Claude API
+                var claudeResponse = await GenerateDocumentComparisonAsync(prompt);
+
+                // Parse response into interpretation
+                var interpretation = parseInterpretationResponse(claudeResponse, originalRequest.SystemContext);
+
+                // Mark this as a retry attempt
+                interpretation.RetryAttempt = attemptNumber;
+
+                _logger.LogInformation("Retry interpretation successful. Attempt: {Attempt}, New endpoints: {EndpointCount}",
+                    attemptNumber, interpretation.Endpoints?.Count ?? 0);
+
+                return interpretation;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "Claude API error during retry interpretation attempt {Attempt}", attemptNumber);
+
+                return new AiAgentInterpretation
+                {
+                    Success = false,
+                    Error = "Unable to process retry request due to API communication error.",
+                    RetryAttempt = attemptNumber
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error during retry interpretation attempt {Attempt}", attemptNumber);
+
+                return new AiAgentInterpretation
+                {
+                    Success = false,
+                    Error = "An unexpected error occurred while processing the retry request.",
+                    RetryAttempt = attemptNumber
+                };
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the prompt for Claude to suggest alternative endpoints after failures.
+        /// </summary>
+        /// <param name="originalRequest">The original user request.</param>
+        /// <param name="failedResults">The endpoints that failed.</param>
+        /// <param name="attemptNumber">Current retry attempt number.</param>
+        /// <returns>Formatted prompt string for Claude.</returns>
+        private string buildRetryPrompt(
+            AiAgentRequest originalRequest,
+            List<AiEndpointResult> failedResults,
+            int attemptNumber)
+        {
+            #region implementation
+
+            var sb = new StringBuilder();
+
+            sb.AppendLine("You are an AI assistant for MedRecPro, a pharmaceutical labeling management system.");
+            sb.AppendLine("The previous API call(s) FAILED. You must suggest ALTERNATIVE endpoints to try.");
+            sb.AppendLine();
+
+            // Include skills document for reference
+            sb.AppendLine("=== AVAILABLE API ENDPOINTS (SKILLS DOCUMENT) ===");
+            sb.AppendLine(buildSkillsDocument());
+            sb.AppendLine();
+
+            // Original request
+            sb.AppendLine("=== ORIGINAL USER QUERY ===");
+            sb.AppendLine(originalRequest.UserMessage);
+            sb.AppendLine();
+
+            // What failed
+            sb.AppendLine("=== FAILED ENDPOINTS (DO NOT SUGGEST THESE AGAIN) ===");
+            foreach (var result in failedResults)
+            {
+                sb.AppendLine($"- {result.Specification.Method} {result.Specification.Path}");
+                sb.AppendLine($"  Status: {result.StatusCode}");
+                if (!string.IsNullOrEmpty(result.Error))
+                {
+                    sb.AppendLine($"  Error: {result.Error}");
+                }
+            }
+            sb.AppendLine();
+
+            // Retry guidance
+            sb.AppendLine("=== RETRY STRATEGY ===");
+            sb.AppendLine($"This is retry attempt {attemptNumber} of 3.");
+            sb.AppendLine();
+            sb.AppendLine("CRITICAL FALLBACK RULES:");
+            sb.AppendLine("1. If /api/views/* returned 404, use /api/label/section/{table} instead");
+            sb.AppendLine("2. If searching failed, try getting ALL records with pagination");
+            sb.AppendLine("3. Table names are case-sensitive: Document, Product, ActiveIngredient, InactiveIngredient, Organization");
+            sb.AppendLine("4. For ingredients, try: ActiveIngredient, InactiveIngredient, or IngredientSubstance");
+            sb.AppendLine("5. Always include pageNumber=1 and pageSize=50 for section queries");
+            sb.AppendLine();
+
+            sb.AppendLine("COMMON ALTERNATIVES:");
+            sb.AppendLine("| Failed Endpoint | Try Instead |");
+            sb.AppendLine("|----------------|-------------|");
+            sb.AppendLine("| /api/views/ingredient/* | /api/label/section/ActiveIngredient or /api/label/section/InactiveIngredient |");
+            sb.AppendLine("| /api/views/document/* | /api/label/section/Document |");
+            sb.AppendLine("| /api/views/labeler/* | /api/label/section/Organization |");
+            sb.AppendLine("| /api/views/pharmacologic-class/* | /api/label/section/PharmacologicClass |");
+            sb.AppendLine("| Any search endpoint | Same section with no filter + pagination |");
+            sb.AppendLine();
+
+            // Output format
+            sb.AppendLine("=== OUTPUT FORMAT ===");
+            sb.AppendLine("Respond with JSON containing DIFFERENT endpoints than the failed ones:");
+            sb.AppendLine(@"{
+  ""success"": true,
+  ""endpoints"": [
+    {
+      ""method"": ""GET"",
+      ""path"": ""/api/label/section/{table}"",
+      ""queryParameters"": { ""pageNumber"": ""1"", ""pageSize"": ""50"" },
+      ""description"": ""Alternative approach using direct table access""
+    }
+  ],
+  ""explanation"": ""Trying alternative endpoint because the view was not available"",
+  ""isDirectResponse"": false
+}");
+            sb.AppendLine();
+            sb.AppendLine("If NO alternatives exist, set isDirectResponse=true and provide directResponse explaining why.");
+
+            return sb.ToString();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a response message when maximum retry attempts are exceeded.
+        /// </summary>
+        /// <param name="originalQuery">The user's original query.</param>
+        /// <param name="failedResults">All endpoints that were attempted.</param>
+        /// <returns>Formatted response explaining the failure.</returns>
+        private string buildMaxRetryResponse(string originalQuery, List<AiEndpointResult> failedResults)
+        {
+            #region implementation
+
+            var sb = new StringBuilder();
+
+            sb.AppendLine("I apologize, but I was unable to retrieve the requested data after multiple attempts.");
+            sb.AppendLine();
+            sb.AppendLine("**What I tried:**");
+
+            foreach (var result in failedResults)
+            {
+                sb.AppendLine($"- `{result.Specification.Method} {result.Specification.Path}` → Status {result.StatusCode}");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("**Possible reasons:**");
+            sb.AppendLine("- The requested data may not exist in the database");
+            sb.AppendLine("- The database may be empty (try importing SPL data first)");
+            sb.AppendLine("- There may be a system configuration issue");
+            sb.AppendLine();
+            sb.AppendLine("**Suggested next steps:**");
+            sb.AppendLine("- Try asking for available tables: \"What tables are in the system?\"");
+            sb.AppendLine("- Check if data exists: \"How many documents are available?\"");
+            sb.AppendLine("- Import data if needed: \"How do I import SPL files?\"");
 
             return sb.ToString();
 

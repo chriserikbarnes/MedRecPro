@@ -53,11 +53,13 @@
                 context: '/api/Ai/context',
                 interpret: '/api/Ai/interpret',
                 synthesize: '/api/Ai/synthesize',
+                retry: '/api/Ai/retry',
                 chat: '/api/Ai/chat',
                 // Labels Controller endpoint for file upload
                 upload: '/api/Label/import'
             },
-            pollInterval: 1000
+            pollInterval: 1000,
+            maxRetryAttempts: 3
         };
 
     }
@@ -1022,6 +1024,32 @@
                     }
                 }
 
+                // Check for failed endpoints and retry if needed
+                const failedResults = results.filter(r => r.statusCode >= 400 || r.error);
+                const successfulResults = results.filter(r => r.statusCode >= 200 && r.statusCode < 300 && !r.error);
+
+                // If all endpoints failed, attempt retry
+                if (failedResults.length > 0 && successfulResults.length === 0) {
+                    console.log('[MedRecPro Chat] All endpoints failed, attempting retry...');
+
+                    const retryResults = await attemptRetryInterpretation(
+                        input,
+                        interpretation,
+                        failedResults,
+                        assistantMessage,
+                        1  // Start at attempt 1
+                    );
+
+                    // If retry produced results, use those instead
+                    if (retryResults && retryResults.length > 0) {
+                        const hasSuccessful = retryResults.some(r => r.statusCode >= 200 && r.statusCode < 300);
+                        if (hasSuccessful) {
+                            results.length = 0;  // Clear original results
+                            results.push(...retryResults);  // Use retry results
+                        }
+                    }
+                }
+
                 // Call synthesize to format the results
                 assistantMessage.progress = 0.9;
                 assistantMessage.progressStatus = 'Synthesizing results...';
@@ -1347,6 +1375,180 @@
             totalFilesProcessed,
             totalFilesSucceeded
         };
+
+        // #endregion
+    }
+
+    /**************************************************************/
+    // Retry Interpretation Logic
+    // <remarks>
+    // Implements recursive retry when API endpoints fail.
+    // Calls the server-side retry endpoint to get alternative endpoints.
+    // </remarks>
+    /**************************************************************/
+
+    /**
+     * Attempts to retry interpretation when endpoints fail.
+     * @param {string} originalQuery - The user's original query
+     * @param {Object} originalInterpretation - The original interpretation that failed
+     * @param {Array} failedResults - Array of failed endpoint results
+     * @param {Object} assistantMessage - The assistant message object to update
+     * @param {number} attemptNumber - Current attempt number (1-3)
+     * @returns {Array} Array of results from retry, or empty array if retry failed
+     */
+    async function attemptRetryInterpretation(originalQuery, originalInterpretation, failedResults, assistantMessage, attemptNumber) {
+
+        // #region implementation
+
+        const maxAttempts = API_CONFIG.maxRetryAttempts || 3;
+
+        if (attemptNumber > maxAttempts) {
+            console.log(`[MedRecPro Chat] Max retry attempts (${maxAttempts}) reached`);
+            return [];
+        }
+
+        console.log(`[MedRecPro Chat] Retry attempt ${attemptNumber} of ${maxAttempts}`);
+
+        // Update progress indicator
+        assistantMessage.progressStatus = `Retrying with alternative approach (attempt ${attemptNumber}/${maxAttempts})...`;
+        updateMessage(assistantMessage.id);
+
+        try {
+            // Call the retry endpoint
+            const retryUrl = buildUrl(API_CONFIG.endpoints.retry);
+            console.log('[MedRecPro Chat] Calling retry endpoint:', retryUrl);
+
+            const retryResponse = await fetch(retryUrl, getFetchOptions({
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userMessage: originalQuery,
+                    conversationId: state.conversationId,
+                    systemContext: state.systemContext
+                }),
+                signal: state.abortController.signal
+            }));
+
+            // Build request with failed results info
+            const retryRequest = {
+                originalRequest: {
+                    userMessage: originalQuery,
+                    conversationId: state.conversationId,
+                    systemContext: state.systemContext
+                },
+                failedResults: failedResults.map(r => ({
+                    specification: r.specification || { method: 'GET', path: r.endpoint },
+                    statusCode: r.statusCode || 500,
+                    error: r.error || 'Unknown error'
+                })),
+                attemptNumber: attemptNumber
+            };
+
+            const retryInterpretResponse = await fetch(retryUrl, getFetchOptions({
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(retryRequest),
+                signal: state.abortController.signal
+            }));
+
+            if (!retryInterpretResponse.ok) {
+                console.log('[MedRecPro Chat] Retry interpretation request failed:', retryInterpretResponse.status);
+                return [];
+            }
+
+            const retryInterpretation = await retryInterpretResponse.json();
+
+            // If direct response, we're done
+            if (retryInterpretation.isDirectResponse) {
+                console.log('[MedRecPro Chat] Retry returned direct response');
+                assistantMessage.content = retryInterpretation.directResponse ||
+                    retryInterpretation.explanation ||
+                    'Unable to find alternative data sources.';
+                return [];
+            }
+
+            // If no new endpoints, we're done
+            if (!retryInterpretation.suggestedEndpoints &&
+                !retryInterpretation.endpoints ||
+                (retryInterpretation.endpoints || retryInterpretation.suggestedEndpoints || []).length === 0) {
+                console.log('[MedRecPro Chat] Retry returned no new endpoints');
+                return [];
+            }
+
+            const newEndpoints = retryInterpretation.endpoints || retryInterpretation.suggestedEndpoints;
+            console.log(`[MedRecPro Chat] Retry suggested ${newEndpoints.length} new endpoint(s)`);
+
+            // Execute the new endpoints
+            const newResults = [];
+            for (const endpoint of newEndpoints) {
+                assistantMessage.progressStatus = `Trying: ${endpoint.description || endpoint.path}...`;
+                updateMessage(assistantMessage.id);
+
+                try {
+                    const startTime = Date.now();
+                    const apiUrl = buildApiUrl(endpoint);
+                    const fullApiUrl = buildUrl(apiUrl);
+                    console.log('[MedRecPro Chat] Executing retry API call:', fullApiUrl);
+
+                    const apiResponse = await fetch(fullApiUrl, getFetchOptions({
+                        method: endpoint.method || 'GET',
+                        headers: endpoint.method === 'POST' ? { 'Content-Type': 'application/json' } : {},
+                        body: endpoint.method === 'POST' ? JSON.stringify(endpoint.body) : undefined,
+                        signal: state.abortController.signal
+                    }));
+
+                    if (apiResponse.ok) {
+                        const data = await apiResponse.json();
+                        newResults.push({
+                            specification: endpoint,
+                            statusCode: apiResponse.status,
+                            result: data,
+                            executionTimeMs: Date.now() - startTime
+                        });
+                        console.log('[MedRecPro Chat] Retry endpoint succeeded:', endpoint.path);
+                    } else {
+                        newResults.push({
+                            specification: endpoint,
+                            statusCode: apiResponse.status,
+                            result: null,
+                            error: `HTTP ${apiResponse.status}`,
+                            executionTimeMs: Date.now() - startTime
+                        });
+                        console.log('[MedRecPro Chat] Retry endpoint failed:', endpoint.path, apiResponse.status);
+                    }
+                } catch (endpointError) {
+                    newResults.push({
+                        specification: endpoint,
+                        statusCode: 500,
+                        error: endpointError.message
+                    });
+                }
+            }
+
+            // Check if any new endpoints succeeded
+            const successfulNewResults = newResults.filter(r => r.statusCode >= 200 && r.statusCode < 300);
+
+            if (successfulNewResults.length > 0) {
+                console.log(`[MedRecPro Chat] Retry succeeded with ${successfulNewResults.length} result(s)`);
+                return newResults;
+            }
+
+            // All new endpoints also failed - recursive retry
+            console.log('[MedRecPro Chat] Retry endpoints also failed, attempting next retry...');
+            const allFailedResults = [...failedResults, ...newResults.filter(r => r.statusCode >= 400 || r.error)];
+
+            return await attemptRetryInterpretation(
+                originalQuery,
+                retryInterpretation,
+                allFailedResults,
+                assistantMessage,
+                attemptNumber + 1
+            );
+
+        } catch (error) {
+            console.error('[MedRecPro Chat] Error in retry interpretation:', error);
+            return [];
+        }
 
         // #endregion
     }

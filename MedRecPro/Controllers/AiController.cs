@@ -943,8 +943,167 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Retries interpretation when initial API endpoints fail.
+        /// Uses Claude to suggest alternative endpoints based on the failure reasons.
+        /// </summary>
+        /// <param name="request">
+        /// The <see cref="AiRetryRequest"/> containing the original request,
+        /// failed endpoint results, and current attempt number.
+        /// </param>
+        /// <returns>
+        /// An <see cref="AiAgentInterpretation"/> containing alternative endpoint specifications
+        /// to try, or a direct response if no alternatives are available.
+        /// </returns>
+        /// <response code="200">Returns the retry interpretation with new endpoints.</response>
+        /// <response code="400">If the request is invalid or missing required fields.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// POST /api/ai/retry
+        /// 
+        /// This endpoint implements recursive retry logic:
+        /// 1. Analyzes why the original endpoints failed (404, 500, etc.)
+        /// 2. Consults the skills document for alternative endpoints
+        /// 3. Suggests fallback paths (e.g., views → label/section)
+        /// 4. After 3 attempts, returns a direct response explaining the failure
+        /// 
+        /// Request Body:
+        /// ```json
+        /// {
+        ///   "originalRequest": {
+        ///     "userMessage": "What ingredients are available?",
+        ///     "conversationId": "conv-123"
+        ///   },
+        ///   "failedResults": [{
+        ///     "specification": { "method": "GET", "path": "/api/views/ingredient/summaries" },
+        ///     "statusCode": 404,
+        ///     "error": "Not Found"
+        ///   }],
+        ///   "attemptNumber": 1
+        /// }
+        /// ```
+        /// 
+        /// Response (200):
+        /// ```json
+        /// {
+        ///   "success": true,
+        ///   "endpoints": [{
+        ///     "method": "GET",
+        ///     "path": "/api/label/section/ActiveIngredient",
+        ///     "queryParameters": { "pageNumber": "1", "pageSize": "50" },
+        ///     "description": "Alternative: Get ingredients from direct table access"
+        ///   }],
+        ///   "explanation": "The view endpoint was not available, trying direct table access instead.",
+        ///   "retryAttempt": 1
+        /// }
+        /// ```
+        /// </remarks>
+        /// <seealso cref="Interpret"/>
+        /// <seealso cref="Synthesize"/>
+        [HttpPost("retry")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(AiAgentInterpretation), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<AiAgentInterpretation>> RetryInterpretation([FromBody] AiRetryRequest request)
+        {
+            #region input validation
+
+            if (request == null)
+            {
+                return BadRequest("Request body is required.");
+            }
+
+            if (request.OriginalRequest == null)
+            {
+                return BadRequest("Original request is required.");
+            }
+
+            if (request.FailedResults == null || !request.FailedResults.Any())
+            {
+                return BadRequest("Failed results are required for retry.");
+            }
+
+            if (request.AttemptNumber <= 0)
+            {
+                request.AttemptNumber = 1;
+            }
+
+            #endregion
+
+            #region implementation
+
+            try
+            {
+                _logger.LogInformation("Retry interpretation attempt {Attempt} for query: {QueryPreview}",
+                    request.AttemptNumber,
+                    request.OriginalRequest.UserMessage?.Length > 100
+                        ? request.OriginalRequest.UserMessage[..100] + "..."
+                        : request.OriginalRequest.UserMessage);
+
+                // Build system context if not provided
+                if (request.OriginalRequest.SystemContext == null)
+                {
+                    var isAuthenticated = User.Identity?.IsAuthenticated ?? false;
+                    var userId = isAuthenticated ? getEncryptedUserId() : null;
+                    request.OriginalRequest.SystemContext = await _claudeApiService.GetSystemContextAsync(isAuthenticated, userId);
+                }
+
+                // Call retry interpretation
+                var interpretation = await _claudeApiService.RetryInterpretationAsync(
+                    request.OriginalRequest,
+                    request.FailedResults,
+                    request.AttemptNumber);
+
+                return Ok(interpretation);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid argument in retry request");
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in retry interpretation");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while processing your retry request.");
+            }
+
+            #endregion
+        }
+
         #endregion
     }
+
+    #region retry request model
+
+    /**************************************************************/
+    /// <summary>
+    /// Request model for retry interpretation when initial endpoints fail.
+    /// </summary>
+    public class AiRetryRequest
+    {
+        /**************************************************************/
+        /// <summary>
+        /// The original user request that was interpreted.
+        /// </summary>
+        public AiAgentRequest OriginalRequest { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// The endpoint execution results that failed.
+        /// </summary>
+        public List<AiEndpointResult> FailedResults { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Current retry attempt number (1-based, max 3).
+        /// </summary>
+        public int AttemptNumber { get; set; } = 1;
+    }
+
+    #endregion
 
     #endregion
 }

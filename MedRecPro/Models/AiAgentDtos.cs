@@ -319,6 +319,12 @@ namespace MedRecPro.Models
         [JsonProperty("directResponse")]
         public string? DirectResponse { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// The retry attempt number if this interpretation was from a retry (1-3), or 0 if original.
+        /// </summary>
+        public int RetryAttempt { get; set; } = 0;
+
         #endregion
     }
 
