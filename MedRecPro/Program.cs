@@ -230,8 +230,82 @@ builder.Services.ConfigureApplicationCookie(options =>
 
     options.Events = new CookieAuthenticationEvents
     {
-        OnRedirectToLogin = ctx => { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; },
-        OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; }
+        OnRedirectToLogin = ctx =>
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        },
+        OnRedirectToAccessDenied = ctx =>
+        {
+            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        },
+        OnSigningIn = ctx =>
+        {
+            var logger = ctx.HttpContext.RequestServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("CookieAuthentication");
+
+            var host = ctx.HttpContext.Request.Host.Host.ToLowerInvariant();
+            var userName = ctx.Principal?.Identity?.Name ?? "unknown";
+            string? cookieDomain = null;
+
+            if (host.EndsWith("medrecpro.com"))
+            {
+                cookieDomain = ".medrecpro.com";
+            }
+            else if (host.EndsWith("medrec.pro"))
+            {
+                cookieDomain = ".medrec.pro";
+            }
+            // localhost / 127.0.0.1 / local IPs: don't set domain
+
+            if (cookieDomain != null)
+            {
+                ctx.Options.Cookie.Domain = cookieDomain;
+                logger.LogInformation(
+                    "[Auth] Signing in user '{User}' on host '{Host}' - Cookie domain set to '{Domain}'",
+                    userName, host, cookieDomain);
+            }
+            else
+            {
+                logger.LogInformation(
+                    "[Auth] Signing in user '{User}' on host '{Host}' - Cookie domain not set (localhost mode)",
+                    userName, host);
+            }
+
+            return Task.CompletedTask;
+        },
+        OnSignedIn = ctx =>
+        {
+            var logger = ctx.HttpContext.RequestServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("CookieAuthentication");
+
+            var userName = ctx.Principal?.Identity?.Name ?? "unknown";
+            logger.LogInformation(
+                "[Auth] Successfully signed in user '{User}' - Cookie path: '{Path}', Domain: '{Domain}'",
+                userName,
+                ctx.Options.Cookie.Path,
+                ctx.Options.Cookie.Domain ?? "(not set)");
+
+            return Task.CompletedTask;
+        },
+        OnValidatePrincipal = ctx =>
+        {
+            var logger = ctx.HttpContext.RequestServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("CookieAuthentication");
+
+            var userName = ctx.Principal?.Identity?.Name ?? "unknown";
+            var host = ctx.HttpContext.Request.Host.Host;
+
+            logger.LogDebug(
+                "[Auth] Validating cookie for user '{User}' on host '{Host}'",
+                userName, host);
+
+            return Task.CompletedTask;
+        }
     };
 });
 
