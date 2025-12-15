@@ -1080,6 +1080,12 @@
                             assistantMessage.content += `- ${followUp}\n`;
                         });
                     }
+
+                    // Add API data source links for transparency
+                    const sourceLinks = formatApiSourceLinks(results);
+                    if (sourceLinks) {
+                        assistantMessage.content += sourceLinks;
+                    }
                 } else {
                     assistantMessage.content = 'Unable to synthesize results. Please try again.';
                 }
@@ -1148,6 +1154,51 @@
         }
 
         return url;
+
+    }
+
+    /**
+     * Formats API endpoint results as markdown links for data source transparency.
+     * @param {Array} results - Array of endpoint execution results
+     * @returns {string} Markdown formatted string with API links, or empty string if no successful results
+     * <remarks>
+     * Only includes successful endpoints (2xx status codes) that returned data.
+     * Creates clickable links to the underlying API endpoints so users can
+     * explore the raw data directly.
+     * </remarks>
+     */
+    function formatApiSourceLinks(results) {
+
+        if (!results || results.length === 0) {
+            return '';
+        }
+
+        // Filter to only successful results with data
+        const successfulResults = results.filter(r =>
+            r.statusCode >= 200 &&
+            r.statusCode < 300 &&
+            r.result &&
+            r.specification
+        );
+
+        if (successfulResults.length === 0) {
+            return '';
+        }
+
+        // Build the markdown section
+        let linksMarkdown = '\n\n---\n**Data sources:**\n';
+
+        successfulResults.forEach(r => {
+            const endpoint = r.specification;
+            const apiUrl = buildApiUrl(endpoint);
+            const fullUrl = buildUrl(apiUrl);
+            const description = endpoint.description || endpoint.path;
+
+            // Format: [Description](url)
+            linksMarkdown += `- [${description}](${fullUrl})\n`;
+        });
+
+        return linksMarkdown;
 
     }
 

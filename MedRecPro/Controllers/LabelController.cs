@@ -774,8 +774,8 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If the applicationNumber is null/empty or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/application-number/search?applicationNumber=NDA014526
-        /// GET /api/views/application-number/search?applicationNumber=ANDA&amp;pageNumber=1&amp;pageSize=25
+        /// GET /api/Label/application-number/search?applicationNumber=NDA014526
+        /// GET /api/Label/application-number/search?applicationNumber=ANDA&amp;pageNumber=1&amp;pageSize=25
         /// 
         /// The search supports multiple matching strategies:
         /// - Exact match after normalization (e.g., "ANDA125669" == "ANDA125669")
@@ -797,10 +797,10 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Search for all products under NDA014526
-        /// GET /api/views/application-number/search?applicationNumber=NDA014526
+        /// GET /api/Label/application-number/search?applicationNumber=NDA014526
         /// 
         /// // Search for all ANDA products with pagination
-        /// GET /api/views/application-number/search?applicationNumber=ANDA&amp;pageNumber=1&amp;pageSize=50
+        /// GET /api/Label/application-number/search?applicationNumber=ANDA&amp;pageNumber=1&amp;pageSize=50
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.SearchByApplicationNumberAsync"/>
@@ -884,8 +884,8 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/application-number/summaries
-        /// GET /api/views/application-number/summaries?marketingCategoryCode=NDA
+        /// GET /api/Label/application-number/summaries
+        /// GET /api/Label/application-number/summaries?marketingCategoryCode=NDA
         /// 
         /// Response (200):
         /// ```json
@@ -904,10 +904,10 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Get all application number summaries
-        /// GET /api/views/application-number/summaries
+        /// GET /api/Label/application-number/summaries
         /// 
         /// // Get only NDA summaries
-        /// GET /api/views/application-number/summaries?marketingCategoryCode=NDA
+        /// GET /api/Label/application-number/summaries?marketingCategoryCode=NDA
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.GetApplicationNumberSummariesAsync"/>
@@ -988,7 +988,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If classNameSearch is null/empty or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/pharmacologic-class/search?classNameSearch=Beta-Blocker
+        /// GET /api/Label/pharmacologic-class/search?classNameSearch=Beta-Blocker
         /// 
         /// Response (200):
         /// ```json
@@ -1007,10 +1007,10 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Search for beta blocker products
-        /// GET /api/views/pharmacologic-class/search?classNameSearch=Beta-Blocker
+        /// GET /api/Label/pharmacologic-class/search?classNameSearch=Beta-Blocker
         /// 
         /// // Search with pagination
-        /// GET /api/views/pharmacologic-class/search?classNameSearch=ACE&amp;pageNumber=1&amp;pageSize=25
+        /// GET /api/Label/pharmacologic-class/search?classNameSearch=ACE&amp;pageNumber=1&amp;pageSize=25
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.SearchByPharmacologicClassAsync"/>
@@ -1095,7 +1095,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/pharmacologic-class/hierarchy
+        /// GET /api/Label/pharmacologic-class/hierarchy
         /// 
         /// Response (200):
         /// ```json
@@ -1179,7 +1179,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/pharmacologic-class/summaries
+        /// GET /api/Label/pharmacologic-class/summaries
         /// 
         /// Response (200):
         /// ```json
@@ -1272,8 +1272,8 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If neither unii nor substanceNameSearch is provided, or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/ingredient/search?unii=R16CO5Y76E
-        /// GET /api/views/ingredient/search?substanceNameSearch=aspirin
+        /// GET /api/Label/ingredient/search?unii=R16CO5Y76E
+        /// GET /api/Label/ingredient/search?substanceNameSearch=aspirin
         /// 
         /// At least one of `unii` or `substanceNameSearch` must be provided.
         /// 
@@ -1294,10 +1294,10 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Search by UNII code
-        /// GET /api/views/ingredient/search?unii=R16CO5Y76E
+        /// GET /api/Label/ingredient/search?unii=R16CO5Y76E
         /// 
         /// // Search by substance name
-        /// GET /api/views/ingredient/search?substanceNameSearch=aspirin
+        /// GET /api/Label/ingredient/search?substanceNameSearch=aspirin
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.SearchByIngredientAsync"/>
@@ -1384,8 +1384,8 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/ingredient/summaries
-        /// GET /api/views/ingredient/summaries?minProductCount=10
+        /// GET /api/Label/ingredient/summaries
+        /// GET /api/Label/ingredient/summaries?minProductCount=10
         /// 
         /// Response (200):
         /// ```json
@@ -1460,6 +1460,205 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets active ingredient summaries with product, document, and labeler counts.
+        /// Discover the most common active ingredients across products in the database.
+        /// </summary>
+        /// <param name="minProductCount">
+        /// Optional minimum product count filter. Only returns ingredients appearing in at least this many products.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of active ingredient summaries with aggregated counts.</returns>
+        /// <response code="200">Returns the active ingredient summaries.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/Label/ingredient/active/summaries
+        /// GET /api/Label/ingredient/active/summaries?minProductCount=10
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedIngredientSubstanceID": "encrypted_string",
+        ///     "UNII": "R16CO5Y76E",
+        ///     "SubstanceName": "ASPIRIN",
+        ///     "IngredientType": "activeIngredient",
+        ///     "ProductCount": 250,
+        ///     "DocumentCount": 180,
+        ///     "LabelerCount": 45
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ProductCount in descending order.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetIngredientActiveSummariesAsync"/>
+        /// <seealso cref="LabelView.IngredientActiveSummary"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("ingredient/active/summaries")]
+        [ProducesResponseType(typeof(IEnumerable<IngredientActiveSummaryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<IngredientActiveSummaryDto>>> GetIngredientActiveSummaries(
+            [FromQuery] int? minProductCount,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate minProductCount if provided
+            if (minProductCount.HasValue && minProductCount.Value < 0)
+            {
+                return BadRequest("Minimum product count cannot be negative.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting active ingredient summaries. MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
+                    minProductCount, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetIngredientActiveSummariesAsync(
+                    _dbContext,
+                    minProductCount,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving active ingredient summaries");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving active ingredient summaries.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets inactive ingredient (excipient) summaries with product, document, and labeler counts.
+        /// Discover the most common inactive ingredients across products in the database.
+        /// </summary>
+        /// <param name="minProductCount">
+        /// Optional minimum product count filter. Only returns ingredients appearing in at least this many products.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of inactive ingredient summaries with aggregated counts.</returns>
+        /// <response code="200">Returns the inactive ingredient summaries.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// GET /api/Label/ingredient/inactive/summaries
+        /// GET /api/Label/ingredient/inactive/summaries?minProductCount=10
+        /// 
+        /// Response (200):
+        /// ```json
+        /// [
+        ///   {
+        ///     "EncryptedIngredientSubstanceID": "encrypted_string",
+        ///     "UNII": "ETJ7Z6XBU4",
+        ///     "SubstanceName": "SILICON DIOXIDE",
+        ///     "IngredientType": "inactiveIngredient",
+        ///     "ProductCount": 500,
+        ///     "DocumentCount": 350,
+        ///     "LabelerCount": 120
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by ProductCount in descending order.
+        /// Inactive ingredients include excipients, fillers, binders, and other non-active substances.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetIngredientInactiveSummariesAsync"/>
+        /// <seealso cref="LabelView.IngredientInactiveSummary"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("ingredient/inactive/summaries")]
+        [ProducesResponseType(typeof(IEnumerable<IngredientInactiveSummaryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<IngredientInactiveSummaryDto>>> GetIngredientInactiveSummaries(
+            [FromQuery] int? minProductCount,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate minProductCount if provided
+            if (minProductCount.HasValue && minProductCount.Value < 0)
+            {
+                return BadRequest("Minimum product count cannot be negative.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting inactive ingredient summaries. MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
+                    minProductCount, pageNumber, pageSize);
+
+                var results = await DtoLabelAccess.GetIngredientInactiveSummariesAsync(
+                    _dbContext,
+                    minProductCount,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving inactive ingredient summaries");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving inactive ingredient summaries.");
+            }
+
+            #endregion
+        }
+
         #endregion Ingredient Navigation
 
         #region Product Identifier Navigation
@@ -1484,7 +1683,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If productCode is null/empty or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/ndc/search?productCode=12345-678
+        /// GET /api/Label/ndc/search?productCode=12345-678
         /// 
         /// Response (200):
         /// ```json
@@ -1503,10 +1702,10 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Search by full NDC
-        /// GET /api/views/ndc/search?productCode=12345-678-90
+        /// GET /api/Label/ndc/search?productCode=12345-678-90
         /// 
         /// // Search by partial NDC
-        /// GET /api/views/ndc/search?productCode=12345
+        /// GET /api/Label/ndc/search?productCode=12345
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.SearchByNDCAsync"/>
@@ -1590,7 +1789,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If packageCode is null/empty or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/ndc/package/search?packageCode=12345-678-90
+        /// GET /api/Label/ndc/package/search?packageCode=12345-678-90
         /// 
         /// Response (200):
         /// ```json
@@ -1691,7 +1890,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If labelerNameSearch is null/empty or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/labeler/search?labelerNameSearch=Pfizer
+        /// GET /api/Label/labeler/search?labelerNameSearch=Pfizer
         /// 
         /// Response (200):
         /// ```json
@@ -1710,10 +1909,10 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Search for Pfizer products
-        /// GET /api/views/labeler/search?labelerNameSearch=Pfizer
+        /// GET /api/Label/labeler/search?labelerNameSearch=Pfizer
         /// 
         /// // Search with pagination
-        /// GET /api/views/labeler/search?labelerNameSearch=Johnson&amp;pageNumber=1&amp;pageSize=50
+        /// GET /api/Label/labeler/search?labelerNameSearch=Johnson&amp;pageNumber=1&amp;pageSize=50
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.SearchByLabelerAsync"/>
@@ -1793,7 +1992,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/labeler/summaries
+        /// GET /api/Label/labeler/summaries
         /// 
         /// Response (200):
         /// ```json
@@ -1887,8 +2086,8 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/document/navigation?latestOnly=true
-        /// GET /api/views/document/navigation?latestOnly=false&amp;setGuid=12345678-1234-1234-1234-123456789012
+        /// GET /api/Label/document/navigation?latestOnly=true
+        /// GET /api/Label/document/navigation?latestOnly=false&amp;setGuid=12345678-1234-1234-1234-123456789012
         /// 
         /// Response (200):
         /// ```json
@@ -1909,10 +2108,10 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Get only latest document versions
-        /// GET /api/views/document/navigation?latestOnly=true
+        /// GET /api/Label/document/navigation?latestOnly=true
         /// 
         /// // Get all versions of a specific document set
-        /// GET /api/views/document/navigation?latestOnly=false&amp;setGuid=12345678-1234-1234-1234-123456789012
+        /// GET /api/Label/document/navigation?latestOnly=false&amp;setGuid=12345678-1234-1234-1234-123456789012
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.GetDocumentNavigationAsync"/>
@@ -1987,7 +2186,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="404">If no version history is found for the specified GUID.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/document/version-history/12345678-1234-1234-1234-123456789012
+        /// GET /api/Label/document/version-history/12345678-1234-1234-1234-123456789012
         /// 
         /// Response (200):
         /// ```json
@@ -2083,7 +2282,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If sectionCode is null/empty or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/section/search?sectionCode=34066-1
+        /// GET /api/Label/section/search?sectionCode=34066-1
         /// 
         /// Common LOINC section codes:
         /// - 34066-1: Boxed Warning
@@ -2110,10 +2309,10 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Search for all boxed warnings
-        /// GET /api/views/section/search?sectionCode=34066-1
+        /// GET /api/Label/section/search?sectionCode=34066-1
         /// 
         /// // Search for indications with pagination
-        /// GET /api/views/section/search?sectionCode=34067-9&amp;pageNumber=1&amp;pageSize=50
+        /// GET /api/Label/section/search?sectionCode=34067-9&amp;pageNumber=1&amp;pageSize=50
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.SearchBySectionCodeAsync"/>
@@ -2193,7 +2392,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/section/summaries
+        /// GET /api/Label/section/summaries
         /// 
         /// Response (200):
         /// ```json
@@ -2283,7 +2482,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If ingredientUNIIs is null/empty or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/drug-safety/interactions?ingredientUNIIs=R16CO5Y76E,YOW8V9698H
+        /// GET /api/Label/drug-safety/interactions?ingredientUNIIs=R16CO5Y76E,YOW8V9698H
         /// 
         /// This endpoint identifies products that share common active ingredients,
         /// which may indicate potential drug-drug interactions requiring clinical review.
@@ -2306,7 +2505,7 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Check interactions for multiple ingredients
-        /// GET /api/views/drug-safety/interactions?ingredientUNIIs=R16CO5Y76E,YOW8V9698H
+        /// GET /api/Label/drug-safety/interactions?ingredientUNIIs=R16CO5Y76E,YOW8V9698H
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.GetDrugInteractionsAsync"/>
@@ -2396,8 +2595,8 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/drug-safety/dea-schedule
-        /// GET /api/views/drug-safety/dea-schedule?scheduleCode=CII
+        /// GET /api/Label/drug-safety/dea-schedule
+        /// GET /api/Label/drug-safety/dea-schedule?scheduleCode=CII
         /// 
         /// DEA Schedule Codes:
         /// - CI: Schedule I (no accepted medical use)
@@ -2498,7 +2697,7 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If productNameSearch is null/empty or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/product/search?productNameSearch=Lipitor
+        /// GET /api/Label/product/search?productNameSearch=Lipitor
         /// 
         /// Response (200):
         /// ```json
@@ -2519,10 +2718,10 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// // Search for Lipitor
-        /// GET /api/views/product/search?productNameSearch=Lipitor
+        /// GET /api/Label/product/search?productNameSearch=Lipitor
         /// 
         /// // Search with pagination
-        /// GET /api/views/product/search?productNameSearch=Aspirin&amp;pageNumber=1&amp;pageSize=50
+        /// GET /api/Label/product/search?productNameSearch=Aspirin&amp;pageNumber=1&amp;pageSize=50
         /// </code>
         /// </example>
         /// <seealso cref="DtoLabelAccess.SearchProductSummaryAsync"/>
@@ -2609,8 +2808,8 @@ namespace MedRecPro.Api.Controllers
         /// <response code="400">If sourceProductId is invalid or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/product/related?sourceProductId=12345
-        /// GET /api/views/product/related?sourceProductId=12345&amp;relationshipType=SameActiveIngredient
+        /// GET /api/Label/product/related?sourceProductId=12345
+        /// GET /api/Label/product/related?sourceProductId=12345&amp;relationshipType=SameActiveIngredient
         /// 
         /// Response (200):
         /// ```json
@@ -2702,8 +2901,8 @@ namespace MedRecPro.Api.Controllers
         /// <response code="200">Returns the API endpoint guide.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/views/guide
-        /// GET /api/views/guide?category=Navigation
+        /// GET /api/Label/guide
+        /// GET /api/Label/guide?category=Navigation
         /// 
         /// This endpoint provides metadata about available view-based endpoints,
         /// including descriptions, parameters, and usage examples. Designed for
@@ -2716,7 +2915,7 @@ namespace MedRecPro.Api.Controllers
         ///     "ViewName": "ProductsByApplicationNumber",
         ///     "Category": "Navigation",
         ///     "Description": "Search products by regulatory application number",
-        ///     "EndpointPath": "/api/views/application-number/search",
+        ///     "EndpointPath": "/api/Label/application-number/search",
         ///     "Parameters": "applicationNumber (required), pageNumber, pageSize"
         ///   }
         /// ]
@@ -2757,7 +2956,6 @@ namespace MedRecPro.Api.Controllers
         }
 
         #endregion Product Summary and Cross-Reference
-
 
         /**************************************************************/
         /// <summary>

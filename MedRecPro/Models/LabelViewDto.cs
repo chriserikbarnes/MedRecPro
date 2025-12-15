@@ -366,6 +366,186 @@ namespace MedRecPro.Models
 
     /**************************************************************/
     /// <summary>
+    /// DTO for IngredientActiveSummary view results.
+    /// Provides aggregated statistics per active ingredient including product, document, and labeler counts.
+    /// </summary>
+    /// <remarks>
+    /// Active ingredients are identified by ClassCode != 'IACT' in the Ingredient table.
+    /// This view aggregates counts across the full document hierarchy.
+    /// </remarks>
+    /// <seealso cref="Label.IngredientSubstance"/>
+    /// <seealso cref="Label.Ingredient"/>
+    public class IngredientActiveSummaryDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all view columns with encrypted IDs.
+        /// </summary>
+        public required Dictionary<string, object?> IngredientActiveSummary { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Ingredient substance ID (encrypted).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? IngredientSubstanceID =>
+            IngredientActiveSummary.TryGetValue("EncryptedIngredientSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// UNII (Unique Ingredient Identifier) code.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? UNII =>
+            IngredientActiveSummary.TryGetValue(nameof(UNII), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Substance name.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SubstanceName =>
+            IngredientActiveSummary.TryGetValue(nameof(SubstanceName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Ingredient type from originating element.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? IngredientType =>
+            IngredientActiveSummary.TryGetValue(nameof(IngredientType), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Count of products containing this active ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ProductCount =>
+            IngredientActiveSummary.TryGetValue(nameof(ProductCount), out var value)
+                ? value as int?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Count of documents containing this active ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? DocumentCount =>
+            IngredientActiveSummary.TryGetValue(nameof(DocumentCount), out var value)
+                ? value as int?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Count of labelers (marketing organizations) using this active ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? LabelerCount =>
+            IngredientActiveSummary.TryGetValue(nameof(LabelerCount), out var value)
+                ? value as int?
+                : null;
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// DTO for IngredientInactiveSummary view results.
+    /// Provides aggregated statistics per inactive ingredient including product, document, and labeler counts.
+    /// </summary>
+    /// <remarks>
+    /// Inactive ingredients are identified by ClassCode = 'IACT' in the Ingredient table.
+    /// This view aggregates counts across the full document hierarchy.
+    /// </remarks>
+    /// <seealso cref="Label.IngredientSubstance"/>
+    /// <seealso cref="Label.Ingredient"/>
+    public class IngredientInactiveSummaryDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all view columns with encrypted IDs.
+        /// </summary>
+        public required Dictionary<string, object?> IngredientInactiveSummary { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Ingredient substance ID (encrypted).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? IngredientSubstanceID =>
+            IngredientInactiveSummary.TryGetValue("EncryptedIngredientSubstanceID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// UNII (Unique Ingredient Identifier) code.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? UNII =>
+            IngredientInactiveSummary.TryGetValue(nameof(UNII), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Substance name.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SubstanceName =>
+            IngredientInactiveSummary.TryGetValue(nameof(SubstanceName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Ingredient type from originating element.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? IngredientType =>
+            IngredientInactiveSummary.TryGetValue(nameof(IngredientType), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Count of products containing this inactive ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ProductCount =>
+            IngredientInactiveSummary.TryGetValue(nameof(ProductCount), out var value)
+                ? value as int?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Count of documents containing this inactive ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? DocumentCount =>
+            IngredientInactiveSummary.TryGetValue(nameof(DocumentCount), out var value)
+                ? value as int?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Count of labelers (marketing organizations) using this inactive ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? LabelerCount =>
+            IngredientInactiveSummary.TryGetValue(nameof(LabelerCount), out var value)
+                ? value as int?
+                : null;
+    }
+
+    /**************************************************************/
+    /// <summary>
     /// DTO for ProductsByIngredient view results.
     /// Provides products containing specific ingredients.
     /// </summary>

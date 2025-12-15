@@ -723,6 +723,40 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
+        /// View entity for vw_IngredientActiveSummary.
+        /// Aggregates active ingredient statistics across the document hierarchy.
+        /// </summary>
+        [Table("vw_IngredientActiveSummary")]
+        public class IngredientActiveSummary
+        {
+            public int IngredientSubstanceID { get; set; }
+            public string? UNII { get; set; }
+            public string? SubstanceName { get; set; }
+            public string? IngredientType { get; set; }
+            public int ProductCount { get; set; }
+            public int DocumentCount { get; set; }
+            public int LabelerCount { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_IngredientInactiveSummary.
+        /// Aggregates inactive ingredient statistics across the document hierarchy.
+        /// </summary>
+        [Table("vw_IngredientInactiveSummary")]
+        public class IngredientInactiveSummary
+        {
+            public int IngredientSubstanceID { get; set; }
+            public string? UNII { get; set; }
+            public string? SubstanceName { get; set; }
+            public string? IngredientType { get; set; }
+            public int ProductCount { get; set; }
+            public int DocumentCount { get; set; }
+            public int LabelerCount { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// View entity for vw_IngredientSummary.
         /// Summary of ingredients with product and labeler counts.
         /// </summary>

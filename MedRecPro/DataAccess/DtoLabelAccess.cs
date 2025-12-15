@@ -548,6 +548,138 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Gets active ingredient summaries with product, document, and labeler counts.
+        /// Discover the most common active ingredients across products in the database.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="minProductCount">Optional minimum product count filter.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="page">Optional 1-based page number for pagination.</param>
+        /// <param name="size">Optional page size for pagination.</param>
+        /// <returns>List of <see cref="IngredientActiveSummaryDto"/> with aggregated counts.</returns>
+        /// <seealso cref="LabelView.IngredientActiveSummary"/>
+        public static async Task<List<IngredientActiveSummaryDto>> GetIngredientActiveSummariesAsync(
+            ApplicationDbContext db,
+            int? minProductCount,
+            string pkSecret,
+            ILogger logger,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+
+            string key = generateCacheKey(nameof(GetIngredientActiveSummariesAsync), minProductCount?.ToString(), page, size);
+
+            var cached = Cached.GetCache<List<IngredientActiveSummaryDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetIngredientActiveSummariesAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            var query = db.Set<LabelView.IngredientActiveSummary>()
+                .AsNoTracking()
+                .AsQueryable();
+
+            // Apply minimum product count filter if specified
+            if (minProductCount.HasValue)
+            {
+                query = query.Where(s => s.ProductCount >= minProductCount.Value);
+            }
+
+            // Order by product count descending (most common first)
+            query = query.OrderByDescending(s => s.ProductCount);
+
+            // Apply pagination
+            query = applyPagination(query, page, size);
+
+            var entities = await query.ToListAsync();
+            var ret = buildIngredientActiveSummaryDtos(db, entities, pkSecret, logger);
+
+            if (ret != null && ret.Count > 0)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret ?? new List<IngredientActiveSummaryDto>();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets inactive ingredient summaries with product, document, and labeler counts.
+        /// Discover the most common inactive (excipient) ingredients across products in the database.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="minProductCount">Optional minimum product count filter.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="page">Optional 1-based page number for pagination.</param>
+        /// <param name="size">Optional page size for pagination.</param>
+        /// <returns>List of <see cref="IngredientInactiveSummaryDto"/> with aggregated counts.</returns>
+        /// <seealso cref="LabelView.IngredientInactiveSummary"/>
+        public static async Task<List<IngredientInactiveSummaryDto>> GetIngredientInactiveSummariesAsync(
+            ApplicationDbContext db,
+            int? minProductCount,
+            string pkSecret,
+            ILogger logger,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+
+            string key = generateCacheKey(nameof(GetIngredientInactiveSummariesAsync), minProductCount?.ToString(), page, size);
+
+            var cached = Cached.GetCache<List<IngredientInactiveSummaryDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetIngredientInactiveSummariesAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            var query = db.Set<LabelView.IngredientInactiveSummary>()
+                .AsNoTracking()
+                .AsQueryable();
+
+            // Apply minimum product count filter if specified
+            if (minProductCount.HasValue)
+            {
+                query = query.Where(s => s.ProductCount >= minProductCount.Value);
+            }
+
+            // Order by product count descending (most common first)
+            query = query.OrderByDescending(s => s.ProductCount);
+
+            // Apply pagination
+            query = applyPagination(query, page, size);
+
+            var entities = await query.ToListAsync();
+            var ret = buildIngredientInactiveSummaryDtos(db, entities, pkSecret, logger);
+
+            if (ret != null && ret.Count > 0)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret ?? new List<IngredientInactiveSummaryDto>();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Searches products by ingredient UNII code or substance name.
         /// Enables drug composition queries and ingredient-based discovery.
         /// </summary>
@@ -1531,8 +1663,6 @@ namespace MedRecPro.DataAccess
         #endregion Product Summary and Cross-Reference
 
         #endregion View-Based Public Entry Points
-
-       
 
     }
 }

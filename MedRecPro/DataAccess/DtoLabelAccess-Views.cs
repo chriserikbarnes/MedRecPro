@@ -178,6 +178,64 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Builds a list of IngredientActiveSummary DTOs from the navigation view.
+        /// Provides aggregated statistics per active ingredient including product, document, and labeler counts.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="IngredientActiveSummaryDto"/> with encrypted IDs.</returns>
+        /// <seealso cref="LabelView.IngredientActiveSummary"/>
+        /// <seealso cref="IngredientActiveSummaryDto"/>
+        private static List<IngredientActiveSummaryDto> buildIngredientActiveSummaryDtos(
+            ApplicationDbContext db,
+            List<LabelView.IngredientActiveSummary> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Transform each entity to DTO with encrypted IDs
+            return entities.Select(entity => new IngredientActiveSummaryDto
+            {
+                IngredientActiveSummary = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of IngredientInactiveSummary DTOs from the navigation view.
+        /// Provides aggregated statistics per inactive ingredient including product, document, and labeler counts.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="IngredientInactiveSummaryDto"/> with encrypted IDs.</returns>
+        /// <seealso cref="LabelView.IngredientInactiveSummary"/>
+        /// <seealso cref="IngredientInactiveSummaryDto"/>
+        private static List<IngredientInactiveSummaryDto> buildIngredientInactiveSummaryDtos(
+            ApplicationDbContext db,
+            List<LabelView.IngredientInactiveSummary> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Transform each entity to DTO with encrypted IDs
+            return entities.Select(entity => new IngredientInactiveSummaryDto
+            {
+                IngredientInactiveSummary = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Builds a list of ProductsByIngredient DTOs from the navigation view.
         /// Links products to their ingredients for drug composition queries.
         /// </summary>
