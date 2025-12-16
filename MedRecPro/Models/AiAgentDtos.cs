@@ -404,6 +404,43 @@ namespace MedRecPro.Models
         [JsonProperty("id")]
         public string? Id { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the step value used in the operation or calculation.
+        /// </summary>
+        [JsonProperty("step")]
+        public int? Step { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the identifier of the item that this entity depends on.
+        /// </summary>
+        [JsonProperty("dependsOn")]
+        public object? DependsOn { get; set; }  // Can be int or int[]
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the mapping of output keys to their corresponding values.
+        /// </summary>
+        /// <remarks>Each entry in the dictionary represents an output mapping, where the key is the
+        /// output name and the value is the mapped value. The dictionary may be null if no output mappings are
+        /// defined.</remarks>
+        [JsonProperty("outputMapping")]
+        public Dictionary<string, string>? OutputMapping { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// <summary>
+        /// Step number to check for results before executing this step.
+        /// If the referenced step returned data (non-empty array/object), this step is SKIPPED.
+        /// Use for fallback/rescue patterns where a secondary query should only run if primary returned empty.
+        /// </summary>
+        /// <example>
+        /// skipIfPreviousHasResults: 2 means "only run this step if step 2 returned empty results"
+        /// </example>
+        [JsonProperty("skipIfPreviousHasResults")]
+        public int? SkipIfPreviousHasResults { get; set; }
+
         #endregion
     }
 

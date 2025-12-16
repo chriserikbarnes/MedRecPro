@@ -2459,6 +2459,161 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets section text content for AI summarization workflows.
+        /// Provides efficient text retrieval from document sections.
+        /// </summary>
+        /// <param name="documentGuid">
+        /// Required. The document GUID to retrieve section content for.
+        /// </param>
+        /// <param name="sectionGuid">
+        /// Optional. Filter to a specific section by its GUID.
+        /// </param>
+        /// <param name="sectionCode">
+        /// Optional. Filter by LOINC section code (e.g., "34084-4" for Adverse Reactions).
+        /// Supports partial matching for flexible queries.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of section content with text for summarization.</returns>
+        /// <response code="200">Returns the list of section content.</response>
+        /// <response code="400">If documentGuid is empty or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ## Usage Examples
+        /// 
+        /// Get all section content for a document:
+        /// ```
+        /// GET /api/Label/section/content/{documentGuid}
+        /// ```
+        /// 
+        /// Get specific section by GUID:
+        /// ```
+        /// GET /api/Label/section/content/{documentGuid}?sectionGuid={guid}
+        /// ```
+        /// 
+        /// Get all Adverse Reactions sections:
+        /// ```
+        /// GET /api/Label/section/content/{documentGuid}?sectionCode=34084-4
+        /// ```
+        /// 
+        /// ## Common LOINC Section Codes
+        /// 
+        /// | Code | Section Name |
+        /// |------|--------------|
+        /// | 34066-1 | Boxed Warning |
+        /// | 34067-9 | Indications and Usage |
+        /// | 34068-7 | Dosage and Administration |
+        /// | 34069-5 | Contraindications |
+        /// | 43685-7 | Warnings and Precautions |
+        /// | 34084-4 | Adverse Reactions |
+        /// | 34073-7 | Drug Interactions |
+        /// | 34088-5 | Overdosage |
+        /// | 34090-1 | Clinical Pharmacology |
+        /// 
+        /// ## Response Format (200)
+        /// 
+        /// ```json
+        /// [
+        ///   {
+        ///     "sectionContent": {
+        ///       "EncryptedDocumentID": "encrypted_string",
+        ///       "EncryptedSectionID": "encrypted_string",
+        ///       "DocumentGUID": "guid",
+        ///       "SectionGUID": "guid",
+        ///       "SectionCode": "34084-4",
+        ///       "SectionDisplayName": "ADVERSE REACTIONS",
+        ///       "SectionTitle": "Adverse Reactions",
+        ///       "ContentText": "The following adverse reactions...",
+        ///       "SequenceNumber": 1,
+        ///       "ContentType": "paragraph"
+        ///     }
+        ///   }
+        /// ]
+        /// ```
+        /// 
+        /// Results are ordered by SectionCode, then SequenceNumber for proper reading order.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Get warnings section for AI summarization
+        /// GET /api/Label/section/content/12345678-1234-1234-1234-123456789012?sectionCode=43685-7
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.GetSectionContentAsync"/>
+        /// <seealso cref="LabelView.SectionContent"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("section/content/{documentGuid}")]
+        [ProducesResponseType(typeof(IEnumerable<SectionContentDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<SectionContentDto>>> GetSectionContent(
+            [FromRoute] Guid documentGuid,
+            [FromQuery] Guid? sectionGuid,
+            [FromQuery] string? sectionCode,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate documentGuid is provided
+            if (documentGuid == Guid.Empty)
+            {
+                return BadRequest("A valid documentGuid is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation(
+                    "Getting section content for DocumentGUID: {DocumentGuid}, SectionGUID: {SectionGuid}, SectionCode: {SectionCode}, Page: {PageNumber}, Size: {PageSize}",
+                    documentGuid,
+                    sectionGuid?.ToString() ?? "all",
+                    sectionCode ?? "all",
+                    pageNumber,
+                    pageSize);
+
+                var results = await DtoLabelAccess.GetSectionContentAsync(
+                    _dbContext,
+                    documentGuid,
+                    sectionGuid,
+                    sectionCode,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving section content for DocumentGUID {DocumentGuid}", documentGuid);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving section content.");
+            }
+
+            #endregion
+        }
+
         #endregion Section Navigation
 
         #region Drug Safety Navigation

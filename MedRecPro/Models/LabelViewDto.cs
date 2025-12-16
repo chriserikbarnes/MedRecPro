@@ -1216,6 +1216,139 @@ namespace MedRecPro.Models
                 : null;
     }
 
+    /**************************************************************/
+    /// <summary>
+    /// DTO for SectionContent view results.
+    /// Provides section text content for AI summarization workflows.
+    /// </summary>
+    /// <remarks>
+    /// Designed for efficient text retrieval supporting:
+    /// - AI-powered summarization of drug label sections
+    /// - Quick text extraction by DocumentGUID and optional SectionGUID/SectionCode
+    /// - Content aggregation for multi-section analysis
+    /// </remarks>
+    /// <seealso cref="LabelView.SectionContent"/>
+    /// <seealso cref="Label.Section"/>
+    /// <seealso cref="Label.SectionTextContent"/>
+    public class SectionContentDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all view columns with encrypted IDs.
+        /// </summary>
+        public required Dictionary<string, object?> SectionContent { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Document ID for navigation to Document entity.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? DocumentID =>
+            SectionContent.TryGetValue("EncryptedDocumentID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Section ID for navigation to Section entity.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? SectionID =>
+            SectionContent.TryGetValue("EncryptedSectionID", out var value)
+                ? Util.DecryptAndParseInt(value)
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Document GUID for document identification.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? DocumentGUID =>
+            SectionContent.TryGetValue(nameof(DocumentGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Set GUID (constant across document versions).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? SetGUID =>
+            SectionContent.TryGetValue(nameof(SetGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Section GUID for section identification.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? SectionGUID =>
+            SectionContent.TryGetValue(nameof(SectionGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// LOINC section code.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SectionCode =>
+            SectionContent.TryGetValue(nameof(SectionCode), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Section display name.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SectionDisplayName =>
+            SectionContent.TryGetValue(nameof(SectionDisplayName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Section title.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SectionTitle =>
+            SectionContent.TryGetValue(nameof(SectionTitle), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Content text for AI summarization.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ContentText =>
+            SectionContent.TryGetValue(nameof(ContentText), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Sequence number for content ordering.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? SequenceNumber =>
+            SectionContent.TryGetValue(nameof(SequenceNumber), out var value)
+                ? value as int?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Content type indicator.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ContentType =>
+            SectionContent.TryGetValue(nameof(ContentType), out var value)
+                ? value as string
+                : null;
+    }
+
     #endregion Section Navigation DTOs
 
     #region Drug Safety DTOs

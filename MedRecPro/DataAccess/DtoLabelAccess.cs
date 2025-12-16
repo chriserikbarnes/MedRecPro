@@ -1337,6 +1337,115 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets section text content for a document, optionally filtered by section.
+        /// Provides efficient text retrieval for AI summarization workflows.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="documentGuid">The document GUID to retrieve section content for.</param>
+        /// <param name="sectionGuid">Optional section GUID to filter to a specific section.</param>
+        /// <param name="sectionCode">Optional LOINC section code to filter by section type (e.g., "34084-4" for Adverse Reactions).</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="page">Optional 1-based page number for pagination.</param>
+        /// <param name="size">Optional page size for pagination.</param>
+        /// <returns>List of <see cref="SectionContentDto"/> containing section text content.</returns>
+        /// <example>
+        /// <code>
+        /// // Get all section content for a document
+        /// var allContent = await DtoLabelAccess.GetSectionContentAsync(db, documentGuid, null, null, secret, logger);
+        /// 
+        /// // Get specific section by GUID
+        /// var section = await DtoLabelAccess.GetSectionContentAsync(db, documentGuid, sectionGuid, null, secret, logger);
+        /// 
+        /// // Get all Adverse Reactions sections
+        /// var adverseReactions = await DtoLabelAccess.GetSectionContentAsync(db, documentGuid, null, "34084-4", secret, logger);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// Uses the vw_SectionContent view for optimized joins.
+        /// Results are cached for improved performance on repeated queries.
+        /// Content is ordered by SectionCode then SequenceNumber for proper reading order.
+        /// 
+        /// Common LOINC codes:
+        /// - 34066-1: Boxed Warning
+        /// - 34067-9: Indications and Usage
+        /// - 34068-7: Dosage and Administration
+        /// - 34069-5: Contraindications
+        /// - 43685-7: Warnings and Precautions
+        /// - 34084-4: Adverse Reactions
+        /// - 34073-7: Drug Interactions
+        /// - 34088-5: Overdosage
+        /// </remarks>
+        /// <seealso cref="LabelView.SectionContent"/>
+        /// <seealso cref="Label.Section"/>
+        /// <seealso cref="Label.SectionTextContent"/>
+        public static async Task<List<SectionContentDto>> GetSectionContentAsync(
+            ApplicationDbContext db,
+            Guid documentGuid,
+            Guid? sectionGuid,
+            string? sectionCode,
+            string pkSecret,
+            ILogger logger,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+
+            // Generate cache key including all filter parameters
+            string key = generateCacheKey(
+                nameof(GetSectionContentAsync),
+                $"{documentGuid}_{sectionGuid}_{sectionCode}",
+                page,
+                size);
+
+            var cached = Cached.GetCache<List<SectionContentDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetSectionContentAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            // Build query with filters
+            var query = db.Set<LabelView.SectionContent>()
+                .AsNoTracking()
+                .Where(s => s.DocumentGUID == documentGuid);
+
+            // Apply optional section filters - match on either GUID OR Code
+            if (sectionGuid.HasValue || !string.IsNullOrWhiteSpace(sectionCode))
+            {
+                query = query.Where(s =>
+                    (sectionGuid.HasValue && s.SectionGUID == sectionGuid.Value) ||
+                    (!string.IsNullOrWhiteSpace(sectionCode) && s.SectionCode != null && s.SectionCode.Contains(sectionCode)));
+            }
+
+            // Order by section code then sequence for proper reading order
+            query = query
+                .OrderBy(s => s.SectionCode)
+                .ThenBy(s => s.SequenceNumber);
+
+            // Apply pagination
+            query = (IOrderedQueryable<LabelView.SectionContent>)applyPagination(query, page, size);
+
+            var entities = await query.ToListAsync();
+            var ret = buildSectionContentDtos(db, entities, pkSecret, logger);
+
+            if (ret != null && ret.Count > 0)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret ?? new List<SectionContentDto>();
+
+            #endregion
+        }
+
         #endregion Section Navigation
 
         #region Drug Safety Navigation

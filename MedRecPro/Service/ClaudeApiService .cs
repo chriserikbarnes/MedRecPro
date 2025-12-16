@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
 using Newtonsoft.Json;
+using MedRecPro.Helpers;
 
 namespace MedRecPro.Service
 {
@@ -1195,30 +1196,9 @@ namespace MedRecPro.Service
 
             // Output format instructions
             sb.AppendLine("=== OUTPUT FORMAT ===");
-            sb.AppendLine("Respond with a JSON object in the following format:");
-            sb.AppendLine(@"{
-              ""success"": true/false,
-              ""endpoints"": [
-                {
-                  ""method"": ""GET/POST/PUT/DELETE"",
-                  ""path"": ""/api/..."",
-                  ""queryParameters"": { ""param1"": ""value1"" },
-                  ""body"": null,
-                  ""description"": ""What this call does"",
-                  ""expectedResponseType"": ""array/object"",
-                  ""executionOrder"": 0
-                }
-              ],
-              ""explanation"": ""Brief explanation of the interpretation"",
-              ""requiresAuthentication"": true/false,
-              ""clarifyingQuestions"": [""Question if request is ambiguous""],
-              ""isDirectResponse"": false,
-              ""directResponse"": null
-            }");
-            sb.AppendLine();
-            sb.AppendLine("If the user is asking a general question that doesn't require API calls,");
-            sb.AppendLine("set isDirectResponse=true and provide the answer in directResponse.");
-            sb.AppendLine();
+
+            // Load prompt instructions from skills file
+            sb.AppendLine(buildLabelSectionPromptSkills());
 
             // User request
             sb.AppendLine("=== USER REQUEST ===");
@@ -1228,6 +1208,73 @@ namespace MedRecPro.Service
 
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the label section content query prompt instructions from the skills file.
+        /// </summary>
+        /// <remarks>
+        /// This method loads the AI prompt instructions for interpreting user queries
+        /// about drug label content (side effects, warnings, dosing, etc.) and generating
+        /// appropriate multi-step API endpoint workflows.
+        /// </remarks>
+        /// <example>
+        /// var promptInstructions = buildLabelSectionPromptSkills();
+        /// sb.AppendLine(promptInstructions);
+        /// </example>
+        /// <returns>The label section prompt skills document as a formatted string.</returns>
+        /// <seealso cref="buildSkillsDocument"/>
+        private string buildLabelSectionPromptSkills()
+        {
+            #region implementation
+            string? skillsDocument;
+            string? cachedSkills;
+            string? skillFilePath;
+            string key;
+
+            #region check cache
+            // Use consistent cache key naming convention
+            key = ("buildLabelSectionPromptSkills_ClaudeApiSettings_Skill-Section").Base64Encode();
+            cachedSkills = PerformanceHelper.GetCache<string>(key);
+            if (!string.IsNullOrEmpty(cachedSkills))
+            {
+                return cachedSkills;
+            }
+            #endregion
+
+            #region fetch skills file
+            // Get the configured path from appsettings
+            skillFilePath = _configuration.GetValue<string>("ClaudeApiSettings:Skill-Section");
+            if (string.IsNullOrEmpty(skillFilePath))
+            {
+                return "Label section prompt skills configuration not found.";
+            }
+
+            // Resolve the path relative to the application's content root
+            var fullPath = Path.Combine(AppContext.BaseDirectory, skillFilePath);
+            if (!File.Exists(fullPath))
+            {
+                // Try relative to current directory as fallback
+                fullPath = Path.Combine(Directory.GetCurrentDirectory(), skillFilePath);
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                return $"Label section prompt skills document not found at: {skillFilePath}";
+            }
+
+            skillsDocument = File.ReadAllText(fullPath);
+            #endregion
+
+            #region cache and return
+            // Cache for 8 hours to reduce file I/O
+            PerformanceHelper.SetCacheManageKey(key, skillsDocument, 8);
+            return skillsDocument;
+            #endregion
+
+            #endregion
+        }
+
 
         /**************************************************************/
         /// <summary>
@@ -1297,6 +1344,7 @@ namespace MedRecPro.Service
         /**************************************************************/
         /// <summary>
         /// Builds the prompt for Claude to synthesize API results.
+        /// Includes guidance for navigating SPL label structures.
         /// </summary>
         /// <param name="request">The synthesis request.</param>
         /// <returns>The complete prompt string.</returns>
@@ -1310,12 +1358,51 @@ namespace MedRecPro.Service
             sb.AppendLine("Your task is to synthesize API results into a helpful, conversational response.");
             sb.AppendLine();
 
+            // Add guidance for section/content endpoint (preferred, clean format)
+            sb.AppendLine("=== SECTION CONTENT RESPONSE FORMAT ===");
+            sb.AppendLine("When processing results from `/api/Label/section/content/{documentGuid}`, the response is a clean array:");
+            sb.AppendLine();
+            sb.AppendLine("```json");
+            sb.AppendLine(@"[
+              {
+                ""sectionContent"": {
+                  ""SectionDisplayName"": ""ADVERSE REACTIONS"",
+                  ""SectionTitle"": ""6 ADVERSE REACTIONS"",
+                  ""ContentText"": ""The actual text content to present to user..."",
+                  ""SequenceNumber"": 1,
+                  ""ContentType"": ""paragraph""
+                }
+              },
+              { ""sectionContent"": { ""ContentText"": ""More content..."", ""SequenceNumber"": 2 } }
+            ]");
+            sb.AppendLine("```");
+            sb.AppendLine();
+            sb.AppendLine("**How to synthesize section content:**");
+            sb.AppendLine("1. Extract all `sectionContent.ContentText` values from the array");
+            sb.AppendLine("2. Order by `SequenceNumber` for proper reading order");
+            sb.AppendLine("3. Group by `SectionTitle` if multiple sections returned");
+            sb.AppendLine("4. Present the text content in a clear, readable format");
+            sb.AppendLine("5. Strip any HTML/XML markup if present in ContentText");
+            sb.AppendLine();
+            sb.AppendLine("**Common Section Display Names:**");
+            sb.AppendLine("| SectionDisplayName | What It Contains |");
+            sb.AppendLine("|-------------------|------------------|");
+            sb.AppendLine("| ADVERSE REACTIONS | Side effects |");
+            sb.AppendLine("| WARNINGS AND PRECAUTIONS | Safety warnings |");
+            sb.AppendLine("| CONTRAINDICATIONS | Who should not take |");
+            sb.AppendLine("| DOSAGE AND ADMINISTRATION | How to take |");
+            sb.AppendLine("| DRUG INTERACTIONS | Interactions with other drugs |");
+            sb.AppendLine("| INDICATIONS AND USAGE | What the drug treats |");
+            sb.AppendLine();
+            sb.AppendLine("IMPORTANT: The ContentText field contains the actual label text. Read it and summarize/present it to the user.");
+            sb.AppendLine();
+
             // Original query
             sb.AppendLine("=== ORIGINAL USER QUERY ===");
             sb.AppendLine(request.OriginalQuery);
             sb.AppendLine();
 
-            // API results
+            // API results with smart truncation
             sb.AppendLine("=== API RESULTS ===");
 
             foreach (var result in request.ExecutedEndpoints)
@@ -1332,13 +1419,20 @@ namespace MedRecPro.Service
                 {
                     var resultJson = Newtonsoft.Json.JsonConvert.SerializeObject(result.Result, Newtonsoft.Json.Formatting.Indented);
 
-                    // Truncate large results
-                    if (resultJson.Length > 10000)
-                    {
-                        resultJson = resultJson[..10000] + "\n... (truncated)";
-                    }
+                    // Increased truncation limit for label data, with smart handling
+                    int maxLength = 50000;
 
-                    sb.AppendLine($"Result: {resultJson}");
+                    if (resultJson.Length > maxLength)
+                    {
+                        // Try to find and preserve important sections
+                        var truncatedResult = smartTruncateLabelData(resultJson, maxLength, request.OriginalQuery);
+                        sb.AppendLine($"Result (smart truncation applied, {resultJson.Length} chars total):");
+                        sb.AppendLine(truncatedResult);
+                    }
+                    else
+                    {
+                        sb.AppendLine($"Result: {resultJson}");
+                    }
                 }
 
                 sb.AppendLine();
@@ -1348,14 +1442,120 @@ namespace MedRecPro.Service
             sb.AppendLine("=== OUTPUT FORMAT ===");
             sb.AppendLine("Respond with a JSON object in the following format:");
             sb.AppendLine(@"{
-              ""response"": ""Natural language response addressing the user's query"",
-              ""dataHighlights"": { ""key"": ""value"" },
+              ""response"": ""Natural language response addressing the user's query. Include specific details from the label sections."",
+              ""dataHighlights"": { ""productName"": ""value"", ""relevantSections"": [""section names found""] },
               ""suggestedFollowUps"": [""Suggested next query""],
               ""warnings"": [""Any warnings or limitations""],
               ""isComplete"": true/false
             }");
+            sb.AppendLine();
+            sb.AppendLine("IMPORTANT: Extract and present the actual content from matching sections.");
+            sb.AppendLine("Do not just say 'the data is in section X' - actually read and summarize the content.");
 
             return sb.ToString();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Smart truncation that tries to preserve sections relevant to the user query.
+        /// </summary>
+        /// <param name="json">The full JSON string.</param>
+        /// <param name="maxLength">Maximum length to return.</param>
+        /// <param name="userQuery">The user's query to determine relevance.</param>
+        /// <returns>Truncated JSON with relevant sections preserved.</returns>
+        private string smartTruncateLabelData(string json, int maxLength, string userQuery)
+        {
+            #region implementation
+
+            var queryLower = userQuery.ToLower();
+            var sb = new StringBuilder();
+
+            // Determine which section types are relevant based on query
+            var relevantTerms = new List<string>();
+
+            if (queryLower.Contains("side effect") || queryLower.Contains("adverse"))
+            {
+                relevantTerms.AddRange(new[] { "ADVERSE", "34084-4", "side effect" });
+            }
+            if (queryLower.Contains("warning") || queryLower.Contains("precaution"))
+            {
+                relevantTerms.AddRange(new[] { "WARNING", "PRECAUTION", "43685-7", "34071-1" });
+            }
+            if (queryLower.Contains("dose") || queryLower.Contains("dosage") || queryLower.Contains("how to"))
+            {
+                relevantTerms.AddRange(new[] { "DOSAGE", "ADMINISTRATION", "34068-7" });
+            }
+            if (queryLower.Contains("interact"))
+            {
+                relevantTerms.AddRange(new[] { "INTERACTION", "34073-7" });
+            }
+            if (queryLower.Contains("contraind") || queryLower.Contains("should not"))
+            {
+                relevantTerms.AddRange(new[] { "CONTRAINDICATION", "34070-3" });
+            }
+
+            // If no specific terms matched, include common clinical sections
+            if (relevantTerms.Count == 0)
+            {
+                relevantTerms.AddRange(new[] { "ADVERSE", "WARNING", "INDICATION", "DOSAGE" });
+            }
+
+            // Try to extract relevant portions
+            // First, include the document header (first ~2000 chars typically has document metadata)
+            var headerLength = Math.Min(3000, json.Length);
+            sb.AppendLine(json.Substring(0, headerLength));
+
+            if (json.Length > headerLength)
+            {
+                sb.AppendLine("... [document header above, searching for relevant sections] ...");
+
+                // Search for each relevant term and extract surrounding context
+                foreach (var term in relevantTerms.Distinct())
+                {
+                    var searchIndex = 0;
+                    while (searchIndex < json.Length && sb.Length < maxLength - 2000)
+                    {
+                        var foundIndex = json.IndexOf(term, searchIndex, StringComparison.OrdinalIgnoreCase);
+                        if (foundIndex < 0) break;
+
+                        // Extract context around the match (2000 chars before and after)
+                        var contextStart = Math.Max(0, foundIndex - 500);
+                        var contextEnd = Math.Min(json.Length, foundIndex + 2500);
+
+                        // Find section boundaries if possible
+                        var sectionStart = json.LastIndexOf("\"section\":", contextStart);
+                        if (sectionStart >= 0 && sectionStart > contextStart - 1000)
+                        {
+                            contextStart = sectionStart;
+                        }
+
+                        sb.AppendLine();
+                        sb.AppendLine($"... [section containing '{term}'] ...");
+                        sb.AppendLine(json.Substring(contextStart, contextEnd - contextStart));
+
+                        searchIndex = contextEnd;
+                    }
+                }
+
+                if (sb.Length < maxLength - 1000)
+                {
+                    // Add trailer
+                    var trailerStart = Math.Max(sb.Length, json.Length - 1000);
+                    sb.AppendLine();
+                    sb.AppendLine("... [end of document] ...");
+                    sb.AppendLine(json.Substring(trailerStart));
+                }
+            }
+
+            var result = sb.ToString();
+            if (result.Length > maxLength)
+            {
+                result = result.Substring(0, maxLength) + "\n... (truncated)";
+            }
+
+            return result;
 
             #endregion
         }
@@ -1469,436 +1669,50 @@ namespace MedRecPro.Service
         private string buildSkillsDocument()
         {
             #region implementation
+            string? skillsDocument;
+            string? cachedSkills;
+            string? skillFilePath;
+            string key;
 
-            var sb = new StringBuilder();
+            #region check cache
+            key = ("buildSkillsDocument_ClaudeApiSettings_Skill-Label").Base64Encode();
 
-            sb.AppendLine("# MedRecPro API Skills Document");
-            sb.AppendLine();
-            sb.AppendLine("This document describes the available API endpoints for querying and managing");
-            sb.AppendLine("SPL (Structured Product Labeling) pharmaceutical data in MedRecPro.");
-            sb.AppendLine();
+            cachedSkills = PerformanceHelper.GetCache<string>(key);
 
-            // Navigation Views
-            sb.AppendLine("## Navigation Views (Search & Discovery)");
-            sb.AppendLine();
+            if (!string.IsNullOrEmpty(cachedSkills))
+            {
+                return cachedSkills;
+            }
+            #endregion
 
-            sb.AppendLine("### Application Number Search");
-            sb.AppendLine("Search products by FDA application number (NDA, ANDA, BLA).");
-            sb.AppendLine("- `GET /api/Label/application-number/search?applicationNumber={value}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Parameters: applicationNumber (required), pageNumber, pageSize");
-            sb.AppendLine("  - Example: Find all products under NDA020702");
-            sb.AppendLine("- `GET /api/Label/application-number/summaries?marketingCategory={code}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Get aggregated summaries with product/document counts");
-            sb.AppendLine();
+            #region fetch skills file txt
+            skillFilePath = _configuration.GetValue<string>("ClaudeApiSettings:Skill-Label");
 
-            sb.AppendLine("### Pharmacologic Class Search");
-            sb.AppendLine("Search by therapeutic/pharmacologic class.");
-            sb.AppendLine("- `GET /api/Label/pharmacologic-class/search?classNameSearch={value}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Example: Find all beta blockers, ACE inhibitors");
-            sb.AppendLine("- `GET /api/Label/pharmacologic-class/summaries?pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Get class summaries with product counts");
-            sb.AppendLine("- `GET /api/Label/pharmacologic-class/hierarchy`");
-            sb.AppendLine("  - Get the therapeutic class hierarchy tree (useful for faceted navigation)");
-            sb.AppendLine();
+            if (string.IsNullOrEmpty(skillFilePath))
+            {
+                return "Skills document configuration not found.";
+            }
 
-            sb.AppendLine("### Ingredient Search");
-            sb.AppendLine("Search products by active or inactive ingredient (UNII or substance name).");
-            sb.AppendLine("- `GET /api/Label/ingredient/search?unii={code}&substanceNameSearch={name}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - At least one of unii or substanceNameSearch required");
-            sb.AppendLine("  - Example: Find products containing aspirin, acetaminophen");
-            sb.AppendLine("- `GET /api/Label/ingredient/summaries?minProductCount={n}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Get all ingredient summaries ranked by frequency");
-            sb.AppendLine("- `GET /api/Label/ingredient/active/summaries?minProductCount={n}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Get active ingredient summaries with product, document, and labeler counts");
-            sb.AppendLine("- `GET /api/Label/ingredient/inactive/summaries?minProductCount={n}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Get inactive ingredient (excipient) summaries with product, document, and labeler counts");
-            sb.AppendLine();
+            // Resolve the path relative to the application's content root
+            var fullPath = Path.Combine(AppContext.BaseDirectory, skillFilePath);
 
-            sb.AppendLine("### NDC (National Drug Code) Search");
-            sb.AppendLine("Search by product or package NDC code (supports partial matching).");
-            sb.AppendLine("- `GET /api/Label/ndc/search?productCode={ndc}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Example: 12345-678-90 (returns matching products ordered by ProductCode)");
-            sb.AppendLine("- `GET /api/Label/ndc/package/search?packageCode={ndc}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Search package configurations by NDC (packaging hierarchy, quantities, descriptions)");
-            sb.AppendLine();
+            if (!File.Exists(fullPath))
+            {
+                // Try relative to current directory as fallback
+                fullPath = Path.Combine(Directory.GetCurrentDirectory(), skillFilePath);
+            }
 
-            sb.AppendLine("### Labeler (Manufacturer) Search");
-            sb.AppendLine("Search products by marketing organization/labeler name.");
-            sb.AppendLine("- `GET /api/Label/labeler/search?labelerNameSearch={name}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Example: Find all Pfizer products");
-            sb.AppendLine("- `GET /api/Label/labeler/summaries?pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Get labeler summaries with product counts");
-            sb.AppendLine();
+            if (!File.Exists(fullPath))
+            {
+                return $"Skills document not found at: {skillFilePath}";
+            }
 
-            sb.AppendLine("### Document Navigation");
-            sb.AppendLine("Navigate SPL documents and version history.");
-            sb.AppendLine("- `GET /api/Label/document/search?productNameSearch={name}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Search documents by product name");
-            sb.AppendLine("- `GET /api/Label/document/version-history/{setGuidOrDocumentGuid}`");
-            sb.AppendLine("  - Get version history for a document set (newest first by VersionNumber)");
-            sb.AppendLine("  - Use when you have a DocumentGUID or SetGUID and need all historical versions");
-            sb.AppendLine();
+            skillsDocument = File.ReadAllText(fullPath);
+            #endregion
 
-            sb.AppendLine("### Section Navigation");
-            sb.AppendLine("Search labeling sections by LOINC code.");
-            sb.AppendLine("- `GET /api/Label/section/search?sectionCode={loinc}&pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Common codes: 34066-1 (Boxed Warning), 34067-9 (Indications), 34068-7 (Dosage)");
-            sb.AppendLine("- `GET /api/Label/section/summaries?pageNumber={n}&pageSize={n}`");
-            sb.AppendLine("  - Get section type frequency statistics (ordered by document count)");
-            sb.AppendLine();
+            PerformanceHelper.SetCacheManageKey(key, skillsDocument, 8); // Cache for 8 hour
 
-            // Label CRUD Operations
-            sb.AppendLine("## Label Data Operations (CRUD)");
-            sb.AppendLine();
-            sb.AppendLine("Dynamic CRUD operations for label sections. menuSelection = entity name.");
-            sb.AppendLine();
-
-            sb.AppendLine("### Discovery");
-            sb.AppendLine("- `GET /api/label/sectionMenu` - List all available sections");
-            sb.AppendLine("- `GET /api/label/{menuSelection}/documentation` - Get schema/field definitions for a section");
-            sb.AppendLine();
-
-            sb.AppendLine("### Read Operations");
-            sb.AppendLine("- `GET /api/label/section/{menuSelection}?pageNumber={n}&pageSize={n}` - Get all records for section");
-            sb.AppendLine("- `GET /api/label/{menuSelection}/{encryptedId}` - Get single record by encrypted ID");
-            sb.AppendLine("- `GET /api/label/single/{documentGuid}` - Get complete document by GUID");
-            sb.AppendLine("- `GET /api/label/complete/{pageNumber}/{pageSize}` - Get all complete documents");
-            sb.AppendLine();
-
-            sb.AppendLine("### Write Operations (Requires Authentication)");
-            sb.AppendLine("- `POST /api/label/{menuSelection}` - Create new record (body: JSON object)");
-            sb.AppendLine("- `PUT /api/label/{menuSelection}/{encryptedId}` - Update record (body: JSON object)");
-            sb.AppendLine("- `DELETE /api/label/{menuSelection}/{encryptedId}` - Delete record");
-            sb.AppendLine();
-
-            sb.AppendLine("### Available Sections (menuSelection values):");
-            sb.AppendLine("Document, Organization, Product, ActiveMoiety, ActiveIngredient, InactiveIngredient,");
-            sb.AppendLine("Section, Subsection, PackagingLevel, PackageItem, ProductIdentifier, PackageIdentifier,");
-            sb.AppendLine("Characteristic, MarketingCategory, Route, EquivalentSubstance, PharmacologicClass,");
-            sb.AppendLine("DrugInteraction, ContraindicatedDrug, ItemContains, ContainedItem, Address, BusinessOperation");
-            sb.AppendLine();
-
-            // Import/Export
-            sb.AppendLine("## Import/Export Operations");
-            sb.AppendLine();
-            sb.AppendLine("### SPL Import (Requires Authentication)");
-            sb.AppendLine("- `POST /api/label/import` - Import SPL data from ZIP file(s)");
-            sb.AppendLine("  - Body: multipart/form-data with 'files' containing ZIP files");
-            sb.AppendLine("  - Returns: operationId for progress tracking");
-            sb.AppendLine("- `GET /api/label/import/progress/{operationId}` - Check import progress");
-            sb.AppendLine("  - Note: ZIP files containing SPL XML can be obtained from DailyMed");
-            sb.AppendLine("  - URL: https://dailymed.nlm.nih.gov/dailymed/spl-resources-all-drug-labels.cfm");
-            sb.AppendLine();
-
-            sb.AppendLine("### SPL Export");
-            sb.AppendLine("- `GET /api/label/generate/{documentGuid}/{minify}` - Generate SPL XML from document");
-            sb.AppendLine("  - minify: true/false for compact output");
-            sb.AppendLine();
-
-            // Comparison Analysis
-            sb.AppendLine("## AI Comparison Analysis");
-            sb.AppendLine();
-            sb.AppendLine("Compare original SPL XML with database representation.");
-            sb.AppendLine("- `POST /api/label/comparison/analysis/{documentGuid}` - Queue analysis");
-            sb.AppendLine("- `GET /api/label/comparison/analysis/{documentGuid}` - Get cached results");
-            sb.AppendLine("- `GET /api/label/comparison/progress/{operationId}` - Check analysis progress");
-            sb.AppendLine();
-
-            // AI Agent Workflow
-            sb.AppendLine("## AI Agent Workflow (Interpret → Execute → Synthesize)");
-            sb.AppendLine();
-            sb.AppendLine("MedRecPro supports an agentic workflow where the server returns *endpoint specifications*");
-            sb.AppendLine("for the client to execute, then the server synthesizes results into a final answer.");
-            sb.AppendLine();
-
-            sb.AppendLine("### Start / Manage Conversation Context");
-            sb.AppendLine("- `POST /api/ai/conversations` - Create a new conversation session (optional)");
-            sb.AppendLine("  - Note: Conversations expire after 1 hour of inactivity");
-            sb.AppendLine("  - Tip: You can skip this; calling interpret without a conversationId can auto-create one");
-            sb.AppendLine();
-
-            sb.AppendLine("### Interpret a Natural Language Query into Endpoint Calls");
-            sb.AppendLine("- `POST /api/ai/interpret` - Return endpoint specifications to execute");
-            sb.AppendLine("  - Body: AiAgentRequest (originalQuery, optional conversationId/history/system context)");
-            sb.AppendLine("  - Response: AiAgentInterpretation (endpoints, reasoning hints, direct responses when applicable)");
-            sb.AppendLine();
-
-            sb.AppendLine("### Synthesize Executed Results Back into a Human Answer");
-            sb.AppendLine("- `POST /api/ai/synthesize` - Provide executed endpoint results and get final narrative response");
-            sb.AppendLine("  - Body: AiSynthesisRequest (originalQuery, conversationId, executedEndpoints[])");
-            sb.AppendLine("  - Response: synthesized answer + highlights + suggested follow-ups");
-            sb.AppendLine();
-
-            sb.AppendLine("### Convenience: One-shot Query");
-            sb.AppendLine("- `GET /api/ai/chat?message={text}` - Convenience endpoint (interpret + immediate execution for simple queries)");
-            sb.AppendLine("  - Use when you don't need multi-step client execution");
-            sb.AppendLine("  - For richer conversation/history, prefer POST /api/ai/interpret");
-            sb.AppendLine();
-
-            sb.AppendLine("### Context / Readiness Checks");
-            sb.AppendLine("- `GET /api/ai/context` - Returns system context (e.g., documentCount) used to guide workflows");
-            sb.AppendLine("- `GET /api/ai/skills` - Returns the current skills document (this content) for AI/tooling clients");
-            sb.AppendLine();
-
-            // Authentication
-            sb.AppendLine("## Authentication");
-            sb.AppendLine();
-            sb.AppendLine("- `GET /api/auth/login/{provider}` - Initiate OAuth login (Google, Microsoft)");
-            sb.AppendLine("- `GET /api/auth/user` - Get current user info");
-            sb.AppendLine("- `POST /api/auth/logout` - Log out");
-            sb.AppendLine();
-
-            // User Management
-            sb.AppendLine("## User Management");
-            sb.AppendLine();
-            sb.AppendLine("- `GET /api/users/me` - Get current user profile");
-            sb.AppendLine("- `GET /api/users/{encryptedUserId}` - Get user by ID");
-            sb.AppendLine("- `PUT /api/users/{encryptedUserId}/profile` - Update a user's own profile");
-            sb.AppendLine("- `GET /api/users/user/{encryptedUserId}/activity` - (Admin) Get user activity log (paged, newest first)");
-            sb.AppendLine("- `GET /api/users/user/{encryptedUserId}/activity/daterange?startDate={dt}&endDate={dt}` - Activity within date range");
-            sb.AppendLine("- `GET /api/users/endpoint-stats?startDate={dt?}&endDate={dt?}` - (Admin) Endpoint usage statistics");
-            sb.AppendLine();
-            sb.AppendLine("### Local Authentication (Legacy/Alternative to OAuth)");
-            sb.AppendLine("- `POST /api/users/signup` - Create a new user account");
-            sb.AppendLine("- `POST /api/users/authenticate` - Authenticate user (email/password) and return user details");
-            sb.AppendLine("- `POST /api/users/rotate-password` - Rotate password (current + new password)");
-            sb.AppendLine("- `PUT /api/users/admin-update` - (Admin) Bulk update user properties");
-            sb.AppendLine();
-
-            // Settings / Caching
-            sb.AppendLine("## Settings & Caching");
-            sb.AppendLine();
-            sb.AppendLine("### Managed Cache Reset");
-            sb.AppendLine("Clears managed cache entries when critical data changes require immediate consistency.");
-            sb.AppendLine("- `POST /api/settings/clearmanagedcache` - Clears managed performance cache key-chain entries");
-            sb.AppendLine("  - Use after updates like assignment ownership changes, organization changes, or other global edits");
-            sb.AppendLine();
-
-            // Notes
-            sb.AppendLine("## Important Notes");
-            sb.AppendLine();
-            sb.AppendLine("1. All IDs are encrypted - use the encrypted ID values returned by the API");
-            sb.AppendLine("2. Pagination: pageNumber is 1-based, default pageSize is 10");
-            sb.AppendLine("3. Write operations (POST, PUT, DELETE) require authentication");
-            sb.AppendLine("4. Demo mode: Database may be periodically reset");
-            sb.AppendLine("5. Empty database: Suggest importing SPL ZIP files from DailyMed");
-            sb.AppendLine();
-
-            // Data Discovery Workflow
-            sb.AppendLine("## Data Discovery Workflow (IMPORTANT)");
-            sb.AppendLine();
-            sb.AppendLine("When views return 404 or do not provide the data needed, use the Label CRUD system:");
-            sb.AppendLine();
-
-            sb.AppendLine("### Step 1: Discover Available Tables");
-            sb.AppendLine("- `GET /api/label/sectionMenu` - Returns list of all available data sections/tables");
-            sb.AppendLine("- This is the PRIMARY discovery endpoint - always works when database has data");
-            sb.AppendLine();
-
-            sb.AppendLine("### Step 2: Get Data from Tables");
-            sb.AppendLine("- `GET /api/label/section/{menuSelection}?pageNumber=1&pageSize=50` - Get records from any table");
-            sb.AppendLine("- menuSelection = exact table name from sectionMenu (e.g., \"Document\", \"Product\", \"ActiveIngredient\")");
-            sb.AppendLine();
-
-            sb.AppendLine("### Step 3: Get Table Schema (Optional)");
-            sb.AppendLine("- `GET /api/label/{menuSelection}/documentation` - Get field definitions for a table");
-            sb.AppendLine();
-
-            // Query Decision Tree (Expanded)
-            sb.AppendLine("## Query Decision Tree (Expanded Scenarios)");
-            sb.AppendLine();
-            sb.AppendLine("Use this decision tree to select the correct endpoint:");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'Is the database empty / what do you have loaded?'");
-            sb.AppendLine("1. `GET /api/ai/context` (check documentCount/productCount if present)");
-            sb.AppendLine("2. If empty: recommend `POST /api/label/import` (SPL ZIPs from DailyMed)");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'What products/documents do you have?'");
-            sb.AppendLine("1. FIRST TRY: `GET /api/label/section/Document?pageNumber=1&pageSize=50`");
-            sb.AppendLine("2. FALLBACK: `GET /api/label/section/Product?pageNumber=1&pageSize=50`");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'I have an NDC—what is this product?'");
-            sb.AppendLine("1. `GET /api/Label/ndc/search?productCode={ndc}&pageNumber=1&pageSize=50`");
-            sb.AppendLine("2. If you need packaging breakdown: `GET /api/Label/ndc/package/search?packageCode={ndc}&pageNumber=1&pageSize=50`");
-            sb.AppendLine("3. If views fail: `GET /api/label/section/ProductIdentifier?pageNumber=1&pageSize=200` and filter by code");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'Show me package sizes/configurations for this NDC'");
-            sb.AppendLine("1. `GET /api/Label/ndc/package/search?packageCode={ndc}&pageNumber=1&pageSize=50`");
-            sb.AppendLine("2. Fallback tables: `PackagingLevel`, `PackageItem`, `PackageIdentifier` via `/api/label/section/{menuSelection}`");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'What are the document/product IDs?'");
-            sb.AppendLine("1. `GET /api/label/section/Document?pageNumber=1&pageSize=50` - returns encryptedId for each");
-            sb.AppendLine("2. Look for 'documentGuid' or 'encryptedId' fields in response");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'Show me the version history for this label/document'");
-            sb.AppendLine("1. `GET /api/Label/document/version-history/{setGuidOrDocumentGuid}`");
-            sb.AppendLine("2. If you only have an encrypted document ID, first fetch Document table and map to DocumentGUID");
-            sb.AppendLine("   - `GET /api/label/section/Document?pageNumber=1&pageSize=200` (filter by encryptedId)");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'What ingredients are in the database?'");
-            sb.AppendLine("1. FIRST TRY: `GET /api/Label/ingredient/summaries?pageNumber=1&pageSize=50`");
-            sb.AppendLine("2. For active only: `GET /api/Label/ingredient/active/summaries?pageNumber=1&pageSize=50`");
-            sb.AppendLine("3. For inactive only: `GET /api/Label/ingredient/inactive/summaries?pageNumber=1&pageSize=50`");
-            sb.AppendLine("4. FALLBACK: `GET /api/label/section/ActiveIngredient?pageNumber=1&pageSize=50`");
-            sb.AppendLine("5. ALSO: `GET /api/label/section/InactiveIngredient?pageNumber=1&pageSize=50`");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'Find products that contain ingredient X'");
-            sb.AppendLine("1. `GET /api/Label/ingredient/search?unii={code}` (best when UNII is known)");
-            sb.AppendLine("2. or `GET /api/Label/ingredient/search?substanceNameSearch={name}` (best when name is known)");
-            sb.AppendLine("3. If views fail: query `ActiveIngredient` / `InactiveIngredient` tables via Label CRUD and filter client-side");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'What manufacturers/labelers?'");
-            sb.AppendLine("1. FIRST TRY: `GET /api/Label/labeler/summaries?pageNumber=1&pageSize=50`");
-            sb.AppendLine("2. FALLBACK: `GET /api/label/section/Organization?pageNumber=1&pageSize=50`");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'What are the most common section types / what sections exist?'");
-            sb.AppendLine("1. FIRST TRY: `GET /api/Label/section/summaries?pageNumber=1&pageSize=50`");
-            sb.AppendLine("2. FALLBACK: `GET /api/label/section/Section?pageNumber=1&pageSize=100` (extract unique sectionCode/sectionTitle)");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'Find a section by LOINC code (e.g., Boxed Warning)'");
-            sb.AppendLine("1. `GET /api/Label/section/search?sectionCode={loinc}&pageNumber=1&pageSize=50`");
-            sb.AppendLine("2. Fallback: `GET /api/label/section/Section?pageNumber=1&pageSize=200` and filter by sectionCode");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks about a specific product by name");
-            sb.AppendLine("1. FIRST TRY: `GET /api/Label/document/search?productNameSearch={name}`");
-            sb.AppendLine("2. FALLBACK: `GET /api/label/section/Product?pageNumber=1&pageSize=200` and filter results");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'How do I do multi-step AI-assisted querying?'");
-            sb.AppendLine("1. `POST /api/ai/interpret` with a natural language query");
-            sb.AppendLine("2. Execute returned endpoints on the client");
-            sb.AppendLine("3. `POST /api/ai/synthesize` with executed endpoint results");
-            sb.AppendLine("4. Optional: `POST /api/ai/conversations` to explicitly start a session first");
-            sb.AppendLine();
-
-            sb.AppendLine("### User asks: 'Clear cache / I changed core reference data and need consistency'");
-            sb.AppendLine("1. `POST /api/settings/clearmanagedcache` (admin-only in most deployments)");
-            sb.AppendLine();
-
-            sb.AppendLine("### Admin asks: 'Show endpoint usage / audit activity'");
-            sb.AppendLine("1. `GET /api/users/endpoint-stats?startDate={dt?}&endDate={dt?}`");
-            sb.AppendLine("2. `GET /api/users/user/{encryptedUserId}/activity?pageNumber=1&pageSize=50`");
-            sb.AppendLine("3. Date filtering: `/activity/daterange?startDate={dt}&endDate={dt}`");
-            sb.AppendLine();
-
-            // Table-to-Data Mapping
-            sb.AppendLine("## Table-to-Data Mapping Reference");
-            sb.AppendLine();
-            sb.AppendLine("| Data Question | Primary Table (menuSelection) | Key Fields |");
-            sb.AppendLine("|--------------|------------------------------|------------|");
-            sb.AppendLine("| Documents/Labels | Document | documentGuid, setGuid, versionNumber |");
-            sb.AppendLine("| Products | Product | productName, ndcCode, productGuid |");
-            sb.AppendLine("| Active Ingredients | ActiveIngredient | substanceName, unii, strength |");
-            sb.AppendLine("| Inactive Ingredients | InactiveIngredient | substanceName, unii |");
-            sb.AppendLine("| Manufacturers/Labelers | Organization | organizationName, dunsNumber |");
-            sb.AppendLine("| Sections/Content | Section | sectionCode, sectionTitle, contentText |");
-            sb.AppendLine("| NDC Codes | ProductIdentifier, PackageIdentifier | code, codeSystem |");
-            sb.AppendLine("| Packaging | PackagingLevel, PackageItem | quantity, formCode |");
-            sb.AppendLine("| Drug Classes | PharmacologicClass | className, classCode |");
-            sb.AppendLine("| Routes | Route | routeName, routeCode |");
-            sb.AppendLine("| Marketing Categories | MarketingCategory | categoryCode, categoryName |");
-            sb.AppendLine("| Drug Interactions | DrugInteraction | interactionDescription |");
-            sb.AppendLine("| Characteristics | Characteristic | characteristicName, value |");
-            sb.AppendLine("| User Activity | (system logs) | endpointPath, timestamp, userId |");
-            sb.AppendLine();
-
-            // Fallback Strategy
-            sb.AppendLine("## Fallback Strategy for 404 Errors");
-            sb.AppendLine();
-            sb.AppendLine("If a view endpoint returns 404, the view may not be implemented. Use this fallback:");
-            sb.AppendLine();
-            sb.AppendLine("1. **404 on /api/Label/* endpoint:**");
-            sb.AppendLine("   - Switch to `GET /api/label/section/{relatedTable}?pageNumber=1&pageSize=50`");
-            sb.AppendLine("   - Use Table-to-Data Mapping above to find the right table");
-            sb.AppendLine();
-            sb.AppendLine("2. **Empty results from any endpoint:**");
-            sb.AppendLine("   - Check if database has data: `GET /api/ai/context` (check documentCount)");
-            sb.AppendLine("   - If documentCount=0, suggest user import SPL data");
-            sb.AppendLine();
-            sb.AppendLine("3. **Unknown search parameter:**");
-            sb.AppendLine("   - Get all records: `GET /api/label/section/{table}?pageNumber=1&pageSize=100`");
-            sb.AppendLine("   - Filter/search results in synthesis response");
-            sb.AppendLine();
-
-            // Complete Examples (Expanded)
-            sb.AppendLine("## Complete Request Examples");
-            sb.AppendLine();
-
-            sb.AppendLine("### Example 1: 'What products do you have?'");
-            sb.AppendLine("```");
-            sb.AppendLine("Endpoint: GET /api/label/section/Product?pageNumber=1&pageSize=50");
-            sb.AppendLine("Response: Array of product records with productName, ndcCode, etc.");
-            sb.AppendLine("```");
-            sb.AppendLine();
-
-            sb.AppendLine("### Example 2: 'List all document IDs'");
-            sb.AppendLine("```");
-            sb.AppendLine("Endpoint: GET /api/label/section/Document?pageNumber=1&pageSize=50");
-            sb.AppendLine("Response: Array with encryptedId and documentGuid for each document");
-            sb.AppendLine("```");
-            sb.AppendLine();
-
-            sb.AppendLine("### Example 3: 'What ingredients are available?'");
-            sb.AppendLine("```");
-            sb.AppendLine("Endpoint: GET /api/label/section/ActiveIngredient?pageNumber=1&pageSize=100");
-            sb.AppendLine("Response: Array with substanceName, unii, strength for each ingredient");
-            sb.AppendLine("```");
-            sb.AppendLine();
-
-            sb.AppendLine("### Example 4: 'Show me all tables in the system'");
-            sb.AppendLine("```");
-            sb.AppendLine("Endpoint: GET /api/label/sectionMenu");
-            sb.AppendLine("Response: [\"Document\", \"Organization\", \"Product\", \"ActiveMoiety\", ...]");
-            sb.AppendLine("```");
-            sb.AppendLine();
-
-            sb.AppendLine("### Example 5: 'Identify a product from NDC 12345-678-90'");
-            sb.AppendLine("```");
-            sb.AppendLine("Endpoint: GET /api/Label/ndc/search?productCode=12345-678-90&pageNumber=1&pageSize=10");
-            sb.AppendLine("Response: Array of matching products (EncryptedProductID, ProductName, LabelerName, etc.)");
-            sb.AppendLine("```");
-            sb.AppendLine();
-
-            sb.AppendLine("### Example 6: 'Show package configurations for NDC 12345-678-90'");
-            sb.AppendLine("```");
-            sb.AppendLine("Endpoint: GET /api/Label/ndc/package/search?packageCode=12345-678-90&pageNumber=1&pageSize=10");
-            sb.AppendLine("Response: Array of packages (PackageDescription, PackageQuantity, etc.)");
-            sb.AppendLine("```");
-            sb.AppendLine();
-
-            sb.AppendLine("### Example 7: 'Run an AI-assisted query (interpret → execute → synthesize)'");
-            sb.AppendLine("```");
-            sb.AppendLine("1) POST /api/ai/interpret  (body: { originalQuery: \"Find all Pfizer products\" })");
-            sb.AppendLine("2) Execute returned endpoint specs on client");
-            sb.AppendLine("3) POST /api/ai/synthesize (body: includes executedEndpoints[] results)");
-            sb.AppendLine("```");
-            sb.AppendLine();
-
-            // Critical Reminders
-            sb.AppendLine("## Critical Reminders for Data Queries");
-            sb.AppendLine();
-            sb.AppendLine("1. **ALWAYS try /api/label/section/{table} if views fail** - This is the reliable fallback");
-            sb.AppendLine("2. **Use sectionMenu to discover tables** - `GET /api/label/sectionMenu`");
-            sb.AppendLine("3. **Table names are case-sensitive** - Use exactly: Document, Product, ActiveIngredient, etc.");
-            sb.AppendLine("4. **Pagination is required for large datasets** - Always include pageNumber and pageSize");
-            sb.AppendLine("5. **IDs are encrypted** - Use the encryptedId values returned, not raw database IDs");
-            sb.AppendLine("6. **Check context first** - `GET /api/ai/context` tells you document/product counts");
-            sb.AppendLine("7. **For multi-step AI**: interpret returns endpoint specs; synthesize converts executed results into answers");
-            sb.AppendLine("8. **When global data changes**: use managed cache clear to reduce stale reads (`POST /api/settings/clearmanagedcache`)");
-
-            return sb.ToString();
+            return skillsDocument;
 
             #endregion
         }

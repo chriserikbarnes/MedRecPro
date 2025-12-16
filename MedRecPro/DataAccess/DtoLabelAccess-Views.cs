@@ -530,6 +530,35 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of SectionContent DTOs from the navigation view.
+        /// Transforms view entities to DTOs with encrypted IDs for secure API responses.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="SectionContentDto"/> with encrypted IDs.</returns>
+        /// <seealso cref="LabelView.SectionContent"/>
+        /// <seealso cref="SectionContentDto"/>
+        private static List<SectionContentDto> buildSectionContentDtos(
+            ApplicationDbContext db,
+            List<LabelView.SectionContent> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Transform each entity to DTO with encrypted IDs
+            return entities.Select(entity => new SectionContentDto
+            {
+                SectionContent = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
         #endregion Section Navigation Views
 
         #region Drug Safety Views

@@ -1689,6 +1689,138 @@ namespace MedRecPro.Models
             #endregion properties
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_SectionContent.
+        /// Provides section text content for AI summarization workflows.
+        /// Returns flattened section content with document context for quick text retrieval.
+        /// </summary>
+        /// <remarks>
+        /// Designed for efficient section content retrieval supporting:
+        /// - AI-powered summarization of drug label sections
+        /// - Quick text extraction by DocumentGUID and optional SectionGUID/SectionCode
+        /// - Content aggregation for multi-section analysis
+        /// 
+        /// Filters out null/empty content (ContentText must be > 3 characters).
+        /// Indexes Used: IX_Section_DocumentID, IX_SectionTextContent_SectionID
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var sections = await db.Set&lt;LabelView.SectionContent&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(s => s.DocumentGUID == documentGuid)
+        ///     .OrderBy(s => s.SectionCode)
+        ///     .ThenBy(s => s.SequenceNumber)
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="Label.Section"/>
+        /// <seealso cref="Label.SectionTextContent"/>
+        [Table("vw_SectionContent")]
+        public class SectionContent
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Primary key for navigation to Document entity.
+            /// </summary>
+            public int? DocumentID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Primary key for navigation to Section entity.
+            /// </summary>
+            public int? SectionID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Globally unique identifier for the document version.
+            /// Use this to retrieve specific document content.
+            /// </summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Set GUID (constant across document versions).
+            /// Use this to track all versions of a document.
+            /// </summary>
+            public Guid? SetGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Globally unique identifier for the section.
+            /// Use this to retrieve specific section content.
+            /// </summary>
+            public Guid? SectionGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Version number of the document.
+            /// Higher numbers indicate more recent versions.
+            /// </summary>
+            public int? VersionNumber { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Human-readable display name for the document.
+            /// </summary>
+            public string? DocumentDisplayName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Title of the document.
+            /// </summary>
+            public string? DocumentTitle { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// LOINC code identifying the section type (e.g., 34084-4 for Adverse Reactions).
+            /// </summary>
+            public string? SectionCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Human-readable display name for the section.
+            /// </summary>
+            public string? SectionDisplayName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Title of the section as specified in the SPL document.
+            /// </summary>
+            public string? SectionTitle { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// The actual text content of the section.
+            /// Filtered to exclude null/empty content (> 3 characters).
+            /// </summary>
+            public string? ContentText { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Sequence number for ordering content within a section.
+            /// Use this to maintain proper content order.
+            /// </summary>
+            public int? SequenceNumber { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Content type indicator (e.g., "text", "paragraph", "list").
+            /// </summary>
+            public string? ContentType { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Code system for the section code (typically LOINC OID).
+            /// </summary>
+            public string? SectionCodeSystem { get; set; }
+
+            #endregion
+        }
+
         #endregion Section Navigation Views
 
         #region Drug Safety Views

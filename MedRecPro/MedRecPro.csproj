@@ -73,7 +73,14 @@
 		</Content>
 	</ItemGroup>
 	<ItemGroup>
+		<None Update="Skills\label.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Skills\labelSection.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+	<ItemGroup>
 	  <Folder Include="Exceptions\" />
-	  <Folder Include="Skills\" />
 	</ItemGroup>
 </Project>

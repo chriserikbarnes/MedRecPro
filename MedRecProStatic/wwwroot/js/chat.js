@@ -974,54 +974,582 @@
                 assistantMessage.progressStatus = 'Executing queries...';
                 updateMessage(assistantMessage.id);
 
-                // Execute each endpoint
-                const results = [];
-                const totalEndpoints = interpretation.suggestedEndpoints.length;
+                // Execute endpoints with dependency support
+                   const results = await executeEndpointsWithDependencies(
+                       interpretation.suggestedEndpoints,
+                       assistantMessage,
+                       state.abortController
+                   );
 
-                for (let i = 0; i < totalEndpoints; i++) {
-                    const endpoint = interpretation.suggestedEndpoints[i];
-                    assistantMessage.progress = (i / totalEndpoints);
-                    assistantMessage.progressStatus = `Executing ${endpoint.description || 'query'}...`;
-                    updateMessage(assistantMessage.id);
+                /**************************************************************/
+                // Enhanced Endpoint Execution with Dependency Support
+                /**************************************************************/
 
-                    try {
-                        const startTime = Date.now();
-                        const apiUrl = buildApiUrl(endpoint);
-                        const fullApiUrl = buildUrl(apiUrl);
-                        console.log('[MedRecPro Chat] Executing API call:', fullApiUrl);
+                /**
+                 * Gets a property value from an object using case-insensitive matching.
+                 * Handles PascalCase (DocumentGuid) vs camelCase (documentGuid) differences.
+                 * @param {Object} obj - The object to get the property from
+                 * @param {string} propName - The property name to find (case-insensitive)
+                 * @returns {*} The property value or undefined
+                 */
+                function getCaseInsensitiveProperty(obj, propName) {
+                    if (!obj || typeof obj !== 'object') return undefined;
 
-                        const apiResponse = await fetch(fullApiUrl, getFetchOptions({
-                            method: endpoint.method || 'GET',
-                            headers: endpoint.method === 'POST' ? { 'Content-Type': 'application/json' } : {},
-                            body: endpoint.method === 'POST' ? JSON.stringify(endpoint.body) : undefined,
-                            signal: state.abortController.signal
-                        }));
-
-                        if (apiResponse.ok) {
-                            const data = await apiResponse.json();
-                            results.push({
-                                specification: endpoint,
-                                statusCode: apiResponse.status,
-                                result: data,
-                                executionTimeMs: Date.now() - startTime
-                            });
-                        } else {
-                            results.push({
-                                specification: endpoint,
-                                statusCode: apiResponse.status,
-                                result: null,
-                                error: `HTTP ${apiResponse.status}`,
-                                executionTimeMs: Date.now() - startTime
-                            });
-                        }
-                    } catch (endpointError) {
-                        results.push({
-                            endpoint: endpoint.path,
-                            description: endpoint.description,
-                            success: false,
-                            error: endpointError.message
-                        });
+                    // Try exact match first (fastest)
+                    if (obj.hasOwnProperty(propName)) {
+                        return obj[propName];
                     }
+
+                    // Try case-insensitive match
+                    const lowerPropName = propName.toLowerCase();
+                    for (const key of Object.keys(obj)) {
+                        if (key.toLowerCase() === lowerPropName) {
+                            console.log(`[MedRecPro Chat] Case-insensitive match: '${propName}' -> '${key}'`);
+                            return obj[key];
+                        }
+                    }
+
+                    return undefined;
+                }
+
+                /**
+                 * Recursively searches for a property by name anywhere in the object hierarchy.
+                 * Returns the first match found (depth-first search).
+                 * @param {Object|Array} obj - The object/array to search in
+                 * @param {string} propName - The property name to find (case-insensitive)
+                 * @param {number} maxDepth - Maximum depth to search (default 10)
+                 * @param {number} currentDepth - Current recursion depth
+                 * @param {string} currentPath - Current path for logging
+                 * @returns {*} The property value or undefined
+                 */
+                function findPropertyDeep(obj, propName, maxDepth = 10, currentDepth = 0, currentPath = '$') {
+                    if (currentDepth > maxDepth) {
+                        return undefined;
+                    }
+
+                    if (!obj || typeof obj !== 'object') {
+                        return undefined;
+                    }
+
+                    // If it's an array, search each element
+                    if (Array.isArray(obj)) {
+                        for (let i = 0; i < obj.length; i++) {
+                            const result = findPropertyDeep(obj[i], propName, maxDepth, currentDepth + 1, `${currentPath}[${i}]`);
+                            if (result !== undefined) {
+                                return result;
+                            }
+                        }
+                        return undefined;
+                    }
+
+                    // Check if this object has the property (case-insensitive)
+                    const lowerPropName = propName.toLowerCase();
+                    for (const key of Object.keys(obj)) {
+                        if (key.toLowerCase() === lowerPropName) {
+                            console.log(`[MedRecPro Chat] Deep search: found '${propName}' at path '${currentPath}.${key}'`);
+                            return obj[key];
+                        }
+                    }
+
+                    // Recursively search nested objects
+                    for (const key of Object.keys(obj)) {
+                        const value = obj[key];
+                        if (value && typeof value === 'object') {
+                            const result = findPropertyDeep(value, propName, maxDepth, currentDepth + 1, `${currentPath}.${key}`);
+                            if (result !== undefined) {
+                                return result;
+                            }
+                        }
+                    }
+
+                    return undefined;
+                }
+
+                /**
+                 * Extracts a value from an object using a path expression or deep search.
+                 * 
+                 * Supports:
+                 * - Explicit path: "$[0].productsByIngredient.documentGUID"
+                 * - Simple property with deep search: "$[0].documentGuid" (will search nested objects)
+                 * - Property name only: "documentGuid" (deep searches entire object)
+                 * 
+                 * @param {Object|Array} data - The data to extract from
+                 * @param {string} path - Path expression or property name
+                 * @returns {*} The extracted value or undefined
+                 */
+                function extractValueByPath(data, path) {
+                    if (!data || !path) {
+                        console.log('[MedRecPro Chat] extractValueByPath: data or path is null/undefined');
+                        return undefined;
+                    }
+
+                    console.log(`[MedRecPro Chat] === EXTRACTING VALUE ===`);
+                    console.log(`[MedRecPro Chat] Path: '${path}'`);
+                    console.log(`[MedRecPro Chat] Data type: ${Array.isArray(data) ? 'array' : typeof data}`);
+
+                    // Log structure for debugging
+                    if (Array.isArray(data)) {
+                        console.log(`[MedRecPro Chat] Array length: ${data.length}`);
+                        if (data.length > 0) {
+                            const firstKeys = Object.keys(data[0]);
+                            console.log(`[MedRecPro Chat] First element keys: [${firstKeys.join(', ')}]`);
+                            // Show nested structure if there's a wrapper object
+                            for (const key of firstKeys) {
+                                if (typeof data[0][key] === 'object' && data[0][key] !== null) {
+                                    const nestedKeys = Object.keys(data[0][key]);
+                                    console.log(`[MedRecPro Chat] Nested '${key}' keys: [${nestedKeys.slice(0, 5).join(', ')}${nestedKeys.length > 5 ? '...' : ''}]`);
+                                }
+                            }
+                        }
+                    }
+
+                    // Remove leading $ if present
+                    let cleanPath = path.startsWith('$') ? path.substring(1) : path;
+
+                    // Split by . and []
+                    const parts = cleanPath.split(/\.|\[|\]/).filter(p => p !== '');
+                    console.log(`[MedRecPro Chat] Path parts: [${parts.join(', ')}]`);
+
+                    let current = data;
+                    let lastPropertyName = null;
+
+                    for (let i = 0; i < parts.length; i++) {
+                        const part = parts[i];
+
+                        if (current === null || current === undefined) {
+                            console.log(`[MedRecPro Chat] ❌ Path traversal stopped: current is null/undefined at part '${part}'`);
+                            return undefined;
+                        }
+
+                        // Handle array index
+                        if (/^\d+$/.test(part)) {
+                            const index = parseInt(part, 10);
+                            if (Array.isArray(current) && index < current.length) {
+                                current = current[index];
+                                console.log(`[MedRecPro Chat] ✓ Accessed array index [${index}]`);
+                            } else {
+                                console.log(`[MedRecPro Chat] ❌ Array index [${index}] out of bounds or current is not an array`);
+                                return undefined;
+                            }
+                        } else {
+                            lastPropertyName = part;
+
+                            // First try direct case-insensitive property access
+                            let value = getCaseInsensitiveProperty(current, part);
+
+                            // If not found directly, try deep search within current object
+                            if (value === undefined) {
+                                console.log(`[MedRecPro Chat] Property '${part}' not found at current level, trying deep search...`);
+                                value = findPropertyDeep(current, part, 5);
+                            }
+
+                            if (value === undefined) {
+                                console.log(`[MedRecPro Chat] ❌ Property '${part}' not found anywhere in current object`);
+                                return undefined;
+                            }
+
+                            current = value;
+                            const displayValue = typeof current === 'string' ? `"${current}"` :
+                                typeof current === 'object' ? '{object}' : String(current);
+                            console.log(`[MedRecPro Chat] ✓ Found property '${part}' = ${displayValue}`);
+                        }
+                    }
+
+                    console.log(`[MedRecPro Chat] === EXTRACTION RESULT: ${current} ===`);
+                    return current;
+                }
+
+                /**
+                 * Substitutes template variables in a string.
+                 * @param {string} template - String with {{variableName}} placeholders
+                 * @param {Object} variables - Key-value pairs for substitution
+                 * @returns {string} String with substituted values
+                 */
+                function substituteVariables(template, variables) {
+                    if (!template || typeof template !== 'string') return template;
+
+                    // Check if there are any template variables to substitute
+                    const hasTemplates = /\{\{(\w+)\}\}/.test(template);
+                    if (!hasTemplates) return template;
+
+                    console.log(`[MedRecPro Chat] === VARIABLE SUBSTITUTION ===`);
+                    console.log(`[MedRecPro Chat] Template: '${template}'`);
+                    console.log(`[MedRecPro Chat] Available variables: ${JSON.stringify(variables)}`);
+
+                    const result = template.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+                        // Try exact match first
+                        let value = variables[varName];
+
+                        // Try case-insensitive match if not found
+                        if (value === undefined) {
+                            const lowerVarName = varName.toLowerCase();
+                            for (const key of Object.keys(variables)) {
+                                if (key.toLowerCase() === lowerVarName) {
+                                    value = variables[key];
+                                    console.log(`[MedRecPro Chat] Case-insensitive variable match: '${varName}' -> '${key}'`);
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (value !== undefined) {
+                            console.log(`[MedRecPro Chat] ✓ Substituted {{${varName}}} -> '${value}'`);
+                            return value;
+                        } else {
+                            console.log(`[MedRecPro Chat] ❌ WARNING: Variable '${varName}' not found! Keeping placeholder.`);
+                            return match; // Keep original if not found
+                        }
+                    });
+
+                    if (result !== template) {
+                        console.log(`[MedRecPro Chat] Final result: '${result}'`);
+                    }
+                    return result;
+                }
+
+                /**
+                 * Substitutes variables in an endpoint specification.
+                 * @param {Object} endpoint - Endpoint specification
+                 * @param {Object} variables - Extracted variables from previous steps
+                 * @returns {Object} New endpoint with substituted values
+                 */
+                function substituteEndpointVariables(endpoint, variables) {
+                    console.log(`[MedRecPro Chat] Substituting variables for endpoint: ${endpoint.path}`);
+
+                    const substituted = { ...endpoint };
+
+                    // Substitute in path
+                    if (substituted.path) {
+                        substituted.path = substituteVariables(substituted.path, variables);
+                    }
+
+                    // Substitute in pathParameters
+                    if (substituted.pathParameters) {
+                        substituted.pathParameters = {};
+                        for (const [key, value] of Object.entries(endpoint.pathParameters)) {
+                            substituted.pathParameters[key] = substituteVariables(String(value), variables);
+                        }
+                    }
+
+                    // Substitute in queryParameters
+                    if (substituted.queryParameters) {
+                        substituted.queryParameters = {};
+                        for (const [key, value] of Object.entries(endpoint.queryParameters)) {
+                            if (typeof value === 'string') {
+                                substituted.queryParameters[key] = substituteVariables(value, variables);
+                            } else {
+                                substituted.queryParameters[key] = value;
+                            }
+                        }
+                    }
+
+                    return substituted;
+                }
+
+                /**
+                 * Performs auto-extraction of common fields from API response data.
+                 * Uses DEEP SEARCH to find properties regardless of nesting level.
+                 * @param {Object|Array} data - The API response data
+                 * @param {Object} extractedVariables - Object to store extracted values
+                 */
+                function autoExtractCommonFields(data, extractedVariables) {
+                    console.log('[MedRecPro Chat] === AUTO-EXTRACTION (deep search) ===');
+
+                    // Common fields to auto-extract - will search entire object hierarchy
+                    const fieldsToExtract = [
+                        'documentGuid', 'documentGUID',
+                        'productName',
+                        'encryptedId', 'encryptedID',
+                        'encryptedDocumentID',
+                        'encryptedProductID',
+                        'setGuid', 'setGUID',
+                        'labelerName'
+                    ];
+
+                    // Track which normalized names we've already extracted
+                    const extractedNormalized = new Set();
+
+                    for (const fieldName of fieldsToExtract) {
+                        // Normalize to camelCase for consistency
+                        const normalizedKey = fieldName
+                            .replace(/GUID$/i, 'Guid')
+                            .replace(/ID$/i, 'Id');
+                        const lowerNormalized = normalizedKey.toLowerCase();
+
+                        // Skip if we already have this field
+                        if (extractedNormalized.has(lowerNormalized)) continue;
+
+                        // Use deep search to find the property anywhere in the hierarchy
+                        const value = findPropertyDeep(data, fieldName);
+
+                        if (value !== undefined && value !== null) {
+                            // Store with normalized key name
+                            extractedVariables[normalizedKey] = value;
+                            extractedNormalized.add(lowerNormalized);
+                            console.log(`[MedRecPro Chat] ✓ Auto-extracted ${normalizedKey}: '${value}'`);
+                        }
+                    }
+
+                    console.log(`[MedRecPro Chat] Variables after auto-extraction: ${JSON.stringify(extractedVariables)}`);
+                }
+
+                /**************************************************************/
+                // Add support for "skipIfPreviousHasResults" property that allows
+                // fallback/rescue steps to only execute when a previous step
+                // returned empty results.
+                //
+                // This enables patterns like:
+                // - Step 1: Search for documentGUID
+                // - Step 2: Get adverse reactions (34084-4)
+                // - Step 3: Fallback to unclassified sections (42229-5) if Step 2 empty
+                //
+                // Update the executeEndpointsWithDependencies function to handle this.
+                /**************************************************************/
+
+                /**
+                 * Checks if a result has meaningful data (not empty).
+                 * @param {Object} result - The API result object
+                 * @returns {boolean} True if result has data, false if empty
+                 */
+                function resultHasData(result) {
+                    if (!result || result.statusCode < 200 || result.statusCode >= 300) {
+                        return false;
+                    }
+
+                    const data = result.result;
+
+                    if (data === null || data === undefined) {
+                        return false;
+                    }
+
+                    // Check for empty array
+                    if (Array.isArray(data)) {
+                        return data.length > 0;
+                    }
+
+                    // Check for empty object
+                    if (typeof data === 'object') {
+                        return Object.keys(data).length > 0;
+                    }
+
+                    // Primitive values are considered "has data"
+                    return true;
+                }
+
+                /**
+                 * Execute endpoints with dependency support AND conditional execution.
+                 * 
+                 * New property: skipIfPreviousHasResults
+                 * - If set to a step number, this step will be SKIPPED if that step returned data
+                 * - Use for fallback/rescue patterns where step 3 only runs if step 2 was empty
+                 * 
+                 * @param {Array} endpoints - Array of endpoint specifications
+                 * @param {Object} assistantMessage - Message object for progress updates
+                 * @param {AbortController} abortController - For cancellation
+                 * @returns {Promise<Array>} Array of execution results
+                 */
+                async function executeEndpointsWithDependencies(endpoints, assistantMessage, abortController) {
+                    const results = [];
+                    const extractedVariables = {};
+
+                    console.log('[MedRecPro Chat] ========================================');
+                    console.log('[MedRecPro Chat] MULTI-STEP ENDPOINT EXECUTION STARTED');
+                    console.log(`[MedRecPro Chat] Total endpoints: ${endpoints.length}`);
+                    console.log('[MedRecPro Chat] ========================================');
+
+                    // Log all endpoints for debugging
+                    endpoints.forEach((ep, idx) => {
+                        console.log(`[MedRecPro Chat] Endpoint ${idx + 1}: step=${ep.step}, path=${ep.path}, dependsOn=${ep.dependsOn}, skipIfPreviousHasResults=${ep.skipIfPreviousHasResults}, hasOutputMapping=${!!ep.outputMapping}`);
+                    });
+
+                    // Group endpoints by step
+                    const endpointsByStep = new Map();
+                    endpoints.forEach((ep, index) => {
+                        const step = ep.step || (ep.dependsOn ? Math.max(...endpoints.map(e => e.step || 1)) + 1 : 1);
+                        if (!endpointsByStep.has(step)) {
+                            endpointsByStep.set(step, []);
+                        }
+                        endpointsByStep.get(step).push({ ...ep, originalIndex: index });
+                    });
+
+                    // Sort steps
+                    const sortedSteps = Array.from(endpointsByStep.keys()).sort((a, b) => a - b);
+                    console.log(`[MedRecPro Chat] Execution order: steps [${sortedSteps.join(', ')}]`);
+
+                    const totalEndpoints = endpoints.length;
+                    let completedCount = 0;
+
+                    for (const step of sortedSteps) {
+                        const stepEndpoints = endpointsByStep.get(step);
+                        console.log(`[MedRecPro Chat] ======== EXECUTING STEP ${step} (${stepEndpoints.length} endpoint(s)) ========`);
+
+                        for (const endpoint of stepEndpoints) {
+
+                            // Check dependencies (must succeed)
+                            const dependencies = Array.isArray(endpoint.dependsOn)
+                                ? endpoint.dependsOn
+                                : (endpoint.dependsOn ? [endpoint.dependsOn] : []);
+
+                            if (dependencies.length > 0) {
+                                console.log(`[MedRecPro Chat] Step ${step} has ${dependencies.length} dependency/dependencies: [${dependencies.join(', ')}]`);
+
+                                const dependencyStatus = dependencies.map(depStep => {
+                                    const depResults = results.filter(r =>
+                                        r.specification && r.specification.step === depStep
+                                    );
+
+                                    const succeeded = depResults.some(r =>
+                                        r.statusCode >= 200 && r.statusCode < 300 && r.result
+                                    );
+
+                                    console.log(`[MedRecPro Chat]   - Dependency step ${depStep}: ${succeeded ? '✓ SUCCEEDED' : '❌ FAILED/MISSING'}`);
+
+                                    return { step: depStep, succeeded };
+                                });
+
+                                const failedDependencies = dependencyStatus.filter(d => !d.succeeded);
+
+                                if (failedDependencies.length > 0) {
+                                    const failedSteps = failedDependencies.map(d => d.step).join(', ');
+                                    console.log(`[MedRecPro Chat] ❌ Skipping step ${step} - dependency step(s) [${failedSteps}] failed or missing`);
+
+                                    results.push({
+                                        specification: endpoint,
+                                        statusCode: 0,
+                                        result: null,
+                                        error: `Skipped: dependency step(s) [${failedSteps}] failed`,
+                                        skipped: true,
+                                        step: step
+                                    });
+                                    completedCount++;
+                                    continue;
+                                }
+
+                                console.log(`[MedRecPro Chat] ✓ All dependencies for step ${step} satisfied`);
+                            }
+
+                            // NEW: Check skipIfPreviousHasResults condition
+                            if (endpoint.skipIfPreviousHasResults) {
+                                const checkStep = endpoint.skipIfPreviousHasResults;
+                                console.log(`[MedRecPro Chat] Checking skipIfPreviousHasResults: step ${checkStep}`);
+
+                                const previousResult = results.find(r =>
+                                    r.specification && r.specification.step === checkStep
+                                );
+
+                                if (previousResult && resultHasData(previousResult)) {
+                                    console.log(`[MedRecPro Chat] ⏭️ Skipping step ${step} - step ${checkStep} returned data (rescue not needed)`);
+
+                                    results.push({
+                                        specification: endpoint,
+                                        statusCode: 0,
+                                        result: null,
+                                        error: `Skipped: step ${checkStep} had results (fallback not needed)`,
+                                        skipped: true,
+                                        skippedReason: 'previous_has_results',
+                                        step: step
+                                    });
+                                    completedCount++;
+                                    continue;
+                                } else {
+                                    console.log(`[MedRecPro Chat] ✓ Step ${checkStep} was empty - proceeding with fallback step ${step}`);
+                                }
+                            }
+
+                            console.log(`[MedRecPro Chat] Current extractedVariables: ${JSON.stringify(extractedVariables)}`);
+
+                            // Substitute any variables from previous steps
+                            const processedEndpoint = substituteEndpointVariables(endpoint, extractedVariables);
+
+                            // Update progress
+                            assistantMessage.progress = completedCount / totalEndpoints;
+                            assistantMessage.progressStatus = `Step ${step}: ${processedEndpoint.description || 'Executing query'}...`;
+                            updateMessage(assistantMessage.id);
+
+                            try {
+                                const startTime = Date.now();
+                                const apiUrl = buildApiUrl(processedEndpoint);
+                                const fullApiUrl = buildUrl(apiUrl);
+                                console.log(`[MedRecPro Chat] Step ${step}: Executing API call: ${fullApiUrl}`);
+
+                                const apiResponse = await fetch(fullApiUrl, getFetchOptions({
+                                    method: processedEndpoint.method || 'GET',
+                                    headers: processedEndpoint.method === 'POST' ? { 'Content-Type': 'application/json' } : {},
+                                    body: processedEndpoint.method === 'POST' ? JSON.stringify(processedEndpoint.body) : undefined,
+                                    signal: abortController.signal
+                                }));
+
+                                if (apiResponse.ok) {
+                                    const data = await apiResponse.json();
+                                    const hasData = resultHasData({ result: data, statusCode: apiResponse.status });
+                                    console.log(`[MedRecPro Chat] Step ${step} ✓ succeeded: ${processedEndpoint.path} (hasData: ${hasData})`);
+
+                                    // Extract output mappings for use in subsequent steps
+                                    if (endpoint.outputMapping) {
+                                        console.log(`[MedRecPro Chat] Processing outputMapping: ${JSON.stringify(endpoint.outputMapping)}`);
+                                        for (const [varName, jsonPath] of Object.entries(endpoint.outputMapping)) {
+                                            let extractedValue = extractValueByPath(data, jsonPath);
+
+                                            // If path extraction failed, try deep search using the variable name
+                                            if (extractedValue === undefined) {
+                                                console.log(`[MedRecPro Chat] Path extraction failed, trying deep search for '${varName}'...`);
+                                                extractedValue = findPropertyDeep(data, varName);
+                                            }
+
+                                            if (extractedValue !== undefined) {
+                                                extractedVariables[varName] = extractedValue;
+                                                console.log(`[MedRecPro Chat] ✓ Stored variable '${varName}' = '${extractedValue}'`);
+                                            } else {
+                                                console.log(`[MedRecPro Chat] ❌ Failed to extract '${varName}' - not found by path or deep search`);
+                                            }
+                                        }
+                                    } else {
+                                        // Auto-extract common fields if no explicit mapping
+                                        autoExtractCommonFields(data, extractedVariables);
+                                    }
+
+                                    results.push({
+                                        specification: processedEndpoint,
+                                        statusCode: apiResponse.status,
+                                        result: data,
+                                        executionTimeMs: Date.now() - startTime,
+                                        step: step,
+                                        hasData: hasData
+                                    });
+                                } else {
+                                    console.log(`[MedRecPro Chat] Step ${step} ❌ failed: ${processedEndpoint.path} - HTTP ${apiResponse.status}`);
+                                    results.push({
+                                        specification: processedEndpoint,
+                                        statusCode: apiResponse.status,
+                                        result: null,
+                                        error: `HTTP ${apiResponse.status}`,
+                                        executionTimeMs: Date.now() - startTime,
+                                        step: step,
+                                        hasData: false
+                                    });
+                                }
+                            } catch (endpointError) {
+                                console.log(`[MedRecPro Chat] Step ${step} ❌ exception: ${endpointError.message}`);
+                                results.push({
+                                    specification: processedEndpoint,
+                                    statusCode: 500,
+                                    error: endpointError.message,
+                                    step: step,
+                                    hasData: false
+                                });
+                            }
+
+                            completedCount++;
+                        }
+                    }
+
+                    console.log('[MedRecPro Chat] ========================================');
+                    console.log('[MedRecPro Chat] MULTI-STEP EXECUTION COMPLETE');
+                    console.log(`[MedRecPro Chat] Total results: ${results.length}`);
+                    console.log(`[MedRecPro Chat] Final extractedVariables: ${JSON.stringify(extractedVariables)}`);
+                    console.log('[MedRecPro Chat] ========================================');
+
+                    return results;
                 }
 
                 // Check for failed endpoints and retry if needed
