@@ -1077,14 +1077,56 @@
                  * @param {string} path - Path expression or property name
                  * @returns {*} The extracted value or undefined
                  */
+                /**
+                 * Extracts a value (or array of values) from data using a path.
+                 * Supports array extraction with [] suffix: "documentGUID[]" extracts ALL values.
+                 * @param {Object|Array} data - The data to extract from
+                 * @param {string} path - JSONPath-like path, with optional [] suffix for array extraction
+                 * @returns {*} The extracted value, array of values, or undefined
+                 */
                 function extractValueByPath(data, path) {
                     if (!data || !path) {
                         console.log('[MedRecPro Chat] extractValueByPath: data or path is null/undefined');
                         return undefined;
                     }
 
+                    // Check for array extraction syntax (path ending with [])
+                    const isArrayExtraction = path.endsWith('[]');
+                    const cleanedPath = isArrayExtraction ? path.slice(0, -2) : path;
+
                     console.log(`[MedRecPro Chat] === EXTRACTING VALUE ===`);
-                    console.log(`[MedRecPro Chat] Path: '${path}'`);
+                    console.log(`[MedRecPro Chat] Path: '${path}'${isArrayExtraction ? ' (ARRAY MODE - extracting ALL values)' : ''}`);
+                    console.log(`[MedRecPro Chat] Data type: ${Array.isArray(data) ? 'array' : typeof data}`);
+
+                    // If array extraction mode and data is an array, extract the field from EACH element
+                    if (isArrayExtraction && Array.isArray(data)) {
+                        const values = [];
+                        for (let i = 0; i < data.length; i++) {
+                            const value = extractSingleValue(data[i], cleanedPath);
+                            if (value !== undefined && value !== null) {
+                                values.push(value);
+                            }
+                        }
+                        console.log(`[MedRecPro Chat] === ARRAY EXTRACTION RESULT: ${values.length} values ===`);
+                        console.log(`[MedRecPro Chat] Values: [${values.slice(0, 5).join(', ')}${values.length > 5 ? '...' : ''}]`);
+                        return values.length > 0 ? values : undefined;
+                    }
+
+                    // Standard single value extraction
+                    return extractSingleValue(data, cleanedPath);
+                }
+
+                /**
+                 * Extracts a single value from data using a path (internal helper).
+                 * @param {Object|Array} data - The data to extract from
+                 * @param {string} path - JSONPath-like path
+                 * @returns {*} The extracted value or undefined
+                 */
+                function extractSingleValue(data, path) {
+                    if (!data || !path) {
+                        return undefined;
+                    }
+
                     console.log(`[MedRecPro Chat] Data type: ${Array.isArray(data) ? 'array' : typeof data}`);
 
                     // Log structure for debugging
@@ -1205,6 +1247,58 @@
                         console.log(`[MedRecPro Chat] Final result: '${result}'`);
                     }
                     return result;
+                }
+
+                /**
+                 * Checks if an endpoint path contains a template variable that maps to an array.
+                 * @param {string} path - The endpoint path with {{variable}} placeholders
+                 * @param {Object} variables - Extracted variables from previous steps
+                 * @returns {Object|null} { varName, values } if array found, null otherwise
+                 */
+                function findArrayVariable(path, variables) {
+                    const match = path.match(/\{\{(\w+)\}\}/);
+                    if (match) {
+                        const varName = match[1];
+                        const value = variables[varName] || variables[varName.toLowerCase()];
+                        if (Array.isArray(value) && value.length > 1) {
+                            console.log(`[MedRecPro Chat] Found array variable '${varName}' with ${value.length} values`);
+                            return { varName, values: value };
+                        }
+                    }
+                    return null;
+                }
+
+                /**
+                 * Expands an endpoint into multiple endpoints if it contains array variables.
+                 * @param {Object} endpoint - Endpoint specification
+                 * @param {Object} variables - Extracted variables from previous steps
+                 * @returns {Array<Object>} Array of expanded endpoints (1 if no arrays, N if array)
+                 */
+                function expandEndpointForArrays(endpoint, variables) {
+                    const arrayVar = findArrayVariable(endpoint.path, variables);
+
+                    if (!arrayVar) {
+                        return [endpoint]; // No array expansion needed
+                    }
+
+                    console.log(`[MedRecPro Chat] === EXPANDING ENDPOINT FOR ARRAY ===`);
+                    console.log(`[MedRecPro Chat] Variable '${arrayVar.varName}' has ${arrayVar.values.length} values`);
+                    console.log(`[MedRecPro Chat] Will generate ${arrayVar.values.length} API calls`);
+
+                    // Create one endpoint per array value
+                    return arrayVar.values.map((value, index) => {
+                        const expandedVars = { ...variables };
+                        expandedVars[arrayVar.varName] = value;
+
+                        const expandedEndpoint = {
+                            ...endpoint,
+                            _expandedIndex: index + 1,
+                            _expandedTotal: arrayVar.values.length,
+                            _expandedValue: value
+                        };
+
+                        return { endpoint: expandedEndpoint, variables: expandedVars };
+                    });
                 }
 
                 /**
@@ -1458,86 +1552,105 @@
 
                             console.log(`[MedRecPro Chat] Current extractedVariables: ${JSON.stringify(extractedVariables)}`);
 
-                            // Substitute any variables from previous steps
-                            const processedEndpoint = substituteEndpointVariables(endpoint, extractedVariables);
+                            // Check if endpoint path contains an array variable - if so, expand into multiple calls
+                            const expandedEndpoints = expandEndpointForArrays(endpoint, extractedVariables);
+                            const isArrayExpansion = expandedEndpoints.length > 1 ||
+                                (expandedEndpoints.length === 1 && expandedEndpoints[0].variables);
 
-                            // Update progress
-                            assistantMessage.progress = completedCount / totalEndpoints;
-                            assistantMessage.progressStatus = `Step ${step}: ${processedEndpoint.description || 'Executing query'}...`;
-                            updateMessage(assistantMessage.id);
+                            if (isArrayExpansion) {
+                                console.log(`[MedRecPro Chat] === MULTI-DOCUMENT EXPANSION: ${expandedEndpoints.length} calls ===`);
+                            }
 
-                            try {
-                                const startTime = Date.now();
-                                const apiUrl = buildApiUrl(processedEndpoint);
-                                const fullApiUrl = buildUrl(apiUrl);
-                                console.log(`[MedRecPro Chat] Step ${step}: Executing API call: ${fullApiUrl}`);
+                            // Execute each expanded endpoint (or just the original if no expansion)
+                            for (let expandIdx = 0; expandIdx < expandedEndpoints.length; expandIdx++) {
+                                const expandedItem = expandedEndpoints[expandIdx];
+                                const currentEndpoint = expandedItem.endpoint || expandedItem;
+                                const currentVars = expandedItem.variables || extractedVariables;
 
-                                const apiResponse = await fetch(fullApiUrl, getFetchOptions({
-                                    method: processedEndpoint.method || 'GET',
-                                    headers: processedEndpoint.method === 'POST' ? { 'Content-Type': 'application/json' } : {},
-                                    body: processedEndpoint.method === 'POST' ? JSON.stringify(processedEndpoint.body) : undefined,
-                                    signal: abortController.signal
-                                }));
+                                // Substitute any variables from previous steps
+                                const processedEndpoint = substituteEndpointVariables(currentEndpoint, currentVars);
 
-                                if (apiResponse.ok) {
-                                    const data = await apiResponse.json();
-                                    const hasData = resultHasData({ result: data, statusCode: apiResponse.status });
-                                    console.log(`[MedRecPro Chat] Step ${step} ✓ succeeded: ${processedEndpoint.path} (hasData: ${hasData})`);
+                                // Update progress with expansion info
+                                const expandInfo = isArrayExpansion ? ` [${expandIdx + 1}/${expandedEndpoints.length}]` : '';
+                                assistantMessage.progress = completedCount / totalEndpoints;
+                                assistantMessage.progressStatus = `Step ${step}${expandInfo}: ${processedEndpoint.description || 'Executing query'}...`;
+                                updateMessage(assistantMessage.id);
 
-                                    // Extract output mappings for use in subsequent steps
-                                    if (endpoint.outputMapping) {
-                                        console.log(`[MedRecPro Chat] Processing outputMapping: ${JSON.stringify(endpoint.outputMapping)}`);
-                                        for (const [varName, jsonPath] of Object.entries(endpoint.outputMapping)) {
-                                            let extractedValue = extractValueByPath(data, jsonPath);
+                                try {
+                                    const startTime = Date.now();
+                                    const apiUrl = buildApiUrl(processedEndpoint);
+                                    const fullApiUrl = buildUrl(apiUrl);
+                                    console.log(`[MedRecPro Chat] Step ${step}${expandInfo}: Executing API call: ${fullApiUrl}`);
 
-                                            // If path extraction failed, try deep search using the variable name
-                                            if (extractedValue === undefined) {
-                                                console.log(`[MedRecPro Chat] Path extraction failed, trying deep search for '${varName}'...`);
-                                                extractedValue = findPropertyDeep(data, varName);
+                                    const apiResponse = await fetch(fullApiUrl, getFetchOptions({
+                                        method: processedEndpoint.method || 'GET',
+                                        headers: processedEndpoint.method === 'POST' ? { 'Content-Type': 'application/json' } : {},
+                                        body: processedEndpoint.method === 'POST' ? JSON.stringify(processedEndpoint.body) : undefined,
+                                        signal: abortController.signal
+                                    }));
+
+                                    if (apiResponse.ok) {
+                                        const data = await apiResponse.json();
+                                        const hasData = resultHasData({ result: data, statusCode: apiResponse.status });
+                                        console.log(`[MedRecPro Chat] Step ${step}${expandInfo} ✓ succeeded: ${processedEndpoint.path} (hasData: ${hasData})`);
+
+                                        // Extract output mappings for use in subsequent steps (only on first expansion or non-expansion)
+                                        if (!isArrayExpansion && endpoint.outputMapping) {
+                                            console.log(`[MedRecPro Chat] Processing outputMapping: ${JSON.stringify(endpoint.outputMapping)}`);
+                                            for (const [varName, jsonPath] of Object.entries(endpoint.outputMapping)) {
+                                                let extractedValue = extractValueByPath(data, jsonPath);
+
+                                                // If path extraction failed, try deep search using the variable name
+                                                if (extractedValue === undefined) {
+                                                    console.log(`[MedRecPro Chat] Path extraction failed, trying deep search for '${varName}'...`);
+                                                    extractedValue = findPropertyDeep(data, varName);
+                                                }
+
+                                                if (extractedValue !== undefined) {
+                                                    extractedVariables[varName] = extractedValue;
+                                                    console.log(`[MedRecPro Chat] ✓ Stored variable '${varName}' = '${extractedValue}'`);
+                                                } else {
+                                                    console.log(`[MedRecPro Chat] ❌ Failed to extract '${varName}' - not found by path or deep search`);
+                                                }
                                             }
-
-                                            if (extractedValue !== undefined) {
-                                                extractedVariables[varName] = extractedValue;
-                                                console.log(`[MedRecPro Chat] ✓ Stored variable '${varName}' = '${extractedValue}'`);
-                                            } else {
-                                                console.log(`[MedRecPro Chat] ❌ Failed to extract '${varName}' - not found by path or deep search`);
-                                            }
+                                        } else if (!isArrayExpansion) {
+                                            // Auto-extract common fields if no explicit mapping
+                                            autoExtractCommonFields(data, extractedVariables);
                                         }
-                                    } else {
-                                        // Auto-extract common fields if no explicit mapping
-                                        autoExtractCommonFields(data, extractedVariables);
-                                    }
 
+                                        results.push({
+                                            specification: processedEndpoint,
+                                            statusCode: apiResponse.status,
+                                            result: data,
+                                            executionTimeMs: Date.now() - startTime,
+                                            step: step,
+                                            hasData: hasData,
+                                            _expandedIndex: currentEndpoint._expandedIndex,
+                                            _expandedTotal: currentEndpoint._expandedTotal
+                                        });
+                                    } else {
+                                        console.log(`[MedRecPro Chat] Step ${step}${expandInfo} ❌ failed: ${processedEndpoint.path} - HTTP ${apiResponse.status}`);
+                                        results.push({
+                                            specification: processedEndpoint,
+                                            statusCode: apiResponse.status,
+                                            result: null,
+                                            error: `HTTP ${apiResponse.status}`,
+                                            executionTimeMs: Date.now() - startTime,
+                                            step: step,
+                                            hasData: false
+                                        });
+                                    }
+                                } catch (endpointError) {
+                                    console.log(`[MedRecPro Chat] Step ${step}${expandInfo} ❌ exception: ${endpointError.message}`);
                                     results.push({
                                         specification: processedEndpoint,
-                                        statusCode: apiResponse.status,
-                                        result: data,
-                                        executionTimeMs: Date.now() - startTime,
-                                        step: step,
-                                        hasData: hasData
-                                    });
-                                } else {
-                                    console.log(`[MedRecPro Chat] Step ${step} ❌ failed: ${processedEndpoint.path} - HTTP ${apiResponse.status}`);
-                                    results.push({
-                                        specification: processedEndpoint,
-                                        statusCode: apiResponse.status,
-                                        result: null,
-                                        error: `HTTP ${apiResponse.status}`,
-                                        executionTimeMs: Date.now() - startTime,
+                                        statusCode: 500,
+                                        error: endpointError.message,
                                         step: step,
                                         hasData: false
                                     });
                                 }
-                            } catch (endpointError) {
-                                console.log(`[MedRecPro Chat] Step ${step} ❌ exception: ${endpointError.message}`);
-                                results.push({
-                                    specification: processedEndpoint,
-                                    statusCode: 500,
-                                    error: endpointError.message,
-                                    step: step,
-                                    hasData: false
-                                });
-                            }
+                            } // End of expanded endpoints loop
 
                             completedCount++;
                         }
@@ -1607,6 +1720,14 @@
                         synthesis.suggestedFollowUps.forEach(followUp => {
                             assistantMessage.content += `- ${followUp}\n`;
                         });
+                    }
+
+                    // Add document reference links for full label viewing
+                    if (synthesis.dataReferences && Object.keys(synthesis.dataReferences).length > 0) {
+                        assistantMessage.content += '\n\n**View Full Labels:**\n';
+                        for (const [displayName, url] of Object.entries(synthesis.dataReferences)) {
+                            assistantMessage.content += `- [${displayName}](${buildUrl(url)})\n`;
+                        }
                     }
 
                     // Add API data source links for transparency
@@ -1693,6 +1814,7 @@
      * Only includes successful endpoints (2xx status codes) that returned data.
      * Creates clickable links to the underlying API endpoints so users can
      * explore the raw data directly.
+     * Separates primary data sources from fallback sources.
      * </remarks>
      */
     function formatApiSourceLinks(results) {
@@ -1701,30 +1823,171 @@
             return '';
         }
 
-        // Filter to only successful results with data
-        const successfulResults = results.filter(r =>
-            r.statusCode >= 200 &&
-            r.statusCode < 300 &&
-            r.result &&
-            r.specification
-        );
+        // Separate results into categories:
+        // 1. Primary sources: successful with data, not a fallback
+        // 2. Fallback sources: successful with data, was a fallback that was used
+        // 3. Skipped fallbacks: endpoints that were skipped because primary had data
+        const primarySources = [];
+        const fallbackSourcesUsed = [];
+        const skippedFallbacks = [];
 
-        if (successfulResults.length === 0) {
+        results.forEach(r => {
+            if (!r.specification) return;
+
+            const isFallback = r.specification.skipIfPreviousHasResults !== undefined;
+            const wasSkipped = r.skipped === true;
+            const hasData = r.hasData === true && r.statusCode >= 200 && r.statusCode < 300;
+
+            if (wasSkipped && r.skippedReason === 'previous_has_results') {
+                // This was a fallback that wasn't needed
+                skippedFallbacks.push(r);
+            } else if (hasData && r.result) {
+                if (isFallback) {
+                    // This fallback was actually used (primary returned empty)
+                    fallbackSourcesUsed.push(r);
+                } else {
+                    // Primary source with data
+                    primarySources.push(r);
+                }
+            }
+        });
+
+        // Build display name with product info where available
+        function buildSourceDescription(r) {
+            let description = r.specification.description || r.specification.path;
+            let productName = null;
+
+            // Try to extract product name from result data
+            if (r.result) {
+                productName = extractProductNameFromResult(r.result);
+            }
+
+            // Clean up template variables
+            description = description.replace(/\{\{?documentGuid\}?\}/gi, '').trim();
+
+            // Remove trailing colon or dash left from template variable removal
+            description = description.replace(/[\s:-]+$/, '').trim();
+
+            // Append product name if found
+            if (productName) {
+                description = `${description} - ${productName}`;
+            }
+
+            return description;
+        }
+
+        // Extract product name from API result data
+        function extractProductNameFromResult(data) {
+            if (!data) return null;
+
+            // If data is an array, check the first item
+            const item = Array.isArray(data) ? (data[0] || {}) : data;
+
+            // Try common field names for product/drug names
+            const fieldNames = [
+                'productName', 'ProductName', 'product_name',
+                'title', 'Title',
+                'documentDisplayName', 'displayName',
+                'name', 'Name'
+            ];
+
+            for (const field of fieldNames) {
+                // Check directly on item
+                if (item[field] && typeof item[field] === 'string') {
+                    return cleanProductName(item[field]);
+                }
+
+                // Check nested in common wrapper objects
+                const wrappers = ['sectionContent', 'document', 'label'];
+                for (const wrapper of wrappers) {
+                    if (item[wrapper] && item[wrapper][field]) {
+                        return cleanProductName(item[wrapper][field]);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        // Clean up product name for display
+        function cleanProductName(name) {
+            if (!name) return null;
+
+            // Truncate very long names
+            if (name.length > 50) {
+                name = name.substring(0, 47) + '...';
+            }
+
+            // Remove common FDA boilerplate prefixes
+            const boilerplatePrefixes = [
+                'These highlights do not include all the information needed to use',
+                'HIGHLIGHTS OF PRESCRIBING INFORMATION'
+            ];
+
+            for (const prefix of boilerplatePrefixes) {
+                if (name.toLowerCase().startsWith(prefix.toLowerCase())) {
+                    name = name.substring(prefix.length).trim();
+                    // Remove leading punctuation
+                    name = name.replace(/^[.,:\-;\s]+/, '');
+                    break;
+                }
+            }
+
+            return name || null;
+        }
+
+        // Deduplicate by base description
+        function deduplicateResults(sourceArray) {
+            const seenDescriptions = new Set();
+            const unique = [];
+
+            sourceArray.forEach(r => {
+                const description = buildSourceDescription(r);
+                const baseDescription = description.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{guid}');
+
+                if (!seenDescriptions.has(baseDescription)) {
+                    seenDescriptions.add(baseDescription);
+                    unique.push({ result: r, description: description, baseDescription: baseDescription });
+                }
+            });
+
+            return unique;
+        }
+
+        const uniquePrimary = deduplicateResults(primarySources);
+        const uniqueFallbacks = deduplicateResults(fallbackSourcesUsed);
+
+        if (uniquePrimary.length === 0 && uniqueFallbacks.length === 0) {
             return '';
         }
 
         // Build the markdown section
-        let linksMarkdown = '\n\n---\n**Data sources:**\n';
+        let linksMarkdown = '\n\n---\n';
 
-        successfulResults.forEach(r => {
-            const endpoint = r.specification;
-            const apiUrl = buildApiUrl(endpoint);
-            const fullUrl = buildUrl(apiUrl);
-            const description = endpoint.description || endpoint.path;
+        // Primary data sources
+        if (uniquePrimary.length > 0) {
+            linksMarkdown += '**Data sources:**\n';
+            uniquePrimary.forEach(item => {
+                const endpoint = item.result.specification;
+                const apiUrl = buildApiUrl(endpoint);
+                const fullUrl = buildUrl(apiUrl);
+                linksMarkdown += `- [${item.description}](${fullUrl})\n`;
+            });
+        }
 
-            // Format: [Description](url)
-            linksMarkdown += `- [${description}](${fullUrl})\n`;
-        });
+        // Fallback sources that were actually used
+        if (uniqueFallbacks.length > 0) {
+            if (uniquePrimary.length > 0) {
+                linksMarkdown += '\n';
+            }
+            linksMarkdown += '**Fallback sources used:**\n';
+            uniqueFallbacks.forEach(item => {
+                const endpoint = item.result.specification;
+                const apiUrl = buildApiUrl(endpoint);
+                const fullUrl = buildUrl(apiUrl);
+                linksMarkdown += `- [${item.description}](${fullUrl})\n`;
+            });
+        }
 
         return linksMarkdown;
 

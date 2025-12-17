@@ -585,6 +585,29 @@ namespace MedRecPro.Models
         [JsonProperty("isComplete")]
         public bool IsComplete { get; set; } = true;
 
+        /**************************************************************/
+        /// <summary>
+        /// Collection of hyperlinks to related data resources such as full label documents.
+        /// Each entry contains a display name and URL for user navigation.
+        /// </summary>
+        /// <remarks>
+        /// This property is automatically populated when document GUIDs are detected in the
+        /// synthesis results. Links point to the SPL XML generation endpoint for viewing
+        /// complete label documents.
+        /// </remarks>
+        /// <example>
+        /// DataReferences might contain:
+        /// <code>
+        /// {
+        ///   "Full Label (LIPITOR)": "/api/Label/generate/abc123-def456/true"
+        /// }
+        /// </code>
+        /// </example>
+        /// <seealso cref="Response"/>
+        /// <seealso cref="DataHighlights"/>
+        [JsonProperty("dataReferences")]
+        public Dictionary<string, string>? DataReferences { get; set; }
+
         #endregion
     }
 

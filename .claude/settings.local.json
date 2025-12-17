@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\Users\\chris\\Documents\\Repos\\MedRecPro\\Skills\")",
+      "Bash(dir:*)",
+      "Bash(findstr:*)"
+    ]
+  }
+}

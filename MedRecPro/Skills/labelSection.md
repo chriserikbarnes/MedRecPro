@@ -321,3 +321,131 @@ Choose the appropriate Step 1 search based on user's query:
 ## Direct Response Handling
 
 If the user is asking a general question that doesn't require API calls, set `isDirectResponse=true` and provide the answer in `directResponse`.
+
+---
+
+## Aggregate Queries Across ALL Documents
+
+When users ask about data across the ENTIRE database (e.g., "all side effects", "summarize everything", "list all warnings"), use a multi-document workflow that retrieves content from ALL documents, not just one.
+
+### Key Indicators for Aggregate Queries
+
+- "all", "every", "everything", "entire database", "summarize all"
+- "what side effects do you have" (no specific drug mentioned)
+- "list all warnings in the system"
+- Generic questions without a specific drug/ingredient name
+
+### Multi-Document Workflow Pattern
+
+**User:** "Summarize all side effects in your database"
+
+```json
+{
+  "success": true,
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/label/section/Document",
+      "queryParameters": { "pageNumber": 1, "pageSize": 50 },
+      "description": "Get all available documents in the database",
+      "outputMapping": { "documentGuids": "documentGUID[]" }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/section/content/{{documentGuids}}",
+      "queryParameters": { "sectionCode": "34084-4" },
+      "description": "Get adverse reactions sections from all documents (LOINC 34084-4)"
+    },
+    {
+      "step": 3,
+      "method": "GET",
+      "path": "/api/Label/section/content/{{documentGuids}}",
+      "queryParameters": { "sectionCode": "42229-5" },
+      "skipIfPreviousHasResults": 2,
+      "description": "FALLBACK: Get unclassified sections if step 2 was empty"
+    }
+  ],
+  "explanation": "Retrieving adverse reactions from ALL documents in the database."
+}
+```
+
+### CRITICAL: Array Extraction Syntax
+
+When extracting multiple values from an array response, use `[]` suffix:
+
+| Syntax | Result | Use Case |
+|--------|--------|----------|
+| `documentGUID` | First matching value only | Single document queries |
+| `documentGUID[]` | Array of ALL matching values | Multi-document aggregate queries |
+
+**Example outputMapping:**
+```json
+{
+  "outputMapping": {
+    "documentGuids": "documentGUID[]"
+  }
+}
+```
+
+This extracts ALL documentGUID values from the response array, enabling subsequent steps to query each document.
+
+### Template Variable Expansion
+
+When `{{documentGuids}}` contains multiple values, the client should:
+1. Make separate API calls for EACH document GUID
+2. Aggregate all results for synthesis
+
+### Example: All Warnings in Database
+
+**User:** "Show me all warnings across the database"
+
+```json
+{
+  "success": true,
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/label/section/Document",
+      "queryParameters": { "pageNumber": 1, "pageSize": 50 },
+      "description": "Get all documents",
+      "outputMapping": { "documentGuids": "documentGUID[]" }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/section/content/{{documentGuids}}",
+      "queryParameters": { "sectionCode": "43685-7" },
+      "description": "Get warnings and precautions from all documents"
+    }
+  ],
+  "explanation": "Retrieving warnings from all documents in the database."
+}
+```
+
+### Synthesis Instructions for Aggregate Queries
+
+When synthesizing multi-document results:
+
+1. **Count**: Report total number of documents processed
+2. **Group**: Organize side effects by product/document
+3. **Highlight**: Note common patterns across multiple products
+4. **List**: Provide document references for each source
+
+**Example synthesis format:**
+```
+I found side effects data from {n} drug labels in the database:
+
+**{Product 1 Name}** ({Label Type}):
+- Side effect 1
+- Side effect 2
+
+**{Product 2 Name}** ({Label Type}):
+- Side effect 1
+- Side effect 2
+
+**Common side effects across multiple products:**
+- {shared side effect}
+```

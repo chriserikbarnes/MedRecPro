@@ -942,6 +942,9 @@ namespace MedRecPro.Service
                 // Include conversation ID in response
                 synthesis.ConversationId = synthesisRequest.ConversationId;
 
+                // Extract and populate document reference links for full label viewing
+                synthesis.DataReferences = extractDocumentReferences(synthesisRequest);
+
                 // Update conversation history with the synthesis result if we have a conversation ID
                 if (!string.IsNullOrEmpty(synthesisRequest.ConversationId))
                 {
@@ -970,6 +973,8 @@ namespace MedRecPro.Service
                 // Provide fallback response with raw data
                 var fallback = buildFallbackSynthesis(synthesisRequest);
                 fallback.ConversationId = synthesisRequest.ConversationId;
+                // Still provide document links even when synthesis fails
+                fallback.DataReferences = extractDocumentReferences(synthesisRequest);
                 return fallback;
             }
             catch (Exception ex)
@@ -1227,6 +1232,78 @@ namespace MedRecPro.Service
         private string buildLabelSectionPromptSkills()
         {
             #region implementation
+
+            return readSkillFile("Skill-Section", "buildLabelSectionPromptSkills");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Loads the synthesis prompt skills document from the configured file path.
+        /// </summary>
+        /// <remarks>
+        /// This method reads the AI prompt instructions for synthesizing API results
+        /// into helpful, conversational responses. The file path is configured in
+        /// appsettings.json under ClaudeApiSettings:Skill-Synthesis.
+        /// </remarks>
+        /// <example>
+        /// var synthesisSkills = buildSynthesisPromptSkills();
+        /// sb.AppendLine(synthesisSkills);
+        /// </example>
+        /// <returns>The synthesis prompt skills document as a formatted string.</returns>
+        /// <seealso cref="buildSynthesisPrompt"/>
+        private string buildSynthesisPromptSkills()
+        {
+            #region implementation
+
+            return readSkillFile("Skill-Synthesis", "buildSynthesisPromptSkills");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Loads the retry prompt skills document from the configured file path.
+        /// </summary>
+        /// <remarks>
+        /// This method reads the AI prompt instructions for re-interpreting failed API
+        /// endpoint calls and suggesting alternative endpoints. The file path is configured
+        /// in appsettings.json under ClaudeApiSettings:Skill-Retry.
+        /// </remarks>
+        /// <example>
+        /// var retrySkills = buildRetryPromptSkills();
+        /// sb.AppendLine(retrySkills);
+        /// </example>
+        /// <returns>The retry prompt skills document as a formatted string.</returns>
+        /// <seealso cref="buildRetryPrompt"/>
+        private string buildRetryPromptSkills()
+        {
+            #region implementation
+
+            return readSkillFile("Skill-Retry", "buildRetryPromptSkills");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Reads a skill file from the configured path with caching support.
+        /// </summary>
+        /// <param name="configKey">The configuration key under ClaudeApiSettings (e.g., "Skill-Section").</param>
+        /// <param name="cacheKeyPrefix">A prefix for the cache key to ensure uniqueness.</param>
+        /// <returns>The skill file content as a string.</returns>
+        /// <remarks>
+        /// This method centralizes the skill file reading logic used by multiple prompt builders.
+        /// It reads from the configured path in appsettings.json, caches the result for 8 hours,
+        /// and handles fallback path resolution.
+        /// </remarks>
+        /// <seealso cref="buildLabelSectionPromptSkills"/>
+        /// <seealso cref="buildSynthesisPromptSkills"/>
+        /// <seealso cref="buildRetryPromptSkills"/>
+        private string readSkillFile(string configKey, string cacheKeyPrefix)
+        {
+            #region implementation
             string? skillsDocument;
             string? cachedSkills;
             string? skillFilePath;
@@ -1234,7 +1311,7 @@ namespace MedRecPro.Service
 
             #region check cache
             // Use consistent cache key naming convention
-            key = ("buildLabelSectionPromptSkills_ClaudeApiSettings_Skill-Section").Base64Encode();
+            key = ($"{cacheKeyPrefix}_ClaudeApiSettings_{configKey}").Base64Encode();
             cachedSkills = PerformanceHelper.GetCache<string>(key);
             if (!string.IsNullOrEmpty(cachedSkills))
             {
@@ -1244,10 +1321,10 @@ namespace MedRecPro.Service
 
             #region fetch skills file
             // Get the configured path from appsettings
-            skillFilePath = _configuration.GetValue<string>("ClaudeApiSettings:Skill-Section");
+            skillFilePath = _configuration.GetValue<string>($"ClaudeApiSettings:{configKey}");
             if (string.IsNullOrEmpty(skillFilePath))
             {
-                return "Label section prompt skills configuration not found.";
+                return $"{configKey} configuration not found.";
             }
 
             // Resolve the path relative to the application's content root
@@ -1260,7 +1337,7 @@ namespace MedRecPro.Service
 
             if (!File.Exists(fullPath))
             {
-                return $"Label section prompt skills document not found at: {skillFilePath}";
+                return $"Skills document not found at: {skillFilePath}";
             }
 
             skillsDocument = File.ReadAllText(fullPath);
@@ -1348,53 +1425,15 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="request">The synthesis request.</param>
         /// <returns>The complete prompt string.</returns>
+        /// <seealso cref="buildSynthesisPromptSkills"/>
         private string buildSynthesisPrompt(AiSynthesisRequest request)
         {
             #region implementation
 
             var sb = new StringBuilder();
 
-            sb.AppendLine("You are an AI assistant for MedRecPro, a pharmaceutical labeling management system.");
-            sb.AppendLine("Your task is to synthesize API results into a helpful, conversational response.");
-            sb.AppendLine();
-
-            // Add guidance for section/content endpoint (preferred, clean format)
-            sb.AppendLine("=== SECTION CONTENT RESPONSE FORMAT ===");
-            sb.AppendLine("When processing results from `/api/Label/section/content/{documentGuid}`, the response is a clean array:");
-            sb.AppendLine();
-            sb.AppendLine("```json");
-            sb.AppendLine(@"[
-              {
-                ""sectionContent"": {
-                  ""SectionDisplayName"": ""ADVERSE REACTIONS"",
-                  ""SectionTitle"": ""6 ADVERSE REACTIONS"",
-                  ""ContentText"": ""The actual text content to present to user..."",
-                  ""SequenceNumber"": 1,
-                  ""ContentType"": ""paragraph""
-                }
-              },
-              { ""sectionContent"": { ""ContentText"": ""More content..."", ""SequenceNumber"": 2 } }
-            ]");
-            sb.AppendLine("```");
-            sb.AppendLine();
-            sb.AppendLine("**How to synthesize section content:**");
-            sb.AppendLine("1. Extract all `sectionContent.ContentText` values from the array");
-            sb.AppendLine("2. Order by `SequenceNumber` for proper reading order");
-            sb.AppendLine("3. Group by `SectionTitle` if multiple sections returned");
-            sb.AppendLine("4. Present the text content in a clear, readable format");
-            sb.AppendLine("5. Strip any HTML/XML markup if present in ContentText");
-            sb.AppendLine();
-            sb.AppendLine("**Common Section Display Names:**");
-            sb.AppendLine("| SectionDisplayName | What It Contains |");
-            sb.AppendLine("|-------------------|------------------|");
-            sb.AppendLine("| ADVERSE REACTIONS | Side effects |");
-            sb.AppendLine("| WARNINGS AND PRECAUTIONS | Safety warnings |");
-            sb.AppendLine("| CONTRAINDICATIONS | Who should not take |");
-            sb.AppendLine("| DOSAGE AND ADMINISTRATION | How to take |");
-            sb.AppendLine("| DRUG INTERACTIONS | Interactions with other drugs |");
-            sb.AppendLine("| INDICATIONS AND USAGE | What the drug treats |");
-            sb.AppendLine();
-            sb.AppendLine("IMPORTANT: The ContentText field contains the actual label text. Read it and summarize/present it to the user.");
+            // Load synthesis prompt skills from file
+            sb.AppendLine(buildSynthesisPromptSkills());
             sb.AppendLine();
 
             // Original query
@@ -1437,20 +1476,6 @@ namespace MedRecPro.Service
 
                 sb.AppendLine();
             }
-
-            // Output format
-            sb.AppendLine("=== OUTPUT FORMAT ===");
-            sb.AppendLine("Respond with a JSON object in the following format:");
-            sb.AppendLine(@"{
-              ""response"": ""Natural language response addressing the user's query. Include specific details from the label sections."",
-              ""dataHighlights"": { ""productName"": ""value"", ""relevantSections"": [""section names found""] },
-              ""suggestedFollowUps"": [""Suggested next query""],
-              ""warnings"": [""Any warnings or limitations""],
-              ""isComplete"": true/false
-            }");
-            sb.AppendLine();
-            sb.AppendLine("IMPORTANT: Extract and present the actual content from matching sections.");
-            sb.AppendLine("Do not just say 'the data is in section X' - actually read and summarize the content.");
 
             return sb.ToString();
 
@@ -1663,6 +1688,549 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Extracts document GUIDs from synthesis request results and builds data reference links.
+        /// </summary>
+        /// <param name="request">The synthesis request containing executed endpoint results.</param>
+        /// <returns>
+        /// Dictionary of display names to API URLs for viewing full label documents.
+        /// Returns null if no document GUIDs are found.
+        /// </returns>
+        /// <remarks>
+        /// This method scans the executed endpoint results for document GUIDs and creates
+        /// hyperlinks to the SPL XML generation endpoint. It supports:
+        /// <list type="bullet">
+        /// <item>Document GUIDs in path parameters (e.g., /api/Label/single/{documentGuid})</item>
+        /// <item>Document GUIDs in JSON response objects (documentGuid, documentGUID, DocumentGUID fields)</item>
+        /// <item>Document GUIDs in array results</item>
+        /// </list>
+        /// The generated links use minified XML format for faster loading.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var references = extractDocumentReferences(synthesisRequest);
+        /// // Returns: { "View Full Label": "/api/Label/generate/abc123-def456/true" }
+        /// </code>
+        /// </example>
+        /// <seealso cref="SynthesizeResultsAsync"/>
+        /// <seealso cref="AiAgentSynthesis.DataReferences"/>
+        /// <seealso cref="extractLabelDisplayName"/>
+        private Dictionary<string, string>? extractDocumentReferences(AiSynthesisRequest request)
+        {
+            #region implementation
+
+            var references = new Dictionary<string, string>();
+            var guidPattern = new System.Text.RegularExpressions.Regex(
+                @"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+            // Track seen GUIDs to avoid duplicates
+            var seenGuids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // First pass: Build a metadata cache from Document list endpoints (contains title, documentDisplayName)
+            var documentMetadataCache = buildDocumentMetadataCache(request.ExecutedEndpoints);
+
+            foreach (var result in request.ExecutedEndpoints)
+            {
+                // Skip failed endpoints
+                if (result.StatusCode < 200 || result.StatusCode >= 300)
+                {
+                    continue;
+                }
+
+                #region extract from path
+                // Check if the path contains a document GUID
+                var pathMatch = guidPattern.Match(result.Specification.Path);
+                if (pathMatch.Success)
+                {
+                    var guid = pathMatch.Value;
+                    if (!seenGuids.Contains(guid))
+                    {
+                        seenGuids.Add(guid);
+                        // Use cached metadata first, then fall back to result extraction
+                        var displayName = getDisplayNameFromCacheOrResult(
+                            documentMetadataCache, guid, result.Result, seenGuids.Count);
+                        references[$"View Full Label ({displayName})"] = $"/api/Label/generate/{guid}/true";
+                    }
+                }
+                #endregion
+
+                #region extract from result JSON (for Document list endpoints)
+                // Also extract GUIDs from Document list results (step 1)
+                if (result.Result != null && result.Specification.Path.Contains("/section/Document"))
+                {
+                    var resultJson = Newtonsoft.Json.JsonConvert.SerializeObject(result.Result);
+                    var matches = guidPattern.Matches(resultJson);
+
+                    foreach (System.Text.RegularExpressions.Match match in matches)
+                    {
+                        var guid = match.Value;
+                        if (!seenGuids.Contains(guid))
+                        {
+                            // Check context to ensure it's a documentGuid field
+                            var contextStart = Math.Max(0, match.Index - 50);
+                            var contextLength = Math.Min(100, resultJson.Length - contextStart);
+                            var context = resultJson.Substring(contextStart, contextLength).ToLower();
+
+                            if (context.Contains("documentguid") || context.Contains("document_guid"))
+                            {
+                                seenGuids.Add(guid);
+                                var displayName = getDisplayNameFromCacheOrResult(
+                                    documentMetadataCache, guid, result.Result, seenGuids.Count);
+                                references[$"View Full Label ({displayName})"] = $"/api/Label/generate/{guid}/true";
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            return references.Count > 0 ? references : null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a metadata cache mapping document GUIDs to their display names.
+        /// Scans Document list endpoint results for title and documentDisplayName fields.
+        /// </summary>
+        /// <param name="endpoints">The executed endpoint results to scan.</param>
+        /// <returns>Dictionary mapping lowercase GUIDs to display name strings.</returns>
+        private Dictionary<string, string> buildDocumentMetadataCache(List<AiEndpointResult> endpoints)
+        {
+            #region implementation
+
+            var cache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            // Find Document list results (typically from /api/label/section/Document)
+            foreach (var result in endpoints)
+            {
+                if (result.StatusCode < 200 || result.StatusCode >= 300 || result.Result == null)
+                {
+                    continue;
+                }
+
+                // Look for endpoints that return document lists
+                if (!result.Specification.Path.Contains("/section/Document") &&
+                    !result.Specification.Path.Contains("/document/search"))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var json = Newtonsoft.Json.JsonConvert.SerializeObject(result.Result);
+
+                    // Use regex to find document entries with guid, title, and documentDisplayName
+                    // Pattern matches JSON objects containing documentGUID
+                    var docPattern = new System.Text.RegularExpressions.Regex(
+                        @"\{[^{}]*""documentGUID""\s*:\s*""([^""]+)""[^{}]*\}",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    var matches = docPattern.Matches(json);
+                    foreach (System.Text.RegularExpressions.Match match in matches)
+                    {
+                        if (match.Groups.Count < 2) continue;
+
+                        var guid = match.Groups[1].Value;
+                        var docJson = match.Value;
+
+                        // Extract title
+                        var titleMatch = System.Text.RegularExpressions.Regex.Match(
+                            docJson, @"""title""\s*:\s*""([^""]+)""",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                        // Extract documentDisplayName
+                        var displayNameMatch = System.Text.RegularExpressions.Regex.Match(
+                            docJson, @"""documentDisplayName""\s*:\s*""([^""]+)""",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                        string displayName = "";
+                        if (titleMatch.Success)
+                        {
+                            var title = titleMatch.Groups[1].Value.Trim();
+                            // Clean HTML tags and FDA boilerplate from title
+                            title = cleanDocumentTitle(title);
+                            // Truncate long titles
+                            if (title.Length > 40)
+                            {
+                                title = title.Substring(0, 37) + "...";
+                            }
+                            displayName = title;
+                        }
+
+                        if (displayNameMatch.Success)
+                        {
+                            var labelType = formatLabelType(displayNameMatch.Groups[1].Value);
+                            if (!string.IsNullOrEmpty(displayName) && !string.IsNullOrEmpty(labelType))
+                            {
+                                displayName = $"{displayName} ({labelType})";
+                            }
+                            else if (string.IsNullOrEmpty(displayName))
+                            {
+                                displayName = labelType;
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(displayName) && !cache.ContainsKey(guid))
+                        {
+                            cache[guid] = displayName;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore parsing errors
+                }
+            }
+
+            return cache;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Cleans a document title by removing HTML tags and FDA boilerplate prefixes.
+        /// </summary>
+        /// <param name="title">The raw document title from the database.</param>
+        /// <returns>A cleaned title suitable for display.</returns>
+        /// <remarks>
+        /// This method handles:
+        /// <list type="bullet">
+        /// <item>HTML tags using TextUtil.RemoveTags()</item>
+        /// <item>FDA boilerplate like "These highlights do not include all the information needed to use"</item>
+        /// <item>Other common prefixes that obscure the actual drug name</item>
+        /// </list>
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var cleaned = cleanDocumentTitle("These highlights do not include all the information needed to use ASPIRIN safely.");
+        /// // Returns: "ASPIRIN safely."
+        /// </code>
+        /// </example>
+        private string cleanDocumentTitle(string title)
+        {
+            #region implementation
+
+            if (string.IsNullOrEmpty(title))
+            {
+                return title;
+            }
+
+            // Remove HTML tags first
+            title = title.RemoveTags();
+
+            // Common FDA boilerplate prefixes to strip
+            // These appear at the start of many drug label titles
+            var boilerplatePrefixes = new[]
+            {
+                "These highlights do not include all the information needed to use",
+                "HIGHLIGHTS OF PRESCRIBING INFORMATION These highlights do not include all the information needed to use",
+                "HIGHLIGHTS OF PRESCRIBING INFORMATION",
+                "Full prescribing information for"
+            };
+
+            foreach (var prefix in boilerplatePrefixes)
+            {
+                if (title.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    title = title.Substring(prefix.Length).Trim();
+                    // Remove leading punctuation after stripping prefix
+                    title = title.TrimStart('.', ',', ':', ';', '-', ' ');
+                    break;
+                }
+            }
+
+            // Also handle cases where boilerplate appears mid-string
+            // Look for drug name pattern after boilerplate (ALL CAPS word followed by other text)
+            var drugNamePattern = new System.Text.RegularExpressions.Regex(
+                @"^.*?(?:needed to use|information needed to use)\s+([A-Z][A-Z0-9\s\-]+)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            var drugMatch = drugNamePattern.Match(title);
+            if (drugMatch.Success && drugMatch.Groups.Count > 1)
+            {
+                // Extract just the drug name portion
+                var drugNameStart = title.IndexOf(drugMatch.Groups[1].Value);
+                if (drugNameStart >= 0)
+                {
+                    title = title.Substring(drugNameStart).Trim();
+                }
+            }
+
+            // Clean up any remaining issues
+            title = title.Trim();
+
+            // If the title starts with a lowercase word after cleaning, capitalize it
+            if (title.Length > 0 && char.IsLower(title[0]))
+            {
+                title = char.ToUpper(title[0]) + title.Substring(1);
+            }
+
+            return title;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets display name from cache or extracts from result as fallback.
+        /// </summary>
+        private string getDisplayNameFromCacheOrResult(
+            Dictionary<string, string> cache,
+            string guid,
+            object? result,
+            int index)
+        {
+            #region implementation
+
+            // Try cache first
+            if (cache.TryGetValue(guid, out var cachedName))
+            {
+                return cachedName;
+            }
+
+            // Fall back to result extraction
+            return extractLabelDisplayName(result, guid, index);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts a product name and label type from an API result for display in data references.
+        /// </summary>
+        /// <param name="result">The API result object to search.</param>
+        /// <param name="documentGuid">The document GUID to search for specific record data.</param>
+        /// <param name="index">Fallback index number if no name is found.</param>
+        /// <returns>A display-friendly label description combining product name and label type.</returns>
+        /// <remarks>
+        /// Searches for drug/product names and document types to build descriptive labels like:
+        /// "ASPIRIN (Human OTC Drug)" or "LISINOPRIL TABLETS (Prescription Drug)"
+        /// Falls back to generic numbered documents if specific names aren't found.
+        /// </remarks>
+        /// <seealso cref="extractDocumentReferences"/>
+        private string extractLabelDisplayName(object? result, string documentGuid, int index)
+        {
+            #region implementation
+
+            if (result == null)
+            {
+                return $"Document {index}";
+            }
+
+            try
+            {
+                var json = Newtonsoft.Json.JsonConvert.SerializeObject(result);
+
+                string? productName = null;
+                string? labelType = null;
+                string? documentTitle = null;
+
+                #region extract product name
+                // Product name patterns in order of preference
+                var productPatterns = new[]
+                {
+                    "\"productName\"\\s*:\\s*\"([^\"]+)\"",
+                    "\"ProductName\"\\s*:\\s*\"([^\"]+)\"",
+                    "\"product_name\"\\s*:\\s*\"([^\"]+)\""
+                };
+
+                foreach (var pattern in productPatterns)
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(json, pattern,
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (match.Success && match.Groups.Count > 1)
+                    {
+                        productName = match.Groups[1].Value.Trim();
+                        break;
+                    }
+                }
+                #endregion
+
+                #region extract document title (fallback for product name)
+                if (string.IsNullOrEmpty(productName))
+                {
+                    var titlePatterns = new[]
+                    {
+                        "\"title\"\\s*:\\s*\"([^\"]+)\"",
+                        "\"Title\"\\s*:\\s*\"([^\"]+)\""
+                    };
+
+                    foreach (var pattern in titlePatterns)
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(json, pattern,
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (match.Success && match.Groups.Count > 1)
+                        {
+                            // Clean the title of HTML and FDA boilerplate
+                            documentTitle = cleanDocumentTitle(match.Groups[1].Value.Trim());
+                            break;
+                        }
+                    }
+                }
+                #endregion
+
+                #region extract label type from documentDisplayName
+                // Document display name indicates the label type (e.g., "HUMAN PRESCRIPTION DRUG LABEL")
+                var labelTypePatterns = new[]
+                {
+                    "\"documentDisplayName\"\\s*:\\s*\"([^\"]+)\"",
+                    "\"DocumentDisplayName\"\\s*:\\s*\"([^\"]+)\""
+                };
+
+                foreach (var pattern in labelTypePatterns)
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(json, pattern,
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (match.Success && match.Groups.Count > 1)
+                    {
+                        labelType = formatLabelType(match.Groups[1].Value);
+                        break;
+                    }
+                }
+                #endregion
+
+                #region build display name
+                // Build the display name combining product and type
+                var displayParts = new List<string>();
+
+                // Prefer product name, then document title
+                var primaryName = productName ?? documentTitle;
+                if (!string.IsNullOrEmpty(primaryName))
+                {
+                    // Truncate long names for display
+                    if (primaryName.Length > 40)
+                    {
+                        primaryName = primaryName.Substring(0, 37) + "...";
+                    }
+                    displayParts.Add(primaryName);
+                }
+
+                // Add label type if available
+                if (!string.IsNullOrEmpty(labelType))
+                {
+                    if (displayParts.Count > 0)
+                    {
+                        return $"{displayParts[0]} ({labelType})";
+                    }
+                    return labelType;
+                }
+
+                if (displayParts.Count > 0)
+                {
+                    return displayParts[0];
+                }
+                #endregion
+            }
+            catch
+            {
+                // Ignore serialization errors, use fallback
+            }
+
+            return $"Document {index}";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Formats a document display name into a shorter, user-friendly label type.
+        /// </summary>
+        /// <param name="displayName">The full document display name (e.g., "HUMAN PRESCRIPTION DRUG LABEL").</param>
+        /// <returns>A shortened, formatted label type (e.g., "Prescription Drug").</returns>
+        /// <remarks>
+        /// Converts verbose FDA document type names to concise display labels:
+        /// <list type="bullet">
+        /// <item>"HUMAN PRESCRIPTION DRUG LABEL" → "Prescription Drug"</item>
+        /// <item>"HUMAN OTC DRUG LABEL" → "OTC Drug"</item>
+        /// <item>"INDEXING - PHARMACOLOGIC CLASS" → "Indexing File"</item>
+        /// </list>
+        /// </remarks>
+        /// <seealso cref="extractLabelDisplayName"/>
+        private string formatLabelType(string displayName)
+        {
+            #region implementation
+
+            if (string.IsNullOrEmpty(displayName))
+            {
+                return string.Empty;
+            }
+
+            // Normalize to uppercase for matching
+            var upper = displayName.ToUpperInvariant();
+
+            // Map common FDA document types to friendly names
+            if (upper.Contains("PRESCRIPTION DRUG"))
+            {
+                return "Prescription Drug";
+            }
+            if (upper.Contains("OTC DRUG"))
+            {
+                return "OTC Drug";
+            }
+            if (upper.Contains("HOMEOPATHIC"))
+            {
+                return "Homeopathic";
+            }
+            if (upper.Contains("VACCINE"))
+            {
+                return "Vaccine Label";
+            }
+            if (upper.Contains("PLASMA"))
+            {
+                return "Plasma Derivative";
+            }
+            if (upper.Contains("CELLULAR THERAPY"))
+            {
+                return "Cellular Therapy";
+            }
+            if (upper.Contains("INDEXING"))
+            {
+                return "Indexing File";
+            }
+            if (upper.Contains("ANIMAL DRUG"))
+            {
+                return "Animal Drug";
+            }
+            if (upper.Contains("MEDICAL DEVICE"))
+            {
+                return "Medical Device";
+            }
+            if (upper.Contains("DIETARY SUPPLEMENT"))
+            {
+                return "Dietary Supplement";
+            }
+            if (upper.Contains("COSMETIC"))
+            {
+                return "Cosmetic";
+            }
+            if (upper.Contains("BULK INGREDIENT"))
+            {
+                return "Bulk Ingredient";
+            }
+
+            // Default: clean up the raw name
+            // Remove "HUMAN " prefix, " LABEL" suffix, convert to title case
+            var cleaned = displayName
+                .Replace("HUMAN ", "")
+                .Replace(" LABEL", "")
+                .Trim();
+
+            if (cleaned.Length > 25)
+            {
+                cleaned = cleaned.Substring(0, 22) + "...";
+            }
+
+            // Convert to title case
+            return System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleaned.ToLower());
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Builds the comprehensive skills document describing all available API endpoints.
         /// </summary>
         /// <returns>The skills document as a formatted string.</returns>
@@ -1824,6 +2392,7 @@ namespace MedRecPro.Service
         /// <param name="failedResults">The endpoints that failed.</param>
         /// <param name="attemptNumber">Current retry attempt number.</param>
         /// <returns>Formatted prompt string for Claude.</returns>
+        /// <seealso cref="buildRetryPromptSkills"/>
         private string buildRetryPrompt(
             AiAgentRequest originalRequest,
             List<AiEndpointResult> failedResults,
@@ -1833,8 +2402,8 @@ namespace MedRecPro.Service
 
             var sb = new StringBuilder();
 
-            sb.AppendLine("You are an AI assistant for MedRecPro, a pharmaceutical labeling management system.");
-            sb.AppendLine("The previous API call(s) FAILED. You must suggest ALTERNATIVE endpoints to try.");
+            // Load retry prompt skills from file (includes system role, fallback rules, and output format)
+            sb.AppendLine(buildRetryPromptSkills());
             sb.AppendLine();
 
             // Include skills document for reference
@@ -1860,46 +2429,9 @@ namespace MedRecPro.Service
             }
             sb.AppendLine();
 
-            // Retry guidance
-            sb.AppendLine("=== RETRY STRATEGY ===");
+            // Retry attempt context
+            sb.AppendLine("=== RETRY CONTEXT ===");
             sb.AppendLine($"This is retry attempt {attemptNumber} of 3.");
-            sb.AppendLine();
-            sb.AppendLine("CRITICAL FALLBACK RULES:");
-            sb.AppendLine("1. If /api/Label/* returned 404, use /api/label/section/{table} instead");
-            sb.AppendLine("2. If searching failed, try getting ALL records with pagination");
-            sb.AppendLine("3. Table names are case-sensitive: Document, Product, ActiveIngredient, InactiveIngredient, Organization");
-            sb.AppendLine("4. For ingredients, try: ActiveIngredient, InactiveIngredient, or IngredientSubstance");
-            sb.AppendLine("5. Always include pageNumber=1 and pageSize=50 for section queries");
-            sb.AppendLine();
-
-            sb.AppendLine("COMMON ALTERNATIVES:");
-            sb.AppendLine("| Failed Endpoint | Try Instead |");
-            sb.AppendLine("|----------------|-------------|");
-            sb.AppendLine("| /api/Label/ingredient/* | /api/label/section/ActiveIngredient or /api/label/section/InactiveIngredient |");
-            sb.AppendLine("| /api/Label/document/* | /api/label/section/Document |");
-            sb.AppendLine("| /api/Label/labeler/* | /api/label/section/Organization |");
-            sb.AppendLine("| /api/Label/pharmacologic-class/* | /api/label/section/PharmacologicClass |");
-            sb.AppendLine("| Any search endpoint | Same section with no filter + pagination |");
-            sb.AppendLine();
-
-            // Output format
-            sb.AppendLine("=== OUTPUT FORMAT ===");
-            sb.AppendLine("Respond with JSON containing DIFFERENT endpoints than the failed ones:");
-            sb.AppendLine(@"{
-              ""success"": true,
-              ""endpoints"": [
-                {
-                  ""method"": ""GET"",
-                  ""path"": ""/api/label/section/{table}"",
-                  ""queryParameters"": { ""pageNumber"": ""1"", ""pageSize"": ""50"" },
-                  ""description"": ""Alternative approach using direct table access""
-                }
-              ],
-              ""explanation"": ""Trying alternative endpoint because the view was not available"",
-              ""isDirectResponse"": false
-            }");
-            sb.AppendLine();
-            sb.AppendLine("If NO alternatives exist, set isDirectResponse=true and provide directResponse explaining why.");
 
             return sb.ToString();
 
