@@ -309,8 +309,24 @@ const MedRecProChat = (function () {
 
             // Handle direct response (no API calls needed)
             if (interpretation.directResponse) {
+                let responseContent = interpretation.directResponse;
+
+                // If this is an import response, add hyperlinks to view imported documents
+                if (importResult && importResult.documentIds && importResult.documentIds.length > 0) {
+                    responseContent += '\n\n**View Full Labels:**\n';
+                    importResult.documentIds.forEach(docGuid => {
+                        const shortGuid = docGuid.substring(0, 8);
+                        responseContent += `- [View Imported Label (${shortGuid}...)](${ChatConfig.buildUrl(`/api/Label/generate/${docGuid}/true`)})\n`;
+                    });
+
+                    // Add import progress link if operationId is available
+                    if (importResult.operationId) {
+                        responseContent += `- [Check Import Progress](${ChatConfig.buildUrl(`/api/Label/import/progress/${importResult.operationId}`)})\n`;
+                    }
+                }
+
                 ChatState.updateMessage(assistantMessage.id, {
-                    content: interpretation.directResponse,
+                    content: responseContent,
                     isStreaming: false,
                     progress: undefined,
                     progressStatus: undefined
@@ -393,11 +409,16 @@ const MedRecProChat = (function () {
 
             const defaultRequest = 'Please acknowledge the successful import and provide information about the imported documents.';
 
-            return `[IMPORT COMPLETED SUCCESSFULLY: Imported ${importResult.documentIds.length} document(s). Document GUIDs: ${importResult.documentIds.join(', ')}. Statistics: ${statsText || 'N/A'}]\n\nUser request: ${originalInput || defaultRequest}`;
+            // Include operationId if available for progress tracking
+            const operationIdPart = importResult.operationId ? ` operationId: ${importResult.operationId}.` : '';
+
+            return `[IMPORT COMPLETED SUCCESSFULLY: Imported ${importResult.documentIds.length} document(s). Document GUIDs: ${importResult.documentIds.join(', ')}.${operationIdPart} Statistics: ${statsText || 'N/A'}]\n\nUser request: ${originalInput || defaultRequest}`;
         } else if (importResult.success) {
             return `[IMPORT COMPLETED: Files were processed but no new documents were created. ${importResult.message}]\n\nUser request: ${originalInput}`;
         } else {
-            return `[IMPORT ISSUE: ${importResult.message}]\n\nUser request: ${originalInput}`;
+            // Include operationId for failed/in-progress imports so user can check progress
+            const operationIdPart = importResult.operationId ? ` operationId: ${importResult.operationId}.` : '';
+            return `[IMPORT ISSUE:${operationIdPart} ${importResult.message}]\n\nUser request: ${originalInput}`;
         }
     }
 

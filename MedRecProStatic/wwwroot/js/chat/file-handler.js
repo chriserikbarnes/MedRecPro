@@ -291,16 +291,19 @@ export const FileHandler = (function () {
      *
      * @param {string} progressUrl - The URL to poll for progress
      * @param {Function} [onProgress] - Callback for progress updates
-     * @param {number} [maxWaitMs=120000] - Maximum wait time in milliseconds
+     * @param {number} [maxWaitMs=300000] - Maximum wait time in milliseconds (default 5 minutes for Azure)
      * @returns {Promise<Object>} Final import status with results
      *
      * @description
      * Uses exponential backoff starting at pollInterval (1 second).
      * Stops polling when status is "Completed", "Failed", or "Canceled".
+     * Extended timeout for Azure production environments where imports may take longer.
      *
      * The onProgress callback receives status updates for UI display:
      * - status.percentComplete: 0-100 progress value
      * - status.status: Current status string
+     * - status.progressUrl: URL to manually check progress
+     * - status.operationId: Operation ID for reference
      *
      * @example
      * const finalStatus = await pollImportProgress(
@@ -311,9 +314,12 @@ export const FileHandler = (function () {
      * @see uploadFiles - Uses for async import tracking
      */
     /**************************************************************/
-    async function pollImportProgress(progressUrl, onProgress, maxWaitMs = 120000) {
+    async function pollImportProgress(progressUrl, onProgress, maxWaitMs = 300000) {
         const startTime = Date.now();
         let pollDelay = ChatConfig.API_CONFIG.pollInterval;
+        let consecutiveFailures = 0;
+        const maxConsecutiveFailures = 10;
+        let lastKnownStatus = null;
 
         while (Date.now() - startTime < maxWaitMs) {
             try {
@@ -325,15 +331,46 @@ export const FileHandler = (function () {
                 );
 
                 if (!response.ok) {
-                    console.warn('[FileHandler] Progress poll failed:', response.status);
+                    consecutiveFailures++;
+                    console.warn('[FileHandler] Progress poll failed:', response.status, `(${consecutiveFailures}/${maxConsecutiveFailures})`);
+
+                    // If we've had too many consecutive failures, return with status info
+                    if (consecutiveFailures >= maxConsecutiveFailures) {
+                        return {
+                            status: 'Unknown',
+                            error: 'Unable to retrieve import status after multiple attempts',
+                            progressUrl: progressUrl,
+                            message: `Import may still be processing. Check progress manually at: ${progressUrl}`,
+                            lastKnownStatus: lastKnownStatus
+                        };
+                    }
+
                     await new Promise(r => setTimeout(r, pollDelay));
-                    // Exponential backoff, capped at 5 seconds
-                    pollDelay = Math.min(pollDelay * 1.5, 5000);
+                    // Exponential backoff, capped at 8 seconds for Azure resilience
+                    pollDelay = Math.min(pollDelay * 1.5, 8000);
                     continue;
                 }
 
+                // Reset failure counter on successful response
+                consecutiveFailures = 0;
+
                 const status = await response.json();
-                console.log('[FileHandler] Import progress:', status.percentComplete + '%', status.status);
+                lastKnownStatus = status;
+
+                // Build file count display string for progress reporting
+                const fileProgress = (status.totalFiles > 0 && status.currentFile > 0)
+                    ? `${status.currentFile} of ${status.totalFiles} files`
+                    : (status.percentComplete !== undefined ? `${status.percentComplete}%` : '');
+
+                console.log('[FileHandler] Import progress:', fileProgress, status.status);
+
+                // Ensure progressUrl is included in the status
+                if (!status.progressUrl) {
+                    status.progressUrl = progressUrl;
+                }
+
+                // Add formatted file progress string for UI display
+                status.fileProgress = fileProgress;
 
                 // Call progress callback for UI updates
                 if (onProgress) {
@@ -353,13 +390,31 @@ export const FileHandler = (function () {
                 // Re-throw abort errors to allow cancellation
                 if (error.name === 'AbortError') throw error;
 
-                console.warn('[FileHandler] Progress poll error:', error);
+                consecutiveFailures++;
+                console.warn('[FileHandler] Progress poll error:', error, `(${consecutiveFailures}/${maxConsecutiveFailures})`);
+
+                if (consecutiveFailures >= maxConsecutiveFailures) {
+                    return {
+                        status: 'Unknown',
+                        error: error.message || 'Connection error during polling',
+                        progressUrl: progressUrl,
+                        message: `Import may still be processing. Check progress manually at: ${progressUrl}`,
+                        lastKnownStatus: lastKnownStatus
+                    };
+                }
+
                 await new Promise(r => setTimeout(r, pollDelay));
             }
         }
 
-        // Timeout reached
-        return { status: 'Timeout', error: 'Import operation timed out' };
+        // Timeout reached - return informative status with progress URL
+        return {
+            status: 'Timeout',
+            error: 'Import operation is taking longer than expected',
+            progressUrl: progressUrl,
+            message: `Import is still processing. You can check progress at: ${progressUrl}`,
+            lastKnownStatus: lastKnownStatus
+        };
     }
 
     /**************************************************************/
@@ -542,6 +597,8 @@ export const FileHandler = (function () {
                     totalFilesProcessed: extracted.totalFilesProcessed,
                     totalFilesSucceeded: extracted.totalFilesSucceeded,
                     results: finalStatus.results,
+                    operationId: result.operationId,
+                    progressUrl: finalStatus.progressUrl || result.progressUrl,
                     message: `Successfully imported ${extracted.documentIds.length} document(s)`
                 };
             } else if (finalStatus.status === 'Failed') {
@@ -549,20 +606,35 @@ export const FileHandler = (function () {
                     success: false,
                     documentIds: [],
                     error: finalStatus.error || 'Import failed',
+                    operationId: result.operationId,
+                    progressUrl: finalStatus.progressUrl || result.progressUrl,
                     message: `Import failed: ${finalStatus.error}`
                 };
             } else if (finalStatus.status === 'Canceled') {
                 return {
                     success: false,
                     documentIds: [],
+                    operationId: result.operationId,
+                    progressUrl: finalStatus.progressUrl || result.progressUrl,
                     message: 'Import was canceled'
+                };
+            } else if (finalStatus.status === 'Timeout' || finalStatus.status === 'Unknown') {
+                // Handle timeout/unknown states with helpful information
+                return {
+                    success: false,
+                    documentIds: [],
+                    operationId: result.operationId,
+                    progressUrl: finalStatus.progressUrl || result.progressUrl,
+                    error: finalStatus.error,
+                    message: finalStatus.message || 'Import is still processing. Check progress later.',
+                    lastKnownStatus: finalStatus.lastKnownStatus
                 };
             } else {
                 return {
                     success: false,
                     documentIds: [],
                     operationId: result.operationId,
-                    progressUrl: result.progressUrl,
+                    progressUrl: finalStatus.progressUrl || result.progressUrl,
                     message: 'Import is still processing. Check progress later.'
                 };
             }

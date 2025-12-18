@@ -93,6 +93,22 @@ namespace MedRecPro.Models
         /// <seealso cref="Label"/>
         public string? Error { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the current file number being processed (1-based).
+        /// </summary>
+        /// <seealso cref="TotalFiles"/>
+        /// <seealso cref="Label"/>
+        public int CurrentFile { get; set; } = 0;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the total number of files to process.
+        /// </summary>
+        /// <seealso cref="CurrentFile"/>
+        /// <seealso cref="Label"/>
+        public int TotalFiles { get; set; } = 0;
+
         #endregion
     }
 

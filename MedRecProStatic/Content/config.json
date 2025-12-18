@@ -1,6 +1,6 @@
 {
   "siteName": "MedRecPro",
-  "version": "0.1.12-alpha",
+  "version": "0.1.13-alpha",
   "tagline": "Pharmaceutical Labeling Management System",
   "apiUrl": "https://medrecpro.com/api",
   "apiUrlDev": "http://localhost:5093/api",
@@ -11,7 +11,7 @@
   "swaggerUrl": "https://www.medrecpro.com/api/swagger/index.html",
   "swaggerUrlDev": "http://localhost:5093/api/swagger/index.html",
   "contactEmail": "support@medrecpro.com",
-  "lastUpdated": "2025-12-11",
+  "lastUpdated": "2025-12-18",
   "_comments": {
     "authUrl": "Production OAuth login endpoint",
     "authUrlDev": "Local OAuth login endpoint",

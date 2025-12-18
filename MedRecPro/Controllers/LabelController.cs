@@ -4032,13 +4032,18 @@ namespace MedRecPro.Api.Controllers
                         Status = "Queued",
                         PercentComplete = 0,
                         OperationId = operationId,
-                        ProgressUrl = progressUrl
+                        ProgressUrl = progressUrl,
+                        TotalFiles = bufferedFiles.Count,
+                        CurrentFile = 0
                     };
 
                     _statusStore.Set(operationId, status);
 
                     try
                     {
+                        // Track current file being processed
+                        int currentFileIndex = 0;
+
                         // Process ZIP files with progress and status callbacks
                         List<SplZipImportResult> results = await _splImportService.ProcessZipFilesAsync(
                             bufferedFiles,
@@ -4054,6 +4059,14 @@ namespace MedRecPro.Api.Controllers
                             },
                             message =>
                             {
+                                // Detect file transitions - only increment on "Starting Document" which indicates a new XML file
+                                // Other "Starting" messages (Author, Body, Product, etc.) are for different parsing phases of the same file
+                                if (message.StartsWith("Starting Document XML Elements"))
+                                {
+                                    currentFileIndex++;
+                                    status.CurrentFile = Math.Min(currentFileIndex, status.TotalFiles);
+                                }
+
                                 // Update status message during processing
                                 status.Status = message;
                                 status.OperationId = operationId;

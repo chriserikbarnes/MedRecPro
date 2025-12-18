@@ -1162,10 +1162,36 @@ namespace MedRecPro.Service
                             }
                         }
 
+                        // Include progress URL reference for successful imports (useful for documentation)
+                        if (!string.IsNullOrEmpty(request.ImportResult.OperationId))
+                        {
+                            sb.AppendLine($"Operation ID: {request.ImportResult.OperationId}");
+                            sb.AppendLine($"Progress endpoint used: GET /api/Label/import/progress/{request.ImportResult.OperationId}");
+                        }
+
+                        // Provide viewable document links for each imported document
+                        if (request.ImportResult.DocumentIds?.Any() == true)
+                        {
+                            sb.AppendLine();
+                            sb.AppendLine("=== DOCUMENT VIEW LINKS (include in dataReferences) ===");
+                            foreach (var docGuid in request.ImportResult.DocumentIds)
+                            {
+                                sb.AppendLine($"  - View Label XML: /api/Label/generate/{docGuid}/true");
+                                sb.AppendLine($"  - View Full Document: /api/Label/single/{docGuid}");
+                            }
+                        }
+
                         sb.AppendLine();
-                        sb.AppendLine("IMPORTANT: Acknowledge the successful import to the user with specific details.");
-                        sb.AppendLine("Mention the number of documents, sections, and other entities created.");
-                        sb.AppendLine("Suggest using GET /api/label/single/{documentGuid} to view the imported document.");
+                        sb.AppendLine("IMPORTANT RESPONSE INSTRUCTIONS:");
+                        sb.AppendLine("1. Acknowledge the successful import to the user with specific details.");
+                        sb.AppendLine("2. Mention the number of documents, sections, and other entities created.");
+                        sb.AppendLine("3. In your JSON response, include 'dataReferences' with clickable links to view each imported label.");
+                        sb.AppendLine("   Format: { \"View Label - {documentGuid}\": \"/api/Label/generate/{documentGuid}/true\" }");
+
+                        if (!string.IsNullOrEmpty(request.ImportResult.OperationId))
+                        {
+                            sb.AppendLine($"4. Include progress endpoint in dataReferences: {{ \"Check Import Progress\": \"/api/Label/import/progress/{request.ImportResult.OperationId}\" }}");
+                        }
                     }
                     else
                     {
@@ -1177,9 +1203,35 @@ namespace MedRecPro.Service
                             sb.AppendLine($"Error: {request.ImportResult.Error}");
                         }
 
+                        // Include progress URL for checking import status
+                        if (!string.IsNullOrEmpty(request.ImportResult.OperationId))
+                        {
+                            sb.AppendLine($"Operation ID: {request.ImportResult.OperationId}");
+                        }
+
+                        if (!string.IsNullOrEmpty(request.ImportResult.ProgressUrl))
+                        {
+                            sb.AppendLine($"Progress URL: {request.ImportResult.ProgressUrl}");
+                            sb.AppendLine($"The user can check the current import status at: GET {request.ImportResult.ProgressUrl}");
+                        }
+                        else if (!string.IsNullOrEmpty(request.ImportResult.OperationId))
+                        {
+                            // Construct progress URL if we have operation ID
+                            sb.AppendLine($"Progress URL: GET /api/Label/import/progress/{request.ImportResult.OperationId}");
+                            sb.AppendLine($"The user can check the current import status using this endpoint.");
+                        }
+
                         sb.AppendLine();
-                        sb.AppendLine("IMPORTANT: Inform the user about the import issue and suggest next steps.");
-                        sb.AppendLine("Possible suggestions: try different files, check file format, verify authentication.");
+                        sb.AppendLine("IMPORTANT RESPONSE INSTRUCTIONS:");
+                        sb.AppendLine("1. Inform the user about the import issue and suggest next steps.");
+                        sb.AppendLine("2. In your JSON response, include 'dataReferences' with a link to check the import progress.");
+
+                        if (!string.IsNullOrEmpty(request.ImportResult.OperationId))
+                        {
+                            sb.AppendLine($"3. Include in dataReferences: {{ \"Check Import Progress\": \"/api/Label/import/progress/{request.ImportResult.OperationId}\" }}");
+                        }
+
+                        sb.AppendLine("4. Possible suggestions: check import progress, wait for completion, try different files, check file format, verify authentication.");
                     }
 
                     sb.AppendLine();
@@ -1783,6 +1835,45 @@ namespace MedRecPro.Service
                 }
                 #endregion
             }
+
+            #region extract from import context in original query
+            // Also extract GUIDs from import context embedded in the original query
+            // Format: [IMPORT COMPLETED SUCCESSFULLY: ... Document GUIDs: guid1, guid2, ...]
+            if (!string.IsNullOrEmpty(request.OriginalQuery) &&
+                (request.OriginalQuery.Contains("[IMPORT COMPLETED") || request.OriginalQuery.Contains("[IMPORT ISSUE")))
+            {
+                var matches = guidPattern.Matches(request.OriginalQuery);
+                var importGuids = new List<string>();
+
+                foreach (System.Text.RegularExpressions.Match match in matches)
+                {
+                    var guid = match.Value;
+                    if (!seenGuids.Contains(guid))
+                    {
+                        seenGuids.Add(guid);
+                        importGuids.Add(guid);
+                        references[$"View Imported Label ({guid.Substring(0, 8)}...)"] = $"/api/Label/generate/{guid}/true";
+                    }
+                }
+
+                // Add import progress link if we detected import context
+                // The first GUID in the import context might be the operation ID
+                if (importGuids.Count > 0)
+                {
+                    // Check if there's an operation ID pattern in the query (operationId: or similar context)
+                    var operationIdMatch = System.Text.RegularExpressions.Regex.Match(
+                        request.OriginalQuery,
+                        @"operationId["":\s]+([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    if (operationIdMatch.Success)
+                    {
+                        var operationId = operationIdMatch.Groups[1].Value;
+                        references["Check Import Progress"] = $"/api/Label/import/progress/{operationId}";
+                    }
+                }
+            }
+            #endregion
 
             return references.Count > 0 ? references : null;
 
