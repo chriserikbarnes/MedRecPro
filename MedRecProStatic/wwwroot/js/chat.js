@@ -1936,28 +1936,30 @@
             return name || null;
         }
 
-        // Deduplicate by base description
-        function deduplicateResults(sourceArray) {
-            const seenDescriptions = new Set();
-            const unique = [];
+        // Filter to only include sources that have actual content in their result
+        function filterSourcesWithContent(sourceArray) {
+            return sourceArray.filter(r => {
+                // Must have result data
+                if (!r.result) return false;
 
-            sourceArray.forEach(r => {
-                const description = buildSourceDescription(r);
-                const baseDescription = description.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{guid}');
-
-                if (!seenDescriptions.has(baseDescription)) {
-                    seenDescriptions.add(baseDescription);
-                    unique.push({ result: r, description: description, baseDescription: baseDescription });
+                // Check if result has actual content
+                if (Array.isArray(r.result)) {
+                    return r.result.length > 0;
                 }
-            });
 
-            return unique;
+                if (typeof r.result === 'object') {
+                    return Object.keys(r.result).length > 0;
+                }
+
+                // Primitive non-empty values count as having content
+                return r.result !== null && r.result !== undefined && r.result !== '';
+            });
         }
 
-        const uniquePrimary = deduplicateResults(primarySources);
-        const uniqueFallbacks = deduplicateResults(fallbackSourcesUsed);
+        const sourcesWithContent = filterSourcesWithContent(primarySources);
+        const fallbacksWithContent = filterSourcesWithContent(fallbackSourcesUsed);
 
-        if (uniquePrimary.length === 0 && uniqueFallbacks.length === 0) {
+        if (sourcesWithContent.length === 0 && fallbacksWithContent.length === 0) {
             return '';
         }
 
@@ -1965,27 +1967,29 @@
         let linksMarkdown = '\n\n---\n';
 
         // Primary data sources
-        if (uniquePrimary.length > 0) {
+        if (sourcesWithContent.length > 0) {
             linksMarkdown += '**Data sources:**\n';
-            uniquePrimary.forEach(item => {
-                const endpoint = item.result.specification;
+            sourcesWithContent.forEach(r => {
+                const description = buildSourceDescription(r);
+                const endpoint = r.specification;
                 const apiUrl = buildApiUrl(endpoint);
                 const fullUrl = buildUrl(apiUrl);
-                linksMarkdown += `- [${item.description}](${fullUrl})\n`;
+                linksMarkdown += `- [${description}](${fullUrl})\n`;
             });
         }
 
-        // Fallback sources that were actually used
-        if (uniqueFallbacks.length > 0) {
-            if (uniquePrimary.length > 0) {
+        // Fallback sources that were actually used and have content
+        if (fallbacksWithContent.length > 0) {
+            if (sourcesWithContent.length > 0) {
                 linksMarkdown += '\n';
             }
             linksMarkdown += '**Fallback sources used:**\n';
-            uniqueFallbacks.forEach(item => {
-                const endpoint = item.result.specification;
+            fallbacksWithContent.forEach(r => {
+                const description = buildSourceDescription(r);
+                const endpoint = r.specification;
                 const apiUrl = buildApiUrl(endpoint);
                 const fullUrl = buildUrl(apiUrl);
-                linksMarkdown += `- [${item.description}](${fullUrl})\n`;
+                linksMarkdown += `- [${description}](${fullUrl})\n`;
             });
         }
 
