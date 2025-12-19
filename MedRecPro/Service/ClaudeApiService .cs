@@ -1340,6 +1340,30 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Loads the settings prompt skills document from the configured file path.
+        /// </summary>
+        /// <remarks>
+        /// This method reads the AI prompt instructions for administrative settings
+        /// and log viewing endpoints. The file path is configured in
+        /// appsettings.json under ClaudeApiSettings:Skill-Settings.
+        /// </remarks>
+        /// <example>
+        /// var settingsSkills = buildSettingsPromptSkills();
+        /// sb.AppendLine(settingsSkills);
+        /// </example>
+        /// <returns>The settings prompt skills document as a formatted string.</returns>
+        /// <seealso cref="readSkillFile"/>
+        private string buildSettingsPromptSkills()
+        {
+            #region implementation
+
+            return readSkillFile("Skill-Settings", "buildSettingsPromptSkills");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Reads a skill file from the configured path with caching support.
         /// </summary>
         /// <param name="configKey">The configuration key under ClaudeApiSettings (e.g., "Skill-Section").</param>
@@ -1353,6 +1377,7 @@ namespace MedRecPro.Service
         /// <seealso cref="buildLabelSectionPromptSkills"/>
         /// <seealso cref="buildSynthesisPromptSkills"/>
         /// <seealso cref="buildRetryPromptSkills"/>
+        /// <seealso cref="buildSettingsPromptSkills"/>
         private string readSkillFile(string configKey, string cacheKeyPrefix)
         {
             #region implementation
@@ -2367,6 +2392,15 @@ namespace MedRecPro.Service
             }
 
             skillsDocument = File.ReadAllText(fullPath);
+            #endregion
+
+            #region append settings skills
+            // Append settings/admin skills document (log viewing, cache management, etc.)
+            var settingsSkills = buildSettingsPromptSkills();
+            if (!string.IsNullOrEmpty(settingsSkills) && !settingsSkills.StartsWith("Skill-Settings"))
+            {
+                skillsDocument = skillsDocument + "\n\n" + settingsSkills;
+            }
             #endregion
 
             PerformanceHelper.SetCacheManageKey(key, skillsDocument, 8); // Cache for 8 hour

@@ -636,6 +636,153 @@
           "triggerPhrases": ["my activity", "what have I done"]
         }
       ]
+    },
+    "logViewing": {
+      "description": "Application log viewing and analysis (Admin only)",
+      "requiresAuth": true,
+      "requiresRole": "Admin",
+      "endpoints": [
+        {
+          "name": "Get Log Statistics",
+          "method": "GET",
+          "path": "/api/settings/logs/statistics",
+          "description": "Get overview of in-memory log storage including entry counts, retention settings, and level distribution",
+          "responseType": "object",
+          "triggerPhrases": [
+            "log statistics",
+            "how many logs",
+            "log summary",
+            "logging status"
+          ]
+        },
+        {
+          "name": "Get Log Categories",
+          "method": "GET",
+          "path": "/api/settings/logs/categories",
+          "description": "Get list of all log categories with entry counts. Use to discover available categories for filtering.",
+          "responseType": "array",
+          "triggerPhrases": [
+            "log categories",
+            "what categories",
+            "list log sources"
+          ]
+        },
+        {
+          "name": "Get Log Users",
+          "method": "GET",
+          "path": "/api/settings/logs/users",
+          "description": "Get list of users who have generated log entries with counts",
+          "responseType": "array",
+          "triggerPhrases": [
+            "who has logs",
+            "user log activity",
+            "log users"
+          ]
+        },
+        {
+          "name": "Get All Logs",
+          "method": "GET",
+          "path": "/api/settings/logs",
+          "description": "Get all log entries with optional pagination and level filtering",
+          "parameters": {
+            "pageNumber": {
+              "type": "integer",
+              "required": false,
+              "description": "Page number (1-based)"
+            },
+            "pageSize": {
+              "type": "integer",
+              "required": false,
+              "description": "Entries per page (max 1000)"
+            },
+            "minLevel": {
+              "type": "string",
+              "required": false,
+              "description": "Minimum log level: Trace, Debug, Information, Warning, Error, Critical"
+            }
+          },
+          "responseType": "object",
+          "triggerPhrases": [
+            "show logs",
+            "get logs",
+            "view logs",
+            "recent logs",
+            "application logs"
+          ]
+        },
+        {
+          "name": "Get Logs By Date",
+          "method": "GET",
+          "path": "/api/settings/logs/by-date",
+          "description": "Get log entries filtered by UTC date range",
+          "parameters": {
+            "startDate": {
+              "type": "datetime",
+              "required": true,
+              "description": "Start of date range (UTC)"
+            },
+            "endDate": {
+              "type": "datetime",
+              "required": true,
+              "description": "End of date range (UTC)"
+            },
+            "pageNumber": { "type": "integer", "required": false },
+            "pageSize": { "type": "integer", "required": false }
+          },
+          "responseType": "object",
+          "triggerPhrases": [
+            "logs between dates",
+            "logs from yesterday",
+            "logs in the last hour",
+            "filter logs by date"
+          ]
+        },
+        {
+          "name": "Get Logs By Category",
+          "method": "GET",
+          "path": "/api/settings/logs/by-category",
+          "description": "Get log entries filtered by category (case-insensitive partial match)",
+          "parameters": {
+            "category": {
+              "type": "string",
+              "required": true,
+              "description": "Category name to filter (e.g., 'Controller', 'ClaudeApiService')"
+            },
+            "pageNumber": { "type": "integer", "required": false },
+            "pageSize": { "type": "integer", "required": false }
+          },
+          "responseType": "object",
+          "triggerPhrases": [
+            "logs from controller",
+            "filter logs by category",
+            "show ClaudeApiService logs",
+            "logs by source"
+          ]
+        },
+        {
+          "name": "Get Logs By User",
+          "method": "GET",
+          "path": "/api/settings/logs/by-user",
+          "description": "Get log entries filtered by user ID",
+          "parameters": {
+            "userId": {
+              "type": "string",
+              "required": true,
+              "description": "User ID to filter by"
+            },
+            "pageNumber": { "type": "integer", "required": false },
+            "pageSize": { "type": "integer", "required": false }
+          },
+          "responseType": "object",
+          "triggerPhrases": [
+            "logs for user",
+            "user's logs",
+            "filter logs by user",
+            "what did user do"
+          ]
+        }
+      ],
+      "notes": "All log viewing endpoints require Admin role. Logs are stored in-memory with configurable retention (default 60 minutes). User context is automatically captured for authenticated requests."
     }
   },
   "contextualResponses": {

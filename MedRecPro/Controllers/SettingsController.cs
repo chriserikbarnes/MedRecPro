@@ -20,7 +20,10 @@ namespace MedRecPro.Controllers
     /// <remarks>
     /// Provides read-only access to non-sensitive configuration settings
     /// that clients need to adapt their behavior (e.g., demo mode status).
+    /// Also provides administrative access to in-memory application logs.
     /// </remarks>
+    /// <seealso cref="UserLoggerProvider"/>
+    /// <seealso cref="LoggingSettings"/>
     [ApiController]
     public class SettingsController : ApiControllerBase
     {
@@ -31,67 +34,39 @@ namespace MedRecPro.Controllers
         private readonly IMemoryCache _cache;
         private readonly AzureSqlMetricsService _metricsService;
         private readonly AzureAppTokenProvider _appTokenProvider;
+        private readonly UserLoggerProvider _loggerProvider;
+        private readonly string _pkEncryptionSecret;
 
         #endregion
 
         #region constructor
         /**************************************************************/
         /// <summary>
-        /// Tests the AzureAppTokenProvider credential configuration.
+        /// Initializes a new instance of the <see cref="SettingsController"/> class.
         /// </summary>
-        /// <returns>
-        /// An OK result if the credential is working, or error details if it fails.
-        /// </returns>
-        /// <remarks>
-        /// This endpoint tests the <see cref="DefaultAzureCredential"/>-based authentication:
-        /// 
-        /// * **In Azure:** Tests managed identity authentication
-        /// * **Locally:** Tests Visual Studio or Azure CLI credential
-        /// 
-        /// Use this endpoint to verify credential configuration before enabling
-        /// the background monitoring service.
-        /// 
-        /// **Security Note:** Consider removing or securing this endpoint in production.
-        /// </remarks>
-        /// <example>
-        /// GET /api/settings/test/appcredential
-        /// 
-        /// **Response (200 OK):**
-        /// ```json
-        /// {
-        ///   "success": true,
-        ///   "environment": "Azure App Service",
-        ///   "tokenAcquired": true,
-        ///   "tokenExpiresOn": "2024-01-15T12:00:00Z",
-        ///   "message": "DefaultAzureCredential is working correctly"
-        /// }
-        /// ```
-        /// 
-        /// **Response (500 Error):**
-        /// ```json
-        /// {
-        ///   "success": false,
-        ///   "environment": "Local Development",
-        ///   "error": "No credential available...",
-        ///   "troubleshooting": {
-        ///     "azure": "Ensure managed identity is enabled on App Service",
-        ///     "local": "Run 'az login' or sign in to Visual Studio Azure account"
-        ///   }
-        /// }
-        /// ```
-        /// </example>
+        /// <param name="configuration">Application configuration.</param>
+        /// <param name="logger">Logger instance for this controller.</param>
+        /// <param name="sqlMetricsService">Azure SQL metrics service.</param>
+        /// <param name="cache">Memory cache instance.</param>
+        /// <param name="appTokenProvider">Azure app token provider.</param>
+        /// <param name="loggerProvider">User logger provider for log access.</param>
+        /// <seealso cref="UserLoggerProvider"/>
         public SettingsController(
             IConfiguration configuration,
             ILogger<SettingsController> logger,
             AzureSqlMetricsService sqlMetricsService,
             IMemoryCache cache,
-            AzureAppTokenProvider appTokenProvider)
+            AzureAppTokenProvider appTokenProvider,
+            UserLoggerProvider loggerProvider)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _metricsService = sqlMetricsService ?? throw new ArgumentNullException(nameof(sqlMetricsService));
             _appTokenProvider = appTokenProvider ?? throw new ArgumentNullException(nameof(appTokenProvider));
+            _loggerProvider = loggerProvider ?? throw new ArgumentNullException(nameof(loggerProvider));
+            _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
+                ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
         }
 
         #endregion
@@ -851,7 +826,642 @@ namespace MedRecPro.Controllers
             #endregion
         }
 
-       
+        #endregion
+
+        #region Log Viewing Endpoints
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets current log statistics and configuration settings.
+        /// </summary>
+        /// <returns>
+        /// Log statistics including entry counts, retention settings, and level distribution.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint provides an overview of the in-memory logging system including:
+        ///
+        /// * Total number of log entries currently stored
+        /// * Number of unique categories and users
+        /// * Timestamps of oldest and newest entries
+        /// * Distribution of entries by log level
+        /// * Current retention configuration
+        ///
+        /// **Security Note:** Requires authentication and Admin role.
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/logs/statistics
+        ///
+        /// **Response (200 OK):**
+        /// ```json
+        /// {
+        ///   "totalEntries": 1250,
+        ///   "categoryCount": 15,
+        ///   "oldestEntry": "2024-01-15T10:00:00Z",
+        ///   "newestEntry": "2024-01-15T11:00:00Z",
+        ///   "entriesByLevel": {
+        ///     "Information": 1000,
+        ///     "Warning": 200,
+        ///     "Error": 50
+        ///   },
+        ///   "uniqueUserCount": 5,
+        ///   "retentionMinutes": 60,
+        ///   "maxEntriesPerCategory": 10000,
+        ///   "maxTotalEntries": 50000
+        /// }
+        /// ```
+        /// </example>
+        /// <seealso cref="UserLoggerProvider"/>
+        /// <seealso cref="LogStatistics"/>
+        [HttpGet("logs/statistics")]
+        [Authorize]
+        [RequireUserRole(Admin)]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(LogStatistics), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public IActionResult GetLogStatistics()
+        {
+            #region implementation
+            try
+            {
+                var statistics = _loggerProvider.GetStatistics();
+                return Ok(statistics);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving log statistics");
+                return StatusCode(500, new { error = "Error retrieving log statistics" });
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the list of available log categories with entry counts.
+        /// </summary>
+        /// <returns>
+        /// List of categories with their entry counts and time ranges.
+        /// </returns>
+        /// <remarks>
+        /// Use this endpoint to discover available categories before filtering logs.
+        /// Categories correspond to logger names (typically class names).
+        ///
+        /// **Security Note:** Requires authentication and Admin role.
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/logs/categories
+        ///
+        /// **Response (200 OK):**
+        /// ```json
+        /// [
+        ///   {
+        ///     "category": "MedRecPro.Controllers.LabelsController",
+        ///     "entryCount": 150,
+        ///     "oldestEntry": "2024-01-15T10:00:00Z",
+        ///     "newestEntry": "2024-01-15T11:00:00Z"
+        ///   },
+        ///   {
+        ///     "category": "MedRecPro.Service.ClaudeApiService",
+        ///     "entryCount": 75,
+        ///     "oldestEntry": "2024-01-15T10:30:00Z",
+        ///     "newestEntry": "2024-01-15T10:55:00Z"
+        ///   }
+        /// ]
+        /// ```
+        /// </example>
+        /// <seealso cref="UserLoggerProvider.GetCategories"/>
+        /// <seealso cref="CategorySummary"/>
+        [HttpGet("logs/categories")]
+        [Authorize]
+        [RequireUserRole(Admin)]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(List<CategorySummary>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public IActionResult GetLogCategories()
+        {
+            #region implementation
+            try
+            {
+                var categories = _loggerProvider.GetCategories();
+                return Ok(categories);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving log categories");
+                return StatusCode(500, new { error = "Error retrieving log categories" });
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the list of users with log entries.
+        /// </summary>
+        /// <returns>
+        /// List of users with their log entry counts and time ranges.
+        /// </returns>
+        /// <remarks>
+        /// Use this endpoint to discover users who have generated log entries.
+        /// Only includes logs where user context was captured (authenticated requests).
+        ///
+        /// **Security Note:** Requires authentication and Admin role.
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/logs/users
+        ///
+        /// **Response (200 OK):**
+        /// ```json
+        /// [
+        ///   {
+        ///     "userId": "12345",
+        ///     "userName": "john.doe@example.com",
+        ///     "entryCount": 250,
+        ///     "oldestEntry": "2024-01-15T09:00:00Z",
+        ///     "newestEntry": "2024-01-15T11:00:00Z"
+        ///   }
+        /// ]
+        /// ```
+        /// </example>
+        /// <seealso cref="UserLoggerProvider.GetUserSummaries"/>
+        /// <seealso cref="UserLogSummary"/>
+        [HttpGet("logs/users")]
+        [Authorize]
+        [RequireUserRole(Admin)]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(List<UserLogSummary>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public IActionResult GetLogUsers()
+        {
+            #region implementation
+            try
+            {
+                var users = _loggerProvider.GetUserSummaries();
+                var encryptedUsers = users.Select(u => u.ToEntityWithEncryptedId(_pkEncryptionSecret, _logger)).ToList();
+                return Ok(encryptedUsers);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving log users");
+                return StatusCode(500, new { error = "Error retrieving log users" });
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets all log entries with optional pagination.
+        /// </summary>
+        /// <param name="pageNumber">Page number (1-based). Default: 1.</param>
+        /// <param name="pageSize">Number of entries per page. Default: 100. Max: 1000.</param>
+        /// <param name="minLevel">Minimum log level to include (Trace, Debug, Information, Warning, Error, Critical).</param>
+        /// <returns>
+        /// Paginated list of log entries sorted by timestamp descending.
+        /// </returns>
+        /// <remarks>
+        /// Returns all log entries currently in memory, newest first.
+        /// Use the minLevel parameter to filter out lower-severity entries.
+        ///
+        /// **Security Note:** Requires authentication and Admin role.
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/logs?pageNumber=1&amp;pageSize=50&amp;minLevel=Warning
+        ///
+        /// **Response (200 OK):**
+        /// ```json
+        /// {
+        ///   "entries": [
+        ///     {
+        ///       "message": "Request completed",
+        ///       "level": "Information",
+        ///       "timestamp": "2024-01-15T11:00:00Z",
+        ///       "category": "MedRecPro.Controllers.LabelsController",
+        ///       "userId": "12345",
+        ///       "userName": "john.doe@example.com"
+        ///     }
+        ///   ],
+        ///   "totalCount": 1250,
+        ///   "pageNumber": 1,
+        ///   "pageSize": 50,
+        ///   "totalPages": 25
+        /// }
+        /// ```
+        /// </example>
+        /// <seealso cref="UserLoggerProvider.GetLogs"/>
+        /// <seealso cref="LogEntry"/>
+        [HttpGet("logs")]
+        [Authorize]
+        [RequireUserRole(Admin)]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public IActionResult GetLogs(
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 100,
+            [FromQuery] string? minLevel = null)
+        {
+            #region implementation
+            try
+            {
+                // Validate and constrain parameters
+                pageNumber = Math.Max(1, pageNumber);
+                pageSize = Math.Clamp(pageSize, 1, 1000);
+
+                // Get logs with optional level filtering
+                IEnumerable<LogEntry> logs;
+                if (!string.IsNullOrEmpty(minLevel) && Enum.TryParse<LogLevel>(minLevel, true, out var level))
+                {
+                    logs = _loggerProvider.GetLogsByLevel(level);
+                }
+                else
+                {
+                    logs = _loggerProvider.GetLogs();
+                }
+
+                var totalCount = logs.Count();
+                var entries = logs
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(e => new
+                    {
+                        e.Message,
+                        Level = e.Level.ToString(),
+                        e.Timestamp,
+                        e.Category,
+                        UserId = !string.IsNullOrEmpty(e.UserId)
+                            ? StringCipher.Encrypt(e.UserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
+                            : e.UserId,
+                        e.UserName,
+                        ExceptionMessage = e.Exception?.Message,
+                        ExceptionType = e.Exception?.GetType().Name
+                    })
+                    .ToList();
+
+                return Ok(new
+                {
+                    Entries = entries,
+                    TotalCount = totalCount,
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving logs");
+                return StatusCode(500, new { error = "Error retrieving logs" });
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets log entries filtered by date range.
+        /// </summary>
+        /// <param name="startDate">Start of date range (UTC). Required.</param>
+        /// <param name="endDate">End of date range (UTC). Required.</param>
+        /// <param name="pageNumber">Page number (1-based). Default: 1.</param>
+        /// <param name="pageSize">Number of entries per page. Default: 100. Max: 1000.</param>
+        /// <returns>
+        /// Paginated list of log entries within the specified date range.
+        /// </returns>
+        /// <remarks>
+        /// Filters logs by timestamp within the specified UTC date range.
+        /// Both startDate and endDate are required.
+        ///
+        /// **Security Note:** Requires authentication and Admin role.
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/logs/by-date?startDate=2024-01-15T10:00:00Z&amp;endDate=2024-01-15T11:00:00Z
+        ///
+        /// **Response (200 OK):**
+        /// ```json
+        /// {
+        ///   "entries": [...],
+        ///   "totalCount": 150,
+        ///   "pageNumber": 1,
+        ///   "pageSize": 100,
+        ///   "totalPages": 2,
+        ///   "filter": {
+        ///     "startDate": "2024-01-15T10:00:00Z",
+        ///     "endDate": "2024-01-15T11:00:00Z"
+        ///   }
+        /// }
+        /// ```
+        /// </example>
+        /// <seealso cref="UserLoggerProvider.GetLogsByDateRange"/>
+        [HttpGet("logs/by-date")]
+        [Authorize]
+        [RequireUserRole(Admin)]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public IActionResult GetLogsByDate(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 100)
+        {
+            #region implementation
+            try
+            {
+                // Validate date range
+                if (startDate > endDate)
+                {
+                    return BadRequest(new { error = "startDate must be before endDate" });
+                }
+
+                // Validate and constrain parameters
+                pageNumber = Math.Max(1, pageNumber);
+                pageSize = Math.Clamp(pageSize, 1, 1000);
+
+                // Ensure dates are UTC
+                startDate = DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
+                endDate = DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
+
+                var logs = _loggerProvider.GetLogsByDateRange(startDate, endDate);
+                var totalCount = logs.Count;
+                var entries = logs
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(e => new
+                    {
+                        e.Message,
+                        Level = e.Level.ToString(),
+                        e.Timestamp,
+                        e.Category,
+                        UserId = !string.IsNullOrEmpty(e.UserId)
+                            ? StringCipher.Encrypt(e.UserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
+                            : e.UserId,
+                        e.UserName,
+                        ExceptionMessage = e.Exception?.Message,
+                        ExceptionType = e.Exception?.GetType().Name
+                    })
+                    .ToList();
+
+                return Ok(new
+                {
+                    Entries = entries,
+                    TotalCount = totalCount,
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+                    Filter = new
+                    {
+                        StartDate = startDate,
+                        EndDate = endDate
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving logs by date");
+                return StatusCode(500, new { error = "Error retrieving logs by date" });
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets log entries filtered by category.
+        /// </summary>
+        /// <param name="category">Category name to filter by (case-insensitive partial match). Required.</param>
+        /// <param name="pageNumber">Page number (1-based). Default: 1.</param>
+        /// <param name="pageSize">Number of entries per page. Default: 100. Max: 1000.</param>
+        /// <returns>
+        /// Paginated list of log entries matching the specified category.
+        /// </returns>
+        /// <remarks>
+        /// Filters logs by category name using case-insensitive partial matching.
+        /// For example, "Controller" will match "MedRecPro.Controllers.LabelsController".
+        ///
+        /// Use GET /api/settings/logs/categories to discover available categories.
+        ///
+        /// **Security Note:** Requires authentication and Admin role.
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/logs/by-category?category=ClaudeApiService
+        ///
+        /// **Response (200 OK):**
+        /// ```json
+        /// {
+        ///   "entries": [...],
+        ///   "totalCount": 75,
+        ///   "pageNumber": 1,
+        ///   "pageSize": 100,
+        ///   "totalPages": 1,
+        ///   "filter": {
+        ///     "category": "ClaudeApiService"
+        ///   }
+        /// }
+        /// ```
+        /// </example>
+        /// <seealso cref="UserLoggerProvider.GetLogsByCategory"/>
+        /// <seealso cref="GetLogCategories"/>
+        [HttpGet("logs/by-category")]
+        [Authorize]
+        [RequireUserRole(Admin)]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public IActionResult GetLogsByCategory(
+            [FromQuery] string category,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 100)
+        {
+            #region implementation
+            try
+            {
+                // Validate category
+                if (string.IsNullOrWhiteSpace(category))
+                {
+                    return BadRequest(new { error = "Category parameter is required" });
+                }
+
+                // Validate and constrain parameters
+                pageNumber = Math.Max(1, pageNumber);
+                pageSize = Math.Clamp(pageSize, 1, 1000);
+
+                var logs = _loggerProvider.GetLogsByCategory(category);
+                var totalCount = logs.Count;
+                var entries = logs
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(e => new
+                    {
+                        e.Message,
+                        Level = e.Level.ToString(),
+                        e.Timestamp,
+                        e.Category,
+                        UserId = !string.IsNullOrEmpty(e.UserId)
+                            ? StringCipher.Encrypt(e.UserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
+                            : e.UserId,
+                        e.UserName,
+                        ExceptionMessage = e.Exception?.Message,
+                        ExceptionType = e.Exception?.GetType().Name
+                    })
+                    .ToList();
+
+                return Ok(new
+                {
+                    Entries = entries,
+                    TotalCount = totalCount,
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+                    Filter = new
+                    {
+                        Category = category
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving logs by category");
+                return StatusCode(500, new { error = "Error retrieving logs by category" });
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets log entries filtered by user ID.
+        /// </summary>
+        /// <param name="userId">Encrypted user ID to filter by. Required. Obtain from GET /api/settings/logs/users.</param>
+        /// <param name="pageNumber">Page number (1-based). Default: 1.</param>
+        /// <param name="pageSize">Number of entries per page. Default: 100. Max: 1000.</param>
+        /// <returns>
+        /// Paginated list of log entries for the specified user.
+        /// </returns>
+        /// <remarks>
+        /// Filters logs by the authenticated user's ID that was captured at log time.
+        /// Only logs with user context captured will be included.
+        ///
+        /// The userId parameter should be the encrypted user ID returned from
+        /// GET /api/settings/logs/users. The endpoint will decrypt it internally
+        /// before querying. For backwards compatibility, plain text IDs are also
+        /// accepted but will be logged as warnings.
+        ///
+        /// Use GET /api/settings/logs/users to discover users with log entries.
+        ///
+        /// **Security Note:** Requires authentication and Admin role.
+        /// </remarks>
+        /// <example>
+        /// GET /api/settings/logs/by-user?userId={encryptedUserId}
+        ///
+        /// **Response (200 OK):**
+        /// ```json
+        /// {
+        ///   "entries": [...],
+        ///   "totalCount": 250,
+        ///   "pageNumber": 1,
+        ///   "pageSize": 100,
+        ///   "totalPages": 3,
+        ///   "filter": {
+        ///     "userId": "{encryptedUserId}"
+        ///   }
+        /// }
+        /// ```
+        /// </example>
+        /// <seealso cref="UserLoggerProvider.GetLogsByUser"/>
+        /// <seealso cref="GetLogUsers"/>
+        [HttpGet("logs/by-user")]
+        [Authorize]
+        [RequireUserRole(Admin)]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public IActionResult GetLogsByUser(
+            [FromQuery] string userId,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 100)
+        {
+            #region implementation
+            try
+            {
+                // Validate userId
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    return BadRequest(new { error = "UserId parameter is required" });
+                }
+
+                // Decrypt the userId parameter (it comes in encrypted from the client)
+                string decryptedUserId;
+                try
+                {
+                    decryptedUserId = userId.Decrypt(_pkEncryptionSecret) ?? userId;
+                }
+                catch (Exception decryptEx)
+                {
+                    _logger.LogWarning(decryptEx, "Failed to decrypt userId parameter. It may be in plain text format.");
+                    // Fall back to using the userId as-is (for backwards compatibility or plain text usage)
+                    decryptedUserId = userId;
+                }
+
+                // Validate and constrain parameters
+                pageNumber = Math.Max(1, pageNumber);
+                pageSize = Math.Clamp(pageSize, 1, 1000);
+
+                var logs = _loggerProvider.GetLogsByUser(decryptedUserId);
+                var totalCount = logs.Count;
+                // Re-encrypt for consistent response format (use the decrypted value to ensure consistency)
+                var encryptedFilterUserId = !string.IsNullOrEmpty(decryptedUserId)
+                    ? StringCipher.Encrypt(decryptedUserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
+                    : decryptedUserId;
+                var entries = logs
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(e => new
+                    {
+                        e.Message,
+                        Level = e.Level.ToString(),
+                        e.Timestamp,
+                        e.Category,
+                        UserId = !string.IsNullOrEmpty(e.UserId)
+                            ? StringCipher.Encrypt(e.UserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
+                            : e.UserId,
+                        e.UserName,
+                        ExceptionMessage = e.Exception?.Message,
+                        ExceptionType = e.Exception?.GetType().Name
+                    })
+                    .ToList();
+
+                return Ok(new
+                {
+                    Entries = entries,
+                    TotalCount = totalCount,
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+                    Filter = new
+                    {
+                        UserId = encryptedFilterUserId
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving logs by user");
+                return StatusCode(500, new { error = "Error retrieving logs by user" });
+            }
+            #endregion
+        }
+
         #endregion
     }
 }
