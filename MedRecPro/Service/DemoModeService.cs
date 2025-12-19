@@ -44,6 +44,27 @@ namespace MedRecPro.Services
         private List<string>? _preserveTables;
         private bool _disposed;
 
+        /**************************************************************/
+        /// <summary>
+        /// Tracks the last successful truncation time for diagnostic purposes.
+        /// </summary>
+        /// <seealso cref="executeTruncation"/>
+        private DateTime? _lastTruncationTime;
+
+        /**************************************************************/
+        /// <summary>
+        /// Tracks the next scheduled truncation time for diagnostic purposes.
+        /// </summary>
+        /// <seealso cref="StartAsync"/>
+        private DateTime? _nextScheduledTruncation;
+
+        /**************************************************************/
+        /// <summary>
+        /// Counter for consecutive failures to help diagnose persistent issues.
+        /// </summary>
+        /// <seealso cref="timerCallbackAsync"/>
+        private int _consecutiveFailures;
+
         #endregion
 
         #region constructor
@@ -99,38 +120,179 @@ namespace MedRecPro.Services
         /// <remarks>
         /// If AutoTruncateOnStartup is enabled and demo mode is active, this method will
         /// execute an immediate database truncation before starting the scheduled interval.
+        /// The timer uses a synchronous callback that properly handles async operations
+        /// to avoid unobserved exceptions in Azure App Service environments.
         /// </remarks>
         /// <seealso cref="StopAsync"/>
+        /// <seealso cref="timerCallbackAsync"/>
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             #region implementation
 
+            // Log startup with environment details for Azure diagnostics
+            _logger.LogInformation(
+                "[DemoModeService] StartAsync invoked at {UtcTime}. Environment: {MachineName}, ProcessId: {ProcessId}",
+                DateTime.UtcNow.ToString("o"),
+                Environment.MachineName,
+                Environment.ProcessId);
+
             if (!_isEnabled)
             {
-                _logger.LogInformation("Demo mode is disabled. DemoModeService will not run.");
+                _logger.LogInformation("[DemoModeService] Demo mode is disabled. Service will not run.");
                 return;
             }
 
             _logger.LogInformation(
-                "Demo mode is enabled. Database truncation will occur every {Interval} minutes.",
+                "[DemoModeService] Demo mode is ENABLED. Database truncation scheduled every {Interval} minutes.",
                 _refreshIntervalMinutes);
 
             // Execute immediate truncation on startup if configured
             if (_autoTruncateOnStartup)
             {
-                _logger.LogInformation("AutoTruncateOnStartup is enabled. Executing initial truncation...");
-                await executeTruncation(cancellationToken);
+                _logger.LogInformation("[DemoModeService] AutoTruncateOnStartup is enabled. Executing initial truncation...");
+                try
+                {
+                    await executeTruncation(cancellationToken);
+                    _lastTruncationTime = DateTime.UtcNow;
+                    _logger.LogInformation("[DemoModeService] Initial truncation completed successfully.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[DemoModeService] Initial truncation failed: {Message}", ex.Message);
+                    // Continue with timer setup even if initial truncation fails
+                }
             }
 
-            // Setup timer for periodic truncation
+            // Calculate and log next scheduled execution
             var interval = TimeSpan.FromMinutes(_refreshIntervalMinutes);
+            _nextScheduledTruncation = DateTime.UtcNow.Add(interval);
+
+            _logger.LogInformation(
+                "[DemoModeService] Setting up timer with interval {IntervalMinutes} minutes ({IntervalHours:F2} hours). " +
+                "Next truncation scheduled for {NextRun} UTC.",
+                _refreshIntervalMinutes,
+                interval.TotalHours,
+                _nextScheduledTruncation?.ToString("yyyy-MM-dd HH:mm:ss"));
+
+            // Setup timer with synchronous callback that properly marshals to async
+            // This avoids the async void pattern which loses exceptions
             _timer = new Timer(
-                callback: async _ => await executeTruncation(CancellationToken.None),
+                callback: timerCallback,
                 state: null,
                 dueTime: interval,
                 period: interval);
 
-            _logger.LogInformation("Demo mode service started successfully.");
+            _logger.LogInformation(
+                "[DemoModeService] Service started successfully at {UtcTime}. Timer is active.",
+                DateTime.UtcNow.ToString("o"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Synchronous timer callback that safely invokes the async truncation operation.
+        /// </summary>
+        /// <param name="state">Timer state object (unused).</param>
+        /// <remarks>
+        /// This method bridges the synchronous Timer callback to async operations safely.
+        /// It uses Task.Run to avoid blocking the timer thread and properly observes
+        /// any exceptions to prevent silent failures in Azure App Service.
+        /// </remarks>
+        /// <seealso cref="timerCallbackAsync"/>
+        /// <seealso cref="executeTruncation"/>
+        private void timerCallback(object? state)
+        {
+            #region implementation
+
+            // Log that the timer fired - critical for Azure diagnostics
+            _logger.LogInformation(
+                "[DemoModeService] Timer callback fired at {UtcTime}. Last truncation: {LastRun}, Consecutive failures: {Failures}",
+                DateTime.UtcNow.ToString("o"),
+                _lastTruncationTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never",
+                _consecutiveFailures);
+
+            // Fire and forget with proper exception observation
+            // Use Task.Run to avoid blocking the timer thread pool
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await timerCallbackAsync();
+                }
+                catch (Exception ex)
+                {
+                    // This catch ensures exceptions are observed even if timerCallbackAsync throws unexpectedly
+                    _logger.LogCritical(ex,
+                        "[DemoModeService] Unhandled exception in timer callback wrapper: {Message}",
+                        ex.Message);
+                }
+            });
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Async implementation of the timer callback with comprehensive error handling.
+        /// </summary>
+        /// <returns>A task representing the async operation.</returns>
+        /// <remarks>
+        /// This method wraps the truncation execution with proper exception handling,
+        /// retry tracking, and detailed logging for Azure diagnostics.
+        /// </remarks>
+        /// <seealso cref="timerCallback"/>
+        /// <seealso cref="executeTruncation"/>
+        private async Task timerCallbackAsync()
+        {
+            #region implementation
+
+            _logger.LogInformation(
+                "[DemoModeService] Beginning scheduled truncation at {UtcTime}",
+                DateTime.UtcNow.ToString("o"));
+
+            try
+            {
+                await executeTruncation(CancellationToken.None);
+
+                // Success - reset failure counter and update timestamps
+                _consecutiveFailures = 0;
+                _lastTruncationTime = DateTime.UtcNow;
+                _nextScheduledTruncation = DateTime.UtcNow.AddMinutes(_refreshIntervalMinutes);
+
+                _logger.LogInformation(
+                    "[DemoModeService] Scheduled truncation completed successfully at {UtcTime}. " +
+                    "Next scheduled: {NextRun} UTC",
+                    DateTime.UtcNow.ToString("o"),
+                    _nextScheduledTruncation?.ToString("yyyy-MM-dd HH:mm:ss"));
+            }
+            catch (Exception ex)
+            {
+                _consecutiveFailures++;
+                _nextScheduledTruncation = DateTime.UtcNow.AddMinutes(_refreshIntervalMinutes);
+
+                _logger.LogError(ex,
+                    "[DemoModeService] Scheduled truncation FAILED at {UtcTime}. " +
+                    "Error: {Message}. Consecutive failures: {Failures}. " +
+                    "Next attempt: {NextRun} UTC",
+                    DateTime.UtcNow.ToString("o"),
+                    ex.Message,
+                    _consecutiveFailures,
+                    _nextScheduledTruncation?.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                // Log additional details for Azure SQL specific errors
+                if (ex is SqlException sqlEx)
+                {
+                    _logger.LogError(
+                        "[DemoModeService] SQL Error Details - Number: {Number}, State: {State}, " +
+                        "Server: {Server}, Procedure: {Procedure}, LineNumber: {LineNumber}",
+                        sqlEx.Number,
+                        sqlEx.State,
+                        sqlEx.Server,
+                        sqlEx.Procedure,
+                        sqlEx.LineNumber);
+                }
+            }
 
             #endregion
         }
@@ -141,19 +303,32 @@ namespace MedRecPro.Services
         /// </summary>
         /// <param name="cancellationToken">Token to monitor for cancellation requests.</param>
         /// <returns>A task representing the asynchronous stop operation.</returns>
+        /// <remarks>
+        /// Logs comprehensive diagnostic information when stopping, including
+        /// last truncation time and failure statistics for Azure troubleshooting.
+        /// </remarks>
         /// <seealso cref="StartAsync"/>
         public Task StopAsync(CancellationToken cancellationToken)
         {
             #region implementation
 
-            _logger.LogInformation("Demo mode service is stopping...");
+            _logger.LogWarning(
+                "[DemoModeService] StopAsync invoked at {UtcTime}. " +
+                "Last successful truncation: {LastRun}. Total consecutive failures at shutdown: {Failures}. " +
+                "Environment: {MachineName}, ProcessId: {ProcessId}",
+                DateTime.UtcNow.ToString("o"),
+                _lastTruncationTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never",
+                _consecutiveFailures,
+                Environment.MachineName,
+                Environment.ProcessId);
 
             // Stop and dispose the timer
             _timer?.Change(Timeout.Infinite, 0);
             _timer?.Dispose();
             _timer = null;
 
-            _logger.LogInformation("Demo mode service stopped.");
+            _logger.LogInformation("[DemoModeService] Service stopped and timer disposed at {UtcTime}.",
+                DateTime.UtcNow.ToString("o"));
 
             return Task.CompletedTask;
 
@@ -190,7 +365,8 @@ namespace MedRecPro.Services
         /// </summary>
         /// <remarks>
         /// Reads the DemoModeSettings section and populates internal fields with configuration values.
-        /// Provides default values if settings are not specified.
+        /// Provides default values if settings are not specified. Logs all loaded settings for
+        /// Azure diagnostics and troubleshooting.
         /// </remarks>
         /// <seealso cref="IConfiguration"/>
         private void loadDemoModeSettings()
@@ -222,10 +398,20 @@ namespace MedRecPro.Services
             if (_refreshIntervalMinutes < 1)
             {
                 _logger.LogWarning(
-                    "RefreshIntervalMinutes value of {Value} is invalid. Using default of 60 minutes.",
+                    "[DemoModeService] RefreshIntervalMinutes value of {Value} is invalid. Using default of 60 minutes.",
                     _refreshIntervalMinutes);
                 _refreshIntervalMinutes = 60;
             }
+
+            // Log loaded configuration for Azure diagnostics
+            _logger.LogInformation(
+                "[DemoModeService] Configuration loaded - Enabled: {Enabled}, " +
+                "RefreshIntervalMinutes: {Interval}, AutoTruncateOnStartup: {AutoTruncate}, " +
+                "PreservedTablesCount: {PreservedCount}",
+                _isEnabled,
+                _refreshIntervalMinutes,
+                _autoTruncateOnStartup,
+                _preserveTables?.Count ?? 0);
 
             #endregion
         }
@@ -252,6 +438,11 @@ namespace MedRecPro.Services
         {
             #region implementation
 
+            var startTime = DateTime.UtcNow;
+            _logger.LogInformation(
+                "[DemoModeService] executeTruncation started at {UtcTime}",
+                startTime.ToString("o"));
+
             string? connectionStringBackup;
             string? defaultConnectionString;
 
@@ -267,40 +458,81 @@ namespace MedRecPro.Services
                    ?? connectionStringBackup
                    ?? throw new InvalidOperationException("DefaultConnection string not found in configuration.");
 
+            _logger.LogDebug("[DemoModeService] Attempting to open database connection...");
+
             await using var connection = new SqlConnection(connectionString);
 
-            await connection.OpenAsync(cancellationToken);
+            try
+            {
+                await connection.OpenAsync(cancellationToken);
+                _logger.LogInformation(
+                    "[DemoModeService] Database connection opened successfully. Server: {Server}, Database: {Database}",
+                    connection.DataSource,
+                    connection.Database);
+            }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex,
+                    "[DemoModeService] Failed to open database connection. Server: {Server}, Error: {Message}",
+                    connection.DataSource,
+                    ex.Message);
+                throw;
+            }
 
             try
             {
                 // Disable all foreign key constraints before truncation
+                _logger.LogInformation("[DemoModeService] Step 1/4: Disabling foreign key constraints...");
                 await disableForeignKeyConstraints(connection, cancellationToken);
 
                 // Get list of tables that should be truncated
+                _logger.LogInformation("[DemoModeService] Step 2/4: Retrieving tables to truncate...");
                 var tablesToTruncate = await getTablesToTruncate(connection, cancellationToken);
 
-                _logger.LogInformation("Found {TableCount} tables to truncate (excluding {PreservedCount} preserved tables)",
-                    tablesToTruncate.Count, _preserveTables?.Count ?? 0);
+                _logger.LogInformation(
+                    "[DemoModeService] Found {TableCount} tables to truncate (excluding {PreservedCount} preserved tables)",
+                    tablesToTruncate.Count,
+                    _preserveTables?.Count ?? 0);
 
                 // Truncate each table individually
+                _logger.LogInformation("[DemoModeService] Step 3/4: Truncating {TableCount} tables...", tablesToTruncate.Count);
+                var truncatedCount = 0;
                 foreach (var (schema, tableName) in tablesToTruncate)
                 {
                     await truncateTable(connection, schema, tableName, cancellationToken);
+                    truncatedCount++;
                 }
 
                 // Re-enable all foreign key constraints after truncation
+                _logger.LogInformation("[DemoModeService] Step 4/4: Re-enabling foreign key constraints...");
                 await enableForeignKeyConstraints(connection, cancellationToken);
 
-                _logger.LogInformation("Database truncation completed successfully.");
+                var duration = DateTime.UtcNow - startTime;
+                _logger.LogInformation(
+                    "[DemoModeService] Database truncation completed successfully. " +
+                    "Tables truncated: {TruncatedCount}. Duration: {Duration:F2} seconds.",
+                    truncatedCount,
+                    duration.TotalSeconds);
             }
             catch (SqlException ex)
             {
-                _logger.LogError(ex, "SQL error occurred during database truncation: {Message}", ex.Message);
+                var duration = DateTime.UtcNow - startTime;
+                _logger.LogError(ex,
+                    "[DemoModeService] SQL error during truncation after {Duration:F2} seconds. " +
+                    "Error Number: {Number}, State: {State}, Message: {Message}",
+                    duration.TotalSeconds,
+                    ex.Number,
+                    ex.State,
+                    ex.Message);
                 throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error during database truncation");
+                var duration = DateTime.UtcNow - startTime;
+                _logger.LogError(ex,
+                    "[DemoModeService] Unexpected error during truncation after {Duration:F2} seconds: {Message}",
+                    duration.TotalSeconds,
+                    ex.Message);
                 throw;
             }
             #endregion
