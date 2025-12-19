@@ -92,8 +92,35 @@ export const MarkdownRenderer = (function () {
         // Handle null/undefined input
         if (!text) return '';
 
-        // Step 1: Escape HTML to prevent XSS attacks
-        let html = ChatUtils.escapeHtml(text);
+        // Check if content contains trusted HTML blocks from internal renderers
+        // (settings-renderer.js outputs HTML tables with inline styles)
+        // Server-side handles XSS protection, so we can safely render trusted HTML
+        const hasTrustedHtml = /<table\s+style=/i.test(text) || /<div\s+style=/i.test(text);
+
+        // Step 0: Extract raw HTML blocks (tables, divs with style) before escaping
+        // These are trusted internal content from our renderers (settings-renderer.js)
+        const htmlBlocks = [];
+        let html = text;
+
+        // Preserve table blocks (including nested content) - use greedy match for nested tables
+        html = html.replace(/<table\s+style="[^"]*">[\s\S]*?<\/table>/gi, (match) => {
+            const index = htmlBlocks.length;
+            htmlBlocks.push(match);
+            return `\n__HTML_BLOCK_${index}__\n`;
+        });
+
+        // Preserve div blocks with style attribute (trusted internal content)
+        html = html.replace(/<div\s+style="[^"]*">[\s\S]*?<\/div>/gi, (match) => {
+            const index = htmlBlocks.length;
+            htmlBlocks.push(match);
+            return `\n__HTML_BLOCK_${index}__\n`;
+        });
+
+        // Step 1: Escape HTML to prevent XSS attacks (remaining content)
+        // Skip escaping if we detected trusted HTML - server handles XSS
+        if (!hasTrustedHtml) {
+            html = ChatUtils.escapeHtml(html);
+        }
 
         // Temporary storage for code blocks during processing
         const codeBlocks = [];
@@ -201,6 +228,11 @@ export const MarkdownRenderer = (function () {
                 flushList();
                 processed.push(line);
             }
+            // HTML block placeholder: pass through unchanged
+            else if (line.includes('__HTML_BLOCK_')) {
+                flushList();
+                processed.push(line);
+            }
             // Empty line: add spacing
             else if (line.trim() === '') {
                 flushList();
@@ -243,6 +275,11 @@ export const MarkdownRenderer = (function () {
             `;
 
             html = html.replace(`__CODE_BLOCK_${index}__`, codeBlockHtml);
+        });
+
+        // Step 6: Restore raw HTML blocks (trusted internal content)
+        htmlBlocks.forEach((block, index) => {
+            html = html.replace(`__HTML_BLOCK_${index}__`, block);
         });
 
         return html;

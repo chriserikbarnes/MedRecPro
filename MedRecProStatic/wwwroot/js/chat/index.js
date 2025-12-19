@@ -64,6 +64,7 @@ import { FileHandler } from './file-handler.js';
 import { ApiService } from './api-service.js';
 import { EndpointExecutor } from './endpoint-executor.js';
 import { UIHelpers } from './ui-helpers.js';
+import { SettingsRenderer } from './settings-renderer.js';
 
 /**************************************************************/
 /**
@@ -492,39 +493,70 @@ const MedRecProChat = (function () {
             }
         }
 
+        // Check if this is a settings/logs response that needs special rendering
+        const isSettingsData = SettingsRenderer.isSettingsResponse(finalResults);
+
         // Synthesize results
         ChatState.updateMessage(assistantMessage.id, {
             progress: 0.9,
-            progressStatus: 'Synthesizing results...'
+            progressStatus: isSettingsData ? 'Formatting log data...' : 'Synthesizing results...'
         });
         MessageRenderer.updateMessage(assistantMessage.id);
 
-        const synthesis = await ApiService.synthesizeResults(
-            originalInput,
-            interpretation,
-            finalResults
-        );
-
         // Build final response content
-        let responseContent = synthesis.response || 'No results found.';
+        let responseContent = '';
 
-        // Add follow-up suggestions
-        if (synthesis.suggestedFollowUps && synthesis.suggestedFollowUps.length > 0) {
-            responseContent += '\n\n**Suggested follow-ups:**\n';
-            synthesis.suggestedFollowUps.forEach(followUp => {
-                responseContent += `- ${followUp}\n`;
-            });
-        }
+        if (isSettingsData) {
+            // Use specialized settings renderer for log data
+            responseContent = SettingsRenderer.renderSettingsData(finalResults);
 
-        // Add document reference links
-        if (synthesis.dataReferences && Object.keys(synthesis.dataReferences).length > 0) {
-            responseContent += '\n\n**View Full Labels:**\n';
-            for (const [displayName, url] of Object.entries(synthesis.dataReferences)) {
-                responseContent += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
+            // If settings renderer returned empty (e.g., all endpoints failed with non-auth errors),
+            // fall back to standard synthesis for a helpful message
+            if (!responseContent || responseContent.trim() === '') {
+                const synthesis = await ApiService.synthesizeResults(
+                    originalInput,
+                    interpretation,
+                    finalResults
+                );
+                responseContent = synthesis.response || 'Unable to retrieve log data. Please try again.';
+            } else {
+                // Add follow-up suggestions from settings renderer
+                const settingsFollowUps = SettingsRenderer.getLogFollowUpSuggestions(finalResults);
+                if (settingsFollowUps && settingsFollowUps.length > 0) {
+                    responseContent += '\n\n**Suggested follow-ups:**\n';
+                    settingsFollowUps.forEach(followUp => {
+                        responseContent += `- ${followUp}\n`;
+                    });
+                }
+            }
+        } else {
+            // Use standard synthesis for non-settings data
+            const synthesis = await ApiService.synthesizeResults(
+                originalInput,
+                interpretation,
+                finalResults
+            );
+
+            responseContent = synthesis.response || 'No results found.';
+
+            // Add follow-up suggestions
+            if (synthesis.suggestedFollowUps && synthesis.suggestedFollowUps.length > 0) {
+                responseContent += '\n\n**Suggested follow-ups:**\n';
+                synthesis.suggestedFollowUps.forEach(followUp => {
+                    responseContent += `- ${followUp}\n`;
+                });
+            }
+
+            // Add document reference links
+            if (synthesis.dataReferences && Object.keys(synthesis.dataReferences).length > 0) {
+                responseContent += '\n\n**View Full Labels:**\n';
+                for (const [displayName, url] of Object.entries(synthesis.dataReferences)) {
+                    responseContent += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
+                }
             }
         }
 
-        // Add API data source links
+        // Add API data source links (applies to both settings and regular responses)
         const sourceLinks = ApiService.formatApiSourceLinks(finalResults);
         if (sourceLinks) {
             responseContent += sourceLinks;
