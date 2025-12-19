@@ -1,10 +1,15 @@
-﻿using MedRecPro.Helpers;
+﻿using Google;
+using MedRecPro.Data;
+using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics;
 using System.Security.Claims;
 
 namespace MedRecPro.Controllers
@@ -50,6 +55,21 @@ namespace MedRecPro.Controllers
         /// </summary>
         private readonly IConfiguration _configuration;
 
+        /**************************************************************/
+        /// <summary>
+        /// Database context for accessing application data.
+        /// </summary>
+        private readonly ApplicationDbContext _dbContext;
+
+        /**************************************************************/
+        /// <summary>
+        /// Provides the factory used to create new dependency injection scopes within the application.
+        /// </summary>
+        /// <remarks>This field is typically used to resolve scoped services outside of a request context
+        /// or to create isolated service lifetimes. It should be used with care to avoid unintended service lifetimes
+        /// or memory leaks.</remarks>
+        private readonly IServiceScopeFactory _scopeFactory;
+
         private readonly string _pkSecret;
         #endregion
 
@@ -62,13 +82,22 @@ namespace MedRecPro.Controllers
         /// <param name="userManager">The ASP.NET Core Identity user manager.</param>
         /// <param name="logger">Logger for logging information and errors.</param>
         /// <param name="configuration"></param>
-        public AuthController(SignInManager<User> signInManager, UserManager<User> userManager, ILogger<AuthController> logger, IConfiguration configuration)
+        /// <param name="applicationDbContext">Used for waking the database early during authentication</param>
+        public AuthController(SignInManager<User> signInManager,
+            UserManager<User> userManager,
+            ILogger<AuthController> logger,
+            IConfiguration configuration,
+            ApplicationDbContext applicationDbContext,
+            IServiceScopeFactory serviceScopeFactory)
         {
             #region implementation
             _signInManager = signInManager;
             _userManager = userManager;
             _logger = logger;
             _configuration = configuration;
+
+            _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
+            _scopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
 
             _pkSecret = _configuration["Security:DB:PKSecret"] ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing.");
             if (string.IsNullOrWhiteSpace(_pkSecret))
@@ -381,7 +410,6 @@ namespace MedRecPro.Controllers
         /// while preventing malicious redirects to external sites.
         /// </remarks>
         /// <seealso cref="ExternalLoginCallback"/>
-        /**************************************************************/
         private string getValidatedReturnUrl(string? returnUrl)
         {
             #region implementation
@@ -442,6 +470,47 @@ namespace MedRecPro.Controllers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Called to wake the database from sleep asynchronously. This is a 
+        /// fire-and-forget operation. It is used to reduce latency on the first
+        /// request after a period of inactivity. Azure SQL serverless tiers
+        /// need to be woken up before they can respond to queries.
+        /// </summary>
+        /// <returns></returns>
+        private void wakeDatabase()
+        {
+            #region implementation
+
+            // Fire-and-forget database wake-up (don't await)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+                    using var scope = _scopeFactory.CreateScope();
+                    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                    await dbContext.Database.ExecuteSqlRawAsync("SELECT 1", cancellationToken: cts.Token);
+#if DEBUG
+                    Debug.WriteLine("=== Database has woken up ===");
+#else
+                    _logger.LogInformation("Database wake-up completed");
+#endif
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    Debug.WriteLine($"=== Database wake-up failed: {ex.Message} ===");
+#else
+                    _logger.LogWarning(ex, "Database wake-up failed");
+#endif
+                }
+            });
+
+            #endregion
+
+        }
+
 #if DEBUG
         /**************************************************************/
         /// <summary>
@@ -464,7 +533,7 @@ namespace MedRecPro.Controllers
             #endregion
         }
 #endif
-        #endregion
+        #endregion Private Methods
 
         #region Swagger Authentication Endpoints
         /**************************************************************/
@@ -538,6 +607,9 @@ namespace MedRecPro.Controllers
         {
             #region implementation
 
+            // Wake the database to reduce latency on first request
+            wakeDatabase();
+
             var extAuthEnabled = _configuration.GetValue<bool>("FeatureFlags:ExternalAuthEnabled", true);
             if (!extAuthEnabled)
             {
@@ -557,7 +629,7 @@ namespace MedRecPro.Controllers
 #if DEBUG
                 finalReturnUrl = "/swagger/index.html"; // Local development
 #else
-        finalReturnUrl = "/api/swagger/index.html"; // Azure production
+                finalReturnUrl = "/api/swagger/index.html"; // Azure production
 #endif
             }
             else
