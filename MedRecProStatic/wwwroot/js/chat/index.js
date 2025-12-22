@@ -65,6 +65,7 @@ import { ApiService } from './api-service.js';
 import { EndpointExecutor } from './endpoint-executor.js';
 import { UIHelpers } from './ui-helpers.js';
 import { SettingsRenderer } from './settings-renderer.js';
+import { EndpointStatsRenderer } from './endpoint-stats-renderer.js';
 
 /**************************************************************/
 /**
@@ -495,18 +496,44 @@ const MedRecProChat = (function () {
 
         // Check if this is a settings/logs response that needs special rendering
         const isSettingsData = SettingsRenderer.isSettingsResponse(finalResults);
+        // Check if this is an endpoint stats or user activity response
+        const isEndpointStatsData = EndpointStatsRenderer.isEndpointStatsResponse(finalResults);
 
         // Synthesize results
         ChatState.updateMessage(assistantMessage.id, {
             progress: 0.9,
-            progressStatus: isSettingsData ? 'Formatting log data...' : 'Synthesizing results...'
+            progressStatus: isSettingsData ? 'Formatting log data...' :
+                           isEndpointStatsData ? 'Formatting performance data...' :
+                           'Synthesizing results...'
         });
         MessageRenderer.updateMessage(assistantMessage.id);
 
         // Build final response content
         let responseContent = '';
 
-        if (isSettingsData) {
+        if (isEndpointStatsData) {
+            // Use specialized endpoint stats renderer for performance/activity data
+            responseContent = EndpointStatsRenderer.renderEndpointStatsData(finalResults);
+
+            // If renderer returned empty, fall back to standard synthesis
+            if (!responseContent || responseContent.trim() === '') {
+                const synthesis = await ApiService.synthesizeResults(
+                    originalInput,
+                    interpretation,
+                    finalResults
+                );
+                responseContent = synthesis.response || 'Unable to retrieve performance data. Please try again.';
+            } else {
+                // Add follow-up suggestions from endpoint stats renderer
+                const statsFollowUps = EndpointStatsRenderer.getFollowUpSuggestions(finalResults);
+                if (statsFollowUps && statsFollowUps.length > 0) {
+                    responseContent += '\n\n**Suggested follow-ups:**\n';
+                    statsFollowUps.forEach(followUp => {
+                        responseContent += `- ${followUp}\n`;
+                    });
+                }
+            }
+        } else if (isSettingsData) {
             // Use specialized settings renderer for log data
             responseContent = SettingsRenderer.renderSettingsData(finalResults);
 

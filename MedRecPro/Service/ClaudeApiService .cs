@@ -1364,6 +1364,31 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Loads the user activity prompt skills document from the configured file path.
+        /// </summary>
+        /// <remarks>
+        /// This method reads the AI prompt instructions for user activity monitoring
+        /// and endpoint performance statistics endpoints. The file path is configured in
+        /// appsettings.json under ClaudeApiSettings:Skill-UserActivity.
+        /// </remarks>
+        /// <example>
+        /// var userActivitySkills = buildUserActivityPromptSkills();
+        /// sb.AppendLine(userActivitySkills);
+        /// </example>
+        /// <returns>The user activity prompt skills document as a formatted string.</returns>
+        /// <seealso cref="readSkillFile"/>
+        /// <seealso cref="buildSettingsPromptSkills"/>
+        private string buildUserActivityPromptSkills()
+        {
+            #region implementation
+
+            return readSkillFile("Skill-UserActivity", "buildUserActivityPromptSkills");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Reads a skill file from the configured path with caching support.
         /// </summary>
         /// <param name="configKey">The configuration key under ClaudeApiSettings (e.g., "Skill-Section").</param>
@@ -1378,6 +1403,7 @@ namespace MedRecPro.Service
         /// <seealso cref="buildSynthesisPromptSkills"/>
         /// <seealso cref="buildRetryPromptSkills"/>
         /// <seealso cref="buildSettingsPromptSkills"/>
+        /// <seealso cref="buildUserActivityPromptSkills"/>
         private string readSkillFile(string configKey, string cacheKeyPrefix)
         {
             #region implementation
@@ -2400,6 +2426,15 @@ namespace MedRecPro.Service
             if (!string.IsNullOrEmpty(settingsSkills) && !settingsSkills.StartsWith("Skill-Settings"))
             {
                 skillsDocument = skillsDocument + "\n\n" + settingsSkills;
+            }
+            #endregion
+
+            #region append user activity skills
+            // Append user activity skills document (user activity monitoring, endpoint statistics, etc.)
+            var userActivitySkills = buildUserActivityPromptSkills();
+            if (!string.IsNullOrEmpty(userActivitySkills) && !userActivitySkills.StartsWith("Skill-UserActivity"))
+            {
+                skillsDocument = skillsDocument + "\n\n" + userActivitySkills;
             }
             #endregion
 
