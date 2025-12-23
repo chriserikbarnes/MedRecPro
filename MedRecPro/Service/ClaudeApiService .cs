@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Newtonsoft.Json;
 using MedRecPro.Helpers;
+using Microsoft.Extensions.Logging;
 
 namespace MedRecPro.Service
 {
@@ -560,6 +561,12 @@ namespace MedRecPro.Service
         /// </summary>
         private readonly ConversationStore _conversationStore;
 
+        /**************************************************************/
+        /// <summary>
+        /// Skill service for two-stage routing and skill document management.
+        /// </summary>
+        private readonly IClaudeSkillService _skillService;
+
 
         /**************************************************************/
         /// <summary>
@@ -583,13 +590,15 @@ namespace MedRecPro.Service
         /// <param name="dbContext">Database context for system state queries.</param>
         /// <param name="configuration">Configuration provider for feature flags.</param>
         /// <param name="conversationStore">In-memory store for conversation tracking.</param>
+        /// <param name="skillService">Skill service for two-stage routing and skill document management.</param>
         public ClaudeApiService(
             HttpClient httpClient,
             ILogger<ClaudeApiService> logger,
             IOptions<ClaudeApiSettings> settings,
             ApplicationDbContext dbContext,
             IConfiguration configuration,
-            ConversationStore conversationStore)
+            ConversationStore conversationStore,
+            IClaudeSkillService skillService)
         {
             _httpClient = httpClient;
             _logger = logger;
@@ -597,6 +606,7 @@ namespace MedRecPro.Service
             _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _conversationStore = conversationStore ?? throw new ArgumentNullException(nameof(conversationStore));
+            _skillService = skillService ?? throw new ArgumentNullException(nameof(skillService));
             _logger.LogInformation($"Claude API Key configured: {!string.IsNullOrEmpty(_settings.ApiKey)}");
         }
 
@@ -1001,20 +1011,8 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            // Check cache validity
-            if (_skillsDocumentCache != null &&
-                DateTime.UtcNow - _skillsCacheTimestamp < _skillsCacheDuration)
-            {
-                return _skillsDocumentCache;
-            }
-
-            _logger.LogDebug("Refreshing skills document cache");
-
-            // Build the skills document
-            _skillsDocumentCache = buildSkillsDocument();
-            _skillsCacheTimestamp = DateTime.UtcNow;
-
-            return await Task.FromResult(_skillsDocumentCache);
+            // Delegate to skill service for centralized skill management
+            return await _skillService.GetFullSkillsDocumentAsync();
 
             #endregion
         }
@@ -1066,14 +1064,33 @@ namespace MedRecPro.Service
         /**************************************************************/
         /// <summary>
         /// Builds the prompt for Claude to interpret a user request.
+        /// Uses two-stage routing to minimize token usage by loading only relevant skills.
         /// </summary>
         /// <param name="request">The user's request.</param>
         /// <returns>The complete prompt string.</returns>
+        /// <remarks>
+        /// Two-stage routing pattern:
+        /// Stage 1: Use keyword-based skill selection (fast, no API call)
+        /// Stage 2: Load only the selected skill(s) into the prompt
+        /// This reduces prompt size from ~10,000+ tokens to only what's needed.
+        /// </remarks>
+        /// <seealso cref="IClaudeSkillService.SelectSkillsAsync"/>
+        /// <seealso cref="IClaudeSkillService.GetSkillContentAsync"/>
         private async Task<string> buildInterpretationPromptAsync(AiAgentRequest request)
         {
             #region implementation
 
-            var skills = await GetSkillsDocumentAsync();
+            // Stage 1: Select relevant skills based on user message
+            var skillSelection = await _skillService.SelectSkillsAsync(
+                request.UserMessage,
+                request.SystemContext);
+
+            // Stage 2: Load only the selected skills
+            var skills = await _skillService.GetSkillContentAsync(skillSelection);
+
+            _logger.LogDebug("Two-stage routing: Selected skills [{Skills}] for query",
+                string.Join(", ", skillSelection.SelectedSkills));
+
             var sb = new StringBuilder();
 
             // System instructions
@@ -1081,7 +1098,7 @@ namespace MedRecPro.Service
             sb.AppendLine("Your task is to interpret user requests and return structured API endpoint specifications.");
             sb.AppendLine();
 
-            // Include skills document
+            // Include selected skills document (not all skills)
             sb.AppendLine("=== AVAILABLE API ENDPOINTS ===");
             sb.AppendLine(skills);
             sb.AppendLine();
@@ -1271,21 +1288,21 @@ namespace MedRecPro.Service
         /// Builds the label section content query prompt instructions from the skills file.
         /// </summary>
         /// <remarks>
-        /// This method loads the AI prompt instructions for interpreting user queries
-        /// about drug label content (side effects, warnings, dosing, etc.) and generating
-        /// appropriate multi-step API endpoint workflows.
+        /// This method delegates to the skill service for centralized skill management.
+        /// Loads the AI prompt instructions for interpreting user queries about drug
+        /// label content (side effects, warnings, dosing, etc.).
         /// </remarks>
         /// <example>
         /// var promptInstructions = buildLabelSectionPromptSkills();
         /// sb.AppendLine(promptInstructions);
         /// </example>
         /// <returns>The label section prompt skills document as a formatted string.</returns>
-        /// <seealso cref="buildSkillsDocument"/>
+        /// <seealso cref="IClaudeSkillService.GetLabelSectionPromptSkills"/>
         private string buildLabelSectionPromptSkills()
         {
             #region implementation
 
-            return readSkillFile("Skill-Section", "buildLabelSectionPromptSkills");
+            return _skillService.GetLabelSectionPromptSkills();
 
             #endregion
         }
@@ -1295,21 +1312,21 @@ namespace MedRecPro.Service
         /// Loads the synthesis prompt skills document from the configured file path.
         /// </summary>
         /// <remarks>
-        /// This method reads the AI prompt instructions for synthesizing API results
-        /// into helpful, conversational responses. The file path is configured in
-        /// appsettings.json under ClaudeApiSettings:Skill-Synthesis.
+        /// This method delegates to the skill service for centralized skill management.
+        /// Loads the AI prompt instructions for synthesizing API results into helpful,
+        /// conversational responses.
         /// </remarks>
         /// <example>
         /// var synthesisSkills = buildSynthesisPromptSkills();
         /// sb.AppendLine(synthesisSkills);
         /// </example>
         /// <returns>The synthesis prompt skills document as a formatted string.</returns>
-        /// <seealso cref="buildSynthesisPrompt"/>
+        /// <seealso cref="IClaudeSkillService.GetSynthesisPromptSkills"/>
         private string buildSynthesisPromptSkills()
         {
             #region implementation
 
-            return readSkillFile("Skill-Synthesis", "buildSynthesisPromptSkills");
+            return _skillService.GetSynthesisPromptSkills();
 
             #endregion
         }
@@ -1319,142 +1336,24 @@ namespace MedRecPro.Service
         /// Loads the retry prompt skills document from the configured file path.
         /// </summary>
         /// <remarks>
-        /// This method reads the AI prompt instructions for re-interpreting failed API
-        /// endpoint calls and suggesting alternative endpoints. The file path is configured
-        /// in appsettings.json under ClaudeApiSettings:Skill-Retry.
+        /// This method delegates to the skill service for centralized skill management.
+        /// Loads the AI prompt instructions for re-interpreting failed API endpoint
+        /// calls and suggesting alternative endpoints.
         /// </remarks>
         /// <example>
         /// var retrySkills = buildRetryPromptSkills();
         /// sb.AppendLine(retrySkills);
         /// </example>
         /// <returns>The retry prompt skills document as a formatted string.</returns>
-        /// <seealso cref="buildRetryPrompt"/>
+        /// <seealso cref="IClaudeSkillService.GetRetryPromptSkills"/>
         private string buildRetryPromptSkills()
         {
             #region implementation
 
-            return readSkillFile("Skill-Retry", "buildRetryPromptSkills");
+            return _skillService.GetRetryPromptSkills();
 
             #endregion
         }
-
-        /**************************************************************/
-        /// <summary>
-        /// Loads the settings prompt skills document from the configured file path.
-        /// </summary>
-        /// <remarks>
-        /// This method reads the AI prompt instructions for administrative settings
-        /// and log viewing endpoints. The file path is configured in
-        /// appsettings.json under ClaudeApiSettings:Skill-Settings.
-        /// </remarks>
-        /// <example>
-        /// var settingsSkills = buildSettingsPromptSkills();
-        /// sb.AppendLine(settingsSkills);
-        /// </example>
-        /// <returns>The settings prompt skills document as a formatted string.</returns>
-        /// <seealso cref="readSkillFile"/>
-        private string buildSettingsPromptSkills()
-        {
-            #region implementation
-
-            return readSkillFile("Skill-Settings", "buildSettingsPromptSkills");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Loads the user activity prompt skills document from the configured file path.
-        /// </summary>
-        /// <remarks>
-        /// This method reads the AI prompt instructions for user activity monitoring
-        /// and endpoint performance statistics endpoints. The file path is configured in
-        /// appsettings.json under ClaudeApiSettings:Skill-UserActivity.
-        /// </remarks>
-        /// <example>
-        /// var userActivitySkills = buildUserActivityPromptSkills();
-        /// sb.AppendLine(userActivitySkills);
-        /// </example>
-        /// <returns>The user activity prompt skills document as a formatted string.</returns>
-        /// <seealso cref="readSkillFile"/>
-        /// <seealso cref="buildSettingsPromptSkills"/>
-        private string buildUserActivityPromptSkills()
-        {
-            #region implementation
-
-            return readSkillFile("Skill-UserActivity", "buildUserActivityPromptSkills");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Reads a skill file from the configured path with caching support.
-        /// </summary>
-        /// <param name="configKey">The configuration key under ClaudeApiSettings (e.g., "Skill-Section").</param>
-        /// <param name="cacheKeyPrefix">A prefix for the cache key to ensure uniqueness.</param>
-        /// <returns>The skill file content as a string.</returns>
-        /// <remarks>
-        /// This method centralizes the skill file reading logic used by multiple prompt builders.
-        /// It reads from the configured path in appsettings.json, caches the result for 8 hours,
-        /// and handles fallback path resolution.
-        /// </remarks>
-        /// <seealso cref="buildLabelSectionPromptSkills"/>
-        /// <seealso cref="buildSynthesisPromptSkills"/>
-        /// <seealso cref="buildRetryPromptSkills"/>
-        /// <seealso cref="buildSettingsPromptSkills"/>
-        /// <seealso cref="buildUserActivityPromptSkills"/>
-        private string readSkillFile(string configKey, string cacheKeyPrefix)
-        {
-            #region implementation
-            string? skillsDocument;
-            string? cachedSkills;
-            string? skillFilePath;
-            string key;
-
-            #region check cache
-            // Use consistent cache key naming convention
-            key = ($"{cacheKeyPrefix}_ClaudeApiSettings_{configKey}").Base64Encode();
-            cachedSkills = PerformanceHelper.GetCache<string>(key);
-            if (!string.IsNullOrEmpty(cachedSkills))
-            {
-                return cachedSkills;
-            }
-            #endregion
-
-            #region fetch skills file
-            // Get the configured path from appsettings
-            skillFilePath = _configuration.GetValue<string>($"ClaudeApiSettings:{configKey}");
-            if (string.IsNullOrEmpty(skillFilePath))
-            {
-                return $"{configKey} configuration not found.";
-            }
-
-            // Resolve the path relative to the application's content root
-            var fullPath = Path.Combine(AppContext.BaseDirectory, skillFilePath);
-            if (!File.Exists(fullPath))
-            {
-                // Try relative to current directory as fallback
-                fullPath = Path.Combine(Directory.GetCurrentDirectory(), skillFilePath);
-            }
-
-            if (!File.Exists(fullPath))
-            {
-                return $"Skills document not found at: {skillFilePath}";
-            }
-
-            skillsDocument = File.ReadAllText(fullPath);
-            #endregion
-
-            #region cache and return
-            // Cache for 8 hours to reduce file I/O
-            PerformanceHelper.SetCacheManageKey(key, skillsDocument, 8);
-            return skillsDocument;
-            #endregion
-
-            #endregion
-        }
-
 
         /**************************************************************/
         /// <summary>
@@ -2371,81 +2270,6 @@ namespace MedRecPro.Service
             #endregion
         }
 
-        /**************************************************************/
-        /// <summary>
-        /// Builds the comprehensive skills document describing all available API endpoints.
-        /// </summary>
-        /// <returns>The skills document as a formatted string.</returns>
-        private string buildSkillsDocument()
-        {
-            #region implementation
-            string? skillsDocument;
-            string? cachedSkills;
-            string? skillFilePath;
-            string key;
-
-            #region check cache
-            key = ("buildSkillsDocument_ClaudeApiSettings_Skill-Label").Base64Encode();
-
-            cachedSkills = PerformanceHelper.GetCache<string>(key);
-
-            if (!string.IsNullOrEmpty(cachedSkills))
-            {
-                return cachedSkills;
-            }
-            #endregion
-
-            #region fetch skills file txt
-            skillFilePath = _configuration.GetValue<string>("ClaudeApiSettings:Skill-Label");
-
-            if (string.IsNullOrEmpty(skillFilePath))
-            {
-                return "Skills document configuration not found.";
-            }
-
-            // Resolve the path relative to the application's content root
-            var fullPath = Path.Combine(AppContext.BaseDirectory, skillFilePath);
-
-            if (!File.Exists(fullPath))
-            {
-                // Try relative to current directory as fallback
-                fullPath = Path.Combine(Directory.GetCurrentDirectory(), skillFilePath);
-            }
-
-            if (!File.Exists(fullPath))
-            {
-                return $"Skills document not found at: {skillFilePath}";
-            }
-
-            skillsDocument = File.ReadAllText(fullPath);
-            #endregion
-
-            #region append settings skills
-            // Append settings/admin skills document (log viewing, cache management, etc.)
-            var settingsSkills = buildSettingsPromptSkills();
-            if (!string.IsNullOrEmpty(settingsSkills) && !settingsSkills.StartsWith("Skill-Settings"))
-            {
-                skillsDocument = skillsDocument + "\n\n" + settingsSkills;
-            }
-            #endregion
-
-            #region append user activity skills
-            // Append user activity skills document (user activity monitoring, endpoint statistics, etc.)
-            var userActivitySkills = buildUserActivityPromptSkills();
-            if (!string.IsNullOrEmpty(userActivitySkills) && !userActivitySkills.StartsWith("Skill-UserActivity"))
-            {
-                skillsDocument = skillsDocument + "\n\n" + userActivitySkills;
-            }
-            #endregion
-
-            PerformanceHelper.SetCacheManageKey(key, skillsDocument, 8); // Cache for 8 hour
-
-            return skillsDocument;
-
-            #endregion
-        }
-
-
         #endregion
 
         #region retry interpretation methods
@@ -2502,7 +2326,7 @@ namespace MedRecPro.Service
             try
             {
                 // Build the retry prompt
-                var prompt = buildRetryPrompt(originalRequest, failedResults, attemptNumber);
+                var prompt = await buildRetryPromptAsync(originalRequest, failedResults, attemptNumber);
 
                 // Call Claude API
                 var claudeResponse = await GenerateDocumentComparisonAsync(prompt);
@@ -2553,7 +2377,8 @@ namespace MedRecPro.Service
         /// <param name="attemptNumber">Current retry attempt number.</param>
         /// <returns>Formatted prompt string for Claude.</returns>
         /// <seealso cref="buildRetryPromptSkills"/>
-        private string buildRetryPrompt(
+        /// <seealso cref="IClaudeSkillService.GetFullSkillsDocumentAsync"/>
+        private async Task<string> buildRetryPromptAsync(
             AiAgentRequest originalRequest,
             List<AiEndpointResult> failedResults,
             int attemptNumber)
@@ -2566,9 +2391,9 @@ namespace MedRecPro.Service
             sb.AppendLine(buildRetryPromptSkills());
             sb.AppendLine();
 
-            // Include skills document for reference
+            // Include skills document for reference (use async result synchronously in retry context)
             sb.AppendLine("=== AVAILABLE API ENDPOINTS (SKILLS DOCUMENT) ===");
-            sb.AppendLine(buildSkillsDocument());
+            sb.AppendLine(await _skillService.GetFullSkillsDocumentAsync());
             sb.AppendLine();
 
             // Original request

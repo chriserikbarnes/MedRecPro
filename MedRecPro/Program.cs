@@ -129,6 +129,9 @@ builder.Services.AddScoped<AzureSqlMetricsService>();
 
 builder.Services.AddDatabaseUsageMonitoring();
 
+// Register ClaudeSkillService for two-stage routing skill management
+builder.Services.AddSingleton<IClaudeSkillService, ClaudeSkillService>();
+
 // Configure ClaudeApiService with HttpClient and inject settings
 builder.Services.AddHttpClient<IClaudeApiService, ClaudeApiService>((serviceProvider, client) =>
 {

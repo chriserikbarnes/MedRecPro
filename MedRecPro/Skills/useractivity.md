@@ -1,41 +1,194 @@
-# MedRecPro User Activity API Skills Document
+# MedRecPro User Activity & Monitoring API Skills Document
 
-This document describes the user activity monitoring and endpoint performance statistics endpoints available in MedRecPro.
+This document describes the user activity monitoring, application log viewing, and endpoint performance statistics endpoints available in MedRecPro.
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [User Lookup (Required First Step)](#user-lookup-required-first-step)
-3. [User Activity Endpoints (Admin Only)](#user-activity-endpoints-admin-only)
-4. [Endpoint Performance Statistics (Admin Only)](#endpoint-performance-statistics-admin-only)
-5. [Available Controllers and Actions](#available-controllers-and-actions)
-6. [Query Decision Tree](#query-decision-tree)
-7. [Workflows](#workflows)
+2. [Application Log Viewing (Admin Only)](#application-log-viewing-admin-only)
+3. [User Lookup (Required First Step)](#user-lookup-required-first-step)
+4. [User Activity Endpoints (Admin Only)](#user-activity-endpoints-admin-only)
+5. [Endpoint Performance Statistics (Admin Only)](#endpoint-performance-statistics-admin-only)
+6. [Available Controllers and Actions](#available-controllers-and-actions)
+7. [Query Decision Tree](#query-decision-tree)
+8. [Workflows](#workflows)
 
 ---
 
 ## Overview
 
-The User Activity API provides administrative functionality for viewing user activity logs and endpoint performance statistics. All endpoints require Admin role.
+The User Activity & Monitoring API provides administrative functionality for:
+- **Application Log Viewing**: In-memory application logs with filtering by level, category, date, and user
+- **User Activity Tracking**: Activity logs for specific users showing their actions in the system
+- **Endpoint Performance Statistics**: Response time analysis for API endpoints
 
-**Base API Path**: `/api/Users`
+All endpoints require Admin role.
+
+**Base API Paths**:
+- Logs: `/api/settings/logs`
+- User Activity: `/api/Users`
 
 ### Authentication Requirements
 
-**IMPORTANT**: All user activity endpoints require authentication AND Admin role.
+**IMPORTANT**: All monitoring endpoints require authentication AND Admin role.
 
-When a user requests activity data:
+When a user requests monitoring data:
 1. **If `isAuthenticated` is `false`** in the system context: Return a direct response explaining they must sign in first
 2. **If authenticated but not Admin**: The endpoints will return 403 Forbidden
 
 **Direct Response for Unauthenticated Users**:
-When the user is NOT authenticated and requests activity data, respond with:
+When the user is NOT authenticated and requests monitoring data, respond with:
 ```
 isDirectResponse: true
-directResponse: "Viewing user activity and endpoint statistics requires authentication. Please sign in using the login button in the top navigation, then try your request again. These features are restricted to users with administrator privileges."
+directResponse: "Viewing application logs, user activity, and endpoint statistics requires authentication. Please sign in using the login button in the top navigation, then try your request again. These features are restricted to users with administrator privileges."
 ```
 
-Do NOT suggest activity endpoints if `isAuthenticated` is `false`.
+Do NOT suggest monitoring endpoints if `isAuthenticated` is `false`.
+
+---
+
+## Application Log Viewing (Admin Only)
+
+View and filter in-memory application logs. All endpoints require Admin role.
+
+### Get Log Statistics
+```
+GET /api/settings/logs/statistics
+```
+
+Get overview of in-memory log storage including entry counts, retention settings, and level distribution.
+
+**Response Fields**:
+| Field | Type | Description |
+|-------|------|-------------|
+| `totalEntries` | int | Total log entries in memory |
+| `categoryCount` | int | Number of unique log categories |
+| `oldestEntry` | datetime | Timestamp of oldest entry |
+| `newestEntry` | datetime | Timestamp of newest entry |
+| `entriesByLevel` | object | Counts by log level (Information, Warning, Error, etc.) |
+| `uniqueUserCount` | int | Number of unique users with log entries |
+| `retentionMinutes` | int | Configured retention period |
+| `maxEntriesPerCategory` | int | Max entries per category |
+| `maxTotalEntries` | int | Max total entries |
+
+**Trigger Phrases**: "log statistics", "how many logs", "log summary", "logging status"
+
+### Get Log Categories
+```
+GET /api/settings/logs/categories
+```
+
+Get list of all log categories with entry counts. Use to discover available categories for filtering.
+
+**Response**: Array of category summaries with category name, entry count, and time range.
+
+**Trigger Phrases**: "log categories", "what categories", "list log sources"
+
+### Get Log Users
+```
+GET /api/settings/logs/users
+```
+
+Get list of users who have generated log entries with counts.
+
+**Response**: Array of user summaries with userId, userName, entry count, and time range.
+
+**Trigger Phrases**: "who has logs", "user log activity", "log users"
+
+### Get All Logs
+```
+GET /api/settings/logs?pageNumber={n}&pageSize={n}&minLevel={level}
+```
+
+Get all log entries with optional pagination and level filtering.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pageNumber` | int | No | 1-based page number (default: 1) |
+| `pageSize` | int | No | Entries per page (default: 100, max: 1000) |
+| `minLevel` | string | No | Minimum log level: Trace, Debug, Information, Warning, Error, Critical |
+
+**Trigger Phrases**: "show logs", "get logs", "view logs", "recent logs", "application logs"
+
+### Get Logs By Date
+```
+GET /api/settings/logs/by-date?startDate={dt}&endDate={dt}&pageNumber={n}&pageSize={n}
+```
+
+Get log entries filtered by UTC date range.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `startDate` | datetime | Yes | Start of date range (UTC) |
+| `endDate` | datetime | Yes | End of date range (UTC) |
+| `pageNumber` | int | No | 1-based page number |
+| `pageSize` | int | No | Entries per page |
+
+**Trigger Phrases**: "logs between dates", "logs from yesterday", "logs in the last hour", "filter logs by date"
+
+### Get Logs By Category
+```
+GET /api/settings/logs/by-category?category={name}&pageNumber={n}&pageSize={n}
+```
+
+Get log entries filtered by category (case-insensitive partial match).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `category` | string | Yes | Category name to filter (e.g., "Controller", "ClaudeApiService") |
+| `pageNumber` | int | No | 1-based page number |
+| `pageSize` | int | No | Entries per page |
+
+**Example**: Filter by "Controller" matches "MedRecPro.Controllers.LabelsController"
+
+**Trigger Phrases**: "logs from controller", "filter logs by category", "show ClaudeApiService logs", "logs by source"
+
+### Get Logs By User
+```
+GET /api/settings/logs/by-user?userId={id}&pageNumber={n}&pageSize={n}
+```
+
+Get log entries filtered by user ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `userId` | string | Yes | User ID to filter by |
+| `pageNumber` | int | No | 1-based page number |
+| `pageSize` | int | No | Entries per page |
+
+**Note**: Use `GET /api/settings/logs/users` to discover users with log entries.
+
+**Trigger Phrases**: "logs for user", "user's logs", "filter logs by user"
+
+### Log Entry Fields
+
+Each log entry contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message` | string | Log message content |
+| `level` | string | Log level (Trace, Debug, Information, Warning, Error, Critical) |
+| `timestamp` | datetime | UTC timestamp when logged |
+| `category` | string | Logger category (typically class name) |
+| `userId` | string | Authenticated user ID (if available) |
+| `userName` | string | User display name (if available) |
+| `exceptionMessage` | string | Exception message (if applicable) |
+| `exceptionType` | string | Exception type name (if applicable) |
+
+### Log Level Reference
+
+- **Critical**: System-critical failures
+- **Error**: Errors that affect functionality
+- **Warning**: Potential issues or deprecations
+- **Information**: Normal operational events
+- **Debug**: Detailed diagnostic information
+- **Trace**: Very detailed tracing information
+
+### Notes
+
+- Logs are stored in-memory with configurable retention (default: 60 minutes)
+- User context is automatically captured for authenticated requests
+- Configure retention in `appsettings.json` under `LoggingSettings`
 
 ---
 
