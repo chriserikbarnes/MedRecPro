@@ -56,6 +56,31 @@ Use for queries about:
 
 ---
 
+### rescueWorkflow
+**Fallback strategies when primary label queries return empty or incomplete results.**
+
+Use for queries where:
+- Primary structured data endpoints return empty results
+- Information exists in narrative text rather than dedicated fields
+- Data is embedded in sections like Description rather than structured tables
+
+**Common Scenarios**:
+- Inactive ingredients not in InactiveIngredient table but listed in Description section (LOINC 34089-3)
+- Physical characteristics embedded in narrative text
+- Storage conditions in non-standard sections
+
+**Keywords**: not found, empty results, where else, alternative, rescue, fallback, text search, description section
+
+**Process**:
+1. Search by known identifier (ingredient, product name) to get documentGUID
+2. Retrieve all section content for the document
+3. Scan section text for target keywords (e.g., "inactive")
+4. Extract structured data from narrative text using sentence parsing
+
+**Note**: This skill supplements the `label` skill. Load both when primary queries fail.
+
+---
+
 ## Selection Rules
 
 ### Priority Order
@@ -63,6 +88,21 @@ Use for queries about:
 1. **Check for monitoring keywords first** - If query mentions logs, user activity, or performance, select `userActivity`
 2. **Check for cache keywords** - If query mentions cache operations, select `settings`
 3. **Default to label skill** - Most queries about pharmaceutical data use the label skill
+4. **Add rescueWorkflow on retry** - When label skill queries return empty results, add `rescueWorkflow` for fallback strategies
+
+### Rescue Workflow Trigger
+
+**Important**: The `rescueWorkflow` skill should be loaded in addition to `label` when:
+- A previous query returned "not found" or empty results
+- The user is asking about data that *should* exist (e.g., inactive ingredients for a known drug)
+- The AI needs to search narrative text because structured fields are empty
+
+Example scenario:
+```
+Query: "Show me inactive ingredients for Cephalexin"
+→ Primary: label skill → GET /api/label/section/InactiveIngredient → Empty
+→ Retry: label + rescueWorkflow → Search Description section for "inactive ingredients:" text
+```
 
 ### Key Differentiators
 
@@ -94,6 +134,8 @@ Use for queries about:
 | "Search by NDC code" | label |
 | "Log statistics" | userActivity |
 | "Filter logs by error level" | userActivity |
+| "Inactive ingredients not found" (retry) | label + rescueWorkflow |
+| "Data not in expected location" | label + rescueWorkflow |
 
 ### Multi-Skill Selection
 

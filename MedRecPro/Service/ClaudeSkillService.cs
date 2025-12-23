@@ -288,7 +288,8 @@ namespace MedRecPro.Service
             { "settings", "Skill-Settings" },
             { "userActivity", "Skill-UserActivity" },
             { "synthesis", "Skill-Synthesis" },
-            { "retry", "Skill-Retry" }
+            { "retry", "Skill-Retry" },
+            { "rescueWorkflow", "Skill-RescueWorkflow" }
         };
 
         #endregion
@@ -593,6 +594,14 @@ namespace MedRecPro.Service
             sb.AppendLine("**Keywords**: cache, clear cache, reset cache, flush cache, invalidate");
             sb.AppendLine();
 
+            // Rescue workflow skill - fallback strategies for missing data
+            sb.AppendLine("### rescueWorkflow");
+            sb.AppendLine("**Description**: Fallback strategies when primary label queries return empty or incomplete results.");
+            sb.AppendLine("**Use for**: Finding data in alternative document locations, extracting info from narrative text (e.g., inactive ingredients in Description section), rescue queries when structured data is unavailable.");
+            sb.AppendLine("**Keywords**: not found, empty results, where else, alternative, rescue, fallback, text search, description section, inactive ingredient, excipient");
+            sb.AppendLine("**Note**: Load this skill IN ADDITION to label skill when primary queries fail.");
+            sb.AppendLine();
+
             sb.AppendLine("## Selection Instructions");
             sb.AppendLine();
             sb.AppendLine("1. Analyze the user's query for keywords matching the skill descriptions above.");
@@ -678,6 +687,20 @@ namespace MedRecPro.Service
             {
                 // Insert label at the beginning as it's the primary skill
                 selectedSkills.Insert(0, "label");
+            }
+
+            // Rescue workflow skill keywords - used when primary queries fail to find data
+            // or when data needs to be extracted from narrative text in alternative locations
+            var rescueWorkflowKeywords = new[] {
+                "not found", "empty results", "where else", "alternative",
+                "rescue", "fallback", "text search", "description section",
+                "inactive ingredient", "excipient", "not available",
+                "couldn't find", "not in", "extract from text"
+            };
+
+            if (rescueWorkflowKeywords.Any(k => message.Contains(k)))
+            {
+                selectedSkills.Add("rescueWorkflow");
             }
 
             // Remove duplicates and return
