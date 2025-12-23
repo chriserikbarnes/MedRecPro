@@ -990,6 +990,119 @@ Would you like to see warnings for a different product?
 
 ---
 
+## Workflow: Comprehensive Drug Summary/Usage
+
+| Property | Value |
+|----------|-------|
+| **Intent** | Provide a complete summary of a drug with all available data from the label |
+| **Triggers** | "summarize usage for {drug}", "what is {drug}", "tell me about {drug}", "summarize {drug}", "overview of {drug}", "information about {drug}" |
+
+### CRITICAL: Data Sourcing Policy
+
+**ALL information MUST come from executed API endpoints. Never supplement with training data.**
+
+- If a fact isn't in the API response, state "not available in label data"
+- Marketing start date is NOT the same as original FDA approval date
+- Clinical study results must come from section 34092-7, not general knowledge
+
+### Endpoint Specification (Multi-Step with Complete Document)
+
+```json
+{
+  "suggestedEndpoints": [
+    {
+      "step": 1,
+      "path": "/api/Label/ingredient/search",
+      "method": "GET",
+      "queryParameters": {
+        "substanceNameSearch": "{ingredient}",
+        "pageNumber": 1,
+        "pageSize": 10
+      },
+      "description": "Search for products containing {ingredient}",
+      "outputMapping": {
+        "documentGuid": "$[0].documentGUID",
+        "productName": "$[0].productName",
+        "labelerName": "$[0].labelerName",
+        "applicationNumber": "$[0].applicationNumber",
+        "marketingCategory": "$[0].marketingCategory"
+      }
+    },
+    {
+      "step": 2,
+      "path": "/api/Label/single/{{documentGuid}}",
+      "method": "GET",
+      "dependsOn": 1,
+      "description": "Get complete document with all metadata (dosage form, route, marketing dates)"
+    },
+    {
+      "step": 3,
+      "path": "/api/Label/section/content/{{documentGuid}}",
+      "method": "GET",
+      "queryParameters": { "sectionCode": "34067-9" },
+      "dependsOn": 1,
+      "description": "Get Indications and Usage section (LOINC 34067-9)"
+    },
+    {
+      "step": 4,
+      "path": "/api/Label/section/content/{{documentGuid}}",
+      "method": "GET",
+      "queryParameters": { "sectionCode": "34089-3" },
+      "dependsOn": 1,
+      "description": "Get Description section (LOINC 34089-3) - drug class info"
+    }
+  ]
+}
+```
+
+### Data Source Mapping
+
+| Response Field | Source | Path |
+|----------------|--------|------|
+| Indication | Step 3 | sectionContent.ContentText |
+| Active Ingredient | Step 2 | activeIngredients[].substanceName, strength |
+| Dosage Form | Step 2 | products[].dosageForm |
+| Route | Step 2 | routes[].routeName |
+| Marketing Date | Step 2 | marketingCategories[].startDate |
+| Application Number | Step 1 | applicationNumber |
+| Manufacturer | Step 1 | labelerName |
+| Drug Class | Step 4 | sectionContent.ContentText |
+
+### Synthesis Format
+
+```
+## {ProductName} Usage Summary
+
+**Primary Indication:**
+{Exact text from Indications section ContentText}
+
+**Product Details:**
+- **Active Ingredient:** {from Step 2 activeIngredients}
+- **Dosage Form:** {from Step 2 products.dosageForm}
+- **Route:** {from Step 2 routes.routeName}
+- **Manufacturer:** {from Step 1 labelerName}
+
+**Regulatory Information:**
+- **Application Number:** {from Step 1 applicationNumber}
+- **Marketing Category:** {from Step 1 marketingCategory}
+- **Marketing Start Date:** {from Step 2 marketingCategories.startDate}
+
+**Key Information:**
+{Brief summary from Indications ContentText}
+
+**Important Note:** The prescribing information contains additional details about dosing, administration, contraindications, and safety information that should be reviewed before use.
+```
+
+### What NOT to Include (Training Data Leakage)
+
+- ❌ "Originally approved in 1996" (unless from marketingCategories.startDate)
+- ❌ "Clinical studies support its effectiveness" (unless from section 34092-7)
+- ❌ "Long history of clinical use" (inference, not from data)
+- ❌ Drug comparisons not in the label
+- ❌ Mechanism details not in Description/Clinical Pharmacology sections
+
+---
+
 ## Workflow: Section Content Summarization
 
 | Property | Value |

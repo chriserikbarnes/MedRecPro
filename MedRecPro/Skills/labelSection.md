@@ -449,3 +449,171 @@ I found side effects data from {n} drug labels in the database:
 **Common side effects across multiple products:**
 - {shared side effect}
 ```
+
+---
+
+## Comprehensive Usage/Summary Queries
+
+When users ask for a **summary**, **overview**, or **usage** of a drug, the workflow must retrieve BOTH metadata AND section content to provide complete, sourced information.
+
+### Key Indicators for Summary Queries
+
+- "summarize", "summary", "overview", "usage", "tell me about", "what is"
+- "information about", "details about", "about [drug name]"
+- Generic requests for drug information without specifying a particular section
+
+### CRITICAL: Data Sourcing Requirements
+
+**ALL information in the response MUST come from executed API endpoints. The synthesis should:**
+
+1. **Use ONLY data returned from API calls** - Never supplement with general knowledge
+2. **Cite sources explicitly** - Reference which endpoint/field provided each fact
+3. **Indicate missing data** - If requested information isn't in the API response, state "not available in label"
+4. **Prefer label content over metadata** - Label text is the authoritative source
+
+### Comprehensive Summary Workflow Pattern
+
+**User:** "Summarize usage for mirtazapine" or "What is mirtazapine?"
+
+```json
+{
+  "success": true,
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/ingredient/search",
+      "queryParameters": { "substanceNameSearch": "mirtazapine", "pageNumber": 1, "pageSize": 10 },
+      "description": "Search for mirtazapine products to get document reference and product metadata",
+      "outputMapping": {
+        "documentGuid": "$[0].documentGUID",
+        "productName": "$[0].productName",
+        "labelerName": "$[0].labelerName",
+        "applicationNumber": "$[0].applicationNumber",
+        "marketingCategory": "$[0].marketingCategory"
+      }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/single/{{documentGuid}}",
+      "dependsOn": 1,
+      "description": "Get complete document with all metadata (dosage form, route, characteristics, marketing dates)"
+    },
+    {
+      "step": 3,
+      "method": "GET",
+      "path": "/api/Label/section/content/{{documentGuid}}",
+      "queryParameters": { "sectionCode": "34067-9" },
+      "dependsOn": 1,
+      "description": "Get Indications and Usage section (LOINC 34067-9) - PRIMARY source for usage"
+    },
+    {
+      "step": 4,
+      "method": "GET",
+      "path": "/api/Label/section/content/{{documentGuid}}",
+      "queryParameters": { "sectionCode": "34089-3" },
+      "dependsOn": 1,
+      "description": "Get Description section (LOINC 34089-3) - Contains drug class, mechanism"
+    },
+    {
+      "step": 5,
+      "method": "GET",
+      "path": "/api/Label/section/content/{{documentGuid}}",
+      "queryParameters": { "sectionCode": "42229-5" },
+      "dependsOn": 1,
+      "skipIfPreviousHasResults": 3,
+      "description": "FALLBACK: Get unclassified sections if Indications section was empty"
+    }
+  ],
+  "explanation": "Comprehensive query: Retrieve product metadata AND label sections for complete summary."
+}
+```
+
+### Data Source Mapping for Summary Response
+
+| Information | Primary Source | Fallback Source |
+|-------------|----------------|-----------------|
+| Indication (what it treats) | Section 34067-9 ContentText | Step 1 search results |
+| Active Ingredient & Strength | Step 2 complete document → ActiveIngredient | Step 1 search results |
+| Dosage Form | Step 2 complete document → Product.dosageForm | N/A |
+| Route of Administration | Step 2 complete document → Route | N/A |
+| FDA Approval Status | Step 2 complete document → MarketingCategory | Step 1 marketingCategory |
+| Approval/Marketing Date | Step 2 complete document → MarketingCategory.startDate | N/A |
+| Manufacturer | Step 1 labelerName | Step 2 Organization |
+| Drug Class/Mechanism | Section 34089-3 ContentText | Section 34090-1 (Clinical Pharmacology) |
+| Application Number | Step 1 applicationNumber | Step 2 Document |
+
+### Synthesis Instructions for Summary Queries
+
+When synthesizing a comprehensive drug summary:
+
+1. **Start with the indication** (from Section 34067-9 ContentText)
+2. **Include product details** from complete document:
+   - Active ingredient and strength
+   - Dosage form (e.g., "Oral tablets")
+   - Route of administration
+3. **Include regulatory information**:
+   - Application number (NDA/ANDA/BLA) from metadata
+   - Marketing category
+   - Marketing start date (if available) - this IS the approval/availability date
+4. **Include manufacturer** from labelerName
+5. **Key label information** from section content text
+
+### Example Synthesis for Summary Query
+
+```json
+{
+  "response": "## Mirtazapine Usage Summary\n\n**Primary Indication:**\nMirtazapine tablets are indicated for the treatment of major depressive disorder (MDD) in adults.\n\n**Product Details:**\n- **Active Ingredient:** Mirtazapine 30 mg\n- **Dosage Form:** Oral tablets\n- **Route:** Oral\n- **Manufacturer:** Bryant Ranch Prepack\n\n**Regulatory Information:**\n- **Application Number:** ANDA078818\n- **Marketing Category:** ANDA (Abbreviated New Drug Application)\n- **Marketing Start Date:** 2006-10-25\n\n**Key Information:**\n[Summary from Indications section ContentText]\n\n**Important Note:** The prescribing information contains additional details about dosing, administration, contraindications, and safety information that should be reviewed before use.",
+  "dataHighlights": {
+    "productName": "MIRTAZAPINE",
+    "activeIngredient": "Mirtazapine 30 mg",
+    "indication": "Major Depressive Disorder (MDD)",
+    "manufacturer": "Bryant Ranch Prepack"
+  },
+  "dataReferences": {
+    "View Full Label (Prescription Drug)": "/api/Label/generate/{{documentGuid}}/true",
+    "Search for mirtazapine products": "/api/Label/ingredient/search?substanceNameSearch=mirtazapine",
+    "Get indications and usage section (LOINC 34067-9) - HUMAN PRESCRIPTION DRUG LABEL": "/api/Label/section/content/{{documentGuid}}?sectionCode=34067-9"
+  },
+  "suggestedFollowUps": [
+    "What are the side effects of mirtazapine?",
+    "How should mirtazapine be dosed?",
+    "What are the warnings for mirtazapine?",
+    "Are there drug interactions with mirtazapine?"
+  ],
+  "warnings": [],
+  "isComplete": true
+}
+```
+
+### CRITICAL: Avoiding Training Data Augmentation
+
+**DO NOT include in responses:**
+- FDA original approval dates that aren't in the marketing start date
+- Clinical trial results not present in label sections
+- Comparisons to other drugs not mentioned in the label
+- Pharmacology details not in the Clinical Pharmacology section
+- Any "general knowledge" about the drug
+
+**If data is not available:**
+```
+"**FDA Approval:** Marketing start date: 2006-10-25 (original approval date not available in label data)"
+```
+
+---
+
+## Additional LOINC Codes for Comprehensive Queries
+
+| sectionCode | Section Name | When to Use |
+|-------------|--------------|-------------|
+| 34089-3 | Description | Drug class, chemical structure, mechanism overview |
+| 34090-1 | Clinical Pharmacology | Mechanism of action, pharmacokinetics |
+| 34091-9 | Non-Clinical Toxicology | Animal studies, carcinogenicity |
+| 42228-7 | Pregnancy | Pregnancy category, teratogenicity |
+| 34074-5 | Drug/Laboratory Test Interactions | Lab test interference |
+| 34092-7 | Clinical Studies | Efficacy data, study results |
+| 51945-4 | Package Label Principal Display Panel | Package labeling |
+| 55106-9 | Effective Time | Document effective date |
+
+---
