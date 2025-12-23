@@ -79,7 +79,7 @@ Security settings including encryption keys should be configured in your user se
   "Authentication:Google:ClientId": "your-google-client-id-here.apps.googleusercontent.com",
 
   "Authentication:Microsoft:ClientId": "your-microsoft-client/application-id-here",
-  "Authentication:Microsoft:ClientSecret:Dev": your-microsoft-client-secret-here",
+  "Authentication:Microsoft:ClientSecret:Dev": "your-microsoft-client-secret-here",
   "Authentication:Microsoft:ClientSecret:Prod": "your-microsoft-client-secret-here",
   "Authentication:Microsoft:TenantId": "your-microsoft-tenant-here",
 
@@ -92,7 +92,7 @@ Security settings including encryption keys should be configured in your user se
 
   "ClaudeApiSettings:ApiKey": "your-claude-api-key-here",
 
-  "Dev:DB:Connection": Server=localhost;Database=your-database;User Id=your-user;Password=your-password-here;",
+  "Dev:DB:Connection": "Server=localhost;Database=your-database;User Id=your-user;Password=your-password-here;",
   "Prod:DB:Connection": "Server=tcp:yourdb.database.windows.net,9999;Initial Catalog=yourdb;Persist Security Info=False;User ID=your-admin;Password=your-password;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
 
   "AzureAd:Domain": "your-domain.onmicrosoft.com",
@@ -571,9 +571,9 @@ Synthesizes API execution results into human-readable response.
 {
   "originalQuery": "Find all products containing aspirin",
   "executedEndpoints": [{
-    "specification": { "method": "GET", "path": "/api/views/ingredient/search", ... },
+    "specification": { "method": "GET", "path": "/api/views/ingredient/search", "..." },
     "statusCode": 200,
-    "result": [{ "ProductName": "Bayer Aspirin", ... }]
+    "result": [{ "ProductName": "Bayer Aspirin", "Next Product" }]
   }]
 }
 ```
