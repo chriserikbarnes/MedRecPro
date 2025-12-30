@@ -64,8 +64,14 @@
     --transition-normal: 200ms ease;
 }
 
-html, body {
+html {
     height: 100%;
+}
+
+body {
+    /* Use CSS custom property for height, fallback to 100% */
+    height: var(--app-height, 100%);
+    min-height: var(--app-height, 100%);
     font-family: var(--font-sans);
     font-size: 16px;
     line-height: 1.5;
@@ -73,16 +79,9 @@ html, body {
     background-color: var(--color-bg-primary);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Prevent horizontal scroll on iOS Safari when keyboard opens */
+    /* Prevent horizontal scroll */
     overflow-x: hidden;
-    /* Fixed positioning context for iOS */
-    position: fixed;
-    width: 100%;
-}
-
-body {
-    /* Use CSS custom property for height (set by JS for iOS accuracy) */
-    height: var(--app-height);
+    overflow-y: hidden;
 }
 
 /**************************************************************/
@@ -125,12 +124,12 @@ body {
     display: flex;
     flex-direction: column;
     /* Use CSS custom property for iOS Safari compatibility */
-    height: var(--app-height);
-    max-height: var(--app-height);
+    height: var(--app-height, 100vh);
+    max-height: var(--app-height, 100vh);
     overflow: hidden;
     /* Prevent content from causing horizontal scroll */
     width: 100%;
-    max-width: 100vw;
+    max-width: 100%;
 }
 
 /**************************************************************/
@@ -236,7 +235,12 @@ body {
 .messages-container {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     scroll-behavior: smooth;
+    /* Ensure it can shrink when keyboard opens */
+    min-height: 0;
+    /* Improve iOS Safari scroll behavior */
+    -webkit-overflow-scrolling: touch;
 }
 
 .messages-wrapper {
@@ -1070,20 +1074,6 @@ body {
 /**************************************************************/
 @supports (-webkit-touch-callout: none) {
     /* iOS Safari only */
-    html, body {
-        /* Prevent rubber-banding/bounce scroll */
-        overscroll-behavior: none;
-    }
-
-    .chat-container {
-        /* Use safe area insets for notched devices */
-        padding-bottom: env(safe-area-inset-bottom, 0);
-    }
-
-    .input-area {
-        /* Ensure input stays above home indicator on notched devices */
-        padding-bottom: calc(var(--space-sm) + env(safe-area-inset-bottom, 0));
-    }
 
     /* Prevent iOS zoom on input focus (font-size must be >= 16px) */
     .input-group .input-field {
@@ -1092,23 +1082,21 @@ body {
 }
 
 /**************************************************************/
-/* Keyboard-open state (class added by JavaScript) */
+/* Safe Area Insets for Notched Devices and Safari Navigation */
+/* Applied via padding to ensure content isn't hidden behind notch/home indicator */
 /**************************************************************/
-body.keyboard-open .chat-container {
-    /* When keyboard is open, container adjusts to visual viewport */
-    height: var(--app-height);
-    max-height: var(--app-height);
-}
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+    .input-area {
+        /* Add extra padding for Safari's bottom navigation bar */
+        /* env(safe-area-inset-bottom) handles the home indicator on notched devices */
+        /* Additional padding accounts for Safari's compact bottom toolbar */
+        padding-bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0));
+    }
 
-body.keyboard-open .messages-container {
-    /* Ensure messages stay scrollable with reduced height */
-    flex: 1;
-    min-height: 0;
-}
-
-body.keyboard-open .input-area {
-    /* Keep input area compact when keyboard is open */
-    flex-shrink: 0;
+    .input-hint {
+        /* Ensure hint text has breathing room above Safari navigation */
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
 }
 
 /**************************************************************/

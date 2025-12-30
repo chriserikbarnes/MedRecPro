@@ -390,6 +390,14 @@ export const UIHelpers = (function () {
 
     /**************************************************************/
     /**
+     * Tracks whether we're on iOS Safari for viewport handling.
+     * @type {boolean}
+     */
+    /**************************************************************/
+    let isIOSSafari = false;
+
+    /**************************************************************/
+    /**
      * Initializes viewport handling for iOS Safari.
      *
      * @description
@@ -398,27 +406,50 @@ export const UIHelpers = (function () {
      * This function:
      * - Sets a CSS custom property (--app-height) to the actual viewport height
      * - Uses visualViewport API to track keyboard open/close states
-     * - Adds/removes 'keyboard-open' class on body for CSS targeting
+     * - Scrolls input into view when keyboard opens
      *
      * @see https://css-tricks.com/the-trick-to-viewport-units-on-mobile/
      */
     /**************************************************************/
     function initViewportHandler() {
-        // Set initial app height
+        // Detect iOS Safari
+        isIOSSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+        // Set initial app height using window.innerHeight (accounts for Safari UI)
         setAppHeight();
 
-        // Listen for resize events (orientation change, etc.)
-        window.addEventListener('resize', setAppHeight);
+        // Listen for resize events (orientation change, address bar show/hide)
+        window.addEventListener('resize', debounce(setAppHeight, 100));
 
-        // Use visualViewport API if available (better for iOS Safari)
+        // Use visualViewport API if available for keyboard detection
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', handleVisualViewportResize);
-            window.visualViewport.addEventListener('scroll', handleVisualViewportScroll);
         }
 
-        // Track focus/blur on input to detect keyboard
+        // Track focus on input to handle keyboard appearance
         elements.messageInput.addEventListener('focus', handleInputFocus);
         elements.messageInput.addEventListener('blur', handleInputBlur);
+    }
+
+    /**************************************************************/
+    /**
+     * Simple debounce function to limit rapid calls.
+     *
+     * @param {Function} func - Function to debounce
+     * @param {number} wait - Milliseconds to wait
+     * @returns {Function} Debounced function
+     */
+    /**************************************************************/
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
     }
 
     /**************************************************************/
@@ -426,13 +457,14 @@ export const UIHelpers = (function () {
      * Sets the CSS custom property --app-height to the actual viewport height.
      *
      * @description
-     * Uses visualViewport.height if available (more accurate on iOS Safari),
-     * otherwise falls back to window.innerHeight.
+     * Uses window.innerHeight which correctly accounts for Safari's
+     * address bar and toolbar. This is more reliable than visualViewport
+     * for the overall container height.
      */
     /**************************************************************/
     function setAppHeight() {
-        // Use visualViewport height if available, otherwise innerHeight
-        const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+        // window.innerHeight accounts for Safari's address bar
+        const vh = window.innerHeight;
         document.documentElement.style.setProperty('--app-height', `${vh}px`);
     }
 
@@ -442,77 +474,61 @@ export const UIHelpers = (function () {
      *
      * @description
      * Called when the visual viewport size changes (e.g., keyboard opens/closes).
-     * Updates the --app-height CSS property to match the new viewport size.
+     * On iOS Safari, we need to adjust the layout when keyboard appears.
      */
     /**************************************************************/
     function handleVisualViewportResize() {
-        setAppHeight();
+        if (!window.visualViewport) return;
 
-        // Detect keyboard open state based on viewport height difference
-        const windowHeight = window.innerHeight;
         const viewportHeight = window.visualViewport.height;
+        const windowHeight = window.innerHeight;
         const heightDifference = windowHeight - viewportHeight;
 
-        // If viewport is significantly smaller than window, keyboard is likely open
-        // Threshold of 150px to account for minor variations
+        // If viewport is significantly smaller, keyboard is likely open
+        // Use a threshold to avoid false positives from minor UI changes
         if (heightDifference > 150) {
-            document.body.classList.add('keyboard-open');
+            // Keyboard is open - use visual viewport height
+            document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`);
         } else {
-            document.body.classList.remove('keyboard-open');
+            // Keyboard is closed - use window inner height
+            setAppHeight();
         }
     }
 
     /**************************************************************/
     /**
-     * Handles visualViewport scroll events.
+     * Handles input focus events for keyboard appearance.
      *
      * @description
-     * On iOS Safari, the viewport can scroll when the keyboard opens.
-     * This prevents unwanted scroll position changes.
-     */
-    /**************************************************************/
-    function handleVisualViewportScroll() {
-        // Keep viewport at top when keyboard scrolls it
-        if (window.visualViewport.offsetTop > 0) {
-            window.scrollTo(0, 0);
-        }
-    }
-
-    /**************************************************************/
-    /**
-     * Handles input focus events for keyboard detection.
-     *
-     * @description
-     * On iOS devices without visualViewport support or as a fallback,
-     * adds a keyboard-open class when the input is focused.
+     * When input is focused on iOS, we need to ensure the input
+     * remains visible above the keyboard.
      */
     /**************************************************************/
     function handleInputFocus() {
-        // Small delay to let iOS animate keyboard
+        if (!isIOSSafari) return;
+
+        // Give iOS time to show keyboard and adjust viewport
         setTimeout(() => {
-            setAppHeight();
-            // Add keyboard-open class as fallback for devices without visualViewport
-            if (!window.visualViewport) {
-                document.body.classList.add('keyboard-open');
+            // Scroll the input area into view if needed
+            const inputArea = document.querySelector('.input-area');
+            if (inputArea) {
+                inputArea.scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
-        }, 100);
+        }, 300);
     }
 
     /**************************************************************/
     /**
-     * Handles input blur events for keyboard detection.
+     * Handles input blur events for keyboard dismissal.
      *
      * @description
-     * Removes keyboard-open class when input loses focus and keyboard closes.
+     * When input loses focus, restore the full viewport height.
      */
     /**************************************************************/
     function handleInputBlur() {
-        // Delay to let iOS animate keyboard away
+        // Delay to let keyboard animation complete
         setTimeout(() => {
             setAppHeight();
-            if (!window.visualViewport) {
-                document.body.classList.remove('keyboard-open');
-            }
         }, 100);
     }
 
