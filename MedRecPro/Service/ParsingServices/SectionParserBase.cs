@@ -1472,22 +1472,29 @@ namespace MedRecPro.Service.ParsingServices
 
                 // ══════════════════════════════════════════════════════════════
                 // 2. ORPHANED TextListItem (TextListID doesn't exist)
+                // Document-scoped: Only examine items belonging to this document's TextLists
                 // ══════════════════════════════════════════════════════════════
                 var validTextListIds = new HashSet<int?>(allTextLists.Select(l => (int?)l.TextListID));
 
-                var orphanedTextListItems = await dbContext.Set<TextListItem>()
-                    .Where(i => !validTextListIds.Contains(i.TextListID) ||
+                // Get all TextListItems that belong to this document's TextLists (or have invalid FK)
+                var allDocumentTextListItems = await dbContext.Set<TextListItem>()
+                    .Where(i => validTextListIds.Contains(i.TextListID) ||
                                 i.TextListID == null ||
                                 i.TextListID <= 0)
                     .Select(i => new { i.TextListItemID, i.TextListID })
                     .ToListAsync();
 
-                var totalTextListItems = await dbContext.Set<TextListItem>()
-                    .Where(i => validTextListIds.Contains(i.TextListID))
-                    .CountAsync();
+                // From those, identify orphaned items (null/invalid FK or FK not in valid set)
+                var orphanedTextListItems = allDocumentTextListItems
+                    .Where(i => !i.TextListID.HasValue ||
+                                i.TextListID <= 0 ||
+                                !validTextListIds.Contains(i.TextListID))
+                    .ToList();
+
+                var totalTextListItems = allDocumentTextListItems.Count;
 
                 result.OrphanedTextListItemCount = orphanedTextListItems.Count;
-                result.TotalTextListItemCount = totalTextListItems + orphanedTextListItems.Count;
+                result.TotalTextListItemCount = totalTextListItems;
 
                 appendOrphanReportSectionTitle(sb, "TextListItem");
                 sb.AppendLine(formatOrphanReportCountLine(4, result.TotalTextListItemCount, orphanedTextListItems.Count));
@@ -1531,69 +1538,89 @@ namespace MedRecPro.Service.ParsingServices
 
                 // ══════════════════════════════════════════════════════════════
                 // 4. ORPHANED TextTableRow (TextTableID doesn't exist)
+                // Document-scoped: Only examine rows belonging to this document's TextTables
                 // ══════════════════════════════════════════════════════════════
                 var validTableIds = new HashSet<int?>(allTextTables.Select(t => (int?)t.TextTableID));
 
-                var orphanedTableRows = await dbContext.Set<TextTableRow>()
-                    .Where(r => !validTableIds.Contains(r.TextTableID) ||
+                // Get all TextTableRows that belong to this document's TextTables (or have invalid FK)
+                var allDocumentTableRows = await dbContext.Set<TextTableRow>()
+                    .Where(r => validTableIds.Contains(r.TextTableID) ||
                                 r.TextTableID == null ||
                                 r.TextTableID <= 0)
                     .Select(r => new { r.TextTableRowID, r.TextTableID })
                     .ToListAsync();
 
-                var totalTableRows = await dbContext.Set<TextTableRow>()
-                    .Where(r => validTableIds.Contains(r.TextTableID))
-                    .CountAsync();
+                // From those, identify orphaned rows (null/invalid FK or FK not in valid set)
+                var orphanedTableRows = allDocumentTableRows
+                    .Where(r => !r.TextTableID.HasValue ||
+                                r.TextTableID <= 0 ||
+                                !validTableIds.Contains(r.TextTableID))
+                    .ToList();
+
+                var totalTableRows = allDocumentTableRows.Count;
 
                 result.OrphanedTextTableRowCount = orphanedTableRows.Count;
-                result.TotalTextTableRowCount = totalTableRows + orphanedTableRows.Count;
+                result.TotalTextTableRowCount = totalTableRows;
 
                 appendOrphanReportSectionTitle(sb, "TextTableRow");
                 sb.AppendLine(formatOrphanReportCountLine(4, result.TotalTextTableRowCount, orphanedTableRows.Count));
 
                 // ══════════════════════════════════════════════════════════════
                 // 5. ORPHANED TextTableColumn (TextTableID doesn't exist)
+                // Document-scoped: Only examine columns belonging to this document's TextTables
                 // ══════════════════════════════════════════════════════════════
-                var orphanedTableColumns = await dbContext.Set<TextTableColumn>()
-                    .Where(c => !validTableIds.Contains(c.TextTableID) ||
+                // Get all TextTableColumns that belong to this document's TextTables (or have invalid FK)
+                var allDocumentTableColumns = await dbContext.Set<TextTableColumn>()
+                    .Where(c => validTableIds.Contains(c.TextTableID) ||
                                 c.TextTableID == null ||
                                 c.TextTableID <= 0)
                     .Select(c => new { c.TextTableColumnID, c.TextTableID })
                     .ToListAsync();
 
-                var totalTableColumns = await dbContext.Set<TextTableColumn>()
-                    .Where(c => validTableIds.Contains(c.TextTableID))
-                    .CountAsync();
+                // From those, identify orphaned columns (null/invalid FK or FK not in valid set)
+                var orphanedTableColumns = allDocumentTableColumns
+                    .Where(c => !c.TextTableID.HasValue ||
+                                c.TextTableID <= 0 ||
+                                !validTableIds.Contains(c.TextTableID))
+                    .ToList();
+
+                var totalTableColumns = allDocumentTableColumns.Count;
 
                 result.OrphanedTextTableColumnCount = orphanedTableColumns.Count;
-                result.TotalTextTableColumnCount = totalTableColumns + orphanedTableColumns.Count;
+                result.TotalTextTableColumnCount = totalTableColumns;
 
                 appendOrphanReportSectionTitle(sb, "TextTableColumn");
                 sb.AppendLine(formatOrphanReportCountLine(4, result.TotalTextTableColumnCount, orphanedTableColumns.Count));
 
                 // ══════════════════════════════════════════════════════════════
                 // 6. ORPHANED TextTableCell (TextTableRowID doesn't exist)
+                // Document-scoped: Only examine cells belonging to this document's TextTableRows
                 // ══════════════════════════════════════════════════════════════
-                var validRowIds = await dbContext.Set<TextTableRow>()
-                    .Where(r => validTableIds.Contains(r.TextTableID))
-                    .Select(r => (int?)r.TextTableRowID)
-                    .ToListAsync();
+                // Get valid row IDs from this document's rows (using allDocumentTableRows from step 4)
+                var validRowIdSet = new HashSet<int?>(
+                    allDocumentTableRows
+                        .Where(r => r.TextTableRowID.HasValue)
+                        .Select(r => (int?)r.TextTableRowID));
 
-                var validRowIdSet = new HashSet<int?>(validRowIds);
-
-                var orphanedTableCells = await dbContext.Set<TextTableCell>()
-                    .Where(c => !validRowIdSet.Contains(c.TextTableRowID) ||
+                // Get all TextTableCells that belong to this document's rows (or have invalid FK)
+                var allDocumentTableCells = await dbContext.Set<TextTableCell>()
+                    .Where(c => validRowIdSet.Contains(c.TextTableRowID) ||
                                 c.TextTableRowID == null ||
                                 c.TextTableRowID <= 0)
                     .Select(c => new { c.TextTableCellID, c.TextTableRowID })
                     .ToListAsync();
 
-                var totalTableCells = await dbContext.Set<TextTableCell>()
-                    .Where(c => validRowIdSet.Contains(c.TextTableRowID))
-                    .CountAsync();
+                // From those, identify orphaned cells (null/invalid FK or FK not in valid set)
+                var orphanedTableCells = allDocumentTableCells
+                    .Where(c => !c.TextTableRowID.HasValue ||
+                                c.TextTableRowID <= 0 ||
+                                !validRowIdSet.Contains(c.TextTableRowID))
+                    .ToList();
+
+                var totalTableCells = allDocumentTableCells.Count;
 
                 result.OrphanedTextTableCellCount = orphanedTableCells.Count;
-                result.TotalTextTableCellCount = totalTableCells + orphanedTableCells.Count;
+                result.TotalTextTableCellCount = totalTableCells;
 
                 appendOrphanReportSectionTitle(sb, "TextTableCell");
                 sb.AppendLine(formatOrphanReportCountLine(4, result.TotalTextTableCellCount, orphanedTableCells.Count));
