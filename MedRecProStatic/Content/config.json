@@ -1,6 +1,6 @@
 {
   "siteName": "MedRecPro",
-  "version": "0.1.14-alpha",
+  "version": "0.1.15-alpha",
   "tagline": "Pharmaceutical Labeling Management System",
   "apiUrl": "https://medrecpro.com/api",
   "apiUrlDev": "http://localhost:5093/api",

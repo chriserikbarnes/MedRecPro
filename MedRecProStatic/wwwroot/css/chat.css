@@ -7,7 +7,13 @@
     padding: 0;
 }
 
+/**************************************************************/
+/* iOS Safari Viewport Fix */
+/* Uses CSS custom property set by JavaScript for accurate viewport height */
+/* Fallbacks: dvh (dynamic viewport) -> svh (small viewport) -> vh */
+/**************************************************************/
 :root {
+    --app-height: 100vh; /* Fallback, updated by JS for iOS Safari */
     /* Color palette - Professional pharmaceutical blue-gray */
     --color-bg-primary: #0f172a;
     --color-bg-secondary: #1e293b;
@@ -67,6 +73,16 @@ html, body {
     background-color: var(--color-bg-primary);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Prevent horizontal scroll on iOS Safari when keyboard opens */
+    overflow-x: hidden;
+    /* Fixed positioning context for iOS */
+    position: fixed;
+    width: 100%;
+}
+
+body {
+    /* Use CSS custom property for height (set by JS for iOS accuracy) */
+    height: var(--app-height);
 }
 
 /**************************************************************/
@@ -108,9 +124,13 @@ html, body {
 .chat-container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
-    max-height: 100vh;
+    /* Use CSS custom property for iOS Safari compatibility */
+    height: var(--app-height);
+    max-height: var(--app-height);
     overflow: hidden;
+    /* Prevent content from causing horizontal scroll */
+    width: 100%;
+    max-width: 100vw;
 }
 
 /**************************************************************/
@@ -1042,6 +1062,53 @@ html, body {
         min-width: 48px;
         padding: var(--space-sm);
     }
+}
+
+/**************************************************************/
+/* iOS Safari Specific Fixes */
+/* Handles dynamic viewport when keyboard opens/closes */
+/**************************************************************/
+@supports (-webkit-touch-callout: none) {
+    /* iOS Safari only */
+    html, body {
+        /* Prevent rubber-banding/bounce scroll */
+        overscroll-behavior: none;
+    }
+
+    .chat-container {
+        /* Use safe area insets for notched devices */
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+
+    .input-area {
+        /* Ensure input stays above home indicator on notched devices */
+        padding-bottom: calc(var(--space-sm) + env(safe-area-inset-bottom, 0));
+    }
+
+    /* Prevent iOS zoom on input focus (font-size must be >= 16px) */
+    .input-group .input-field {
+        font-size: 16px;
+    }
+}
+
+/**************************************************************/
+/* Keyboard-open state (class added by JavaScript) */
+/**************************************************************/
+body.keyboard-open .chat-container {
+    /* When keyboard is open, container adjusts to visual viewport */
+    height: var(--app-height);
+    max-height: var(--app-height);
+}
+
+body.keyboard-open .messages-container {
+    /* Ensure messages stay scrollable with reduced height */
+    flex: 1;
+    min-height: 0;
+}
+
+body.keyboard-open .input-area {
+    /* Keep input area compact when keyboard is open */
+    flex-shrink: 0;
 }
 
 /**************************************************************/

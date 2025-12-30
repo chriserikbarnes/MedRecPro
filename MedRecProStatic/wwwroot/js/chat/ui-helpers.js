@@ -13,6 +13,7 @@
  * - Conversation clearing
  * - Event listener setup
  * - Suggestion card handling
+ * - iOS Safari viewport handling (keyboard open/close detection)
  *
  * @example
  * import { UIHelpers } from './ui-helpers.js';
@@ -382,6 +383,137 @@ export const UIHelpers = (function () {
                 focusInput();
             });
         });
+
+        // Initialize iOS Safari viewport handling
+        initViewportHandler();
+    }
+
+    /**************************************************************/
+    /**
+     * Initializes viewport handling for iOS Safari.
+     *
+     * @description
+     * iOS Safari has issues with 100vh not accounting for the address bar
+     * and dynamic viewport changes when the keyboard opens/closes.
+     * This function:
+     * - Sets a CSS custom property (--app-height) to the actual viewport height
+     * - Uses visualViewport API to track keyboard open/close states
+     * - Adds/removes 'keyboard-open' class on body for CSS targeting
+     *
+     * @see https://css-tricks.com/the-trick-to-viewport-units-on-mobile/
+     */
+    /**************************************************************/
+    function initViewportHandler() {
+        // Set initial app height
+        setAppHeight();
+
+        // Listen for resize events (orientation change, etc.)
+        window.addEventListener('resize', setAppHeight);
+
+        // Use visualViewport API if available (better for iOS Safari)
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', handleVisualViewportResize);
+            window.visualViewport.addEventListener('scroll', handleVisualViewportScroll);
+        }
+
+        // Track focus/blur on input to detect keyboard
+        elements.messageInput.addEventListener('focus', handleInputFocus);
+        elements.messageInput.addEventListener('blur', handleInputBlur);
+    }
+
+    /**************************************************************/
+    /**
+     * Sets the CSS custom property --app-height to the actual viewport height.
+     *
+     * @description
+     * Uses visualViewport.height if available (more accurate on iOS Safari),
+     * otherwise falls back to window.innerHeight.
+     */
+    /**************************************************************/
+    function setAppHeight() {
+        // Use visualViewport height if available, otherwise innerHeight
+        const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+        document.documentElement.style.setProperty('--app-height', `${vh}px`);
+    }
+
+    /**************************************************************/
+    /**
+     * Handles visualViewport resize events.
+     *
+     * @description
+     * Called when the visual viewport size changes (e.g., keyboard opens/closes).
+     * Updates the --app-height CSS property to match the new viewport size.
+     */
+    /**************************************************************/
+    function handleVisualViewportResize() {
+        setAppHeight();
+
+        // Detect keyboard open state based on viewport height difference
+        const windowHeight = window.innerHeight;
+        const viewportHeight = window.visualViewport.height;
+        const heightDifference = windowHeight - viewportHeight;
+
+        // If viewport is significantly smaller than window, keyboard is likely open
+        // Threshold of 150px to account for minor variations
+        if (heightDifference > 150) {
+            document.body.classList.add('keyboard-open');
+        } else {
+            document.body.classList.remove('keyboard-open');
+        }
+    }
+
+    /**************************************************************/
+    /**
+     * Handles visualViewport scroll events.
+     *
+     * @description
+     * On iOS Safari, the viewport can scroll when the keyboard opens.
+     * This prevents unwanted scroll position changes.
+     */
+    /**************************************************************/
+    function handleVisualViewportScroll() {
+        // Keep viewport at top when keyboard scrolls it
+        if (window.visualViewport.offsetTop > 0) {
+            window.scrollTo(0, 0);
+        }
+    }
+
+    /**************************************************************/
+    /**
+     * Handles input focus events for keyboard detection.
+     *
+     * @description
+     * On iOS devices without visualViewport support or as a fallback,
+     * adds a keyboard-open class when the input is focused.
+     */
+    /**************************************************************/
+    function handleInputFocus() {
+        // Small delay to let iOS animate keyboard
+        setTimeout(() => {
+            setAppHeight();
+            // Add keyboard-open class as fallback for devices without visualViewport
+            if (!window.visualViewport) {
+                document.body.classList.add('keyboard-open');
+            }
+        }, 100);
+    }
+
+    /**************************************************************/
+    /**
+     * Handles input blur events for keyboard detection.
+     *
+     * @description
+     * Removes keyboard-open class when input loses focus and keyboard closes.
+     */
+    /**************************************************************/
+    function handleInputBlur() {
+        // Delay to let iOS animate keyboard away
+        setTimeout(() => {
+            setAppHeight();
+            if (!window.visualViewport) {
+                document.body.classList.remove('keyboard-open');
+            }
+        }, 100);
     }
 
     /**************************************************************/
