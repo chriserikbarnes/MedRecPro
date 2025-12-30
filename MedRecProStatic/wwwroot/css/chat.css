@@ -10,10 +10,11 @@
 /**************************************************************/
 /* iOS Safari Viewport Fix */
 /* Uses CSS custom property set by JavaScript for accurate viewport height */
-/* Fallbacks: dvh (dynamic viewport) -> svh (small viewport) -> vh */
+/* Modern browsers support dvh (dynamic viewport height) which handles iOS Safari natively */
 /**************************************************************/
 :root {
-    --app-height: 100vh; /* Fallback, updated by JS for iOS Safari */
+    /* Fallback chain: JS-set value -> dvh (dynamic) -> svh (small) -> vh */
+    --app-height: 100vh; /* Updated by JS for browsers without dvh support */
     /* Color palette - Professional pharmaceutical blue-gray */
     --color-bg-primary: #0f172a;
     --color-bg-secondary: #1e293b;
@@ -69,9 +70,10 @@ html {
 }
 
 body {
-    /* Use CSS custom property for height, fallback to 100% */
+    /* Height using fallback chain: dvh (best for iOS) -> JS variable -> 100% */
+    height: 100%;
     height: var(--app-height, 100%);
-    min-height: var(--app-height, 100%);
+    height: 100dvh; /* Modern browsers - overrides above if supported */
     font-family: var(--font-sans);
     font-size: 16px;
     line-height: 1.5;
@@ -123,15 +125,17 @@ body {
 .chat-container {
     display: flex;
     flex-direction: column;
-    /* Use CSS custom property for iOS Safari compatibility */
+    /* Height using fallback chain: dvh (best for iOS) -> JS variable -> vh */
+    height: 100vh;
     height: var(--app-height, 100vh);
+    height: 100dvh; /* Modern browsers - overrides above if supported */
+    max-height: 100vh;
     max-height: var(--app-height, 100vh);
+    max-height: 100dvh;
     overflow: hidden;
     /* Prevent content from causing horizontal scroll */
     width: 100%;
     max-width: 100%;
-    /* Add top safe area padding for iOS status bar/notch */
-    padding-top: env(safe-area-inset-top, 0);
 }
 
 /**************************************************************/
@@ -1009,6 +1013,8 @@ body {
 /**************************************************************/
 .context-banner {
     padding: var(--space-sm) var(--space-lg);
+    /* Add top safe area padding for iOS status bar/notch */
+    padding-top: calc(var(--space-sm) + env(safe-area-inset-top, 0));
     background: var(--color-warning);
     color: var(--color-bg-primary);
     text-align: center;
@@ -1088,9 +1094,15 @@ body {
 /**************************************************************/
 /* Safe Area Insets for Notched Devices and Safari Navigation */
 /* Applied via padding to ensure content isn't hidden behind notch/home indicator */
-/* Note: Top safe area is handled by .chat-container padding-top */
+/* Note: Top safe area is handled by .context-banner when visible, or .chat-header when banner hidden */
 /**************************************************************/
 @supports (padding: env(safe-area-inset-bottom)) {
+    /* When banner is hidden (display:none), header needs top safe area */
+    .context-banner[style*="display: none"] ~ .chat-header,
+    .context-banner[style*="display:none"] ~ .chat-header {
+        padding-top: calc(var(--space-md) + env(safe-area-inset-top, 0));
+    }
+
     .input-area {
         /* Add extra padding for Safari's bottom navigation bar */
         /* env(safe-area-inset-bottom) handles the home indicator on notched devices */
