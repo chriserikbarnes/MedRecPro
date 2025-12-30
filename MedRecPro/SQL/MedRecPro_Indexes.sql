@@ -1865,9 +1865,144 @@ GO
 
 --#endregion
 
+
 /*******************************************************************************/
 /*                                                                             */
-/*  SECTION 15: INDEX STATISTICS AND SUMMARY                                   */
+/*  SECTION 14: INDEXES FOR INGREDIENT VIEWS                                   */
+/*  Non-clustered indexes to support search on ingredient views                */
+/*  Date Added: 2025-12-30                                                     */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region Ingredient View Supporting Indexes
+
+/**************************************************************/
+-- Indexes to support vw_Ingredients, vw_ActiveIngredients, vw_InactiveIngredients
+-- These indexes optimize searches on:
+--   - SubstanceName (ingredient name)
+--   - ProductName
+--   - UNII
+--   - DocumentGUID, SetGUID, SectionGUID
+--   - ApplicationOrMonographIDValue (for ApplicationNumber derivation)
+/**************************************************************/
+
+-- Index on IngredientSubstance.SubstanceName for ingredient name searches
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_IngredientSubstance_SubstanceName' AND object_id = OBJECT_ID('dbo.IngredientSubstance'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_IngredientSubstance_SubstanceName
+    ON dbo.IngredientSubstance (SubstanceName)
+    INCLUDE (IngredientSubstanceID, UNII);
+    PRINT 'Created index: IX_IngredientSubstance_SubstanceName';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_IngredientSubstance_SubstanceName';
+END
+GO
+
+-- Index on IngredientSubstance.UNII for UNII lookups
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_IngredientSubstance_UNII' AND object_id = OBJECT_ID('dbo.IngredientSubstance'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_IngredientSubstance_UNII
+    ON dbo.IngredientSubstance (UNII)
+    INCLUDE (IngredientSubstanceID, SubstanceName);
+    PRINT 'Created index: IX_IngredientSubstance_UNII';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_IngredientSubstance_UNII';
+END
+GO
+
+-- Index on Product.ProductName for product name searches
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Product_ProductName' AND object_id = OBJECT_ID('dbo.Product'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Product_ProductName
+    ON dbo.Product (ProductName)
+    INCLUDE (ProductID, SectionID);
+    PRINT 'Created index: IX_Product_ProductName';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_Product_ProductName';
+END
+GO
+
+-- Index on Ingredient.ClassCode for active/inactive filtering
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Ingredient_ClassCode' AND object_id = OBJECT_ID('dbo.Ingredient'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Ingredient_ClassCode
+    ON dbo.Ingredient (ClassCode)
+    INCLUDE (IngredientID, ProductID, IngredientSubstanceID);
+    PRINT 'Created index: IX_Ingredient_ClassCode';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_Ingredient_ClassCode';
+END
+GO
+
+-- Index on MarketingCategory.ApplicationOrMonographIDValue for application number searches
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_MarketingCategory_ApplicationOrMonographIDValue' AND object_id = OBJECT_ID('dbo.MarketingCategory'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_MarketingCategory_ApplicationOrMonographIDValue
+    ON dbo.MarketingCategory (ApplicationOrMonographIDValue)
+    INCLUDE (MarketingCategoryID, ProductID, CategoryDisplayName);
+    PRINT 'Created index: IX_MarketingCategory_ApplicationOrMonographIDValue';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_MarketingCategory_ApplicationOrMonographIDValue';
+END
+GO
+
+-- Index on Document.DocumentGUID for GUID lookups
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Document_DocumentGUID_Ingredient' AND object_id = OBJECT_ID('dbo.Document'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Document_DocumentGUID_Ingredient
+    ON dbo.[Document] (DocumentGUID)
+    INCLUDE (DocumentID, SetGUID);
+    PRINT 'Created index: IX_Document_DocumentGUID_Ingredient';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_Document_DocumentGUID_Ingredient';
+END
+GO
+
+-- Index on Document.SetGUID for set GUID lookups
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Document_SetGUID_Ingredient' AND object_id = OBJECT_ID('dbo.Document'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Document_SetGUID_Ingredient
+    ON dbo.[Document] (SetGUID)
+    INCLUDE (DocumentID, DocumentGUID);
+    PRINT 'Created index: IX_Document_SetGUID_Ingredient';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_Document_SetGUID_Ingredient';
+END
+GO
+
+-- Index on Section.SectionGUID for section GUID lookups
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Section_SectionGUID_Ingredient' AND object_id = OBJECT_ID('dbo.Section'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Section_SectionGUID_Ingredient
+    ON dbo.Section (SectionGUID)
+    INCLUDE (SectionID, DocumentID);
+    PRINT 'Created index: IX_Section_SectionGUID_Ingredient';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_Section_SectionGUID_Ingredient';
+END
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION: INDEX STATISTICS AND SUMMARY                                      */
 /*  Reports on created indexes for verification.                               */
 /*                                                                             */
 /*******************************************************************************/

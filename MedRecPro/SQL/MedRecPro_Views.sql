@@ -1613,10 +1613,435 @@ GO
 
 --#endregion
 
+
+
 /*******************************************************************************/
 /*                                                                             */
-/*  SECTION 11: VIEW SUMMARY AND STATISTICS                                    */
-/*  Reports on created views for verification                                  */
+/*  SECTION 12: CONSOLIDATED VIEWS FROM ADDITIONAL FILES                       */
+/*  Views consolidated from MedRecPro_Views_*.sql files                        */
+/*  Date Added: 2025-12-30                                                     */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_SectionContent (from MedRecPro_Views_SectionContent.sql)
+
+/**************************************************************/
+-- View: vw_SectionContent
+-- Purpose: Section content with text for full-text search
+-- Usage: Retrieve section text content for document display
+-- Returns: Section content with document context
+
+IF OBJECT_ID('dbo.vw_SectionContent', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_SectionContent;
+GO
+
+CREATE VIEW dbo.vw_SectionContent
+AS
+SELECT
+    dbo.[Document].DocumentID,
+    dbo.Section.SectionID,
+    dbo.[Document].DocumentGUID,
+    dbo.[Document].SetGUID,
+    dbo.Section.SectionGUID,
+    dbo.[Document].VersionNumber,
+    dbo.[Document].DocumentDisplayName,
+    dbo.[Document].Title AS DocumentTitle,
+    dbo.Section.SectionCode,
+    dbo.Section.SectionDisplayName,
+    dbo.Section.Title AS SectionTitle,
+    dbo.SectionTextContent.ContentText,
+    dbo.SectionTextContent.SequenceNumber,
+    dbo.SectionTextContent.ContentType,
+    dbo.Section.SectionCodeSystem
+FROM dbo.[Document]
+    INNER JOIN dbo.Section ON dbo.[Document].DocumentID = dbo.Section.DocumentID
+    INNER JOIN dbo.SectionTextContent ON dbo.Section.SectionID = dbo.SectionTextContent.SectionID
+WHERE (dbo.SectionTextContent.ContentText IS NOT NULL)
+    AND (LEN(dbo.SectionTextContent.ContentText) > 3)
+    AND (dbo.Section.Title IS NOT NULL)
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_SectionContent')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Section content with text for full-text search and document display. Filters empty or minimal content.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_SectionContent';
+END
+GO
+
+PRINT 'Created view: vw_SectionContent';
+GO
+
+--#endregion
+
+--#region vw_IngredientActiveSummary (from MedRecPro_Views_ActiveIngredient.sql)
+
+/**************************************************************/
+-- View: vw_IngredientActiveSummary
+-- Purpose: Summary of active ingredients with product counts
+-- Usage: Discover active ingredients by prevalence
+-- Returns: Active ingredient info with product counts (excludes IACT)
+
+IF OBJECT_ID('dbo.vw_IngredientActiveSummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_IngredientActiveSummary;
+GO
+
+CREATE VIEW dbo.vw_IngredientActiveSummary
+AS
+SELECT
+    ins.IngredientSubstanceID,
+    ins.UNII,
+    ins.SubstanceName,
+    ins.OriginatingElement AS IngredientType,
+    COUNT(DISTINCT i.ProductID) AS ProductCount,
+    COUNT(DISTINCT d.DocumentID) AS DocumentCount,
+    COUNT(DISTINCT o.OrganizationID) AS LabelerCount
+FROM dbo.IngredientSubstance AS ins
+    LEFT OUTER JOIN dbo.Ingredient AS i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
+    LEFT OUTER JOIN dbo.Product AS p ON i.ProductID = p.ProductID
+    LEFT OUTER JOIN dbo.Section AS s ON p.SectionID = s.SectionID
+    LEFT OUTER JOIN dbo.StructuredBody AS sb ON s.StructuredBodyID = sb.StructuredBodyID
+    LEFT OUTER JOIN dbo.[Document] AS d ON sb.DocumentID = d.DocumentID
+    LEFT OUTER JOIN dbo.DocumentAuthor AS da ON d.DocumentID = da.DocumentID AND da.AuthorType = 'Labeler'
+    LEFT OUTER JOIN dbo.Organization AS o ON da.OrganizationID = o.OrganizationID
+GROUP BY ins.IngredientSubstanceID, ins.UNII, ins.SubstanceName, ins.OriginatingElement, i.ClassCode
+HAVING (i.ClassCode <> 'IACT')
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_IngredientActiveSummary')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Summary of active ingredients (excluding IACT class) with product and labeler counts. Use for active ingredient prevalence analysis.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_IngredientActiveSummary';
+END
+GO
+
+PRINT 'Created view: vw_IngredientActiveSummary';
+GO
+
+--#endregion
+
+--#region vw_IngredientInactiveSummary (from MedRecPro_Views_InactiveIngredient.sql)
+
+/**************************************************************/
+-- View: vw_IngredientInactiveSummary
+-- Purpose: Summary of inactive ingredients with product counts
+-- Usage: Discover inactive ingredients by prevalence
+-- Returns: Inactive ingredient info with product counts (IACT only)
+
+IF OBJECT_ID('dbo.vw_IngredientInactiveSummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_IngredientInactiveSummary;
+GO
+
+CREATE VIEW dbo.vw_IngredientInactiveSummary
+AS
+SELECT
+    ins.IngredientSubstanceID,
+    ins.UNII,
+    ins.SubstanceName,
+    ins.OriginatingElement AS IngredientType,
+    COUNT(DISTINCT i.ProductID) AS ProductCount,
+    COUNT(DISTINCT d.DocumentID) AS DocumentCount,
+    COUNT(DISTINCT o.OrganizationID) AS LabelerCount
+FROM dbo.IngredientSubstance AS ins
+    LEFT OUTER JOIN dbo.Ingredient AS i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
+    LEFT OUTER JOIN dbo.Product AS p ON i.ProductID = p.ProductID
+    LEFT OUTER JOIN dbo.Section AS s ON p.SectionID = s.SectionID
+    LEFT OUTER JOIN dbo.StructuredBody AS sb ON s.StructuredBodyID = sb.StructuredBodyID
+    LEFT OUTER JOIN dbo.[Document] AS d ON sb.DocumentID = d.DocumentID
+    LEFT OUTER JOIN dbo.DocumentAuthor AS da ON d.DocumentID = da.DocumentID AND da.AuthorType = 'Labeler'
+    LEFT OUTER JOIN dbo.Organization AS o ON da.OrganizationID = o.OrganizationID
+GROUP BY ins.IngredientSubstanceID, ins.UNII, ins.SubstanceName, ins.OriginatingElement, i.ClassCode
+HAVING (i.ClassCode = 'IACT')
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_IngredientInactiveSummary')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Summary of inactive ingredients (IACT class only) with product and labeler counts. Use for inactive ingredient prevalence analysis.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_IngredientInactiveSummary';
+END
+GO
+
+PRINT 'Created view: vw_IngredientInactiveSummary';
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION 13: INGREDIENT NAVIGATION VIEWS                                    */
+/*  Views for ingredient lookup with application number normalization          */
+/*  Date Added: 2025-12-30                                                     */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_Ingredients
+
+/**************************************************************/
+-- View: vw_Ingredients
+-- Purpose: All ingredients with normalized application numbers
+-- Usage: Find all ingredients with product and document context
+-- Returns: Ingredient details with ApplicationType and normalized ApplicationNumber
+-- Note: ApplicationNumber has prefix stripped (IND, NDA, BLA, ANDA, DMF, OTC, sANDA, sNDA, sBLA, PMA)
+
+IF OBJECT_ID('dbo.vw_Ingredients', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_Ingredients;
+GO
+
+CREATE VIEW dbo.vw_Ingredients
+AS
+SELECT
+    dbo.[Document].DocumentGUID,
+    dbo.[Document].SetGUID,
+    dbo.Section.SectionGUID,
+    dbo.Ingredient.IngredientID,
+    dbo.Ingredient.ProductID,
+    dbo.Ingredient.IngredientSubstanceID,
+    dbo.MarketingCategory.MarketingCategoryID,
+    dbo.Section.SectionID,
+    dbo.Section.DocumentID,
+    dbo.Ingredient.ClassCode,
+    dbo.Product.ProductName,
+    dbo.IngredientSubstance.SubstanceName,
+    dbo.IngredientSubstance.UNII,
+    dbo.MarketingCategory.CategoryDisplayName AS ApplicationType,
+    CASE
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'sANDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 6, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'sNDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 5, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'sBLA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 5, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'ANDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 5, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'NDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'BLA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'DMF%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'OTC%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'PMA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'IND%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        ELSE dbo.MarketingCategory.ApplicationOrMonographIDValue
+    END AS ApplicationNumber
+FROM dbo.Ingredient
+    INNER JOIN dbo.IngredientSubstance ON dbo.Ingredient.IngredientSubstanceID = dbo.IngredientSubstance.IngredientSubstanceID
+    INNER JOIN dbo.Product ON dbo.Ingredient.ProductID = dbo.Product.ProductID
+    INNER JOIN dbo.Section ON dbo.Product.SectionID = dbo.Section.SectionID
+    INNER JOIN dbo.[Document] ON dbo.Section.DocumentID = dbo.[Document].DocumentID
+    INNER JOIN dbo.MarketingCategory ON dbo.Product.ProductID = dbo.MarketingCategory.ProductID
+WHERE (dbo.Ingredient.ClassCode IS NOT NULL)
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_Ingredients')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'All ingredients with normalized application numbers. Strips application type prefixes (IND, NDA, BLA, ANDA, DMF, OTC, sANDA, sNDA, sBLA, PMA) from ApplicationNumber.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_Ingredients';
+END
+GO
+
+PRINT 'Created view: vw_Ingredients';
+GO
+
+--#endregion
+
+--#region vw_InactiveIngredients
+
+/**************************************************************/
+-- View: vw_InactiveIngredients
+-- Purpose: Inactive ingredients (IACT) with normalized application numbers
+-- Usage: Find inactive ingredients with product and document context
+-- Returns: Inactive ingredient details with ApplicationType and normalized ApplicationNumber
+-- Filter: ClassCode = 'IACT'
+
+IF OBJECT_ID('dbo.vw_InactiveIngredients', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_InactiveIngredients;
+GO
+
+CREATE VIEW dbo.vw_InactiveIngredients
+AS
+SELECT
+    dbo.[Document].DocumentGUID,
+    dbo.[Document].SetGUID,
+    dbo.Section.SectionGUID,
+    dbo.Ingredient.IngredientID,
+    dbo.Ingredient.ProductID,
+    dbo.Ingredient.IngredientSubstanceID,
+    dbo.MarketingCategory.MarketingCategoryID,
+    dbo.Section.SectionID,
+    dbo.Section.DocumentID,
+    dbo.Ingredient.ClassCode,
+    dbo.Product.ProductName,
+    dbo.IngredientSubstance.SubstanceName,
+    dbo.IngredientSubstance.UNII,
+    dbo.MarketingCategory.CategoryDisplayName AS ApplicationType,
+    CASE
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'sANDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 6, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'sNDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 5, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'sBLA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 5, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'ANDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 5, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'NDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'BLA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'DMF%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'OTC%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'PMA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'IND%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        ELSE dbo.MarketingCategory.ApplicationOrMonographIDValue
+    END AS ApplicationNumber
+FROM dbo.Ingredient
+    INNER JOIN dbo.IngredientSubstance ON dbo.Ingredient.IngredientSubstanceID = dbo.IngredientSubstance.IngredientSubstanceID
+    INNER JOIN dbo.Product ON dbo.Ingredient.ProductID = dbo.Product.ProductID
+    INNER JOIN dbo.Section ON dbo.Product.SectionID = dbo.Section.SectionID
+    INNER JOIN dbo.[Document] ON dbo.Section.DocumentID = dbo.[Document].DocumentID
+    INNER JOIN dbo.MarketingCategory ON dbo.Product.ProductID = dbo.MarketingCategory.ProductID
+WHERE (dbo.Ingredient.ClassCode = 'IACT')
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_InactiveIngredients')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Inactive ingredients (IACT class) with normalized application numbers. Strips application type prefixes from ApplicationNumber.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_InactiveIngredients';
+END
+GO
+
+PRINT 'Created view: vw_InactiveIngredients';
+GO
+
+--#endregion
+
+--#region vw_ActiveIngredients
+
+/**************************************************************/
+-- View: vw_ActiveIngredients
+-- Purpose: Active ingredients (non-IACT) with normalized application numbers
+-- Usage: Find active ingredients with product and document context
+-- Returns: Active ingredient details with ApplicationType and normalized ApplicationNumber
+-- Filter: ClassCode <> 'IACT'
+
+IF OBJECT_ID('dbo.vw_ActiveIngredients', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ActiveIngredients;
+GO
+
+CREATE VIEW dbo.vw_ActiveIngredients
+AS
+SELECT
+    dbo.[Document].DocumentGUID,
+    dbo.[Document].SetGUID,
+    dbo.Section.SectionGUID,
+    dbo.Ingredient.IngredientID,
+    dbo.Ingredient.ProductID,
+    dbo.Ingredient.IngredientSubstanceID,
+    dbo.MarketingCategory.MarketingCategoryID,
+    dbo.Section.SectionID,
+    dbo.Section.DocumentID,
+    dbo.Ingredient.ClassCode,
+    dbo.Product.ProductName,
+    dbo.IngredientSubstance.SubstanceName,
+    dbo.IngredientSubstance.UNII,
+    dbo.MarketingCategory.CategoryDisplayName AS ApplicationType,
+    CASE
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'sANDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 6, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'sNDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 5, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'sBLA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 5, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'ANDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 5, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'NDA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'BLA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'DMF%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'OTC%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'PMA%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        WHEN dbo.MarketingCategory.ApplicationOrMonographIDValue LIKE 'IND%'
+            THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
+        ELSE dbo.MarketingCategory.ApplicationOrMonographIDValue
+    END AS ApplicationNumber
+FROM dbo.Ingredient
+    INNER JOIN dbo.IngredientSubstance ON dbo.Ingredient.IngredientSubstanceID = dbo.IngredientSubstance.IngredientSubstanceID
+    INNER JOIN dbo.Product ON dbo.Ingredient.ProductID = dbo.Product.ProductID
+    INNER JOIN dbo.Section ON dbo.Product.SectionID = dbo.Section.SectionID
+    INNER JOIN dbo.[Document] ON dbo.Section.DocumentID = dbo.[Document].DocumentID
+    INNER JOIN dbo.MarketingCategory ON dbo.Product.ProductID = dbo.MarketingCategory.ProductID
+WHERE (dbo.Ingredient.ClassCode IS NOT NULL) AND (dbo.Ingredient.ClassCode <> 'IACT')
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_ActiveIngredients')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Active ingredients (non-IACT classes) with normalized application numbers. Strips application type prefixes from ApplicationNumber.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ActiveIngredients';
+END
+GO
+
+PRINT 'Created view: vw_ActiveIngredients';
+GO
+
+--#endregion
+
+
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION FINAL SUMMARY                                                      */
 /*                                                                             */
 /*******************************************************************************/
 
@@ -1675,4 +2100,20 @@ PRINT '  - Product Summary: vw_ProductSummary';
 PRINT '  - Cross-Reference: vw_RelatedProducts';
 PRINT '  - API Discovery: vw_APIEndpointGuide';
 PRINT '';
+GO
+
+PRINT '';
+PRINT '=================================================================';
+PRINT 'Additional Views and Indexes Creation Complete';
+PRINT '=================================================================';
+PRINT '';
+PRINT 'New Views Added:';
+PRINT '  - vw_SectionContent: Section text content for full-text search';
+PRINT '  - vw_IngredientActiveSummary: Active ingredient summary';
+PRINT '  - vw_IngredientInactiveSummary: Inactive ingredient summary';
+PRINT '  - vw_Ingredients: All ingredients with normalized application numbers';
+PRINT '  - vw_InactiveIngredients: Inactive ingredients (IACT) with normalized app numbers';
+PRINT '  - vw_ActiveIngredients: Active ingredients (non-IACT) with normalized app numbers';
+PRINT '';
+
 GO
