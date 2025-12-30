@@ -130,6 +130,8 @@ body {
     /* Prevent content from causing horizontal scroll */
     width: 100%;
     max-width: 100%;
+    /* Add top safe area padding for iOS status bar/notch */
+    padding-top: env(safe-area-inset-top, 0);
 }
 
 /**************************************************************/
@@ -1012,6 +1014,8 @@ body {
     text-align: center;
     font-size: 0.8125rem;
     font-weight: 500;
+    /* Ensure banner is not clipped */
+    flex-shrink: 0;
 }
 
 /**************************************************************/
@@ -1084,8 +1088,9 @@ body {
 /**************************************************************/
 /* Safe Area Insets for Notched Devices and Safari Navigation */
 /* Applied via padding to ensure content isn't hidden behind notch/home indicator */
+/* Note: Top safe area is handled by .chat-container padding-top */
 /**************************************************************/
-@supports (padding-bottom: env(safe-area-inset-bottom)) {
+@supports (padding: env(safe-area-inset-bottom)) {
     .input-area {
         /* Add extra padding for Safari's bottom navigation bar */
         /* env(safe-area-inset-bottom) handles the home indicator on notched devices */
