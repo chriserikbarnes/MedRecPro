@@ -294,9 +294,17 @@ export const ApiService = (function () {
             // Handle direct response (no further API calls needed)
             if (retryInterpretation.isDirectResponse) {
                 console.log('[ApiService] Retry returned direct response');
+                // Extract content from directResponse (handles both string and object formats)
+                let responseContent;
+                if (retryInterpretation.directResponse) {
+                    const extracted = extractDirectResponseContent(retryInterpretation.directResponse);
+                    responseContent = extracted.content;
+                } else {
+                    responseContent = retryInterpretation.explanation;
+                }
                 return [{
                     isDirectResponse: true,
-                    content: retryInterpretation.directResponse || retryInterpretation.explanation
+                    content: responseContent
                 }];
             }
 
@@ -659,6 +667,86 @@ export const ApiService = (function () {
 
     /**************************************************************/
     /**
+     * Extracts response content from directResponse which can be string or object.
+     *
+     * @param {string|Object} directResponse - Direct response from interpretation
+     * @returns {string} Response content string ready for display
+     *
+     * @description
+     * The directResponse can come in two formats:
+     * 1. String format (legacy): The response text directly
+     * 2. Object format (new): Contains response, dataHighlights, dataReferences, etc.
+     *
+     * This function normalizes both formats to a single string output,
+     * appending dataReferences and suggestedFollowUps when present.
+     *
+     * @see attemptRetryInterpretation - Uses for direct response handling
+     */
+    /**************************************************************/
+    function extractDirectResponseContent(directResponse) {
+        // Handle string format (legacy, double-encoded JSON, or markdown code block with JSON)
+        if (typeof directResponse === 'string') {
+            let trimmed = directResponse.trim();
+
+            // Check if the string is a markdown code block containing JSON
+            // Pattern: ```json\n{...}\n``` or ```\n{...}\n```
+            const codeBlockMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+            if (codeBlockMatch) {
+                trimmed = codeBlockMatch[1].trim();
+            }
+
+            // Check if the string is actually JSON (possibly from a code block or double-encoded)
+            if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                try {
+                    const parsed = JSON.parse(trimmed);
+                    if (parsed && typeof parsed === 'object') {
+                        // If this is a full interpretation response with nested directResponse
+                        if (parsed.directResponse) {
+                            return extractDirectResponseContent(parsed.directResponse);
+                        }
+                        // If it has a response property directly (synthesis format)
+                        if (parsed.response) {
+                            return extractDirectResponseContent(parsed);
+                        }
+                    }
+                } catch (e) {
+                    // Not valid JSON, treat as regular string
+                }
+            }
+
+            return { content: directResponse, hasDataReferences: false };
+        }
+
+        // Handle object format (new synthesis response structure)
+        if (typeof directResponse === 'object' && directResponse !== null) {
+            let content = directResponse.response || '';
+            const hasDataReferences = directResponse.dataReferences && Object.keys(directResponse.dataReferences).length > 0;
+
+            // Append suggested follow-ups if present
+            if (directResponse.suggestedFollowUps && directResponse.suggestedFollowUps.length > 0) {
+                content += '\n\n**Suggested follow-ups:**\n';
+                directResponse.suggestedFollowUps.forEach(followUp => {
+                    content += `- ${followUp}\n`;
+                });
+            }
+
+            // Append data references as clickable links if present
+            if (hasDataReferences) {
+                content += '\n\n**View Full Labels:**\n';
+                for (const [displayName, url] of Object.entries(directResponse.dataReferences)) {
+                    content += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
+                }
+            }
+
+            return { content, hasDataReferences };
+        }
+
+        // Fallback: convert to string
+        return { content: String(directResponse || ''), hasDataReferences: false };
+    }
+
+    /**************************************************************/
+    /**
      * Public API for the API service module.
      *
      * @description
@@ -678,6 +766,9 @@ export const ApiService = (function () {
         buildApiUrl: buildApiUrl,
 
         // Source formatting
-        formatApiSourceLinks: formatApiSourceLinks
+        formatApiSourceLinks: formatApiSourceLinks,
+
+        // Response content extraction
+        extractDirectResponseContent: extractDirectResponseContent
     };
 })();

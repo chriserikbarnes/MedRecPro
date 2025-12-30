@@ -311,10 +311,12 @@ const MedRecProChat = (function () {
 
             // Handle direct response (no API calls needed)
             if (interpretation.directResponse) {
-                let responseContent = interpretation.directResponse;
+                const extracted = ApiService.extractDirectResponseContent(interpretation.directResponse);
+                let responseContent = extracted.content;
 
-                // If this is an import response, add hyperlinks to view imported documents
-                if (importResult && importResult.documentIds && importResult.documentIds.length > 0) {
+                // If extraction didn't include dataReferences and we have import results,
+                // add hyperlinks to view imported documents from client-side import result
+                if (!extracted.hasDataReferences && importResult && importResult.documentIds && importResult.documentIds.length > 0) {
                     responseContent += '\n\n**View Full Labels:**\n';
                     importResult.documentIds.forEach(docGuid => {
                         const shortGuid = docGuid.substring(0, 8);
@@ -345,10 +347,17 @@ const MedRecProChat = (function () {
             }
             // Fallback for unrecognized response
             else {
+                // Extract content from directResponse (handles both string and object formats)
+                let fallbackContent;
+                if (interpretation.directResponse) {
+                    const extracted = ApiService.extractDirectResponseContent(interpretation.directResponse);
+                    fallbackContent = extracted.content;
+                } else {
+                    fallbackContent = interpretation.explanation || 'I understood your request but couldn\'t process it. Please try rephrasing.';
+                }
+
                 ChatState.updateMessage(assistantMessage.id, {
-                    content: interpretation.directResponse ||
-                        interpretation.explanation ||
-                        'I understood your request but couldn\'t process it. Please try rephrasing.',
+                    content: fallbackContent,
                     isStreaming: false,
                     progress: undefined,
                     progressStatus: undefined
