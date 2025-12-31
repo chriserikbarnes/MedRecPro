@@ -430,6 +430,150 @@ namespace MedRecProConsole.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Runs the main interactive menu after startup, allowing user to select database,
+        /// import folders, get help, or quit. Provides a non-modal experience.
+        /// </summary>
+        /// <param name="settings">Application settings</param>
+        /// <param name="verboseMode">Whether verbose mode is enabled</param>
+        /// <param name="progressTracker">Progress tracker for crash recovery</param>
+        /// <returns>Exit code: 0 for success, 1 for failure</returns>
+        /// <remarks>
+        /// This menu provides the main control loop after application startup.
+        /// Users can:
+        /// - Select/change database connection
+        /// - Import a folder
+        /// - View help
+        /// - Quit the application
+        /// </remarks>
+        /// <seealso cref="ConsoleAppSettings"/>
+        /// <seealso cref="ImportProgressTracker"/>
+        public static async Task<int> RunMainMenuAsync(
+            ConsoleAppSettings settings,
+            bool verboseMode,
+            ImportProgressTracker progressTracker)
+        {
+            #region implementation
+
+            // Track current state
+            string? currentConnectionString = null;
+            string? currentDatabaseName = null;
+            ImportResults cumulativeResults = new ImportResults();
+
+            while (true)
+            {
+                // Display current database status
+                displayCurrentDatabase(currentDatabaseName);
+
+                // Show main menu prompt
+                var command = AnsiConsole.Prompt(
+                    new TextPrompt<string>("[grey]Enter command ([green]import[/], [cyan]database[/], [blue]help[/], [yellow]quit[/]):[/]")
+                        .PromptStyle("white")
+                        .AllowEmpty());
+
+                var normalizedCommand = command.Trim().ToLowerInvariant();
+
+                switch (normalizedCommand)
+                {
+                    case "quit":
+                    case "q":
+                    case "exit":
+                        AnsiConsole.MarkupLine("[grey]Exiting...[/]");
+                        return cumulativeResults.TotalZipsProcessed > 0 && cumulativeResults.IsFullySuccessful ? 0 :
+                               cumulativeResults.TotalZipsProcessed > 0 ? 1 : 0;
+
+                    case "help":
+                    case "h":
+                    case "?":
+                        displayMainMenuHelp();
+                        break;
+
+                    case "database":
+                    case "db":
+                    case "d":
+                        var (dbName, connString) = promptDatabaseSelection(settings);
+                        if (connString != null)
+                        {
+                            currentDatabaseName = dbName;
+                            currentConnectionString = connString;
+                            AnsiConsole.MarkupLine($"[green]Database set to: {Markup.Escape(dbName)}[/]");
+                        }
+                        break;
+
+                    case "import":
+                    case "i":
+                        // Must have a database selected first
+                        if (string.IsNullOrEmpty(currentConnectionString))
+                        {
+                            AnsiConsole.MarkupLine("[yellow]Please select a database first using 'database' command.[/]");
+                            break;
+                        }
+
+                        var importResult = await runImportFromMenuAsync(
+                            settings,
+                            currentConnectionString,
+                            verboseMode,
+                            progressTracker);
+
+                        if (importResult != null)
+                        {
+                            // Merge into cumulative results
+                            cumulativeResults.TotalZipsProcessed += importResult.TotalZipsProcessed;
+                            cumulativeResults.SuccessfulZips += importResult.SuccessfulZips;
+                            cumulativeResults.FailedZips += importResult.FailedZips;
+                            cumulativeResults.TotalDocuments += importResult.TotalDocuments;
+                            cumulativeResults.TotalOrganizations += importResult.TotalOrganizations;
+                            cumulativeResults.TotalProducts += importResult.TotalProducts;
+                            cumulativeResults.TotalSections += importResult.TotalSections;
+                            cumulativeResults.TotalIngredients += importResult.TotalIngredients;
+                            cumulativeResults.Errors.AddRange(importResult.Errors);
+                            cumulativeResults.FailedZipNames.AddRange(importResult.FailedZipNames);
+                        }
+                        break;
+
+                    case "summary":
+                    case "s":
+                        if (cumulativeResults.TotalZipsProcessed > 0)
+                        {
+                            DisplayResults(cumulativeResults, settings);
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupLine("[grey]No imports have been performed yet.[/]");
+                        }
+                        break;
+
+                    case "errors":
+                    case "e":
+                        if (cumulativeResults.Errors.Count > 0)
+                        {
+                            displayErrors(cumulativeResults.Errors, settings.ImportSettings.MaxDisplayedErrors);
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupLine("[grey]No errors to display.[/]");
+                        }
+                        break;
+
+                    case "":
+                        // Empty input - show hint
+                        AnsiConsole.MarkupLine("[grey]Type 'help' for available commands or 'quit' to exit.[/]");
+                        break;
+
+                    default:
+                        AnsiConsole.MarkupLine($"[yellow]Unknown command: {Markup.Escape(command)}[/]");
+                        AnsiConsole.MarkupLine("[grey]Type 'help' for available commands.[/]");
+                        break;
+                }
+
+                // Small delay to allow console to settle
+                await Task.Delay(100);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Runs the interactive post-import menu allowing user to quit or get help.
         /// </summary>
         /// <param name="settings">Application settings</param>
@@ -540,6 +684,260 @@ namespace MedRecProConsole.Helpers
         #endregion
 
         #region private methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Displays the current database status in the command prompt area.
+        /// </summary>
+        /// <param name="databaseName">Current database name, or null if not selected</param>
+        private static void displayCurrentDatabase(string? databaseName)
+        {
+            #region implementation
+
+            if (string.IsNullOrEmpty(databaseName))
+            {
+                AnsiConsole.MarkupLine("[grey]Database: [yellow]Not selected[/][/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[grey]Database: [green]{Markup.Escape(databaseName)}[/][/]");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prompts user to select a database connection.
+        /// </summary>
+        /// <param name="settings">Application settings containing database options</param>
+        /// <returns>Tuple of (database name, connection string), or (null, null) if cancelled</returns>
+        /// <seealso cref="DatabaseConnectionSettings"/>
+        private static (string? Name, string? ConnectionString) promptDatabaseSelection(ConsoleAppSettings settings)
+        {
+            #region implementation
+
+            AnsiConsole.WriteLine();
+
+            // Build database choices from settings
+            var dbChoices = buildDatabaseChoices(settings);
+
+            // Add cancel option
+            dbChoices.Add(new DatabaseChoice
+            {
+                DisplayName = "Cancel",
+                ConnectionString = string.Empty,
+                IsDefault = false,
+                IsCustom = false
+            });
+
+            // Database selection
+            var prompt = new SelectionPrompt<DatabaseChoice>()
+                .Title("[green]Select database connection:[/]")
+                .PageSize(10)
+                .UseConverter(c => c.DisplayName)
+                .AddChoices(dbChoices);
+
+            var databaseChoice = AnsiConsole.Prompt(prompt);
+
+            if (databaseChoice.DisplayName == "Cancel")
+            {
+                AnsiConsole.MarkupLine("[grey]Database selection cancelled.[/]");
+                return (null, null);
+            }
+
+            if (databaseChoice.IsCustom)
+            {
+                var connString = AnsiConsole.Prompt(
+                    new TextPrompt<string>("[green]Enter connection string:[/]")
+                        .PromptStyle("white")
+                        .AllowEmpty()
+                        .Validate(cs =>
+                        {
+                            if (string.IsNullOrWhiteSpace(cs))
+                                return ValidationResult.Success(); // Allow empty to cancel
+                            return ValidationResult.Success();
+                        }));
+
+                if (string.IsNullOrWhiteSpace(connString))
+                {
+                    AnsiConsole.MarkupLine("[grey]Connection string cancelled.[/]");
+                    return (null, null);
+                }
+
+                return ("Custom", connString);
+            }
+
+            AnsiConsole.WriteLine();
+            return (databaseChoice.DisplayName, databaseChoice.ConnectionString);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Displays the main menu help showing available commands.
+        /// </summary>
+        private static void displayMainMenuHelp()
+        {
+            #region implementation
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule("[bold blue]Available Commands[/]").RuleStyle("grey"));
+            AnsiConsole.WriteLine();
+
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn("[bold]Command[/]")
+                .AddColumn("[bold]Description[/]")
+                .Expand();
+
+            table.AddRow("[green]import, i[/]", "Import ZIP files from a folder");
+            table.AddRow("[cyan]database, db, d[/]", "Select or change database connection");
+            table.AddRow("[magenta]summary, s[/]", "Display cumulative import summary");
+            table.AddRow("[yellow]errors, e[/]", "Display error details from imports");
+            table.AddRow("[blue]help, h, ?[/]", "Display this help message");
+            table.AddRow("[red]quit, q, exit[/]", "Exit the application");
+
+            AnsiConsole.Write(table);
+            AnsiConsole.WriteLine();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Runs an import operation from the main menu.
+        /// Prompts for folder path and executes the import.
+        /// </summary>
+        /// <param name="settings">Application settings</param>
+        /// <param name="connectionString">Database connection string</param>
+        /// <param name="verboseMode">Whether verbose mode is enabled</param>
+        /// <param name="progressTracker">Progress tracker for crash recovery</param>
+        /// <returns>Import results, or null if cancelled</returns>
+        /// <seealso cref="ImportResults"/>
+        /// <seealso cref="ImportProgressTracker"/>
+        private static async Task<ImportResults?> runImportFromMenuAsync(
+            ConsoleAppSettings settings,
+            string connectionString,
+            bool verboseMode,
+            ImportProgressTracker progressTracker)
+        {
+            #region implementation
+
+            AnsiConsole.WriteLine();
+
+            // Prompt for folder path
+            var folderPath = AnsiConsole.Prompt(
+                new TextPrompt<string>("[green]Enter folder path to import (contains ZIP files, or empty to cancel):[/]")
+                    .PromptStyle("white")
+                    .AllowEmpty()
+                    .Validate(path =>
+                    {
+                        if (string.IsNullOrWhiteSpace(path))
+                            return ValidationResult.Success(); // Allow empty to cancel
+                        if (!Directory.Exists(path))
+                            return ValidationResult.Error($"[red]Directory does not exist: {path}[/]");
+                        return ValidationResult.Success();
+                    }));
+
+            if (string.IsNullOrWhiteSpace(folderPath))
+            {
+                AnsiConsole.MarkupLine("[grey]Import cancelled.[/]");
+                return null;
+            }
+
+            // Create import parameters
+            var parameters = new ImportParameters
+            {
+                ConnectionString = connectionString,
+                ImportFolder = folderPath,
+                VerboseMode = verboseMode
+            };
+
+            // Check for existing queue file
+            var isResuming = false;
+            if (progressTracker.QueueFileExists(folderPath))
+            {
+                isResuming = await handleExistingQueueFileAsync(parameters, progressTracker, settings);
+
+                if (isResuming)
+                {
+                    // Check if this was a "skip" signal (complete queue, user declined delete)
+                    if (parameters.ZipFiles != null && parameters.ZipFiles.Count == 0)
+                    {
+                        return null;
+                    }
+                }
+            }
+
+            // If not resuming, prompt for max runtime and scan for files
+            if (!isResuming)
+            {
+                // Optional max runtime (with default from settings if configured)
+                var defaultRuntime = settings.ImportSettings.DefaultMaxRuntimeMinutes;
+                var useMaxRuntime = AnsiConsole.Confirm("[green]Set a maximum runtime limit?[/]", defaultRuntime.HasValue);
+
+                if (useMaxRuntime)
+                {
+                    parameters.MaxRuntimeMinutes = AnsiConsole.Prompt(
+                        new TextPrompt<int>("[green]Enter maximum runtime in minutes:[/]")
+                            .PromptStyle("white")
+                            .DefaultValue(defaultRuntime ?? 60)
+                            .Validate(minutes =>
+                            {
+                                if (minutes < 1)
+                                    return ValidationResult.Error("[red]Runtime must be at least 1 minute[/]");
+                                if (minutes > 1440)
+                                    return ValidationResult.Error("[red]Runtime cannot exceed 24 hours (1440 minutes)[/]");
+                                return ValidationResult.Success();
+                            }));
+                }
+
+                // Scan folder for ZIP files
+                parameters.ZipFiles = scanForZipFiles(folderPath, settings.Display.ShowSpinners);
+
+                if (parameters.ZipFiles.Count == 0)
+                {
+                    AnsiConsole.MarkupLine($"[red]No ZIP files found in: {Markup.Escape(folderPath)}[/]");
+                    return null;
+                }
+            }
+
+            // Confirm import (skip if resuming - user already confirmed)
+            if (!isResuming && settings.ImportSettings.RequireConfirmation && !ConfirmImport(parameters))
+            {
+                AnsiConsole.MarkupLine("[grey]Import cancelled.[/]");
+                return null;
+            }
+
+            // Execute import with progress tracking
+            var importService = new Services.ImportService();
+            var results = await importService.ExecuteImportAsync(parameters, progressTracker, isResuming);
+
+            // Display results
+            DisplayResults(results, settings);
+
+            // Check if import completed fully or has remaining items
+            var progressFile = progressTracker.GetProgressFile();
+            if (progressFile != null && progressFile.IsComplete)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[green]Import complete. Queue file saved at:[/] {progressFile.RootDirectory}");
+                AnsiConsole.MarkupLine(
+                    "[grey]Delete the queue file manually when no longer needed.[/]");
+            }
+            else if (progressFile != null && progressFile.RemainingItems > 0)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow]{progressFile.RemainingItems} file(s) remaining. " +
+                    "Use 'import' command again to continue.[/]");
+            }
+
+            return results;
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
