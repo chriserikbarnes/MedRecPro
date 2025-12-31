@@ -1659,6 +1659,380 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Advanced ingredient search with application number filtering, document linkage, and product name matching.
+        /// Uses the new vw_Ingredients, vw_ActiveIngredients, and vw_InactiveIngredients views.
+        /// </summary>
+        /// <param name="unii">
+        /// Optional. FDA UNII code for exact ingredient match.
+        /// </param>
+        /// <param name="substanceNameSearch">
+        /// Optional. Substance name for partial/phonetic matching (tolerates misspellings).
+        /// </param>
+        /// <param name="applicationNumber">
+        /// Optional. Application number (e.g., NDA020702, 020702) for filtering by regulatory approval.
+        /// </param>
+        /// <param name="applicationType">
+        /// Optional. Application type filter (NDA, ANDA, BLA).
+        /// </param>
+        /// <param name="productNameSearch">
+        /// Optional. Product name for partial/phonetic matching (tolerates misspellings).
+        /// </param>
+        /// <param name="activeOnly">
+        /// Optional. Filter by ingredient type: true = active only, false = inactive only, null = all.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of ingredient view results with document linkage.</returns>
+        /// <response code="200">Returns the list of ingredients matching the criteria.</response>
+        /// <response code="400">If no search criteria provided or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ### Enhanced Ingredient Search
+        ///
+        /// This endpoint provides advanced search capabilities beyond the basic `/ingredient/search`:
+        ///
+        /// - **Application Number filtering**: Find ingredients by NDA, ANDA, or BLA number
+        /// - **Document linkage**: Results include DocumentGUID for direct label retrieval
+        /// - **Product name search**: Find ingredients by product name with phonetic matching
+        /// - **Active/Inactive filtering**: Separate search for active vs inactive ingredients
+        ///
+        /// ### Examples
+        ///
+        /// ```
+        /// GET /api/Label/ingredient/advanced?unii=R16CO5Y76E
+        /// GET /api/Label/ingredient/advanced?substanceNameSearch=aspirin&amp;applicationNumber=020702
+        /// GET /api/Label/ingredient/advanced?productNameSearch=TYLENOL&amp;activeOnly=true
+        /// GET /api/Label/ingredient/advanced?applicationType=ANDA&amp;activeOnly=false
+        /// ```
+        ///
+        /// ### Response
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "IngredientView": {
+        ///       "DocumentGUID": "12345678-1234-1234-1234-123456789012",
+        ///       "ProductName": "TYLENOL",
+        ///       "SubstanceName": "ACETAMINOPHEN",
+        ///       "UNII": "362O9ITL9D",
+        ///       "ApplicationType": "NDA",
+        ///       "ApplicationNumber": "019872",
+        ///       "ClassCode": "ACTIM"
+        ///     }
+        ///   }
+        /// ]
+        /// ```
+        ///
+        /// Use `DocumentGUID` with `/api/label/single/{documentGuid}` to retrieve the full label.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.SearchIngredientsAdvancedAsync"/>
+        /// <seealso cref="LabelView.IngredientView"/>
+        /// <seealso cref="LabelView.ActiveIngredientView"/>
+        /// <seealso cref="LabelView.InactiveIngredientView"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("ingredient/advanced")]
+        [ProducesResponseType(typeof(IEnumerable<IngredientViewDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<IngredientViewDto>>> SearchIngredientsAdvanced(
+            [FromQuery] string? unii,
+            [FromQuery] string? substanceNameSearch,
+            [FromQuery] string? applicationNumber,
+            [FromQuery] string? applicationType,
+            [FromQuery] string? productNameSearch,
+            [FromQuery] bool? activeOnly,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate at least one search parameter is provided
+            if (string.IsNullOrWhiteSpace(unii) &&
+                string.IsNullOrWhiteSpace(substanceNameSearch) &&
+                string.IsNullOrWhiteSpace(applicationNumber) &&
+                string.IsNullOrWhiteSpace(applicationType) &&
+                string.IsNullOrWhiteSpace(productNameSearch))
+            {
+                return BadRequest("At least one search parameter (unii, substanceNameSearch, applicationNumber, applicationType, or productNameSearch) is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Advanced ingredient search. UNII: {UNII}, SubstanceName: {SubstanceName}, AppNum: {AppNum}, AppType: {AppType}, ProductName: {ProductName}, ActiveOnly: {ActiveOnly}",
+                    unii ?? "null", substanceNameSearch ?? "null", applicationNumber ?? "null", applicationType ?? "null", productNameSearch ?? "null", activeOnly?.ToString() ?? "null");
+
+                var results = await DtoLabelAccess.SearchIngredientsAdvancedAsync(
+                    _dbContext,
+                    unii,
+                    substanceNameSearch,
+                    applicationNumber,
+                    applicationType,
+                    productNameSearch,
+                    activeOnly,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in advanced ingredient search");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching ingredients.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds products that share the same active ingredient as a specified application number.
+        /// Useful for finding generic equivalents or related brand products.
+        /// </summary>
+        /// <param name="applicationNumber">
+        /// The application number to search (e.g., NDA020702, 020702).
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of products containing the same active ingredients.</returns>
+        /// <response code="200">Returns the list of products with the same active ingredients.</response>
+        /// <response code="400">If applicationNumber is not provided or paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ### Find Products by Application Number with Same Ingredient
+        ///
+        /// This endpoint finds all products that contain the same active ingredient(s) as the specified application number.
+        ///
+        /// **Use Case:** Given an NDA or ANDA number, find all generic and brand products with the same active ingredient.
+        ///
+        /// ### Example
+        ///
+        /// ```
+        /// GET /api/Label/ingredient/by-application?applicationNumber=020702
+        /// ```
+        ///
+        /// This will:
+        /// 1. Find the active ingredients for application number 020702
+        /// 2. Return all products containing those same active ingredients
+        ///
+        /// ### Response
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "IngredientView": {
+        ///       "DocumentGUID": "12345678-1234-1234-1234-123456789012",
+        ///       "ProductName": "LIPITOR",
+        ///       "SubstanceName": "ATORVASTATIN CALCIUM",
+        ///       "ApplicationNumber": "020702",
+        ///       "ApplicationType": "NDA"
+        ///     }
+        ///   },
+        ///   {
+        ///     "IngredientView": {
+        ///       "DocumentGUID": "87654321-4321-4321-4321-210987654321",
+        ///       "ProductName": "ATORVASTATIN CALCIUM TABLETS",
+        ///       "SubstanceName": "ATORVASTATIN CALCIUM",
+        ///       "ApplicationNumber": "078456",
+        ///       "ApplicationType": "ANDA"
+        ///     }
+        ///   }
+        /// ]
+        /// ```
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.FindProductsByApplicationNumberWithSameIngredientAsync"/>
+        /// <seealso cref="LabelView.ActiveIngredientView"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("ingredient/by-application")]
+        [ProducesResponseType(typeof(IEnumerable<IngredientViewDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<IngredientViewDto>>> SearchIngredientByApplicationNumber(
+            [FromQuery] string applicationNumber,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate application number is provided
+            if (string.IsNullOrWhiteSpace(applicationNumber))
+            {
+                return BadRequest("Application number is required.");
+            }
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Finding products by application number with same ingredient. ApplicationNumber: {ApplicationNumber}",
+                    applicationNumber);
+
+                var results = await DtoLabelAccess.FindProductsByApplicationNumberWithSameIngredientAsync(
+                    _dbContext,
+                    applicationNumber,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was applied
+                addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error finding products by application number with same ingredient. ApplicationNumber: {ApplicationNumber}",
+                    applicationNumber);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching products by application number.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets related ingredients for a specified ingredient.
+        /// Given an ingredient (by UNII or name), finds all products containing it and their other ingredients.
+        /// </summary>
+        /// <param name="unii">
+        /// Optional. FDA UNII code to search.
+        /// </param>
+        /// <param name="substanceNameSearch">
+        /// Optional. Substance name for partial matching.
+        /// </param>
+        /// <param name="isActive">
+        /// Optional. True if searching for an active ingredient, false for inactive. Default is true.
+        /// </param>
+        /// <returns>Related ingredient results including searched, related active, inactive, and products.</returns>
+        /// <response code="200">Returns the related ingredient results.</response>
+        /// <response code="400">If neither unii nor substanceNameSearch is provided.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ### Get Related Ingredients
+        ///
+        /// This endpoint finds all products containing a specified ingredient and returns:
+        /// - **SearchedIngredients**: The ingredients that matched the search criteria
+        /// - **RelatedActiveIngredients**: All active ingredients in those products
+        /// - **RelatedInactiveIngredients**: All inactive ingredients (excipients) in those products
+        /// - **RelatedProducts**: Summary of unique products found
+        ///
+        /// **Use Case:** Given an active ingredient, find all products containing it and their inactive ingredients.
+        ///
+        /// ### Examples
+        ///
+        /// ```
+        /// GET /api/Label/ingredient/related?unii=R16CO5Y76E&amp;isActive=true
+        /// GET /api/Label/ingredient/related?substanceNameSearch=aspirin&amp;isActive=true
+        /// GET /api/Label/ingredient/related?substanceNameSearch=silicon dioxide&amp;isActive=false
+        /// ```
+        ///
+        /// ### Response
+        ///
+        /// ```json
+        /// {
+        ///   "searchedIngredients": [...],
+        ///   "relatedActiveIngredients": [...],
+        ///   "relatedInactiveIngredients": [...],
+        ///   "relatedProducts": [...],
+        ///   "totalActiveCount": 5,
+        ///   "totalInactiveCount": 25,
+        ///   "totalProductCount": 10
+        /// }
+        /// ```
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.FindRelatedIngredientsAsync"/>
+        /// <seealso cref="IngredientRelatedResultsDto"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("ingredient/related")]
+        [ProducesResponseType(typeof(IngredientRelatedResultsDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IngredientRelatedResultsDto>> GetRelatedIngredients(
+            [FromQuery] string? unii,
+            [FromQuery] string? substanceNameSearch,
+            [FromQuery] bool? isActive)
+        {
+            #region Input Validation
+
+            // Validate at least one search parameter is provided
+            if (string.IsNullOrWhiteSpace(unii) && string.IsNullOrWhiteSpace(substanceNameSearch))
+            {
+                return BadRequest("At least one search parameter (unii or substanceNameSearch) is required.");
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                // Default to searching for active ingredients
+                bool searchingActive = isActive ?? true;
+
+                _logger.LogInformation("Finding related ingredients. UNII: {UNII}, SubstanceName: {SubstanceName}, IsActive: {IsActive}",
+                    unii ?? "null", substanceNameSearch ?? "null", searchingActive);
+
+                var results = await DtoLabelAccess.FindRelatedIngredientsAsync(
+                    _dbContext,
+                    unii,
+                    substanceNameSearch,
+                    searchingActive,
+                    _pkEncryptionSecret,
+                    _logger);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error finding related ingredients. UNII: {UNII}, SubstanceName: {SubstanceName}",
+                    unii ?? "null", substanceNameSearch ?? "null");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while finding related ingredients.");
+            }
+
+            #endregion
+        }
+
         #endregion Ingredient Navigation
 
         #region Product Identifier Navigation

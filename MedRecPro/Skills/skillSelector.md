@@ -21,7 +21,7 @@ Use for queries about:
 - Drug interaction information
 - Contraindications and precautions
 
-**Keywords**: drug, product, ingredient, NDC, manufacturer, labeler, import, export, label, section, warning, side effect, dosage, dose, interaction, contraindication, adverse, prescribing, pharmaceutical, medication, medicine, tablet, capsule, injection, ANDA, NDA, BLA, pharmacologic, therapeutic, class, FDA, SPL, document, DailyMed
+**Keywords**: drug, product, ingredient, NDC, manufacturer, labeler, import, export, label, section, warning, side effect, dosage, dose, interaction, contraindication, adverse, prescribing, pharmaceutical, medication, medicine, tablet, capsule, injection, ANDA, NDA, BLA, pharmacologic, therapeutic, class, FDA, SPL, document, DailyMed, application number, application type, active ingredient, inactive ingredient, excipient, related ingredients, same ingredient products, generic equivalent, UNII, what application number, show application number
 
 ---
 

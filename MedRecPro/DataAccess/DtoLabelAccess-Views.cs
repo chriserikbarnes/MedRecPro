@@ -290,6 +290,95 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of IngredientView DTOs from the vw_Ingredients navigation view.
+        /// Provides comprehensive ingredient search with document linkage and regulatory context.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="IngredientViewDto"/> with encrypted IDs.</returns>
+        /// <seealso cref="LabelView.IngredientView"/>
+        /// <seealso cref="IngredientViewDto"/>
+        private static List<IngredientViewDto> buildIngredientViewDtos(
+            ApplicationDbContext db,
+            List<LabelView.IngredientView> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Transform each entity to DTO with encrypted IDs
+            return entities.Select(entity => new IngredientViewDto
+            {
+                IngredientView = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of IngredientView DTOs from the vw_ActiveIngredients navigation view.
+        /// Provides active ingredients only (ClassCode != 'IACT').
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="IngredientViewDto"/> with encrypted IDs.</returns>
+        /// <seealso cref="LabelView.ActiveIngredientView"/>
+        /// <seealso cref="IngredientViewDto"/>
+        private static List<IngredientViewDto> buildActiveIngredientViewDtos(
+            ApplicationDbContext db,
+            List<LabelView.ActiveIngredientView> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Transform each entity to DTO with encrypted IDs
+            // Note: ActiveIngredientView has the same structure as IngredientView
+            return entities.Select(entity => new IngredientViewDto
+            {
+                IngredientView = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of IngredientView DTOs from the vw_InactiveIngredients navigation view.
+        /// Provides inactive ingredients only (ClassCode = 'IACT').
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="IngredientViewDto"/> with encrypted IDs.</returns>
+        /// <seealso cref="LabelView.InactiveIngredientView"/>
+        /// <seealso cref="IngredientViewDto"/>
+        private static List<IngredientViewDto> buildInactiveIngredientViewDtos(
+            ApplicationDbContext db,
+            List<LabelView.InactiveIngredientView> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Transform each entity to DTO with encrypted IDs
+            // Note: InactiveIngredientView has the same structure as IngredientView
+            return entities.Select(entity => new IngredientViewDto
+            {
+                IngredientView = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
         #endregion Ingredient Views
 
         #region Product Identifier Views

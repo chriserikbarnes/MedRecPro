@@ -685,6 +685,220 @@ namespace MedRecPro.Models
                 : null;
     }
 
+    /**************************************************************/
+    /// <summary>
+    /// DTO for IngredientView, ActiveIngredientView, and InactiveIngredientView results.
+    /// Provides comprehensive ingredient search with document linkage and regulatory context.
+    /// </summary>
+    /// <remarks>
+    /// This DTO includes helper properties for:
+    /// <list type="bullet">
+    ///   <item><description>Direct access to key fields via JsonIgnore properties</description></item>
+    ///   <item><description>IsActive computed property to distinguish ingredient type</description></item>
+    ///   <item><description>GetXmlDocumentUrl and GetCompleteLabelUrl for label retrieval</description></item>
+    /// </list>
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var results = await DtoLabelAccess.SearchIngredientsAdvancedAsync(db, "R16CO5Y76E", null, null, null, null, null, secret, logger);
+    /// foreach (var dto in results)
+    /// {
+    ///     Console.WriteLine($"{dto.SubstanceName} in {dto.ProductName} - {(dto.IsActive ? "Active" : "Inactive")}");
+    ///     Console.WriteLine($"View label at: {dto.GetCompleteLabelUrl}");
+    /// }
+    /// </code>
+    /// </example>
+    /// <seealso cref="LabelView.IngredientView"/>
+    /// <seealso cref="LabelView.ActiveIngredientView"/>
+    /// <seealso cref="LabelView.InactiveIngredientView"/>
+    public class IngredientViewDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all view columns with encrypted IDs.
+        /// </summary>
+        public required Dictionary<string, object?> IngredientView { get; set; }
+
+        #region Helper Properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Document GUID for linking to label retrieval endpoints.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? DocumentGUID =>
+            IngredientView.TryGetValue(nameof(DocumentGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Set GUID for version history navigation.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? SetGUID =>
+            IngredientView.TryGetValue(nameof(SetGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Product name containing this ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ProductName =>
+            IngredientView.TryGetValue(nameof(ProductName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Substance name of the ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SubstanceName =>
+            IngredientView.TryGetValue(nameof(SubstanceName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// FDA UNII code for unique ingredient identification.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? UNII =>
+            IngredientView.TryGetValue(nameof(UNII), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Application type (NDA, ANDA, BLA, etc.) from marketing category.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ApplicationType =>
+            IngredientView.TryGetValue(nameof(ApplicationType), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Application number (numeric portion) for regulatory lookup.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ApplicationNumber =>
+            IngredientView.TryGetValue(nameof(ApplicationNumber), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Ingredient class code.
+        /// IACT = inactive ingredient; other values indicate active ingredients.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ClassCode =>
+            IngredientView.TryGetValue(nameof(ClassCode), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Indicates whether this is an active ingredient (ClassCode != 'IACT').
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public bool IsActive => ClassCode != "IACT";
+
+        /**************************************************************/
+        /// <summary>
+        /// URL for retrieving the SPL XML document.
+        /// Returns null if DocumentGUID is not available.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? GetXmlDocumentUrl => DocumentGUID.HasValue
+            ? $"/api/label/generate/{DocumentGUID}"
+            : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// URL for retrieving the complete label as DTO.
+        /// Returns null if DocumentGUID is not available.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? GetCompleteLabelUrl => DocumentGUID.HasValue
+            ? $"/api/label/single/{DocumentGUID}"
+            : null;
+
+        #endregion Helper Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Composite DTO for related ingredient search results.
+    /// Groups searched ingredients with their related active/inactive ingredients and products.
+    /// </summary>
+    /// <remarks>
+    /// Use this DTO when performing cross-reference searches to find:
+    /// <list type="bullet">
+    ///   <item><description>All products containing a specific ingredient</description></item>
+    ///   <item><description>Related active ingredients for a given inactive ingredient</description></item>
+    ///   <item><description>Related inactive ingredients for a given active ingredient</description></item>
+    /// </list>
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var related = await DtoLabelAccess.FindRelatedByActiveIngredientAsync(db, "R16CO5Y76E", null, secret, logger);
+    /// Console.WriteLine($"Found {related.TotalProductCount} products with this active ingredient");
+    /// Console.WriteLine($"These products contain {related.TotalInactiveCount} unique inactive ingredients");
+    /// </code>
+    /// </example>
+    /// <seealso cref="IngredientViewDto"/>
+    /// <seealso cref="LabelView.IngredientView"/>
+    public class IngredientRelatedResultsDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// The ingredients that matched the search criteria.
+        /// </summary>
+        public List<IngredientViewDto> SearchedIngredients { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Active ingredients related to the search results.
+        /// </summary>
+        public List<IngredientViewDto> RelatedActiveIngredients { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Inactive ingredients (excipients) related to the search results.
+        /// </summary>
+        public List<IngredientViewDto> RelatedInactiveIngredients { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Products containing the searched ingredients.
+        /// </summary>
+        public List<IngredientViewDto> RelatedProducts { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Total count of unique active ingredients found.
+        /// </summary>
+        public int TotalActiveCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Total count of unique inactive ingredients found.
+        /// </summary>
+        public int TotalInactiveCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Total count of unique products found.
+        /// </summary>
+        public int TotalProductCount { get; set; }
+    }
+
     #endregion Ingredient Navigation DTOs
 
     #region Product Identifier DTOs

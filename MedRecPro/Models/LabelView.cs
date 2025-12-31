@@ -825,6 +825,377 @@ namespace MedRecPro.Models
             #endregion properties
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_Ingredients.
+        /// Flattened view of all ingredients (active and inactive) with product and document linkage.
+        /// </summary>
+        /// <remarks>
+        /// Provides comprehensive ingredient search with:
+        /// <list type="bullet">
+        ///   <item><description>Application Number/Type filtering for regulatory context</description></item>
+        ///   <item><description>DocumentGUID for direct label retrieval</description></item>
+        ///   <item><description>Product name searching including misspellings via phonetic matching</description></item>
+        ///   <item><description>ClassCode to distinguish active vs inactive ingredients</description></item>
+        /// </list>
+        /// Use this view when searching across all ingredient types.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Search for all ingredients with a specific UNII
+        /// var ingredients = await db.Set&lt;LabelView.IngredientView&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(i => i.UNII == "R16CO5Y76E")
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Ingredient"/>
+        /// <seealso cref="Label.IngredientSubstance"/>
+        /// <seealso cref="Label.Product"/>
+        /// <seealso cref="Label.MarketingCategory"/>
+        /// <seealso cref="ActiveIngredientView"/>
+        /// <seealso cref="InactiveIngredientView"/>
+        [Table("vw_Ingredients")]
+        public class IngredientView
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Document GUID for linking to label retrieval endpoints.
+            /// Use with /api/label/generate/{documentGuid} or /api/label/single/{documentGuid}.
+            /// </summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Set GUID for version history navigation.
+            /// </summary>
+            public Guid? SetGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Section GUID containing the ingredient.
+            /// </summary>
+            public Guid? SectionGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Ingredient ID (primary key).
+            /// </summary>
+            public int? IngredientID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Product ID containing this ingredient.
+            /// </summary>
+            public int? ProductID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Ingredient substance ID linking to substance details.
+            /// </summary>
+            public int? IngredientSubstanceID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Marketing category ID for regulatory context.
+            /// </summary>
+            public int? MarketingCategoryID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Section ID within the document.
+            /// </summary>
+            public int? SectionID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Document ID (internal).
+            /// </summary>
+            public int? DocumentID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Ingredient class code.
+            /// IACT = inactive ingredient; other values indicate active ingredients.
+            /// </summary>
+            public string? ClassCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Product name containing this ingredient.
+            /// Supports partial/phonetic matching for misspelling tolerance.
+            /// </summary>
+            public string? ProductName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Substance name of the ingredient.
+            /// </summary>
+            public string? SubstanceName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// FDA UNII code for unique ingredient identification.
+            /// </summary>
+            public string? UNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Application type (NDA, ANDA, BLA, etc.) from marketing category.
+            /// </summary>
+            public string? ApplicationType { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Application number (numeric portion) for regulatory lookup.
+            /// </summary>
+            public string? ApplicationNumber { get; set; }
+
+            #endregion properties
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_ActiveIngredients.
+        /// Flattened view of active ingredients only (ClassCode != 'IACT').
+        /// </summary>
+        /// <remarks>
+        /// Use this view when specifically searching for active ingredients.
+        /// Provides the same properties as <see cref="IngredientView"/> but filtered
+        /// to exclude inactive ingredients (excipients).
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Find all active ingredients for a specific application number
+        /// var actives = await db.Set&lt;LabelView.ActiveIngredientView&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(i => i.ApplicationNumber == "020702")
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="IngredientView"/>
+        /// <seealso cref="InactiveIngredientView"/>
+        /// <seealso cref="Label.Ingredient"/>
+        [Table("vw_ActiveIngredients")]
+        public class ActiveIngredientView
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Document GUID for linking to label retrieval endpoints.
+            /// </summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Set GUID for version history navigation.
+            /// </summary>
+            public Guid? SetGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Section GUID containing the ingredient.
+            /// </summary>
+            public Guid? SectionGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Ingredient ID (primary key).
+            /// </summary>
+            public int? IngredientID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Product ID containing this ingredient.
+            /// </summary>
+            public int? ProductID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Ingredient substance ID linking to substance details.
+            /// </summary>
+            public int? IngredientSubstanceID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Marketing category ID for regulatory context.
+            /// </summary>
+            public int? MarketingCategoryID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Section ID within the document.
+            /// </summary>
+            public int? SectionID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Document ID (internal).
+            /// </summary>
+            public int? DocumentID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Ingredient class code (will not be 'IACT' in this view).
+            /// </summary>
+            public string? ClassCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Product name containing this ingredient.
+            /// </summary>
+            public string? ProductName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Substance name of the ingredient.
+            /// </summary>
+            public string? SubstanceName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// FDA UNII code for unique ingredient identification.
+            /// </summary>
+            public string? UNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Application type (NDA, ANDA, BLA, etc.) from marketing category.
+            /// </summary>
+            public string? ApplicationType { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Application number (numeric portion) for regulatory lookup.
+            /// </summary>
+            public string? ApplicationNumber { get; set; }
+
+            #endregion properties
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_InactiveIngredients.
+        /// Flattened view of inactive ingredients only (ClassCode = 'IACT').
+        /// </summary>
+        /// <remarks>
+        /// Use this view when specifically searching for inactive ingredients (excipients).
+        /// Provides the same properties as <see cref="IngredientView"/> but filtered
+        /// to include only inactive ingredients.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Find all inactive ingredients for a specific product
+        /// var inactives = await db.Set&lt;LabelView.InactiveIngredientView&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(i => i.ProductName.Contains("TYLENOL"))
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="IngredientView"/>
+        /// <seealso cref="ActiveIngredientView"/>
+        /// <seealso cref="Label.Ingredient"/>
+        [Table("vw_InactiveIngredients")]
+        public class InactiveIngredientView
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Document GUID for linking to label retrieval endpoints.
+            /// </summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Set GUID for version history navigation.
+            /// </summary>
+            public Guid? SetGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Section GUID containing the ingredient.
+            /// </summary>
+            public Guid? SectionGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Ingredient ID (primary key).
+            /// </summary>
+            public int? IngredientID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Product ID containing this ingredient.
+            /// </summary>
+            public int? ProductID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Ingredient substance ID linking to substance details.
+            /// </summary>
+            public int? IngredientSubstanceID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Marketing category ID for regulatory context.
+            /// </summary>
+            public int? MarketingCategoryID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Section ID within the document.
+            /// </summary>
+            public int? SectionID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Document ID (internal).
+            /// </summary>
+            public int? DocumentID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Ingredient class code (will always be 'IACT' in this view).
+            /// </summary>
+            public string? ClassCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Product name containing this ingredient.
+            /// </summary>
+            public string? ProductName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Substance name of the ingredient.
+            /// </summary>
+            public string? SubstanceName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// FDA UNII code for unique ingredient identification.
+            /// </summary>
+            public string? UNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Application type (NDA, ANDA, BLA, etc.) from marketing category.
+            /// </summary>
+            public string? ApplicationType { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Application number (numeric portion) for regulatory lookup.
+            /// </summary>
+            public string? ApplicationNumber { get; set; }
+
+            #endregion properties
+        }
+
         #endregion Ingredient and Substance Navigation Views
 
         #region Product Identifier Navigation Views

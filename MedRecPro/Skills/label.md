@@ -112,7 +112,7 @@ Get the therapeutic class hierarchy tree (useful for faceted navigation).
 
 Search products by active or inactive ingredient (UNII or substance name).
 
-#### Search by Ingredient
+#### Search by Ingredient (Basic)
 ```
 GET /api/Label/ingredient/search?unii={code}&substanceNameSearch={name}&pageNumber={n}&pageSize={n}
 ```
@@ -125,6 +125,8 @@ GET /api/Label/ingredient/search?unii={code}&substanceNameSearch={name}&pageNumb
 | `pageSize` | int | No | Records per page |
 
 *At least one of `unii` or `substanceNameSearch` is required.
+
+**NOTE:** This endpoint does NOT return application numbers. If you need application number information, use the **Advanced Ingredient Search** endpoint instead: `/api/Label/ingredient/advanced`
 
 **Example**: Find products containing aspirin, acetaminophen
 
@@ -156,6 +158,78 @@ GET /api/Label/ingredient/inactive/summaries?minProductCount={n}&pageNumber={n}&
 ```
 
 Get inactive ingredient (excipient) summaries with product, document, and labeler counts.
+
+#### Advanced Ingredient Search
+```
+GET /api/Label/ingredient/advanced?unii={code}&substanceNameSearch={name}&applicationNumber={appNum}&applicationType={type}&productNameSearch={product}&activeOnly={bool}&pageNumber={n}&pageSize={n}
+```
+
+Enhanced ingredient search with application number filtering, document linkage, and product name matching.
+
+**IMPORTANT:** This is the ONLY ingredient search endpoint that returns application numbers. Use this instead of `/ingredient/search` when you need application number information.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `unii` | string | No* | FDA UNII code for exact match |
+| `substanceNameSearch` | string | No* | Substance name (partial/phonetic match) |
+| `applicationNumber` | string | No* | Application number (e.g., NDA020702, 020702) |
+| `applicationType` | string | No* | NDA, ANDA, BLA filter |
+| `productNameSearch` | string | No* | Product name (partial/phonetic match) |
+| `activeOnly` | bool | No | true=active, false=inactive, null=all |
+| `pageNumber` | int | No | 1-based page number |
+| `pageSize` | int | No | Records per page |
+
+*At least one search parameter is required.
+
+**Response includes:**
+- `DocumentGUID` for linking to: `/api/label/generate/{documentGuid}` and `/api/label/single/{documentGuid}`
+- `ApplicationNumber` and `ApplicationType` for regulatory context
+- `ClassCode` to distinguish active vs inactive ingredients
+
+**Trigger Phrases**: "find by application number", "search NDA ingredients", "products with ANDA", "inactive ingredients for product", "what application number", "show application number for", "what is the NDA for", "what is the ANDA for"
+
+#### Find Products by Application Number with Same Ingredient
+```
+GET /api/Label/ingredient/by-application?applicationNumber={appNum}&pageNumber={n}&pageSize={n}
+```
+
+Find all products that contain the same active ingredient as a specified application number.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `applicationNumber` | string | Yes | Application number (e.g., NDA020702, 020702) |
+| `pageNumber` | int | No | 1-based page number |
+| `pageSize` | int | No | Records per page |
+
+**Use Case:** Given an NDA number, find all generic (ANDA) products with the same active ingredient.
+
+**Trigger Phrases**: "find generic equivalents", "products with same ingredient as NDA", "related drugs by application number"
+
+#### Get Related Ingredients
+```
+GET /api/Label/ingredient/related?unii={code}&substanceNameSearch={name}&isActive={bool}
+```
+
+Find all products containing a specified ingredient and their related active/inactive ingredients.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `unii` | string | No* | FDA UNII code to search |
+| `substanceNameSearch` | string | No* | Substance name to search |
+| `isActive` | bool | No | true if searching active ingredient (default), false for inactive |
+
+*At least one of `unii` or `substanceNameSearch` is required.
+
+**Response includes:**
+- `searchedIngredients`: Ingredients matching the search criteria
+- `relatedActiveIngredients`: All active ingredients in found products
+- `relatedInactiveIngredients`: All inactive ingredients (excipients) in found products
+- `relatedProducts`: Unique products containing the searched ingredient
+- Summary counts: `totalActiveCount`, `totalInactiveCount`, `totalProductCount`
+
+**Use Case:** Given an active ingredient, find all products containing it and their inactive ingredients.
+
+**Trigger Phrases**: "related ingredients", "excipients in products with", "inactive ingredients for drug containing"
 
 ---
 
@@ -712,7 +786,16 @@ Get field definitions for a table.
 
 ## Query Decision Tree (Expanded Scenarios)
 
-Use this decision tree to select the correct endpoint:
+Use this decision tree to select the correct endpoint.
+
+### Data Sources Best Practices
+
+**IMPORTANT:** When responding to user queries, always include relevant API links in a "Data Sources" section so users can explore further:
+
+- For ingredient queries: Include link to `/api/Label/ingredient/advanced` (shows application numbers, document links)
+- For application number queries: Include link to `/api/Label/ingredient/by-application` (find related products)
+- For inactive ingredient queries: Include link to `/api/Label/ingredient/related` (shows all ingredients in related products)
+- Always use the **advanced search** endpoint when application numbers, document GUIDs, or regulatory context is relevant
 
 ### User asks: 'Is the database empty / what do you have loaded?'
 
@@ -754,11 +837,52 @@ Use this decision tree to select the correct endpoint:
 4. **FALLBACK**: `GET /api/label/section/ActiveIngredient?pageNumber=1&pageSize=50`
 5. **ALSO**: `GET /api/label/section/InactiveIngredient?pageNumber=1&pageSize=50`
 
-### User asks: 'Find products that contain ingredient X'
+### User asks: 'Find products that contain ingredient X' or 'What are the ingredients for [drug]?'
 
-1. `GET /api/Label/ingredient/search?unii={code}` (best when UNII is known)
-2. or `GET /api/Label/ingredient/search?substanceNameSearch={name}` (best when name is known)
-3. If views fail: query `ActiveIngredient` / `InactiveIngredient` tables via Label CRUD and filter client-side
+**Standard workflow - use BOTH endpoints for comprehensive results:**
+
+1. **Basic search**: `GET /api/Label/ingredient/search?substanceNameSearch={name}` (or `unii={code}` if known)
+2. **ALSO USE Advanced search**: `GET /api/Label/ingredient/advanced?substanceNameSearch={name}` (or `unii={code}`)
+   - Returns ApplicationNumber, ApplicationType, DocumentGUID for linking to labels
+   - Include this link in Data Sources for user reference
+3. **For related ingredients**: `GET /api/Label/ingredient/related?substanceNameSearch={name}&isActive=true`
+   - Returns both active and inactive ingredients for products containing the ingredient
+4. If views fail: query `ActiveIngredient` / `InactiveIngredient` tables via Label CRUD and filter client-side
+
+**Data Sources should include:**
+- Link to advanced search: `/api/Label/ingredient/advanced?substanceNameSearch={name}` (shows application numbers)
+- Link to related ingredients: `/api/Label/ingredient/related?substanceNameSearch={name}&isActive=true`
+
+### User asks: 'What is the application number for [ingredient/UNII/product]?'
+
+**IMPORTANT:** The basic `/ingredient/search` endpoint does NOT return application numbers. You MUST use the advanced search.
+
+1. **USE THIS**: `GET /api/Label/ingredient/advanced?unii={code}` (returns ApplicationNumber and ApplicationType)
+2. **OR**: `GET /api/Label/ingredient/advanced?substanceNameSearch={name}` (if UNII not known)
+3. **OR**: `GET /api/Label/ingredient/advanced?productNameSearch={product}` (search by product name)
+
+The response includes `ApplicationNumber` and `ApplicationType` fields directly in the results.
+
+**DO NOT USE** `/api/Label/ingredient/search` for application number lookups - it doesn't return that data.
+
+### User asks: 'Find products by application number' or 'Find generic equivalents'
+
+1. `GET /api/Label/ingredient/by-application?applicationNumber={appNum}` (find all products with same active ingredient)
+2. `GET /api/Label/ingredient/advanced?applicationNumber={appNum}` (filter by application number)
+3. `GET /api/Label/application-number/search?applicationNumber={appNum}` (direct application number search)
+
+### User asks: 'What inactive ingredients (excipients) are in products containing X?' or 'What are the inactive ingredients for ANDA [number]?'
+
+1. **For ingredient-based search**: `GET /api/Label/ingredient/related?substanceNameSearch={name}&isActive=true`
+   - Response includes `relatedInactiveIngredients` with all excipients found in products containing the ingredient
+2. **For application number-based search**: `GET /api/Label/ingredient/advanced?applicationNumber={appNum}&activeOnly=false`
+   - Returns inactive ingredients for products with that application number
+3. **ALSO**: `GET /api/Label/ingredient/advanced?substanceNameSearch={name}&activeOnly=false`
+   - Search inactive ingredients by name directly
+
+**Data Sources should include:**
+- Link to advanced search for inactive ingredients: `/api/Label/ingredient/advanced?applicationNumber={appNum}&activeOnly=false`
+- Link to related ingredients: `/api/Label/ingredient/related?substanceNameSearch={name}&isActive=true`
 
 ### User asks: 'What manufacturers/labelers?'
 

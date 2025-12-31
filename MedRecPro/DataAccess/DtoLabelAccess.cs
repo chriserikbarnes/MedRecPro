@@ -832,6 +832,563 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Advanced ingredient search using the new vw_Ingredients, vw_ActiveIngredients, and vw_InactiveIngredients views.
+        /// Provides comprehensive search capabilities with application number filtering, document linkage, and product name matching.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="unii">Optional UNII code for exact match.</param>
+        /// <param name="substanceNameSearch">Optional substance name for partial/phonetic matching.</param>
+        /// <param name="applicationNumber">Optional application number (e.g., NDA020702, 020702) for filtering.</param>
+        /// <param name="applicationType">Optional application type (NDA, ANDA, BLA) for exact match.</param>
+        /// <param name="productNameSearch">Optional product name for partial/phonetic matching.</param>
+        /// <param name="activeOnly">Optional filter: true = active only, false = inactive only, null = all.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="page">Optional 1-based page number for pagination.</param>
+        /// <param name="size">Optional page size for pagination.</param>
+        /// <returns>List of <see cref="IngredientViewDto"/> matching the search criteria.</returns>
+        /// <example>
+        /// <code>
+        /// // Search by UNII for all ingredient types
+        /// var results = await DtoLabelAccess.SearchIngredientsAdvancedAsync(db, "R16CO5Y76E", null, null, null, null, null, secret, logger);
+        ///
+        /// // Search by substance name with application number filter
+        /// var results2 = await DtoLabelAccess.SearchIngredientsAdvancedAsync(db, null, "aspirin", "020702", null, null, null, secret, logger);
+        ///
+        /// // Search for active ingredients only in a specific product
+        /// var results3 = await DtoLabelAccess.SearchIngredientsAdvancedAsync(db, null, null, null, null, "TYLENOL", true, secret, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="LabelView.IngredientView"/>
+        /// <seealso cref="LabelView.ActiveIngredientView"/>
+        /// <seealso cref="LabelView.InactiveIngredientView"/>
+        /// <seealso cref="SearchByIngredientAsync"/>
+        public static async Task<List<IngredientViewDto>> SearchIngredientsAdvancedAsync(
+            ApplicationDbContext db,
+            string? unii,
+            string? substanceNameSearch,
+            string? applicationNumber,
+            string? applicationType,
+            string? productNameSearch,
+            bool? activeOnly,
+            string pkSecret,
+            ILogger logger,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+
+            // Build cache key from all search parameters
+            string searchKey = $"{unii ?? ""}-{substanceNameSearch ?? ""}-{applicationNumber ?? ""}-{applicationType ?? ""}-{productNameSearch ?? ""}-{activeOnly?.ToString() ?? "all"}";
+            string key = generateCacheKey(nameof(SearchIngredientsAdvancedAsync), searchKey, page, size);
+
+            var cached = Cached.GetCache<List<IngredientViewDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchIngredientsAdvancedAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            // Determine which view to use based on activeOnly parameter
+            List<IngredientViewDto> ret;
+
+            if (activeOnly == true)
+            {
+                // Use vw_ActiveIngredients
+                var query = db.Set<LabelView.ActiveIngredientView>()
+                    .AsNoTracking()
+                    .AsQueryable();
+
+                query = applyIngredientViewFilters(query, unii, substanceNameSearch, applicationNumber, applicationType, productNameSearch);
+                query = query.OrderBy(i => i.SubstanceName).ThenBy(i => i.ProductName);
+                query = applyPagination(query, page, size);
+
+                var entities = await query.ToListAsync();
+                ret = buildActiveIngredientViewDtos(db, entities, pkSecret, logger);
+            }
+            else if (activeOnly == false)
+            {
+                // Use vw_InactiveIngredients
+                var query = db.Set<LabelView.InactiveIngredientView>()
+                    .AsNoTracking()
+                    .AsQueryable();
+
+                query = applyIngredientViewFilters(query, unii, substanceNameSearch, applicationNumber, applicationType, productNameSearch);
+                query = query.OrderBy(i => i.SubstanceName).ThenBy(i => i.ProductName);
+                query = applyPagination(query, page, size);
+
+                var entities = await query.ToListAsync();
+                ret = buildInactiveIngredientViewDtos(db, entities, pkSecret, logger);
+            }
+            else
+            {
+                // Use vw_Ingredients (all ingredients)
+                var query = db.Set<LabelView.IngredientView>()
+                    .AsNoTracking()
+                    .AsQueryable();
+
+                query = applyIngredientViewFilters(query, unii, substanceNameSearch, applicationNumber, applicationType, productNameSearch);
+                query = query.OrderBy(i => i.SubstanceName).ThenBy(i => i.ProductName);
+                query = applyPagination(query, page, size);
+
+                var entities = await query.ToListAsync();
+                ret = buildIngredientViewDtos(db, entities, pkSecret, logger);
+            }
+
+#if DEBUG
+            Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchIngredientsAdvancedAsync)} returned {ret.Count} results ===");
+#endif
+
+            // Cache results
+            if (ret.Count > 0)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds products that share the same ingredient as the specified application number.
+        /// Useful for finding generic equivalents or related brand products.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="applicationNumber">The application number to search (e.g., NDA020702, 020702).</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="page">Optional 1-based page number for pagination.</param>
+        /// <param name="size">Optional page size for pagination.</param>
+        /// <returns>List of <see cref="IngredientViewDto"/> for products with the same active ingredients.</returns>
+        /// <example>
+        /// <code>
+        /// // Find all products with the same active ingredient as NDA020702
+        /// var results = await DtoLabelAccess.FindProductsByApplicationNumberWithSameIngredientAsync(db, "020702", secret, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="LabelView.ActiveIngredientView"/>
+        /// <seealso cref="SearchIngredientsAdvancedAsync"/>
+        public static async Task<List<IngredientViewDto>> FindProductsByApplicationNumberWithSameIngredientAsync(
+            ApplicationDbContext db,
+            string applicationNumber,
+            string pkSecret,
+            ILogger logger,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+
+            string key = generateCacheKey(nameof(FindProductsByApplicationNumberWithSameIngredientAsync), applicationNumber, page, size);
+
+            var cached = Cached.GetCache<List<IngredientViewDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(FindProductsByApplicationNumberWithSameIngredientAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            // Parse the application number to extract normalized form
+            var terms = ApplicationNumberSearch.Parse(applicationNumber);
+
+            // Step 1: Find the UNIIs for the specified application number
+            var targetUniis = await db.Set<LabelView.ActiveIngredientView>()
+                .AsNoTracking()
+                .Where(i => i.ApplicationNumber != null &&
+                    (
+                        i.ApplicationNumber == terms.Normalized ||
+                        (terms.IsNumericOnly && i.ApplicationNumber.Contains(terms.NumericOnly)) ||
+                        i.ApplicationNumber.Contains(terms.Normalized)
+                    ))
+                .Select(i => i.UNII)
+                .Where(u => u != null)
+                .Distinct()
+                .ToListAsync();
+
+            if (targetUniis.Count == 0)
+            {
+                logger.LogDebug($"No ingredients found for application number {applicationNumber}");
+                return new List<IngredientViewDto>();
+            }
+
+            // Step 2: Find all products with those UNIIs
+            var query = db.Set<LabelView.ActiveIngredientView>()
+                .AsNoTracking()
+                .Where(i => targetUniis.Contains(i.UNII))
+                .OrderBy(i => i.SubstanceName)
+                .ThenBy(i => i.ProductName);
+
+            query = (IOrderedQueryable<LabelView.ActiveIngredientView>)applyPagination(query, page, size);
+
+            var entities = await query.ToListAsync();
+            var ret = buildActiveIngredientViewDtos(db, entities, pkSecret, logger);
+
+#if DEBUG
+            Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(FindProductsByApplicationNumberWithSameIngredientAsync)} returned {ret.Count} results ===");
+#endif
+
+            // Cache results
+            if (ret.Count > 0)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Finds related ingredients for a given ingredient.
+        /// Given an ingredient (by UNII or name), finds all products containing it and their other ingredients.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="unii">Optional UNII code to search.</param>
+        /// <param name="substanceNameSearch">Optional substance name to search.</param>
+        /// <param name="isSearchingActive">True if the input is an active ingredient, false if inactive.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="maxProducts">Maximum number of products to process (default 50).</param>
+        /// <returns><see cref="IngredientRelatedResultsDto"/> containing searched, related ingredients, and products.</returns>
+        /// <example>
+        /// <code>
+        /// // Find all products and ingredients related to aspirin (active ingredient)
+        /// var related = await DtoLabelAccess.FindRelatedIngredientsAsync(db, "R16CO5Y76E", null, true, secret, logger);
+        /// Console.WriteLine($"Found {related.TotalProductCount} products containing this ingredient");
+        /// </code>
+        /// </example>
+        /// <seealso cref="LabelView.IngredientView"/>
+        /// <seealso cref="IngredientRelatedResultsDto"/>
+        public static async Task<IngredientRelatedResultsDto> FindRelatedIngredientsAsync(
+            ApplicationDbContext db,
+            string? unii,
+            string? substanceNameSearch,
+            bool isSearchingActive,
+            string pkSecret,
+            ILogger logger,
+            int maxProducts = 50)
+        {
+            #region implementation
+
+            string searchKey = $"{unii ?? ""}-{substanceNameSearch ?? ""}-{(isSearchingActive ? "active" : "inactive")}";
+            string key = generateCacheKey(nameof(FindRelatedIngredientsAsync), searchKey, null, maxProducts);
+
+            var cached = Cached.GetCache<IngredientRelatedResultsDto>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key}");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(FindRelatedIngredientsAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            var result = new IngredientRelatedResultsDto();
+
+            // Step 1: Find the searched ingredients and their product IDs
+            List<int?> productIds;
+            if (isSearchingActive)
+            {
+                var query = db.Set<LabelView.ActiveIngredientView>()
+                    .AsNoTracking()
+                    .AsQueryable();
+
+                query = applyIngredientViewFilters(query, unii, substanceNameSearch, null, null, null);
+                var searched = await query.Take(maxProducts).ToListAsync();
+                result.SearchedIngredients = buildActiveIngredientViewDtos(db, searched, pkSecret, logger);
+                productIds = searched.Select(s => s.ProductID).Distinct().ToList();
+            }
+            else
+            {
+                var query = db.Set<LabelView.InactiveIngredientView>()
+                    .AsNoTracking()
+                    .AsQueryable();
+
+                query = applyIngredientViewFilters(query, unii, substanceNameSearch, null, null, null);
+                var searched = await query.Take(maxProducts).ToListAsync();
+                result.SearchedIngredients = buildInactiveIngredientViewDtos(db, searched, pkSecret, logger);
+                productIds = searched.Select(s => s.ProductID).Distinct().ToList();
+            }
+
+            if (productIds.Count == 0)
+            {
+                logger.LogDebug($"No ingredients found for search criteria");
+                return result;
+            }
+
+            // Step 2: Find all active ingredients for these products
+            var activeIngredients = await db.Set<LabelView.ActiveIngredientView>()
+                .AsNoTracking()
+                .Where(i => productIds.Contains(i.ProductID))
+                .ToListAsync();
+            result.RelatedActiveIngredients = buildActiveIngredientViewDtos(db, activeIngredients, pkSecret, logger);
+            result.TotalActiveCount = activeIngredients.Select(a => a.UNII).Distinct().Count();
+
+            // Step 3: Find all inactive ingredients for these products
+            var inactiveIngredients = await db.Set<LabelView.InactiveIngredientView>()
+                .AsNoTracking()
+                .Where(i => productIds.Contains(i.ProductID))
+                .ToListAsync();
+            result.RelatedInactiveIngredients = buildInactiveIngredientViewDtos(db, inactiveIngredients, pkSecret, logger);
+            result.TotalInactiveCount = inactiveIngredients.Select(a => a.UNII).Distinct().Count();
+
+            // Step 4: Get unique products (from active ingredients for product info)
+            var uniqueProducts = activeIngredients
+                .GroupBy(a => a.ProductID)
+                .Select(g => g.First())
+                .ToList();
+            result.RelatedProducts = buildActiveIngredientViewDtos(db, uniqueProducts, pkSecret, logger);
+            result.TotalProductCount = productIds.Count;
+
+#if DEBUG
+            Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(FindRelatedIngredientsAsync)} found {result.TotalProductCount} products, {result.TotalActiveCount} active, {result.TotalInactiveCount} inactive ===");
+#endif
+
+            // Cache results
+            Cached.SetCacheManageKey(key, result, 1.0);
+            logger.LogDebug($"Cache set for {key}");
+
+            return result;
+
+            #endregion
+        }
+
+        #region Private Ingredient View Helpers
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies common filters to IngredientView queries.
+        /// Shared helper for DRY filter application across ingredient view types.
+        /// </summary>
+        /// <typeparam name="T">The ingredient view type (IngredientView, ActiveIngredientView, or InactiveIngredientView).</typeparam>
+        /// <param name="query">The base query to filter.</param>
+        /// <param name="unii">Optional UNII for exact match.</param>
+        /// <param name="substanceNameSearch">Optional substance name for partial/phonetic match.</param>
+        /// <param name="applicationNumber">Optional application number for flexible match.</param>
+        /// <param name="applicationType">Optional application type for exact match.</param>
+        /// <param name="productNameSearch">Optional product name for partial/phonetic match.</param>
+        /// <returns>The filtered query.</returns>
+        private static IQueryable<LabelView.IngredientView> applyIngredientViewFilters(
+            IQueryable<LabelView.IngredientView> query,
+            string? unii,
+            string? substanceNameSearch,
+            string? applicationNumber,
+            string? applicationType,
+            string? productNameSearch)
+        {
+            #region implementation
+
+            // UNII exact match
+            if (!string.IsNullOrWhiteSpace(unii))
+            {
+                query = query.Where(i => i.UNII == unii);
+            }
+
+            // Substance name partial/phonetic match
+            if (!string.IsNullOrWhiteSpace(substanceNameSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    substanceNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.Strict,
+                    x => x.SubstanceName);
+            }
+
+            // Application number flexible match using ApplicationNumberSearch
+            if (!string.IsNullOrWhiteSpace(applicationNumber))
+            {
+                var terms = ApplicationNumberSearch.Parse(applicationNumber);
+                query = query.Where(i => i.ApplicationNumber != null &&
+                    (
+                        // Exact match after normalization
+                        i.ApplicationNumber == terms.Normalized ||
+                        // Number-only search
+                        (terms.IsNumericOnly && i.ApplicationNumber.Contains(terms.NumericOnly)) ||
+                        // Prefix-only search
+                        (terms.IsPrefixOnly && i.ApplicationNumber.StartsWith(terms.AlphaOnly)) ||
+                        // Fallback contains
+                        i.ApplicationNumber.Contains(terms.Normalized)
+                    ));
+            }
+
+            // Application type exact match
+            if (!string.IsNullOrWhiteSpace(applicationType))
+            {
+                var normalizedType = applicationType.ToUpperInvariant();
+                query = query.Where(i => i.ApplicationType != null &&
+                    i.ApplicationType.ToUpper().Contains(normalizedType));
+            }
+
+            // Product name partial/phonetic match
+            if (!string.IsNullOrWhiteSpace(productNameSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    productNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.Strict,
+                    x => x.ProductName);
+            }
+
+            return query;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies common filters to ActiveIngredientView queries.
+        /// </summary>
+        private static IQueryable<LabelView.ActiveIngredientView> applyIngredientViewFilters(
+            IQueryable<LabelView.ActiveIngredientView> query,
+            string? unii,
+            string? substanceNameSearch,
+            string? applicationNumber,
+            string? applicationType,
+            string? productNameSearch)
+        {
+            #region implementation
+
+            // UNII exact match
+            if (!string.IsNullOrWhiteSpace(unii))
+            {
+                query = query.Where(i => i.UNII == unii);
+            }
+
+            // Substance name partial/phonetic match
+            if (!string.IsNullOrWhiteSpace(substanceNameSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    substanceNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.Strict,
+                    x => x.SubstanceName);
+            }
+
+            // Application number flexible match using ApplicationNumberSearch
+            if (!string.IsNullOrWhiteSpace(applicationNumber))
+            {
+                var terms = ApplicationNumberSearch.Parse(applicationNumber);
+                query = query.Where(i => i.ApplicationNumber != null &&
+                    (
+                        i.ApplicationNumber == terms.Normalized ||
+                        (terms.IsNumericOnly && i.ApplicationNumber.Contains(terms.NumericOnly)) ||
+                        (terms.IsPrefixOnly && i.ApplicationNumber.StartsWith(terms.AlphaOnly)) ||
+                        i.ApplicationNumber.Contains(terms.Normalized)
+                    ));
+            }
+
+            // Application type exact match
+            if (!string.IsNullOrWhiteSpace(applicationType))
+            {
+                var normalizedType = applicationType.ToUpperInvariant();
+                query = query.Where(i => i.ApplicationType != null &&
+                    i.ApplicationType.ToUpper().Contains(normalizedType));
+            }
+
+            // Product name partial/phonetic match
+            if (!string.IsNullOrWhiteSpace(productNameSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    productNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.Strict,
+                    x => x.ProductName);
+            }
+
+            return query;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies common filters to InactiveIngredientView queries.
+        /// </summary>
+        private static IQueryable<LabelView.InactiveIngredientView> applyIngredientViewFilters(
+            IQueryable<LabelView.InactiveIngredientView> query,
+            string? unii,
+            string? substanceNameSearch,
+            string? applicationNumber,
+            string? applicationType,
+            string? productNameSearch)
+        {
+            #region implementation
+
+            // UNII exact match
+            if (!string.IsNullOrWhiteSpace(unii))
+            {
+                query = query.Where(i => i.UNII == unii);
+            }
+
+            // Substance name partial/phonetic match
+            if (!string.IsNullOrWhiteSpace(substanceNameSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    substanceNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.Strict,
+                    x => x.SubstanceName);
+            }
+
+            // Application number flexible match using ApplicationNumberSearch
+            if (!string.IsNullOrWhiteSpace(applicationNumber))
+            {
+                var terms = ApplicationNumberSearch.Parse(applicationNumber);
+                query = query.Where(i => i.ApplicationNumber != null &&
+                    (
+                        i.ApplicationNumber == terms.Normalized ||
+                        (terms.IsNumericOnly && i.ApplicationNumber.Contains(terms.NumericOnly)) ||
+                        (terms.IsPrefixOnly && i.ApplicationNumber.StartsWith(terms.AlphaOnly)) ||
+                        i.ApplicationNumber.Contains(terms.Normalized)
+                    ));
+            }
+
+            // Application type exact match
+            if (!string.IsNullOrWhiteSpace(applicationType))
+            {
+                var normalizedType = applicationType.ToUpperInvariant();
+                query = query.Where(i => i.ApplicationType != null &&
+                    i.ApplicationType.ToUpper().Contains(normalizedType));
+            }
+
+            // Product name partial/phonetic match
+            if (!string.IsNullOrWhiteSpace(productNameSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    productNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.Strict,
+                    x => x.ProductName);
+            }
+
+            return query;
+
+            #endregion
+        }
+
+        #endregion Private Ingredient View Helpers
+
         #endregion Ingredient Navigation
 
         #region Product Identifier Navigation
