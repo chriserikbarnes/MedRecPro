@@ -41,16 +41,54 @@ namespace MedRecProConsole.Services
         /// Sets up dependency injection for MedRecPro services, processes each ZIP file,
         /// and reports progress using Spectre.Console. Failed ZIP imports are logged but
         /// do not stop the overall import process.
+        /// This overload does not use crash recovery - use the overload with progressTracker
+        /// for resume capability.
         /// </remarks>
         /// <seealso cref="SplImportService"/>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="ImportParameters"/>
         public async Task<ImportResults> ExecuteImportAsync(ImportParameters parameters)
         {
+            // Delegate to the overload without a progress tracker
+            return await ExecuteImportAsync(parameters, null, false);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Executes the bulk import operation with progress tracking, crash recovery, and error handling.
+        /// </summary>
+        /// <param name="parameters">Import parameters containing connection string, folder path, and options</param>
+        /// <param name="progressTracker">Progress tracker for crash recovery and resume capability</param>
+        /// <param name="isResuming">True if resuming from an existing queue, false for new import</param>
+        /// <returns>ImportResults containing statistics and error information</returns>
+        /// <remarks>
+        /// Sets up dependency injection for MedRecPro services, processes each ZIP file,
+        /// and reports progress using Spectre.Console. Failed ZIP imports are logged but
+        /// do not stop the overall import process.
+        ///
+        /// When a progressTracker is provided:
+        /// - Creates a queue file at the import folder root for crash recovery
+        /// - Updates file status (queued/in-progress/completed/failed) after each operation
+        /// - Completes the current file before exiting on timer expiration
+        /// - Respects nested queue files found in subdirectories
+        /// </remarks>
+        /// <seealso cref="SplImportService"/>
+        /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="ImportParameters"/>
+        /// <seealso cref="ImportProgressTracker"/>
+        public async Task<ImportResults> ExecuteImportAsync(
+            ImportParameters parameters,
+            ImportProgressTracker? progressTracker,
+            bool isResuming)
+        {
             #region implementation
 
             var stopwatch = Stopwatch.StartNew();
             var cts = new CancellationTokenSource();
+
+            // Track if we've been signaled to stop (but allow current file to complete)
+            var shouldStopAfterCurrentFile = false;
+            var interruptionReason = string.Empty;
 
             // Set up timeout if max runtime specified
             if (parameters.MaxRuntimeMinutes.HasValue)
@@ -72,6 +110,17 @@ namespace MedRecProConsole.Services
             // Build service provider with all required MedRecPro dependencies
             await using var serviceProvider = buildServiceProvider(parameters.ConnectionString, configuration, parameters.VerboseMode);
 
+            // Initialize progress tracker if provided and not resuming
+            if (progressTracker != null && !isResuming)
+            {
+                await progressTracker.LoadOrCreateQueueAsync(
+                    parameters.ImportFolder,
+                    parameters.ConnectionString,
+                    parameters.ZipFiles,
+                    parameters.MaxRuntimeMinutes,
+                    parameters.VerboseMode);
+            }
+
             // Track overall results
             var results = new ImportResults();
 
@@ -82,7 +131,9 @@ namespace MedRecProConsole.Services
             }
 
             AnsiConsole.WriteLine();
-            AnsiConsole.Write(new Rule("[bold green]Starting Import[/]").RuleStyle("grey"));
+            AnsiConsole.Write(new Rule(isResuming
+                ? "[bold yellow]Resuming Import[/]"
+                : "[bold green]Starting Import[/]").RuleStyle("grey"));
             AnsiConsole.WriteLine();
 
             // Re-redirect console output during import processing
@@ -111,10 +162,21 @@ namespace MedRecProConsole.Services
 
                     foreach (var zipFilePath in parameters.ZipFiles)
                     {
-                        // Check for cancellation (timeout)
+                        // Check if we should stop after completing the previous file
+                        if (shouldStopAfterCurrentFile)
+                        {
+                            break;
+                        }
+
+                        // Check for cancellation (timeout) BEFORE starting a new file
+                        // This allows the current file to complete before stopping
                         if (cts.Token.IsCancellationRequested)
                         {
-                            AnsiConsole.MarkupLine("[yellow]Maximum runtime reached. Stopping import.[/]");
+                            shouldStopAfterCurrentFile = true;
+                            interruptionReason = "Maximum runtime reached";
+                            AnsiConsole.MarkupLine("[yellow]Maximum runtime reached. Completing current file then stopping...[/]");
+                            // Don't break here - we haven't started this file yet
+                            // Instead, we'll check again at the top of the next iteration
                             break;
                         }
 
@@ -130,11 +192,29 @@ namespace MedRecProConsole.Services
 
                         try
                         {
+                            // Check if file should be skipped due to nested queue
+                            if (progressTracker != null &&
+                                await progressTracker.IsFileCompletedInNestedQueueAsync(zipFilePath))
+                            {
+                                await progressTracker.MarkItemSkippedAsync(zipFilePath, "Completed in nested queue");
+                                zipTask.Description = $"[grey]{displayName} - Skipped (nested queue)[/]";
+                                zipTask.Value = 100;
+                                overallTask.Increment(1);
+                                continue;
+                            }
+
+                            // Mark as in-progress in the queue file
+                            if (progressTracker != null)
+                            {
+                                await progressTracker.MarkItemInProgressAsync(zipFilePath);
+                            }
+
+                            // Process the file - use a separate token that we don't cancel mid-file
                             var zipResult = await processZipFileAsync(
                                 serviceProvider,
                                 zipFilePath,
                                 progress => zipTask.Value = progress,
-                                cts.Token);
+                                CancellationToken.None);  // Don't cancel mid-file for graceful shutdown
 
                             results.TotalZipsProcessed++;
 
@@ -142,16 +222,40 @@ namespace MedRecProConsole.Services
                             {
                                 results.SuccessfulZips++;
                                 zipTask.Description = $"[green]{displayName} - Success ({zipResult.TotalFilesSucceeded} files)[/]";
+
+                                // Mark as completed in the queue file with statistics
+                                if (progressTracker != null)
+                                {
+                                    var stats = aggregateZipStatistics(zipResult);
+                                    await progressTracker.MarkItemCompletedAsync(
+                                        zipFilePath,
+                                        stats.documents,
+                                        stats.organizations,
+                                        stats.products,
+                                        stats.sections,
+                                        stats.ingredients);
+                                }
                             }
                             else
                             {
                                 results.FailedZips++;
                                 results.FailedZipNames.Add(zipFileName);
 
-                                // Log errors for this ZIP
+                                // Collect error messages
+                                var errorMessages = new List<string>();
                                 foreach (var fileResult in zipResult.FileResults.Where(f => !f.Success))
                                 {
-                                    results.Errors.Add($"{zipFileName}/{fileResult.FileName}: {fileResult.Message}");
+                                    var errorMsg = $"{zipFileName}/{fileResult.FileName}: {fileResult.Message}";
+                                    results.Errors.Add(errorMsg);
+                                    errorMessages.Add(fileResult.Message ?? "Unknown error");
+                                }
+
+                                // Mark as failed in the queue file
+                                if (progressTracker != null)
+                                {
+                                    await progressTracker.MarkItemFailedAsync(
+                                        zipFilePath,
+                                        string.Join("; ", errorMessages.Take(3)));
                                 }
 
                                 zipTask.Description = $"[red]{displayName} - Failed ({zipResult.TotalFilesSucceeded}/{zipResult.TotalFilesProcessed} succeeded)[/]";
@@ -164,10 +268,20 @@ namespace MedRecProConsole.Services
                         }
                         catch (OperationCanceledException)
                         {
+                            // This shouldn't happen now since we pass CancellationToken.None
+                            // But handle it gracefully anyway
                             results.FailedZips++;
                             results.FailedZipNames.Add(zipFileName);
-                            results.Errors.Add($"{zipFileName}: Import cancelled (timeout)");
+                            results.Errors.Add($"{zipFileName}: Import cancelled");
                             zipTask.Description = $"[yellow]{displayName} - Cancelled[/]";
+
+                            if (progressTracker != null)
+                            {
+                                await progressTracker.MarkItemFailedAsync(zipFilePath, "Import cancelled");
+                            }
+
+                            shouldStopAfterCurrentFile = true;
+                            interruptionReason = "Operation cancelled";
                             break;
                         }
                         catch (Exception ex)
@@ -176,6 +290,12 @@ namespace MedRecProConsole.Services
                             results.FailedZipNames.Add(zipFileName);
                             results.Errors.Add($"{zipFileName}: {ex.Message}");
                             zipTask.Description = $"[red]{displayName} - Error[/]";
+
+                            // Mark as failed in the queue file
+                            if (progressTracker != null)
+                            {
+                                await progressTracker.MarkItemFailedAsync(zipFilePath, ex.Message);
+                            }
                         }
 
                         overallTask.Increment(1);
@@ -192,6 +312,26 @@ namespace MedRecProConsole.Services
 
             stopwatch.Stop();
             results.ElapsedTime = stopwatch.Elapsed;
+
+            // Record interruption if we stopped early
+            if (progressTracker != null && !string.IsNullOrEmpty(interruptionReason))
+            {
+                await progressTracker.RecordInterruptionAsync(interruptionReason, stopwatch.Elapsed);
+            }
+
+            // Ensure final progress state is saved
+            if (progressTracker != null)
+            {
+                await progressTracker.FlushAsync();
+
+                // If all files are processed (completed/failed/skipped), optionally clean up
+                var progressFile = progressTracker.GetProgressFile();
+                if (progressFile != null && progressFile.IsComplete)
+                {
+                    // Queue is complete - it will be deleted when user confirms
+                    // or left for debugging purposes
+                }
+            }
 
             return results;
 
@@ -355,6 +495,34 @@ namespace MedRecProConsole.Services
                 results.TotalSections += fileResult.SectionsCreated;
                 results.TotalIngredients += fileResult.IngredientsCreated;
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Aggregates statistics from a single ZIP import result.
+        /// </summary>
+        /// <param name="zipResult">ZIP import result to aggregate</param>
+        /// <returns>Tuple containing entity counts for the ZIP file</returns>
+        /// <seealso cref="SplZipImportResult"/>
+        private (int documents, int organizations, int products, int sections, int ingredients) aggregateZipStatistics(
+            SplZipImportResult zipResult)
+        {
+            #region implementation
+
+            int documents = 0, organizations = 0, products = 0, sections = 0, ingredients = 0;
+
+            foreach (var fileResult in zipResult.FileResults.Where(f => f.Success))
+            {
+                documents += fileResult.DocumentsCreated;
+                organizations += fileResult.OrganizationsCreated;
+                products += fileResult.ProductsCreated;
+                sections += fileResult.SectionsCreated;
+                ingredients += fileResult.IngredientsCreated;
+            }
+
+            return (documents, organizations, products, sections, ingredients);
 
             #endregion
         }

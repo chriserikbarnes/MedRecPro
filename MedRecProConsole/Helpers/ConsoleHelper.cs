@@ -1,4 +1,5 @@
 using MedRecProConsole.Models;
+using MedRecProConsole.Services;
 using Spectre.Console;
 
 namespace MedRecProConsole.Helpers
@@ -62,11 +63,136 @@ namespace MedRecProConsole.Helpers
         /**************************************************************/
         /// <summary>
         /// Gathers import parameters from the user using Spectre.Console prompts.
+        /// Checks for existing queue files to enable resume functionality.
+        /// </summary>
+        /// <param name="settings">Application settings for database connections and defaults</param>
+        /// <param name="progressTracker">Progress tracker instance for resume detection</param>
+        /// <returns>
+        /// Tuple containing:
+        /// - ImportParameters: User selections or null if cancelled
+        /// - bool: True if resuming from existing queue, false if new import
+        /// </returns>
+        /// <seealso cref="ImportParameters"/>
+        /// <seealso cref="DatabaseConnectionSettings"/>
+        /// <seealso cref="ImportProgressTracker"/>
+        public static async Task<(ImportParameters? Parameters, bool IsResuming)> GatherUserParametersAsync(
+            ConsoleAppSettings settings,
+            ImportProgressTracker progressTracker)
+        {
+            #region implementation
+
+            var parameters = new ImportParameters();
+
+            // Build database choices from settings
+            var dbChoices = buildDatabaseChoices(settings);
+            var defaultChoice = dbChoices.FirstOrDefault(c => c.IsDefault) ?? dbChoices.FirstOrDefault();
+
+            // Database selection
+            var prompt = new SelectionPrompt<DatabaseChoice>()
+                .Title("[green]Select database connection:[/]")
+                .PageSize(10)
+                .UseConverter(c => c.DisplayName)
+                .AddChoices(dbChoices);
+
+            var databaseChoice = AnsiConsole.Prompt(prompt);
+
+            if (databaseChoice.IsCustom)
+            {
+                parameters.ConnectionString = AnsiConsole.Prompt(
+                    new TextPrompt<string>("[green]Enter connection string:[/]")
+                        .PromptStyle("white")
+                        .Validate(cs =>
+                        {
+                            if (string.IsNullOrWhiteSpace(cs))
+                                return ValidationResult.Error("[red]Connection string cannot be empty[/]");
+                            return ValidationResult.Success();
+                        }));
+            }
+            else
+            {
+                parameters.ConnectionString = databaseChoice.ConnectionString;
+            }
+
+            AnsiConsole.WriteLine();
+
+            // Folder selection
+            parameters.ImportFolder = AnsiConsole.Prompt(
+                new TextPrompt<string>("[green]Enter folder path to import (contains ZIP files):[/]")
+                    .PromptStyle("white")
+                    .Validate(path =>
+                    {
+                        if (string.IsNullOrWhiteSpace(path))
+                            return ValidationResult.Error("[red]Path cannot be empty[/]");
+                        if (!Directory.Exists(path))
+                            return ValidationResult.Error($"[red]Directory does not exist: {path}[/]");
+                        return ValidationResult.Success();
+                    }));
+
+            AnsiConsole.WriteLine();
+
+            // Check for existing queue file (resume capability)
+            var isResuming = false;
+            if (progressTracker.QueueFileExists(parameters.ImportFolder))
+            {
+                isResuming = await handleExistingQueueFileAsync(parameters, progressTracker, settings);
+
+                // If resuming, the parameters are already populated from the queue file
+                if (isResuming)
+                {
+                    // Check if this was a "skip" signal (complete queue, user declined delete)
+                    // Return with empty ZipFiles - caller should skip import and go to post-import menu
+                    if (parameters.ZipFiles != null && parameters.ZipFiles.Count == 0)
+                    {
+                        return (parameters, false); // Not resuming, but valid params with empty files
+                    }
+
+                    return (parameters, true);
+                }
+            }
+
+            // Optional max runtime (with default from settings if configured)
+            var defaultRuntime = settings.ImportSettings.DefaultMaxRuntimeMinutes;
+            var useMaxRuntime = AnsiConsole.Confirm("[green]Set a maximum runtime limit?[/]", defaultRuntime.HasValue);
+
+            if (useMaxRuntime)
+            {
+                parameters.MaxRuntimeMinutes = AnsiConsole.Prompt(
+                    new TextPrompt<int>("[green]Enter maximum runtime in minutes:[/]")
+                        .PromptStyle("white")
+                        .DefaultValue(defaultRuntime ?? 60)
+                        .Validate(minutes =>
+                        {
+                            if (minutes < 1)
+                                return ValidationResult.Error("[red]Runtime must be at least 1 minute[/]");
+                            if (minutes > 1440)
+                                return ValidationResult.Error("[red]Runtime cannot exceed 24 hours (1440 minutes)[/]");
+                            return ValidationResult.Success();
+                        }));
+            }
+
+            // Scan folder for ZIP files
+            parameters.ZipFiles = scanForZipFiles(parameters.ImportFolder, settings.Display.ShowSpinners);
+
+            if (parameters.ZipFiles.Count == 0)
+            {
+                AnsiConsole.MarkupLine($"[red]No ZIP files found in: {Markup.Escape(parameters.ImportFolder)}[/]");
+                return (null, false);
+            }
+
+            return (parameters, false);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Legacy synchronous version for backwards compatibility.
         /// </summary>
         /// <param name="settings">Application settings for database connections and defaults</param>
         /// <returns>ImportParameters object containing user selections, or null if cancelled</returns>
         /// <seealso cref="ImportParameters"/>
         /// <seealso cref="DatabaseConnectionSettings"/>
+        [Obsolete("Use GatherUserParametersAsync instead for resume support")]
         public static ImportParameters? GatherUserParameters(ConsoleAppSettings settings)
         {
             #region implementation
@@ -309,10 +435,16 @@ namespace MedRecProConsole.Helpers
         /// <param name="settings">Application settings</param>
         /// <param name="results">Import results for display</param>
         /// <param name="currentParameters">Current import parameters (for additional imports)</param>
+        /// <param name="progressTracker">Progress tracker for crash recovery (optional for backward compatibility)</param>
         /// <returns>Task representing the async operation</returns>
         /// <seealso cref="ConsoleAppSettings"/>
         /// <seealso cref="ImportResults"/>
-        public static async Task RunPostImportMenuAsync(ConsoleAppSettings settings, ImportResults results, ImportParameters? currentParameters = null)
+        /// <seealso cref="ImportProgressTracker"/>
+        public static async Task RunPostImportMenuAsync(
+            ConsoleAppSettings settings,
+            ImportResults results,
+            ImportParameters? currentParameters = null,
+            ImportProgressTracker? progressTracker = null)
         {
             #region implementation
 
@@ -362,7 +494,7 @@ namespace MedRecProConsole.Helpers
                     case "i":
                         if (currentParameters != null)
                         {
-                            var additionalResults = await runAdditionalImportAsync(settings, currentParameters);
+                            var additionalResults = await runAdditionalImportAsync(settings, currentParameters, progressTracker);
                             if (additionalResults != null)
                             {
                                 // Merge results
@@ -469,6 +601,144 @@ namespace MedRecProConsole.Helpers
             });
 
             return choices;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Handles an existing queue file by prompting the user to resume or start fresh.
+        /// </summary>
+        /// <param name="parameters">Import parameters to populate on resume</param>
+        /// <param name="progressTracker">Progress tracker for loading the queue</param>
+        /// <param name="settings">Application settings</param>
+        /// <returns>True if user chose to resume, false to start fresh</returns>
+        /// <seealso cref="ImportProgressFile"/>
+        /// <seealso cref="ImportProgressTracker"/>
+        private static async Task<bool> handleExistingQueueFileAsync(
+            ImportParameters parameters,
+            ImportProgressTracker progressTracker,
+            ConsoleAppSettings settings)
+        {
+            #region implementation
+
+            // Load the existing queue to get its status
+            ImportProgressFile? existingQueue = null;
+
+            try
+            {
+                existingQueue = await progressTracker.LoadOrCreateQueueAsync(
+                    parameters.ImportFolder,
+                    parameters.ConnectionString);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Connection string mismatch - inform user and offer options
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine("[yellow]Existing import queue found but cannot be used:[/]");
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
+                AnsiConsole.WriteLine();
+
+                var deleteChoice = AnsiConsole.Confirm("[yellow]Delete the existing queue and start fresh?[/]", true);
+
+                if (deleteChoice)
+                {
+                    // Delete the queue file and return false to start fresh
+                    var queuePath = Path.Combine(parameters.ImportFolder, ImportProgressFile.DefaultFileName);
+                    if (File.Exists(queuePath))
+                    {
+                        File.Delete(queuePath);
+                    }
+                    return false;
+                }
+                else
+                {
+                    // User declined to delete, they need to use the original connection
+                    AnsiConsole.MarkupLine("[grey]Please use the original database connection or delete the queue file manually.[/]");
+                    throw;
+                }
+            }
+
+            // Display queue status and prompt user
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule("[bold yellow]Existing Import Queue Found[/]").RuleStyle("yellow"));
+            AnsiConsole.WriteLine();
+
+            // Display queue status table
+            var statusTable = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn(new TableColumn("[bold]Property[/]").NoWrap())
+                .AddColumn(new TableColumn("[bold]Value[/]"));
+
+            statusTable.AddRow("Created", existingQueue.CreatedAt.ToLocalTime().ToString("g"));
+            statusTable.AddRow("Last Updated", existingQueue.LastUpdatedAt.ToLocalTime().ToString("g"));
+            statusTable.AddRow("Total Files", existingQueue.TotalItems.ToString());
+            statusTable.AddRow("[green]Completed[/]", existingQueue.CompletedItems.ToString());
+            statusTable.AddRow("[yellow]Pending[/]", existingQueue.QueuedItems.ToString());
+            statusTable.AddRow("[red]Failed[/]", existingQueue.FailedItems.ToString());
+            statusTable.AddRow("Completion", $"{existingQueue.CompletionPercentage:F1}%");
+            statusTable.AddRow("Resume Count", existingQueue.ResumeCount.ToString());
+
+            if (!string.IsNullOrEmpty(existingQueue.LastInterruptionReason))
+            {
+                statusTable.AddRow("Last Interruption", existingQueue.LastInterruptionReason);
+            }
+
+            AnsiConsole.Write(statusTable);
+            AnsiConsole.WriteLine();
+
+            // Check if import is already complete
+            if (existingQueue.IsComplete)
+            {
+                AnsiConsole.MarkupLine("[green]This import is already complete![/]");
+                var deleteCompleted = AnsiConsole.Confirm("[yellow]Delete the queue file and start a new import?[/]", true);
+
+                if (deleteCompleted)
+                {
+                    await progressTracker.DeleteQueueFileAsync();
+                    return false;
+                }
+                else
+                {
+                    // User doesn't want to delete the complete queue - signal to skip this folder
+                    // by setting a special flag in parameters that will be handled upstream
+                    parameters.ZipFiles = new List<string>(); // Empty list signals skip
+                    return true; // Return true with empty ZipFiles to signal "skip this folder"
+                }
+            }
+
+            // Prompt for action
+            var resumeChoice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[green]What would you like to do?[/]")
+                    .AddChoices(new[]
+                    {
+                        "Resume import from where it left off",
+                        "Start fresh (delete existing progress)",
+                        "Cancel"
+                    }));
+
+            switch (resumeChoice)
+            {
+                case "Resume import from where it left off":
+                    // Populate parameters from the queue
+                    parameters.MaxRuntimeMinutes = existingQueue.MaxRuntimeMinutes;
+                    parameters.VerboseMode = existingQueue.VerboseMode;
+
+                    // Get pending files from the queue
+                    parameters.ZipFiles = progressTracker.GetPendingFiles();
+
+                    AnsiConsole.MarkupLine($"[green]Resuming with {parameters.ZipFiles.Count} remaining file(s)[/]");
+                    return true;
+
+                case "Start fresh (delete existing progress)":
+                    await progressTracker.DeleteQueueFileAsync();
+                    AnsiConsole.MarkupLine("[yellow]Queue deleted. Starting fresh...[/]");
+                    return false;
+
+                default:
+                    throw new OperationCanceledException("Import cancelled by user");
+            }
 
             #endregion
         }
@@ -595,13 +865,19 @@ namespace MedRecProConsole.Helpers
         /**************************************************************/
         /// <summary>
         /// Runs an additional import operation from a new folder using the same database connection.
+        /// Supports progress tracking for crash recovery.
         /// </summary>
         /// <param name="settings">Application settings</param>
         /// <param name="currentParameters">Current import parameters containing database connection</param>
+        /// <param name="progressTracker">Progress tracker for crash recovery (can be null for legacy behavior)</param>
         /// <returns>Import results, or null if cancelled</returns>
         /// <seealso cref="ImportParameters"/>
         /// <seealso cref="ImportResults"/>
-        private static async Task<ImportResults?> runAdditionalImportAsync(ConsoleAppSettings settings, ImportParameters currentParameters)
+        /// <seealso cref="ImportProgressTracker"/>
+        private static async Task<ImportResults?> runAdditionalImportAsync(
+            ConsoleAppSettings settings,
+            ImportParameters currentParameters,
+            ImportProgressTracker? progressTracker)
         {
             #region implementation
 
@@ -630,8 +906,51 @@ namespace MedRecProConsole.Helpers
                 return null;
             }
 
-            // Scan for ZIP files
-            var zipFiles = scanForZipFiles(newFolderPath, settings.Display.ShowSpinners);
+            // Create or use progress tracker for this import
+            var useExistingTracker = progressTracker != null &&
+                newFolderPath.Equals(currentParameters.ImportFolder, StringComparison.OrdinalIgnoreCase);
+
+            // If same folder and we have a tracker, check for resume
+            var isResuming = false;
+            List<string> zipFiles;
+
+            if (useExistingTracker && progressTracker!.QueueFileExists(newFolderPath))
+            {
+                // Same folder with existing queue - offer to resume
+                var tempParams = new ImportParameters { ImportFolder = newFolderPath, ConnectionString = currentParameters.ConnectionString };
+                isResuming = await handleExistingQueueFileAsync(
+                    tempParams,
+                    progressTracker,
+                    settings);
+
+                if (isResuming)
+                {
+                    // Check if this was a "skip" signal (complete queue, user declined delete)
+                    if (tempParams.ZipFiles != null && tempParams.ZipFiles.Count == 0)
+                    {
+                        // User declined to delete complete queue - return to post-import menu
+                        return null;
+                    }
+
+                    zipFiles = progressTracker.GetPendingFiles();
+                }
+                else
+                {
+                    // User chose to start fresh - scan for files
+                    zipFiles = scanForZipFiles(newFolderPath, settings.Display.ShowSpinners);
+                }
+            }
+            else
+            {
+                // Different folder or no existing tracker - scan for ZIP files
+                zipFiles = scanForZipFiles(newFolderPath, settings.Display.ShowSpinners);
+
+                // Create a new progress tracker for this folder if different from original
+                if (!useExistingTracker)
+                {
+                    progressTracker = new ImportProgressTracker();
+                }
+            }
 
             if (zipFiles.Count == 0)
             {
@@ -649,16 +968,25 @@ namespace MedRecProConsole.Helpers
                 VerboseMode = currentParameters.VerboseMode
             };
 
-            // Confirm import
-            if (settings.ImportSettings.RequireConfirmation && !ConfirmImport(newParameters))
+            // Confirm import (skip if resuming - user already confirmed)
+            if (!isResuming && settings.ImportSettings.RequireConfirmation && !ConfirmImport(newParameters))
             {
                 AnsiConsole.MarkupLine("[grey]Import cancelled.[/]");
                 return null;
             }
 
-            // Execute import
+            // Execute import with progress tracking
             var importService = new Services.ImportService();
-            var results = await importService.ExecuteImportAsync(newParameters);
+            var results = await importService.ExecuteImportAsync(newParameters, progressTracker, isResuming);
+
+            // Show remaining items if any
+            var progressFile = progressTracker?.GetProgressFile();
+            if (progressFile != null && progressFile.RemainingItems > 0)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow]{progressFile.RemainingItems} file(s) remaining. " +
+                    "Use 'import' command again to continue.[/]");
+            }
 
             return results;
 
