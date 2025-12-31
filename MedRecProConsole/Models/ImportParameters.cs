@@ -54,6 +54,16 @@ namespace MedRecProConsole.Models
         /// </remarks>
         public List<string> ZipFiles { get; set; } = new();
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether verbose mode is enabled.
+        /// </summary>
+        /// <remarks>
+        /// When true, additional diagnostic output is displayed including
+        /// orphan detection reports and Entity Framework warnings.
+        /// </remarks>
+        public bool VerboseMode { get; set; }
+
         #endregion
     }
 }

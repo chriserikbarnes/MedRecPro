@@ -57,8 +57,11 @@ namespace MedRecProConsole
                 return 0;
             }
 
+            // Check for verbose flag - overrides settings
+            var verboseMode = HelpDocumentation.IsVerboseRequested(args);
+
             // Run interactive import mode
-            return await RunInteractiveImportAsync(settings);
+            return await RunInteractiveImportAsync(settings, verboseMode);
 
             #endregion
         }
@@ -68,10 +71,11 @@ namespace MedRecProConsole
         /// Runs the interactive import process with user prompts.
         /// </summary>
         /// <param name="settings">Application settings</param>
+        /// <param name="verboseMode">Whether to enable verbose output</param>
         /// <returns>Exit code: 0 for success, 1 for failure</returns>
         /// <seealso cref="ImportService"/>
         /// <seealso cref="ConsoleHelper"/>
-        public static async Task<int> RunInteractiveImportAsync(Models.ConsoleAppSettings settings)
+        public static async Task<int> RunInteractiveImportAsync(Models.ConsoleAppSettings settings, bool verboseMode = false)
         {
             #region implementation
 
@@ -89,6 +93,9 @@ namespace MedRecProConsole
                     return 1;
                 }
 
+                // Store verbose mode in parameters for downstream use
+                parameters.VerboseMode = verboseMode;
+
                 // Confirm with user before proceeding (if required by settings)
                 if (settings.ImportSettings.RequireConfirmation && !ConsoleHelper.ConfirmImport(parameters))
                 {
@@ -102,6 +109,9 @@ namespace MedRecProConsole
 
                 // Display results
                 ConsoleHelper.DisplayResults(results, settings);
+
+                // Interactive post-import menu (pass parameters for additional imports)
+                await ConsoleHelper.RunPostImportMenuAsync(settings, results, parameters);
 
                 return results.IsFullySuccessful ? 0 : 1;
             }

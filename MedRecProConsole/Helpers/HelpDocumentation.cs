@@ -116,6 +116,23 @@ namespace MedRecProConsole.Helpers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Checks if the command line arguments contain a verbose flag.
+        /// </summary>
+        /// <param name="args">Command line arguments</param>
+        /// <returns>True if verbose flag is present</returns>
+        public static bool IsVerboseRequested(string[] args)
+        {
+            #region implementation
+
+            return args.Any(a =>
+                a.Equals("--verbose", StringComparison.OrdinalIgnoreCase) ||
+                a.Equals("-V", StringComparison.Ordinal));
+
+            #endregion
+        }
+
         #endregion
 
         #region private methods

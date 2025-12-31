@@ -167,15 +167,16 @@ namespace MedRecProConsole.Helpers
 
             AnsiConsole.WriteLine();
 
-            // Display summary table
+            // Display summary table with flexible width
             var table = new Table()
                 .Border(TableBorder.Rounded)
-                .AddColumn("[bold]Setting[/]")
-                .AddColumn("[bold]Value[/]");
+                .AddColumn(new TableColumn("[bold]Setting[/]").NoWrap())
+                .AddColumn(new TableColumn("[bold]Value[/]"));
 
-            // Mask connection string for display
-            var displayConnectionString = parameters.ConnectionString.Length > 50
-                ? parameters.ConnectionString[..50] + "..."
+            // Mask connection string for display - use console width to determine truncation
+            var maxWidth = Math.Max(40, AnsiConsole.Profile.Width - 30);
+            var displayConnectionString = parameters.ConnectionString.Length > maxWidth
+                ? parameters.ConnectionString[..maxWidth] + "..."
                 : parameters.ConnectionString;
 
             table.AddRow("Database", Markup.Escape(displayConnectionString));
@@ -209,11 +210,11 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.Write(new Rule("[bold green]Import Complete[/]").RuleStyle("grey"));
             AnsiConsole.WriteLine();
 
-            // Summary table
+            // Summary table - use Expand() for flexible width
             var summaryTable = new Table()
                 .Border(TableBorder.Rounded)
-                .AddColumn("[bold]Metric[/]")
-                .AddColumn("[bold]Value[/]");
+                .AddColumn(new TableColumn("[bold]Metric[/]").NoWrap())
+                .AddColumn(new TableColumn("[bold]Value[/]").NoWrap());
 
             summaryTable.AddRow("Total ZIP Files", results.TotalZipsProcessed.ToString());
             summaryTable.AddRow("[green]Successful[/]", results.SuccessfulZips.ToString());
@@ -223,12 +224,12 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.Write(summaryTable);
             AnsiConsole.WriteLine();
 
-            // Entity counts table
+            // Entity counts table - use Expand() for flexible width
             var entityTable = new Table()
                 .Border(TableBorder.Rounded)
                 .Title("[bold blue]Entities Created[/]")
-                .AddColumn("[bold]Entity Type[/]")
-                .AddColumn("[bold]Count[/]");
+                .AddColumn(new TableColumn("[bold]Entity Type[/]").NoWrap())
+                .AddColumn(new TableColumn("[bold]Count[/]").NoWrap());
 
             entityTable.AddRow("Documents", results.TotalDocuments.ToString("N0"));
             entityTable.AddRow("Organizations", results.TotalOrganizations.ToString("N0"));
@@ -297,6 +298,109 @@ namespace MedRecProConsole.Helpers
             #region implementation
 
             AnsiConsole.WriteException(ex);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Runs the interactive post-import menu allowing user to quit or get help.
+        /// </summary>
+        /// <param name="settings">Application settings</param>
+        /// <param name="results">Import results for display</param>
+        /// <param name="currentParameters">Current import parameters (for additional imports)</param>
+        /// <returns>Task representing the async operation</returns>
+        /// <seealso cref="ConsoleAppSettings"/>
+        /// <seealso cref="ImportResults"/>
+        public static async Task RunPostImportMenuAsync(ConsoleAppSettings settings, ImportResults results, ImportParameters? currentParameters = null)
+        {
+            #region implementation
+
+            AnsiConsole.WriteLine();
+
+            while (true)
+            {
+                var command = AnsiConsole.Prompt(
+                    new TextPrompt<string>("[grey]Enter command ([green]quit[/] to exit, [blue]help[/] for options):[/]")
+                        .PromptStyle("white")
+                        .AllowEmpty());
+
+                var normalizedCommand = command.Trim().ToLowerInvariant();
+
+                switch (normalizedCommand)
+                {
+                    case "quit":
+                    case "q":
+                    case "exit":
+                        AnsiConsole.MarkupLine("[grey]Exiting...[/]");
+                        return;
+
+                    case "help":
+                    case "h":
+                    case "?":
+                        displayPostImportHelp();
+                        break;
+
+                    case "summary":
+                    case "s":
+                        DisplayResults(results, settings);
+                        break;
+
+                    case "errors":
+                    case "e":
+                        if (results.Errors.Count > 0)
+                        {
+                            displayErrors(results.Errors, settings.ImportSettings.MaxDisplayedErrors);
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupLine("[green]No errors to display.[/]");
+                        }
+                        break;
+
+                    case "import":
+                    case "i":
+                        if (currentParameters != null)
+                        {
+                            var additionalResults = await runAdditionalImportAsync(settings, currentParameters);
+                            if (additionalResults != null)
+                            {
+                                // Merge results
+                                results.TotalZipsProcessed += additionalResults.TotalZipsProcessed;
+                                results.SuccessfulZips += additionalResults.SuccessfulZips;
+                                results.FailedZips += additionalResults.FailedZips;
+                                results.TotalDocuments += additionalResults.TotalDocuments;
+                                results.TotalOrganizations += additionalResults.TotalOrganizations;
+                                results.TotalProducts += additionalResults.TotalProducts;
+                                results.TotalSections += additionalResults.TotalSections;
+                                results.TotalIngredients += additionalResults.TotalIngredients;
+                                results.Errors.AddRange(additionalResults.Errors);
+                                results.FailedZipNames.AddRange(additionalResults.FailedZipNames);
+
+                                // Display combined results
+                                DisplayResults(results, settings);
+                            }
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupLine("[yellow]Import parameters not available. Please restart the application.[/]");
+                        }
+                        break;
+
+                    case "":
+                        // Empty input - show hint
+                        AnsiConsole.MarkupLine("[grey]Type 'help' for available commands or 'quit' to exit.[/]");
+                        break;
+
+                    default:
+                        AnsiConsole.MarkupLine($"[yellow]Unknown command: {Markup.Escape(command)}[/]");
+                        AnsiConsole.MarkupLine("[grey]Type 'help' for available commands.[/]");
+                        break;
+                }
+
+                // Small delay to allow console to settle
+                await Task.Delay(100);
+            }
 
             #endregion
         }
@@ -445,7 +549,8 @@ namespace MedRecProConsole.Helpers
             var panel = new Panel(
                 new Rows(errors.Take(maxDisplayed).Select(e => new Text(e, new Style(Color.Red)))))
                 .Header("[bold red]Error Details[/]")
-                .Border(BoxBorder.Rounded);
+                .Border(BoxBorder.Rounded)
+                .Expand();
 
             AnsiConsole.Write(panel);
 
@@ -453,6 +558,109 @@ namespace MedRecProConsole.Helpers
             {
                 AnsiConsole.MarkupLine($"[yellow]... and {errors.Count - maxDisplayed} more errors (see log for details)[/]");
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Displays the help menu for post-import commands.
+        /// </summary>
+        private static void displayPostImportHelp()
+        {
+            #region implementation
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule("[bold blue]Available Commands[/]").RuleStyle("grey"));
+            AnsiConsole.WriteLine();
+
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn("[bold]Command[/]")
+                .AddColumn("[bold]Description[/]")
+                .Expand();
+
+            table.AddRow("[green]quit, q, exit[/]", "Exit the application");
+            table.AddRow("[blue]help, h, ?[/]", "Display this help message");
+            table.AddRow("[cyan]summary, s[/]", "Display import summary again");
+            table.AddRow("[yellow]errors, e[/]", "Display error details");
+            table.AddRow("[magenta]import, i[/]", "Import additional folder (uses same database)");
+
+            AnsiConsole.Write(table);
+            AnsiConsole.WriteLine();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Runs an additional import operation from a new folder using the same database connection.
+        /// </summary>
+        /// <param name="settings">Application settings</param>
+        /// <param name="currentParameters">Current import parameters containing database connection</param>
+        /// <returns>Import results, or null if cancelled</returns>
+        /// <seealso cref="ImportParameters"/>
+        /// <seealso cref="ImportResults"/>
+        private static async Task<ImportResults?> runAdditionalImportAsync(ConsoleAppSettings settings, ImportParameters currentParameters)
+        {
+            #region implementation
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule("[bold magenta]Additional Import[/]").RuleStyle("grey"));
+            AnsiConsole.WriteLine();
+
+            // Prompt for new folder path
+            var newFolderPath = AnsiConsole.Prompt(
+                new TextPrompt<string>("[green]Enter folder path to import (contains ZIP files):[/]")
+                    .PromptStyle("white")
+                    .AllowEmpty()
+                    .Validate(path =>
+                    {
+                        if (string.IsNullOrWhiteSpace(path))
+                            return ValidationResult.Success(); // Allow empty to cancel
+                        if (!Directory.Exists(path))
+                            return ValidationResult.Error($"[red]Directory does not exist: {path}[/]");
+                        return ValidationResult.Success();
+                    }));
+
+            // Check if user cancelled
+            if (string.IsNullOrWhiteSpace(newFolderPath))
+            {
+                AnsiConsole.MarkupLine("[grey]Import cancelled.[/]");
+                return null;
+            }
+
+            // Scan for ZIP files
+            var zipFiles = scanForZipFiles(newFolderPath, settings.Display.ShowSpinners);
+
+            if (zipFiles.Count == 0)
+            {
+                AnsiConsole.MarkupLine($"[red]No ZIP files found in: {Markup.Escape(newFolderPath)}[/]");
+                return null;
+            }
+
+            // Create new parameters with the new folder but same connection
+            var newParameters = new ImportParameters
+            {
+                ConnectionString = currentParameters.ConnectionString,
+                ImportFolder = newFolderPath,
+                MaxRuntimeMinutes = currentParameters.MaxRuntimeMinutes,
+                ZipFiles = zipFiles,
+                VerboseMode = currentParameters.VerboseMode
+            };
+
+            // Confirm import
+            if (settings.ImportSettings.RequireConfirmation && !ConfirmImport(newParameters))
+            {
+                AnsiConsole.MarkupLine("[grey]Import cancelled.[/]");
+                return null;
+            }
+
+            // Execute import
+            var importService = new Services.ImportService();
+            var results = await importService.ExecuteImportAsync(newParameters);
+
+            return results;
 
             #endregion
         }

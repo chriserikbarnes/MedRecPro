@@ -61,15 +61,36 @@ namespace MedRecProConsole.Services
             // Build configuration with required settings for MedRecPro services
             var configuration = ConfigurationHelper.BuildMedRecProConfiguration();
 
+            // Redirect console output if not in verbose mode to suppress debug messages
+            TextWriter? originalConsoleOut = null;
+            if (!parameters.VerboseMode)
+            {
+                originalConsoleOut = Console.Out;
+                Console.SetOut(TextWriter.Null);
+            }
+
             // Build service provider with all required MedRecPro dependencies
-            await using var serviceProvider = buildServiceProvider(parameters.ConnectionString, configuration);
+            await using var serviceProvider = buildServiceProvider(parameters.ConnectionString, configuration, parameters.VerboseMode);
 
             // Track overall results
             var results = new ImportResults();
 
+            // Restore console output for Spectre.Console UI
+            if (originalConsoleOut != null)
+            {
+                Console.SetOut(originalConsoleOut);
+            }
+
             AnsiConsole.WriteLine();
             AnsiConsole.Write(new Rule("[bold green]Starting Import[/]").RuleStyle("grey"));
             AnsiConsole.WriteLine();
+
+            // Re-redirect console output during import processing
+            if (!parameters.VerboseMode)
+            {
+                originalConsoleOut = Console.Out;
+                Console.SetOut(TextWriter.Null);
+            }
 
             await AnsiConsole.Progress()
                 .AutoRefresh(true)
@@ -98,7 +119,14 @@ namespace MedRecProConsole.Services
                         }
 
                         var zipFileName = Path.GetFileName(zipFilePath);
-                        var zipTask = ctx.AddTask($"[blue]{zipFileName}[/]", maxValue: 100);
+
+                        // Truncate display name to prevent wrapping on narrow consoles
+                        var maxNameLength = Math.Max(30, AnsiConsole.Profile.Width / 3);
+                        var displayName = zipFileName.Length > maxNameLength
+                            ? zipFileName[..(maxNameLength - 3)] + "..."
+                            : zipFileName;
+
+                        var zipTask = ctx.AddTask($"[blue]{displayName}[/]", maxValue: 100);
 
                         try
                         {
@@ -113,7 +141,7 @@ namespace MedRecProConsole.Services
                             if (zipResult.OverallSuccess)
                             {
                                 results.SuccessfulZips++;
-                                zipTask.Description = $"[green]{zipFileName} - Success ({zipResult.TotalFilesSucceeded} files)[/]";
+                                zipTask.Description = $"[green]{displayName} - Success ({zipResult.TotalFilesSucceeded} files)[/]";
                             }
                             else
                             {
@@ -126,7 +154,7 @@ namespace MedRecProConsole.Services
                                     results.Errors.Add($"{zipFileName}/{fileResult.FileName}: {fileResult.Message}");
                                 }
 
-                                zipTask.Description = $"[red]{zipFileName} - Failed ({zipResult.TotalFilesSucceeded}/{zipResult.TotalFilesProcessed} succeeded)[/]";
+                                zipTask.Description = $"[red]{displayName} - Failed ({zipResult.TotalFilesSucceeded}/{zipResult.TotalFilesProcessed} succeeded)[/]";
                             }
 
                             // Aggregate statistics
@@ -139,7 +167,7 @@ namespace MedRecProConsole.Services
                             results.FailedZips++;
                             results.FailedZipNames.Add(zipFileName);
                             results.Errors.Add($"{zipFileName}: Import cancelled (timeout)");
-                            zipTask.Description = $"[yellow]{zipFileName} - Cancelled[/]";
+                            zipTask.Description = $"[yellow]{displayName} - Cancelled[/]";
                             break;
                         }
                         catch (Exception ex)
@@ -147,7 +175,7 @@ namespace MedRecProConsole.Services
                             results.FailedZips++;
                             results.FailedZipNames.Add(zipFileName);
                             results.Errors.Add($"{zipFileName}: {ex.Message}");
-                            zipTask.Description = $"[red]{zipFileName} - Error: {ex.Message}[/]";
+                            zipTask.Description = $"[red]{displayName} - Error[/]";
                         }
 
                         overallTask.Increment(1);
@@ -155,6 +183,12 @@ namespace MedRecProConsole.Services
 
                     overallTask.Value = overallTask.MaxValue;
                 });
+
+            // Restore console output after import processing
+            if (originalConsoleOut != null)
+            {
+                Console.SetOut(originalConsoleOut);
+            }
 
             stopwatch.Stop();
             results.ElapsedTime = stopwatch.Elapsed;
@@ -174,15 +208,17 @@ namespace MedRecProConsole.Services
         /// </summary>
         /// <param name="connectionString">Database connection string</param>
         /// <param name="configuration">Application configuration</param>
+        /// <param name="verboseMode">Whether verbose logging is enabled</param>
         /// <returns>ServiceProvider with configured services</returns>
         /// <remarks>
         /// Registers ApplicationDbContext, Repository, SplImportService, SplDataService,
         /// SplXmlParser, and all parsing services required for SPL import operations.
+        /// When verboseMode is false, logging is suppressed to minimize console noise.
         /// </remarks>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="SplImportService"/>
         /// <seealso cref="SplXmlParser"/>
-        private ServiceProvider buildServiceProvider(string connectionString, IConfiguration configuration)
+        private ServiceProvider buildServiceProvider(string connectionString, IConfiguration configuration, bool verboseMode)
         {
             #region implementation
 
@@ -191,11 +227,19 @@ namespace MedRecProConsole.Services
             // Add configuration
             services.AddSingleton<IConfiguration>(configuration);
 
-            // Add logging
+            // Add logging - suppress most output unless verbose mode
             services.AddLogging(builder =>
             {
-                builder.AddConsole();
-                builder.SetMinimumLevel(LogLevel.Warning);
+                if (verboseMode)
+                {
+                    builder.AddConsole();
+                    builder.SetMinimumLevel(LogLevel.Warning);
+                }
+                else
+                {
+                    // Suppress all logging except Critical errors
+                    builder.SetMinimumLevel(LogLevel.None);
+                }
             });
 
             // Add DbContext
@@ -203,6 +247,15 @@ namespace MedRecProConsole.Services
             {
                 options.UseSqlServer(connectionString);
                 options.EnableSensitiveDataLogging(false);
+
+                // Suppress EF Core warnings unless verbose mode
+                if (!verboseMode)
+                {
+                    options.ConfigureWarnings(warnings =>
+                        warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.AmbientTransactionWarning)
+                    );
+                    options.LogTo(_ => { }, LogLevel.None);
+                }
             });
 
             // Add generic logger for Repository
