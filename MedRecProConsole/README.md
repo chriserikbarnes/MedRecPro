@@ -11,6 +11,8 @@ This application walks an entire directory tree, identifies ZIP files containing
 - **Bulk Import**: Process thousands of SPL ZIP files in a single operation
 - **Recursive Scanning**: Automatically discovers ZIP files in all subdirectories
 - **Progress Tracking**: Real-time progress bars for overall and per-file processing
+- **Crash Recovery**: Queue-based progress tracking persists import state to disk, enabling resume capability across application restarts, crashes, and timer expirations
+- **Multi-Session Import**: Resume imports from where you left off when restarting on the same folder
 - **Error Handling**: Failed imports are logged and skipped; processing continues
 - **Timeout Support**: Optional maximum runtime limit to control long-running imports
 - **Styled Console UI**: Uses Spectre.Console for rich, interactive terminal output
@@ -30,9 +32,12 @@ MedRecProConsole/
 ├── README.md                       # This file
 ├── Models/
 │   ├── ImportParameters.cs         # User input parameters
-│   └── ImportResults.cs            # Import statistics and results
+│   ├── ImportResults.cs            # Import statistics and results
+│   ├── ImportQueueItem.cs          # Individual file tracking model
+│   └── ImportProgressFile.cs       # Queue file root model
 ├── Services/
-│   └── ImportService.cs            # Import orchestration
+│   ├── ImportService.cs            # Import orchestration
+│   └── ImportProgressTracker.cs    # Async queue management service
 └── Helpers/
     ├── ConsoleHelper.cs            # Console UI operations
     └── ConfigurationHelper.cs      # Configuration management
@@ -151,6 +156,25 @@ When a maximum runtime is set:
 - Import stops gracefully when timeout is reached
 - Current ZIP file completes before stopping
 - Partial results are displayed
+- Progress is saved to the queue file for later resumption
+
+### Crash Recovery and Resume
+
+The application creates a `.medrecpro-import-queue.json` file at the import folder root to track progress:
+
+**Queue File Contents:**
+- File statuses: `queued`, `in-progress`, `completed`, `failed`, `skipped`
+- Per-file statistics (documents, products, sections, etc.)
+- Atomic file writes prevent corruption on crash
+
+**Resume Behavior:**
+- When restarting an import on a folder with an existing queue file, you're prompted to resume or start fresh
+- Resuming continues from where the previous session left off
+- If a completed queue exists and you decline to delete it, the application proceeds to a post-import menu (import, help, quit) instead of exiting
+
+**Nested Folder Support:**
+- Queue files in subdirectories are respected when importing from a parent folder
+- This allows importing remaining files while honoring completed child folder progress
 
 ## Output
 
