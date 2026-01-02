@@ -1085,7 +1085,20 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.Write(statusTable);
             AnsiConsole.WriteLine();
 
-            // Check if import is already complete
+            // Re-index the directory to check for newly added files before determining completion status
+            AnsiConsole.MarkupLine("[yellow]Re-indexing directory for new files...[/]");
+            var currentZipFiles = performZipScan(parameters.ImportFolder);
+            var newFilesAdded = await progressTracker.AddNewFilesToQueueAsync(currentZipFiles);
+
+            if (newFilesAdded > 0)
+            {
+                AnsiConsole.MarkupLine($"[cyan]Found {newFilesAdded} new file(s) added since last processing[/]");
+
+                // Refresh the queue reference to reflect updated state
+                existingQueue = progressTracker.GetProgressFile()!;
+            }
+
+            // Check if import is already complete (after considering new files)
             if (existingQueue.IsComplete)
             {
                 AnsiConsole.MarkupLine("[green]This import is already complete![/]");
@@ -1123,7 +1136,7 @@ namespace MedRecProConsole.Helpers
                     parameters.MaxRuntimeMinutes = existingQueue.MaxRuntimeMinutes;
                     parameters.VerboseMode = existingQueue.VerboseMode;
 
-                    // Get pending files from the queue
+                    // Get pending files from the queue (already includes any newly added files from re-indexing above)
                     parameters.ZipFiles = progressTracker.GetPendingFiles();
 
                     AnsiConsole.MarkupLine($"[green]Resuming with {parameters.ZipFiles.Count} remaining file(s)[/]");

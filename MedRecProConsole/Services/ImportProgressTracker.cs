@@ -462,6 +462,87 @@ namespace MedRecProConsole.Services
 
         /**************************************************************/
         /// <summary>
+        /// Adds newly discovered ZIP files to the existing queue.
+        /// Files that already exist in the queue are ignored.
+        /// </summary>
+        /// <param name="newZipFiles">List of newly discovered ZIP file paths</param>
+        /// <returns>Number of new files added to the queue</returns>
+        /// <remarks>
+        /// This method is used when resuming an import to add any files that were
+        /// added to the import folder since the queue was last processed.
+        /// New files are added with Queued status.
+        /// </remarks>
+        /// <seealso cref="ImportQueueItem"/>
+        public async Task<int> AddNewFilesToQueueAsync(List<string> newZipFiles)
+        {
+            #region implementation
+
+            if (_progressFile == null || newZipFiles == null || newZipFiles.Count == 0)
+            {
+                return 0;
+            }
+
+            await _lock.WaitAsync();
+            try
+            {
+                var addedCount = 0;
+
+                // Get set of existing file paths for fast lookup (case-insensitive)
+                var existingPaths = new HashSet<string>(
+                    _progressFile.Items.Select(i => i.FilePath),
+                    StringComparer.OrdinalIgnoreCase);
+
+                foreach (var zipFile in newZipFiles)
+                {
+                    // Skip if already in queue
+                    if (existingPaths.Contains(zipFile))
+                    {
+                        continue;
+                    }
+
+                    // Create new queue item
+                    var item = new ImportQueueItem
+                    {
+                        FilePath = zipFile,
+                        Status = ImportQueueStatus.Queued
+                    };
+
+                    // Try to get file size for progress estimation
+                    try
+                    {
+                        var fileInfo = new FileInfo(zipFile);
+                        if (fileInfo.Exists)
+                        {
+                            item.FileSizeBytes = fileInfo.Length;
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore file info errors
+                    }
+
+                    _progressFile.Items.Add(item);
+                    addedCount++;
+                }
+
+                if (addedCount > 0)
+                {
+                    _progressFile.LastUpdatedAt = DateTime.UtcNow;
+                    await saveQueueFileAsync();
+                }
+
+                return addedCount;
+            }
+            finally
+            {
+                _lock.Release();
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Checks if a file should be skipped due to nested queue progress.
         /// </summary>
         /// <param name="filePath">The file path to check</param>
