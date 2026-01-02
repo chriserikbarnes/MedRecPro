@@ -1847,13 +1847,15 @@ SELECT
             THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
         ELSE dbo.MarketingCategory.ApplicationOrMonographIDValue
     END AS ApplicationNumber
-FROM dbo.Ingredient
-    INNER JOIN dbo.IngredientSubstance ON dbo.Ingredient.IngredientSubstanceID = dbo.IngredientSubstance.IngredientSubstanceID
-    INNER JOIN dbo.Product ON dbo.Ingredient.ProductID = dbo.Product.ProductID
-    INNER JOIN dbo.Section ON dbo.Product.SectionID = dbo.Section.SectionID
-    INNER JOIN dbo.[Document] ON dbo.Section.DocumentID = dbo.[Document].DocumentID
-    INNER JOIN dbo.MarketingCategory ON dbo.Product.ProductID = dbo.MarketingCategory.ProductID
-WHERE (dbo.Ingredient.ClassCode IS NOT NULL)
+    FROM  dbo.Section INNER JOIN
+             dbo.[Document] ON dbo.Section.DocumentID = dbo.[Document].DocumentID RIGHT OUTER JOIN
+             dbo.Product ON dbo.Section.SectionID = dbo.Product.SectionID LEFT OUTER JOIN
+             dbo.MarketingCategory ON dbo.Product.ProductID = dbo.MarketingCategory.ProductID LEFT OUTER JOIN
+             dbo.Ingredient LEFT OUTER JOIN
+             dbo.IngredientSubstance 
+                ON dbo.Ingredient.IngredientSubstanceID = dbo.IngredientSubstance.IngredientSubstanceID 
+                ON dbo.Product.ProductID = dbo.Ingredient.ProductID
+
 GO
 
 IF NOT EXISTS (
@@ -1928,12 +1930,14 @@ SELECT
             THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
         ELSE dbo.MarketingCategory.ApplicationOrMonographIDValue
     END AS ApplicationNumber
-FROM dbo.Ingredient
-    INNER JOIN dbo.IngredientSubstance ON dbo.Ingredient.IngredientSubstanceID = dbo.IngredientSubstance.IngredientSubstanceID
-    INNER JOIN dbo.Product ON dbo.Ingredient.ProductID = dbo.Product.ProductID
-    INNER JOIN dbo.Section ON dbo.Product.SectionID = dbo.Section.SectionID
-    INNER JOIN dbo.[Document] ON dbo.Section.DocumentID = dbo.[Document].DocumentID
-    INNER JOIN dbo.MarketingCategory ON dbo.Product.ProductID = dbo.MarketingCategory.ProductID
+    FROM  dbo.Section INNER JOIN
+                 dbo.[Document] ON dbo.Section.DocumentID = dbo.[Document].DocumentID RIGHT OUTER JOIN
+                 dbo.Product ON dbo.Section.SectionID = dbo.Product.SectionID LEFT OUTER JOIN
+                 dbo.MarketingCategory ON dbo.Product.ProductID = dbo.MarketingCategory.ProductID LEFT OUTER JOIN
+                 dbo.Ingredient LEFT OUTER JOIN
+                 dbo.IngredientSubstance 
+                    ON dbo.Ingredient.IngredientSubstanceID = dbo.IngredientSubstance.IngredientSubstanceID 
+                    ON dbo.Product.ProductID = dbo.Ingredient.ProductID
 WHERE (dbo.Ingredient.ClassCode = 'IACT')
 GO
 
@@ -2009,13 +2013,15 @@ SELECT
             THEN SUBSTRING(dbo.MarketingCategory.ApplicationOrMonographIDValue, 4, LEN(dbo.MarketingCategory.ApplicationOrMonographIDValue))
         ELSE dbo.MarketingCategory.ApplicationOrMonographIDValue
     END AS ApplicationNumber
-FROM dbo.Ingredient
-    INNER JOIN dbo.IngredientSubstance ON dbo.Ingredient.IngredientSubstanceID = dbo.IngredientSubstance.IngredientSubstanceID
-    INNER JOIN dbo.Product ON dbo.Ingredient.ProductID = dbo.Product.ProductID
-    INNER JOIN dbo.Section ON dbo.Product.SectionID = dbo.Section.SectionID
-    INNER JOIN dbo.[Document] ON dbo.Section.DocumentID = dbo.[Document].DocumentID
-    INNER JOIN dbo.MarketingCategory ON dbo.Product.ProductID = dbo.MarketingCategory.ProductID
-WHERE (dbo.Ingredient.ClassCode IS NOT NULL) AND (dbo.Ingredient.ClassCode <> 'IACT')
+    FROM  dbo.Section INNER JOIN
+            dbo.[Document] ON dbo.Section.DocumentID = dbo.[Document].DocumentID RIGHT OUTER JOIN
+            dbo.Product ON dbo.Section.SectionID = dbo.Product.SectionID LEFT OUTER JOIN
+            dbo.MarketingCategory ON dbo.Product.ProductID = dbo.MarketingCategory.ProductID LEFT OUTER JOIN
+            dbo.Ingredient LEFT OUTER JOIN
+            dbo.IngredientSubstance 
+            ON dbo.Ingredient.IngredientSubstanceID = dbo.IngredientSubstance.IngredientSubstanceID 
+            ON dbo.Product.ProductID = dbo.Ingredient.ProductID
+WHERE (dbo.Ingredient.ClassCode <> 'IACT')
 GO
 
 IF NOT EXISTS (
