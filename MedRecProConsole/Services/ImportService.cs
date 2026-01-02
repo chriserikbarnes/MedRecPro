@@ -1,8 +1,8 @@
-using MedRecPro.Data;
-using MedRecPro.DataAccess;
-using MedRecPro.Helpers;
-using MedRecPro.Models;
-using MedRecPro.Service;
+using MedRecProImportClass.Data;
+using MedRecProImportClass.DataAccess;
+using MedRecProImportClass.Helpers;
+using MedRecProImportClass.Models;
+using MedRecProImportClass.Service;
 using MedRecProConsole.Helpers;
 using MedRecProConsole.Models;
 using Microsoft.EntityFrameworkCore;
