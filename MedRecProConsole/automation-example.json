@@ -1,0 +1,74 @@
+{
+  // ============================================================================
+  // AUTOMATION CONFIGURATION EXAMPLE
+  // ============================================================================
+  //
+  // This file demonstrates how to create a standalone automation configuration
+  // for Windows Task Scheduler or command-line automation scenarios.
+  //
+  // Usage:
+  //   MedRecProConsole.exe --config "C:\Jobs\automation-example.json" --folder "C:\SPL\Imports"
+  //
+  // Configuration Layering:
+  //   When using --config, settings from this file are layered on top of appsettings.json.
+  //   This means you only need to specify the settings you want to override.
+  //   All other settings are inherited from appsettings.json.
+  //
+  // ============================================================================
+
+  // Override the automation settings for this specific job
+  "Automation": {
+    // Always exit after processing completes (required for Task Scheduler)
+    "AutoQuitOnCompletion": true,
+
+    // Default import folder if --folder argument is not provided
+    // Set this to avoid having to specify --folder on command line
+    "DefaultImportFolder": "C:\\SPL\\DailyImports",
+
+    // Default database connection name
+    // Must match a name from DatabaseConnections in appsettings.json
+    "DefaultConnectionName": "Local Database Dev (MedRecLocal)",
+
+    // Maximum runtime for scheduled jobs (2 hours)
+    // Import will gracefully stop when time limit is reached
+    "DefaultMaxRuntimeMinutes": 120,
+
+    // Skip confirmation prompts in automation
+    "SuppressConfirmations": true,
+
+    // Enable logging for unattended runs
+    "EnableUnattendedLogging": true,
+
+    // Log file path with date placeholder
+    "UnattendedLogPath": "logs/daily-import-{date}.log"
+  },
+
+  // Optionally override import settings for this job
+  "ImportSettings": {
+    // Continue processing even if some files fail
+    "ContinueOnError": true,
+
+    // Log more errors for debugging
+    "MaxDisplayedErrors": 100
+  },
+
+  // Optionally override display settings
+  "Display": {
+    // Disable banner for cleaner log output
+    "ShowBanner": false,
+
+    // Disable clearing console (preserves previous output)
+    "ClearConsoleOnStart": false,
+
+    // Disable spinners (not useful in scheduled tasks)
+    "ShowSpinners": false
+  },
+
+  // Optionally override feature flags for this job
+  "FeatureFlags": {
+    // Enable bulk operations for faster processing
+    "UseBulkOperations": true,
+    "UseBulkStagingOperations": true,
+    "UseBatchSaving": true
+  }
+}

@@ -64,6 +64,13 @@ namespace MedRecProConsole.Models
         /// </summary>
         public HelpSettings Help { get; set; } = new();
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the automation settings for unattended operation.
+        /// </summary>
+        /// <seealso cref="AutomationSettings"/>
+        public AutomationSettings Automation { get; set; } = new();
+
         #endregion
     }
 
@@ -314,6 +321,81 @@ namespace MedRecProConsole.Models
         /// Gets or sets whether to show spinner animations.
         /// </summary>
         public bool ShowSpinners { get; set; } = true;
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Automation settings for unattended operation via Windows Task Scheduler.
+    /// </summary>
+    /// <remarks>
+    /// These settings control behavior when the application is launched with command-line
+    /// arguments for unattended operation. They enable fully automated batch processing
+    /// without user interaction.
+    /// </remarks>
+    /// <seealso cref="ConsoleAppSettings"/>
+    public class AutomationSettings
+    {
+        #region implementation
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether to automatically quit after processing completes.
+        /// When true, the application exits immediately after import finishes.
+        /// When false, the application returns to the interactive menu.
+        /// </summary>
+        /// <example>
+        /// Set to true for Windows Task Scheduler jobs to ensure the process terminates.
+        /// </example>
+        public bool AutoQuitOnCompletion { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the default folder path for unattended imports.
+        /// Used when --folder is specified without a path argument.
+        /// </summary>
+        public string? DefaultImportFolder { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the default database connection name for unattended imports.
+        /// Must match one of the names in DatabaseConnections.
+        /// Used when --folder is specified without --connection.
+        /// </summary>
+        public string? DefaultConnectionName { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the default maximum runtime in minutes for unattended imports.
+        /// Overrides ImportSettings.DefaultMaxRuntimeMinutes when running unattended.
+        /// Null indicates no limit.
+        /// </summary>
+        public int? DefaultMaxRuntimeMinutes { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether to suppress all confirmation prompts during unattended mode.
+        /// When true, bypasses RequireConfirmation setting.
+        /// </summary>
+        public bool SuppressConfirmations { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether to log output to a file during unattended operation.
+        /// Useful for reviewing results after Task Scheduler runs.
+        /// </summary>
+        public bool EnableUnattendedLogging { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the path for unattended operation log files.
+        /// Supports date placeholders: {date}, {datetime}.
+        /// </summary>
+        /// <example>
+        /// "logs/unattended-{date}.log" produces "logs/unattended-2024-01-15.log"
+        /// </example>
+        public string UnattendedLogPath { get; set; } = "logs/unattended-{date}.log";
 
         #endregion
     }

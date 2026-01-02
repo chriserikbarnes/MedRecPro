@@ -1,4 +1,5 @@
 using MedRecProConsole.Helpers;
+using MedRecProConsole.Models;
 using MedRecProConsole.Services;
 
 namespace MedRecProConsole
@@ -12,12 +13,16 @@ namespace MedRecProConsole
     /// <remarks>
     /// Uses Spectre.Console for styled console output and user parameter input.
     /// Leverages the existing MedRecPro services and data access layer for all import operations.
-    /// Supports command line arguments for help (--help, -h) and version (--version, -v).
+    /// Supports both interactive and unattended (Task Scheduler) operation modes.
+    ///
+    /// Interactive mode: Run without arguments for menu-driven interface.
+    /// Unattended mode: Use --folder argument to enable automated processing.
     /// </remarks>
     /// <seealso cref="ImportService"/>
     /// <seealso cref="ConsoleHelper"/>
     /// <seealso cref="ConfigurationHelper"/>
     /// <seealso cref="HelpDocumentation"/>
+    /// <seealso cref="CommandLineArgs"/>
     public class Program
     {
         /**************************************************************/
@@ -25,29 +30,51 @@ namespace MedRecProConsole
         /// Main entry point for the MedRecPro Console Import application.
         /// Processes command line arguments and orchestrates the bulk import process.
         /// </summary>
-        /// <param name="args">Command line arguments (--help, --version, etc.)</param>
+        /// <param name="args">Command line arguments</param>
         /// <returns>Exit code: 0 for success, 1 for failure</returns>
         /// <remarks>
         /// Supported arguments:
         /// --help, -h: Display help documentation
         /// --version, -v: Display version information
+        /// --verbose, -V: Enable verbose output
+        /// --quiet, -q: Minimal output mode
+        /// --folder path: Import folder (enables unattended mode)
+        /// --connection name: Database connection name
+        /// --time minutes: Maximum runtime in minutes
+        /// --auto-quit: Exit immediately after import
+        /// --config path: Use alternate configuration file
+        ///
         /// No arguments: Run interactive import mode
         /// </remarks>
         /// <seealso cref="ImportService"/>
         /// <seealso cref="ConsoleHelper"/>
         /// <seealso cref="HelpDocumentation"/>
+        /// <seealso cref="CommandLineArgs"/>
         public static async Task<int> Main(string[] args)
         {
             #region implementation
 
-            // Load application settings
+            // Parse command-line arguments
+            var cmdArgs = CommandLineArgs.Parse(args);
+
+            // Handle alternate config file first (before loading settings)
+            if (!string.IsNullOrEmpty(cmdArgs.ConfigPath))
+            {
+                if (!ConfigurationHelper.SetAlternateConfigPath(cmdArgs.ConfigPath))
+                {
+                    Spectre.Console.AnsiConsole.MarkupLine($"[red]Error: Config file not found: {cmdArgs.ConfigPath}[/]");
+                    return 1;
+                }
+            }
+
+            // Load application settings (will use alternate config if specified)
             var settings = ConfigurationHelper.GetConsoleAppSettings();
 
             // Track if we displayed command-line info (to prevent clearing it)
             var displayedCommandLineInfo = false;
 
             // Check for version flag
-            if (HelpDocumentation.IsVersionRequested(args))
+            if (cmdArgs.ShowVersion)
             {
                 HelpDocumentation.DisplayVersion(settings);
                 displayedCommandLineInfo = true;
@@ -55,18 +82,151 @@ namespace MedRecProConsole
             }
 
             // Check for help flag
-            if (HelpDocumentation.IsHelpRequested(args))
+            if (cmdArgs.ShowHelp)
             {
                 HelpDocumentation.DisplayHelp(settings);
                 displayedCommandLineInfo = true;
                 Spectre.Console.AnsiConsole.WriteLine();
             }
 
-            // Check for verbose flag - overrides settings
-            var verboseMode = HelpDocumentation.IsVerboseRequested(args);
+            // If only help/version requested, exit
+            if ((cmdArgs.ShowHelp || cmdArgs.ShowVersion) && !cmdArgs.IsUnattendedMode)
+            {
+                return 0;
+            }
 
-            // Run interactive import mode (skip header if we already displayed info)
-            return await RunInteractiveImportAsync(settings, verboseMode, skipHeader: displayedCommandLineInfo);
+            // Display argument errors if any
+            if (cmdArgs.HasErrors)
+            {
+                HelpDocumentation.DisplayArgumentErrors(cmdArgs.Errors);
+                return 1;
+            }
+
+            // Determine operation mode
+            if (cmdArgs.IsUnattendedMode)
+            {
+                // Unattended mode - process folder and exit
+                return await runUnattendedModeAsync(settings, cmdArgs);
+            }
+            else
+            {
+                // Interactive mode
+                return await RunInteractiveImportAsync(settings, cmdArgs.VerboseMode, skipHeader: displayedCommandLineInfo);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Runs the application in unattended mode for Task Scheduler or automation.
+        /// </summary>
+        /// <param name="settings">Application settings</param>
+        /// <param name="cmdArgs">Parsed command-line arguments</param>
+        /// <returns>Exit code: 0 for full success, 1 for any failures</returns>
+        /// <remarks>
+        /// In unattended mode:
+        /// - Uses --folder as the import path
+        /// - Uses --connection or default database connection
+        /// - Uses --time or settings for max runtime
+        /// - Auto-quits based on --auto-quit flag or settings
+        /// - Suppresses user prompts
+        /// </remarks>
+        /// <seealso cref="CommandLineArgs"/>
+        /// <seealso cref="ConsoleHelper.RunUnattendedImportAsync"/>
+        private static async Task<int> runUnattendedModeAsync(ConsoleAppSettings settings, CommandLineArgs cmdArgs)
+        {
+            #region implementation
+
+            // Display header (respect quiet mode)
+            if (!cmdArgs.QuietMode)
+            {
+                ConsoleHelper.DisplayHeader(settings);
+            }
+
+            // Resolve database connection
+            string? connectionString = null;
+            string connectionName = "Unknown";
+
+            if (!string.IsNullOrEmpty(cmdArgs.ConnectionName))
+            {
+                // Use specified connection name
+                var conn = settings.DatabaseConnections.FirstOrDefault(
+                    c => c.Name.Equals(cmdArgs.ConnectionName, StringComparison.OrdinalIgnoreCase));
+
+                if (conn == null)
+                {
+                    Spectre.Console.AnsiConsole.MarkupLine(
+                        $"[red]Error: Database connection not found: {cmdArgs.ConnectionName}[/]");
+                    Spectre.Console.AnsiConsole.MarkupLine("[grey]Available connections:[/]");
+                    foreach (var db in settings.DatabaseConnections)
+                    {
+                        Spectre.Console.AnsiConsole.MarkupLine($"  [cyan]{db.Name}[/]");
+                    }
+                    return 1;
+                }
+
+                connectionString = conn.ConnectionString;
+                connectionName = conn.Name;
+            }
+            else if (!string.IsNullOrEmpty(settings.Automation.DefaultConnectionName))
+            {
+                // Use automation default connection
+                var conn = settings.DatabaseConnections.FirstOrDefault(
+                    c => c.Name.Equals(settings.Automation.DefaultConnectionName, StringComparison.OrdinalIgnoreCase));
+
+                if (conn != null)
+                {
+                    connectionString = conn.ConnectionString;
+                    connectionName = conn.Name;
+                }
+            }
+
+            // Fall back to default database if not found
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                var defaultConn = settings.DatabaseConnections.FirstOrDefault(c => c.IsDefault)
+                    ?? settings.DatabaseConnections.FirstOrDefault();
+
+                if (defaultConn == null)
+                {
+                    Spectre.Console.AnsiConsole.MarkupLine(
+                        "[red]Error: No database connection configured[/]");
+                    return 1;
+                }
+
+                connectionString = defaultConn.ConnectionString;
+                connectionName = defaultConn.Name;
+            }
+
+            // Resolve max runtime
+            int? maxRuntime = cmdArgs.MaxRuntimeMinutes
+                ?? settings.Automation.DefaultMaxRuntimeMinutes
+                ?? settings.ImportSettings.DefaultMaxRuntimeMinutes;
+
+            // Determine auto-quit behavior
+            bool autoQuit = cmdArgs.AutoQuit || settings.Automation.AutoQuitOnCompletion;
+
+            // Display unattended mode info (unless quiet)
+            if (!cmdArgs.QuietMode)
+            {
+                HelpDocumentation.DisplayUnattendedModeInfo(
+                    cmdArgs.FolderPath!,
+                    connectionName,
+                    maxRuntime,
+                    autoQuit);
+            }
+
+            // Run the unattended import
+            var exitCode = await ConsoleHelper.RunUnattendedImportAsync(
+                settings,
+                cmdArgs.FolderPath!,
+                connectionString,
+                maxRuntime,
+                cmdArgs.VerboseMode,
+                cmdArgs.QuietMode);
+
+            return exitCode;
 
             #endregion
         }

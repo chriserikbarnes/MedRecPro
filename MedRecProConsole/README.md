@@ -15,6 +15,7 @@ This application walks an entire directory tree, identifies ZIP files containing
 - **Multi-Session Import**: Resume imports from where you left off when restarting on the same folder
 - **Error Handling**: Failed imports are logged and skipped; processing continues
 - **Timeout Support**: Optional maximum runtime limit to control long-running imports
+- **Unattended Operation**: Full command-line support for Windows Task Scheduler automation
 - **Styled Console UI**: Uses Spectre.Console for rich, interactive terminal output
 
 ## Requirements
@@ -30,7 +31,11 @@ MedRecProConsole/
 ├── Program.cs                      # Application entry point
 ├── MedRecProConsole.csproj         # Project file
 ├── README.md                       # This file
+├── appsettings.json                # Application configuration
+├── automation-example.json         # Example automation config for Task Scheduler
 ├── Models/
+│   ├── AppSettings.cs              # Configuration model classes
+│   ├── CommandLineArgs.cs          # Command-line argument parsing
 │   ├── ImportParameters.cs         # User input parameters
 │   ├── ImportResults.cs            # Import statistics and results
 │   ├── ImportQueueItem.cs          # Individual file tracking model
@@ -40,7 +45,8 @@ MedRecProConsole/
 │   └── ImportProgressTracker.cs    # Async queue management service
 └── Helpers/
     ├── ConsoleHelper.cs            # Console UI operations
-    └── ConfigurationHelper.cs      # Configuration management
+    ├── ConfigurationHelper.cs      # Configuration management
+    └── HelpDocumentation.cs        # Help and version display
 ```
 
 ## Usage
@@ -133,6 +139,112 @@ var config = ConfigurationHelper.BuildConfiguration(
     useBatchSaving: true,
     useEnhancedDebugging: false);
 ```
+
+## Unattended Operation (Task Scheduler)
+
+The application supports fully automated operation for Windows Task Scheduler or other automation scenarios. When the `--folder` argument is specified, the application runs in unattended mode without user interaction.
+
+### Command-Line Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--help, -h` | Display help information |
+| `--version, -v` | Display application version |
+| `--verbose, -V` | Enable verbose output (debug messages) |
+| `--quiet, -q` | Minimal output mode - suppress non-essential messages |
+| `--folder <path>` | Import folder path - enables unattended mode |
+| `--connection <name>` | Database connection name from appsettings.json |
+| `--time <minutes>` | Maximum runtime in minutes (1-1440) |
+| `--auto-quit` | Exit immediately after import completes |
+| `--config <path>` | Use alternate configuration file |
+
+### Example Task Scheduler Usage
+
+```bash
+# Simple unattended import with default database
+MedRecProConsole.exe --folder "C:\SPL\Imports" --auto-quit
+
+# Specify database connection and time limit
+MedRecProConsole.exe --folder "C:\SPL\Imports" --connection "Local Database Dev (MedRecLocal)" --time 120 --auto-quit
+
+# Use a custom automation config file
+MedRecProConsole.exe --config "C:\Jobs\nightly-import.json" --folder "C:\SPL\NightlyImports" --auto-quit
+
+# Quiet mode for cleaner log output
+MedRecProConsole.exe --folder "C:\SPL\Imports" --auto-quit --quiet
+
+# Verbose mode for debugging
+MedRecProConsole.exe --folder "C:\SPL\Imports" --auto-quit --verbose
+```
+
+### Automation Configuration
+
+The `Automation` section in `appsettings.json` controls default behavior for unattended operation:
+
+```json
+"Automation": {
+  "AutoQuitOnCompletion": true,
+  "DefaultImportFolder": null,
+  "DefaultConnectionName": null,
+  "DefaultMaxRuntimeMinutes": null,
+  "SuppressConfirmations": true,
+  "EnableUnattendedLogging": true,
+  "UnattendedLogPath": "logs/unattended-{date}.log"
+}
+```
+
+| Setting | Description |
+|---------|-------------|
+| `AutoQuitOnCompletion` | Exit after processing completes (required for Task Scheduler) |
+| `DefaultImportFolder` | Default folder when `--folder` is used without a path |
+| `DefaultConnectionName` | Default database when `--connection` is not specified |
+| `DefaultMaxRuntimeMinutes` | Default time limit for unattended imports |
+| `SuppressConfirmations` | Skip confirmation prompts in unattended mode |
+| `EnableUnattendedLogging` | Log output to file during unattended operation |
+| `UnattendedLogPath` | Log file path (supports `{date}`, `{datetime}` placeholders) |
+
+### Custom Automation Config Files
+
+Create a separate JSON config file for specific automation jobs. Settings layer on top of `appsettings.json`, so you only need to specify overrides:
+
+```json
+{
+  "Automation": {
+    "AutoQuitOnCompletion": true,
+    "DefaultConnectionName": "Local Database Dev (MedRecLocal)",
+    "DefaultMaxRuntimeMinutes": 120
+  },
+  "Display": {
+    "ShowBanner": false,
+    "ShowSpinners": false
+  }
+}
+```
+
+Use with: `MedRecProConsole.exe --config "C:\Jobs\my-job.json" --folder "C:\SPL\Imports"`
+
+See `automation-example.json` in the project root for a complete example.
+
+### Setting Up Windows Task Scheduler
+
+1. Open Task Scheduler and create a new task
+2. Set the trigger (e.g., daily at 2:00 AM)
+3. Set the action:
+   - **Program**: `C:\Path\To\MedRecProConsole.exe`
+   - **Arguments**: `--folder "C:\SPL\DailyImports" --time 120 --auto-quit`
+   - **Start in**: `C:\Path\To\` (application directory)
+4. Configure settings:
+   - Enable "Run whether user is logged on or not"
+   - Configure credentials with database access
+5. Test the task with "Run" to verify configuration
+
+### Unattended Mode Behavior
+
+- **Resume Support**: Automatically resumes from existing queue files
+- **New File Detection**: Detects files added since last run
+- **Connection Validation**: Starts fresh if database connection changed
+- **Graceful Timeout**: Completes current file before stopping on time limit
+- **Exit Codes**: Returns 0 for success, 1 for any failures (for Task Scheduler monitoring)
 
 ## Import Behavior
 

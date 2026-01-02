@@ -133,6 +133,66 @@ namespace MedRecProConsole.Helpers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Displays command-line argument errors in styled console output.
+        /// </summary>
+        /// <param name="errors">List of error messages</param>
+        /// <seealso cref="Models.CommandLineArgs"/>
+        public static void DisplayArgumentErrors(List<string> errors)
+        {
+            #region implementation
+
+            AnsiConsole.MarkupLine("[bold red]Error parsing command-line arguments:[/]");
+            AnsiConsole.WriteLine();
+
+            foreach (var error in errors)
+            {
+                AnsiConsole.MarkupLine($"  [red]* {Markup.Escape(error)}[/]");
+            }
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[grey]Use --help for usage information.[/]");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Displays information about unattended operation mode.
+        /// </summary>
+        /// <param name="folderPath">Import folder path</param>
+        /// <param name="connectionName">Database connection name</param>
+        /// <param name="maxRuntime">Max runtime in minutes, or null for no limit</param>
+        /// <param name="autoQuit">Whether auto-quit is enabled</param>
+        /// <seealso cref="Models.CommandLineArgs"/>
+        public static void DisplayUnattendedModeInfo(
+            string folderPath,
+            string connectionName,
+            int? maxRuntime,
+            bool autoQuit)
+        {
+            #region implementation
+
+            AnsiConsole.Write(new Rule("[bold cyan]Unattended Mode[/]").RuleStyle("grey"));
+            AnsiConsole.WriteLine();
+
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn(new TableColumn("[bold]Setting[/]").NoWrap())
+                .AddColumn(new TableColumn("[bold]Value[/]"));
+
+            table.AddRow("Import Folder", Markup.Escape(folderPath));
+            table.AddRow("Database", Markup.Escape(connectionName));
+            table.AddRow("Max Runtime", maxRuntime.HasValue ? $"{maxRuntime} minutes" : "No limit");
+            table.AddRow("Auto-Quit", autoQuit ? "[green]Yes[/]" : "[grey]No[/]");
+
+            AnsiConsole.Write(table);
+            AnsiConsole.WriteLine();
+
+            #endregion
+        }
+
         #endregion
 
         #region private methods
@@ -151,7 +211,16 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.MarkupLine("  [white]MedRecProConsole[/] [grey][[options]][/]");
             AnsiConsole.WriteLine();
 
-            AnsiConsole.MarkupLine("  Run without arguments for interactive mode.");
+            AnsiConsole.MarkupLine("  [bold]Interactive Mode[/] (default):");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/]");
+            AnsiConsole.MarkupLine("    [grey]Run without arguments for menu-driven interface[/]");
+            AnsiConsole.WriteLine();
+
+            AnsiConsole.MarkupLine("  [bold]Unattended Mode[/] (for Task Scheduler):");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [green]--folder[/] [cyan]<path>[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [green]--folder[/] [cyan]<path>[/] [green]--connection[/] [cyan]<name>[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [green]--folder[/] [cyan]<path>[/] [green]--time[/] [cyan]120[/] [green]--auto-quit[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [green]--config[/] [cyan]<path>[/] [green]--folder[/] [cyan]<path>[/]");
             AnsiConsole.WriteLine();
 
             #endregion

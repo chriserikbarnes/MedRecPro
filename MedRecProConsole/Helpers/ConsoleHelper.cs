@@ -574,6 +574,197 @@ namespace MedRecProConsole.Helpers
 
         /**************************************************************/
         /// <summary>
+        /// Runs an import operation in unattended mode (no user interaction).
+        /// Designed for Windows Task Scheduler and automation scenarios.
+        /// </summary>
+        /// <param name="settings">Application settings</param>
+        /// <param name="folderPath">Path to folder containing ZIP files</param>
+        /// <param name="connectionString">Database connection string</param>
+        /// <param name="maxRuntimeMinutes">Optional maximum runtime in minutes</param>
+        /// <param name="verboseMode">Whether verbose output is enabled</param>
+        /// <param name="quietMode">Whether quiet mode is enabled (minimal output)</param>
+        /// <returns>Exit code: 0 for full success, 1 for any failures</returns>
+        /// <remarks>
+        /// In unattended mode:
+        /// - Skips all confirmation prompts
+        /// - Automatically handles queue file resume
+        /// - Logs output to file if configured
+        /// - Returns exit code for Task Scheduler interpretation
+        /// </remarks>
+        /// <seealso cref="ImportService"/>
+        /// <seealso cref="ImportProgressTracker"/>
+        public static async Task<int> RunUnattendedImportAsync(
+            ConsoleAppSettings settings,
+            string folderPath,
+            string connectionString,
+            int? maxRuntimeMinutes,
+            bool verboseMode,
+            bool quietMode)
+        {
+            #region implementation
+
+            var progressTracker = new ImportProgressTracker();
+
+            try
+            {
+                // Validate folder exists
+                if (!Directory.Exists(folderPath))
+                {
+                    if (!quietMode)
+                    {
+                        AnsiConsole.MarkupLine($"[red]Error: Folder does not exist: {Markup.Escape(folderPath)}[/]");
+                    }
+                    return 1;
+                }
+
+                // Check for existing queue file for resume capability
+                List<string> zipFiles;
+                bool isResuming = false;
+
+                if (progressTracker.QueueFileExists(folderPath))
+                {
+                    // Attempt to load and resume from existing queue
+                    try
+                    {
+                        var existingQueue = await progressTracker.LoadOrCreateQueueAsync(folderPath, connectionString);
+
+                        if (existingQueue.IsComplete)
+                        {
+                            if (!quietMode)
+                            {
+                                AnsiConsole.MarkupLine("[green]Previous import is already complete.[/]");
+                            }
+
+                            // Re-scan for new files that may have been added
+                            var currentFiles = performZipScan(folderPath);
+                            var newFilesAdded = await progressTracker.AddNewFilesToQueueAsync(currentFiles);
+
+                            if (newFilesAdded > 0)
+                            {
+                                if (!quietMode)
+                                {
+                                    AnsiConsole.MarkupLine($"[cyan]Found {newFilesAdded} new file(s) to process.[/]");
+                                }
+                                zipFiles = progressTracker.GetPendingFiles();
+                                isResuming = true;
+                            }
+                            else
+                            {
+                                if (!quietMode)
+                                {
+                                    AnsiConsole.MarkupLine("[grey]No new files to process. Exiting.[/]");
+                                }
+                                return 0;
+                            }
+                        }
+                        else
+                        {
+                            // Resume from pending files
+                            zipFiles = progressTracker.GetPendingFiles();
+                            isResuming = true;
+
+                            if (!quietMode)
+                            {
+                                AnsiConsole.MarkupLine($"[yellow]Resuming import with {zipFiles.Count} pending file(s).[/]");
+                            }
+                        }
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        // Connection string mismatch - delete old queue and start fresh
+                        if (!quietMode)
+                        {
+                            AnsiConsole.MarkupLine($"[yellow]Queue file from different database. Starting fresh.[/]");
+                            AnsiConsole.MarkupLine($"[grey]{ex.Message}[/]");
+                        }
+
+                        await progressTracker.DeleteQueueFileAsync();
+                        zipFiles = scanForZipFiles(folderPath, !quietMode && settings.Display.ShowSpinners);
+                        isResuming = false;
+                    }
+                }
+                else
+                {
+                    // No existing queue - scan for files
+                    zipFiles = scanForZipFiles(folderPath, !quietMode && settings.Display.ShowSpinners);
+                }
+
+                // Check if we have files to process
+                if (zipFiles.Count == 0)
+                {
+                    if (!quietMode)
+                    {
+                        AnsiConsole.MarkupLine($"[yellow]No ZIP files found in: {Markup.Escape(folderPath)}[/]");
+                    }
+                    return 0;
+                }
+
+                // Create import parameters
+                var parameters = new ImportParameters
+                {
+                    ConnectionString = connectionString,
+                    ImportFolder = folderPath,
+                    MaxRuntimeMinutes = maxRuntimeMinutes,
+                    ZipFiles = zipFiles,
+                    VerboseMode = verboseMode
+                };
+
+                // Display parameters (unless quiet)
+                if (!quietMode)
+                {
+                    AnsiConsole.MarkupLine($"[grey]Processing {zipFiles.Count} ZIP file(s)...[/]");
+                    if (maxRuntimeMinutes.HasValue)
+                    {
+                        AnsiConsole.MarkupLine($"[grey]Max runtime: {maxRuntimeMinutes} minutes[/]");
+                    }
+                }
+
+                // Execute import with progress tracking
+                var importService = new Services.ImportService();
+                var results = await importService.ExecuteImportAsync(parameters, progressTracker, isResuming);
+
+                // Display results (unless quiet)
+                if (!quietMode)
+                {
+                    DisplayResults(results, settings);
+
+                    // Show remaining files info if import was interrupted
+                    var progressFile = progressTracker.GetProgressFile();
+                    if (progressFile != null && progressFile.RemainingItems > 0)
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"[yellow]{progressFile.RemainingItems} file(s) remaining. Run again to continue.[/]");
+                    }
+                }
+
+                // Return exit code based on results
+                return results.IsFullySuccessful ? 0 : 1;
+            }
+            catch (Exception ex)
+            {
+                if (!quietMode)
+                {
+                    AnsiConsole.WriteException(ex);
+                }
+
+                // Try to save progress state on crash
+                try
+                {
+                    await progressTracker.RecordInterruptionAsync($"Crash: {ex.Message}", TimeSpan.Zero);
+                }
+                catch
+                {
+                    // Ignore errors saving progress on crash
+                }
+
+                return 1;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Runs the interactive post-import menu allowing user to quit or get help.
         /// </summary>
         /// <param name="settings">Application settings</param>

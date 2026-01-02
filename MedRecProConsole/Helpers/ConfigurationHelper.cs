@@ -36,6 +36,11 @@ namespace MedRecProConsole.Helpers
         /// </summary>
         private static readonly object _lock = new();
 
+        /// <summary>
+        /// Path to an alternate configuration file (set via --config argument).
+        /// </summary>
+        private static string? _alternateConfigPath;
+
         #endregion
 
         #region public methods
@@ -212,25 +217,109 @@ namespace MedRecProConsole.Helpers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Sets an alternate configuration file path for loading settings.
+        /// Must be called before GetConsoleAppSettings() or GetConfiguration().
+        /// </summary>
+        /// <param name="configPath">Full path to the alternate configuration file</param>
+        /// <returns>True if the file exists and path was set, false otherwise</returns>
+        /// <remarks>
+        /// Use this for automation scenarios where a separate config file contains
+        /// job-specific settings. Call ReloadConfiguration() after setting this
+        /// if configuration was already loaded.
+        /// </remarks>
+        /// <example>
+        /// ConfigurationHelper.SetAlternateConfigPath("C:\Jobs\daily-import.json");
+        /// var settings = ConfigurationHelper.GetConsoleAppSettings();
+        /// </example>
+        public static bool SetAlternateConfigPath(string configPath)
+        {
+            #region implementation
+
+            if (!File.Exists(configPath))
+            {
+                return false;
+            }
+
+            lock (_lock)
+            {
+                _alternateConfigPath = configPath;
+                // Force reload on next access
+                _configuration = null;
+                _appSettings = null;
+            }
+
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the currently configured alternate config path, if any.
+        /// </summary>
+        /// <returns>The alternate config path, or null if using default appsettings.json</returns>
+        public static string? GetAlternateConfigPath()
+        {
+            #region implementation
+
+            return _alternateConfigPath;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Clears the alternate configuration path and reverts to default appsettings.json.
+        /// </summary>
+        /// <remarks>
+        /// Call ReloadConfiguration() after this to reload from default settings.
+        /// </remarks>
+        public static void ClearAlternateConfigPath()
+        {
+            #region implementation
+
+            lock (_lock)
+            {
+                _alternateConfigPath = null;
+                _configuration = null;
+                _appSettings = null;
+            }
+
+            #endregion
+        }
+
         #endregion
 
         #region private methods
 
         /**************************************************************/
         /// <summary>
-        /// Builds the configuration from appsettings.json file.
+        /// Builds the configuration from appsettings.json file or alternate config path.
         /// </summary>
         /// <returns>IConfiguration loaded from file</returns>
+        /// <remarks>
+        /// If an alternate config path is set, it layers on top of the default appsettings.json.
+        /// This allows the alternate file to override only specific settings while inheriting
+        /// the rest from appsettings.json.
+        /// </remarks>
         private static IConfiguration buildConfigurationFromFile()
         {
             #region implementation
 
             var basePath = AppDomain.CurrentDomain.BaseDirectory;
-
-            return new ConfigurationBuilder()
+            var builder = new ConfigurationBuilder()
                 .SetBasePath(basePath)
-                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-                .Build();
+                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
+
+            // Layer alternate config on top of defaults if specified
+            if (!string.IsNullOrEmpty(_alternateConfigPath) && File.Exists(_alternateConfigPath))
+            {
+                builder.AddJsonFile(_alternateConfigPath, optional: false, reloadOnChange: false);
+            }
+
+            return builder.Build();
 
             #endregion
         }
@@ -387,6 +476,37 @@ namespace MedRecProConsole.Helpers
             {
                 settings.Help.Topics = helpSection.GetSection("Topics").Get<List<HelpTopic>>() ?? new();
                 settings.Help.CommandLineOptions = helpSection.GetSection("CommandLineOptions").Get<List<CommandLineOption>>() ?? new();
+            }
+
+            // Bind Automation section
+            var automationSection = configuration.GetSection("Automation");
+            if (automationSection.Exists())
+            {
+                if (bool.TryParse(automationSection["AutoQuitOnCompletion"], out var autoQuit))
+                {
+                    settings.Automation.AutoQuitOnCompletion = autoQuit;
+                }
+
+                settings.Automation.DefaultImportFolder = automationSection["DefaultImportFolder"];
+                settings.Automation.DefaultConnectionName = automationSection["DefaultConnectionName"];
+
+                var runtimeStr = automationSection["DefaultMaxRuntimeMinutes"];
+                if (!string.IsNullOrEmpty(runtimeStr) && int.TryParse(runtimeStr, out var runtime))
+                {
+                    settings.Automation.DefaultMaxRuntimeMinutes = runtime;
+                }
+
+                if (bool.TryParse(automationSection["SuppressConfirmations"], out var suppress))
+                {
+                    settings.Automation.SuppressConfirmations = suppress;
+                }
+
+                if (bool.TryParse(automationSection["EnableUnattendedLogging"], out var enableLogging))
+                {
+                    settings.Automation.EnableUnattendedLogging = enableLogging;
+                }
+
+                settings.Automation.UnattendedLogPath = automationSection["UnattendedLogPath"] ?? settings.Automation.UnattendedLogPath;
             }
 
             return settings;
