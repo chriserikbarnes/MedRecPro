@@ -1437,18 +1437,20 @@ AS
 /**************************************************************/
 -- Identifies related products by shared attributes
 -- Useful for finding alternatives, generics, or similar drugs
+-- Note: A unique product is identified by (ProductName, SectionID) combination
+--       since the same product name can have multiple ProductID entries (one per NDC)
 /**************************************************************/
-SELECT 
+SELECT
     -- Source product
     p1.ProductID AS SourceProductID,
     p1.ProductName AS SourceProductName,
     d1.DocumentGUID AS SourceDocumentGUID,
-    
+
     -- Related product
     p2.ProductID AS RelatedProductID,
     p2.ProductName AS RelatedProductName,
     d2.DocumentGUID AS RelatedDocumentGUID,
-    
+
     -- Relationship type
     'SameApplicationNumber' AS RelationshipType,
     mc1.ApplicationOrMonographIDValue AS SharedValue
@@ -1466,19 +1468,21 @@ FROM dbo.Product p1
     INNER JOIN dbo.Document d2 ON sb2.DocumentID = d2.DocumentID
 
 WHERE mc1.ApplicationOrMonographIDValue IS NOT NULL
+    -- Exclude self-relationships: products with same name in the same section are the same logical product
+    AND NOT (p1.ProductName = p2.ProductName AND p1.SectionID = p2.SectionID)
 
 UNION ALL
 
 -- Products sharing same active ingredient (by UNII)
-SELECT 
+SELECT
     p1.ProductID AS SourceProductID,
     p1.ProductName AS SourceProductName,
     d1.DocumentGUID AS SourceDocumentGUID,
-    
+
     p2.ProductID AS RelatedProductID,
     p2.ProductName AS RelatedProductName,
     d2.DocumentGUID AS RelatedDocumentGUID,
-    
+
     'SameActiveIngredient' AS RelationshipType,
     ins.UNII AS SharedValue
 
@@ -1498,6 +1502,8 @@ FROM dbo.Product p1
 WHERE ins.UNII IS NOT NULL
     AND i1.ClassCode IN ('ACTIB', 'ACTIM', 'ACTIR')
     AND i2.ClassCode IN ('ACTIB', 'ACTIM', 'ACTIR')
+    -- Exclude self-relationships: products with same name in the same section are the same logical product
+    AND NOT (p1.ProductName = p2.ProductName AND p1.SectionID = p2.SectionID)
 GO
 
 IF NOT EXISTS (
