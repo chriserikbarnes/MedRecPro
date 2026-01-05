@@ -313,36 +313,56 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
-        /// Reads a paged set of "complete label" data, structured 
-        /// hierarchically starting from the Document entity. 
+        /// Reads a paged set of "complete label" data, structured
+        /// hierarchically starting from the Document entity.
         /// </summary>
         /// <param name="pageNumber">Optional. The 1-based page number to retrieve.</param>
         /// <param name="pageSize">Optional. The number of records per page.</param>
         /// <returns>A list of dictionaries, where each dictionary represents a complete, hierarchical Document label.</returns>
+        /// <remarks>
+        /// The loading strategy is controlled by the UseBatchDocumentLoading feature flag:
+        /// - true: Uses batch loading pattern (10-20x faster, recommended for production)
+        /// - false: Uses sequential loading pattern (legacy behavior)
+        ///
+        /// Cache keys include the loading mode to prevent cross-mode cache hits.
+        /// </remarks>
         /// <seealso cref="Label"/>
         /// <seealso cref="Label.Document"/>
+        /// <seealso cref="DtoLabelAccess.BuildDocumentsAsync(ApplicationDbContext, string, ILogger, int?, int?, bool?)"/>
         public virtual async Task<List<DocumentDto>> GetCompleteLabelsAsync(int? pageNumber, int? pageSize)
         {
             #region implementation
-            string key = ($"{nameof(GetCompleteLabelsAsync)}_{pageNumber}_{pageSize}").Base64Encode();
+
+            // Read feature flag to determine loading strategy
+            var useBatchLoading = _configuration.GetValue<bool>("FeatureFlags:UseBatchDocumentLoading", false);
+            var loadingMode = useBatchLoading ? "batch" : "sequential";
+
+            // Include loading mode in cache key to prevent cross-mode cache hits
+            string key = ($"{nameof(GetCompleteLabelsAsync)}_{pageNumber}_{pageSize}_{loadingMode}").Base64Encode();
 
             var cached = Cacher.GetCachedJson<List<DocumentDto>>(key);
 
             if (cached != null)
             {
+                _logger.LogDebug("Cache hit for {Method} (page: {Page}, size: {Size}, mode: {Mode})",
+                    nameof(GetCompleteLabelsAsync), pageNumber, pageSize, loadingMode);
                 return cached;
             }
 
+            // Pass the feature flag to BuildDocumentsAsync for loading strategy selection
             var results = await DtoLabelAccess.BuildDocumentsAsync(
                 _context,
                 getPkSecret(),
                 _logger,
                 pageNumber,
-                pageSize);
+                pageSize,
+                useBatchLoading);
 
             if (results != null)
             {
                 Cacher.SetCacheManageKey(key, JsonConvert.SerializeObject(results), 1.0); // Cache for 1 hour
+                _logger.LogDebug("Cache set for {Method} with {Count} documents (mode: {Mode})",
+                    nameof(GetCompleteLabelsAsync), results.Count, loadingMode);
             }
 
             return results ?? new List<DocumentDto>();
@@ -351,7 +371,7 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
-        /// Reads a specific "complete label" document by its unique identifier, 
+        /// Reads a specific "complete label" document by its unique identifier,
         /// structured hierarchically starting from the Document entity.
         /// </summary>
         /// <param name="documentGuid">The unique identifier for the document to retrieve.</param>
@@ -365,18 +385,32 @@ namespace MedRecPro.DataAccess
         /// <remarks>
         /// Returns a list for consistency with the paginated method, but will contain at most one document.
         /// Use this method when you need to retrieve a specific document by its GUID.
+        ///
+        /// The loading strategy is controlled by the UseBatchDocumentLoading feature flag:
+        /// - true: Uses batch loading pattern (10-20x faster, recommended for production)
+        /// - false: Uses sequential loading pattern (legacy behavior)
         /// </remarks>
         /// <seealso cref="Label"/>
         /// <seealso cref="Label.Document"/>
         /// <seealso cref="Label.Document.DocumentGUID"/>
+        /// <seealso cref="DtoLabelAccess.BuildDocumentsAsync(ApplicationDbContext, Guid, string, ILogger, bool?)"/>
         public virtual async Task<List<DocumentDto>> GetCompleteLabelsAsync(Guid documentGuid)
         {
             #region implementation
+
+            // Read feature flag to determine loading strategy
+            var useBatchLoading = _configuration.GetValue<bool>("FeatureFlags:UseBatchDocumentLoading", false);
+
+            _logger.LogDebug("Fetching complete label for GUID {DocumentGuid} using {LoadingMode} loading",
+                documentGuid, useBatchLoading ? "BATCH" : "SEQUENTIAL");
+
+            // Pass the feature flag to BuildDocumentsAsync for loading strategy selection
             var results = await DtoLabelAccess.BuildDocumentsAsync(
                 _context,
                 documentGuid,
                 getPkSecret(),
-                _logger);
+                _logger,
+                useBatchLoading);
 
             return results;
             #endregion
