@@ -8,8 +8,7 @@ using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
+using static MedRecPro.Models.UserRole;
 using Newtonsoft.Json; // From SplImportService.cs (SplImportService)
 using System.Reflection;
 using System.Security.Claims;
@@ -4163,6 +4162,8 @@ namespace MedRecPro.Api.Controllers
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpPost("{menuSelection}")]
+        [Authorize]
+        [RequireUserRole(Admin)]
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -4646,6 +4647,8 @@ namespace MedRecPro.Api.Controllers
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpPost("comparison/analysis/{documentGuid}")]
+        [Authorize]
+        [RequireUserRole(Admin)]
         [ProducesResponseType(typeof(ComparisonOperationStatus), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -4824,6 +4827,8 @@ namespace MedRecPro.Api.Controllers
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpPut("{menuSelection}/{encryptedId}")]
+        [Authorize]
+        [RequireUserRole(Admin)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -5025,6 +5030,8 @@ namespace MedRecPro.Api.Controllers
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpDelete("{menuSelection}/{encryptedId}")]
+        [Authorize]
+        [RequireUserRole(Admin)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
