@@ -63,26 +63,17 @@
     
 .NOTES
     Author: MedRecPro Development Team
-    Version: 1.0.0
+    Version: 1.1.0
     Requires: 
         - SQL Server BCP utility (installed with SQL Server or SSMS)
-        - PowerShell 7.0+ (for ForEach-Object -Parallel support)
+        - PowerShell 5.1+ (PS7+ enables parallel imports for faster performance)
         - Network access to Azure SQL Database (firewall rules configured)
-
-    Preparation Recommendations:
-        - Clear the label data prior to importing new table data
-        - Use MedRecPro-AzureNuke.sql for truncation
     
     Performance Recommendations:
         - Disable indexes on Azure target tables before import, rebuild after
         - Temporarily scale up Azure SQL tier during import for faster throughput
         - Ensure adequate disk space for .dat files (estimate ~1.5x raw data size)
-
-        -- Disable all non-clustered indexes
-            MedRecPro-AzureDisableIndex.sql
-
-        -- After import, rebuild them
-            MedRecPro-AzureRebuildIndex.sql
+        - Use PowerShell 7+ for parallel import capability (winget install Microsoft.PowerShell)
         
     Security Note:
         - Avoid storing passwords in scripts; use -AzurePassword parameter or secure prompt
@@ -331,6 +322,87 @@ function Test-SqlCmdAvailable {
     }
 }
 
+function Test-AzureSqlConnection {
+    <#
+    .SYNOPSIS
+        Tests connectivity to Azure SQL Database before import operations
+    .DESCRIPTION
+        Attempts a simple query against the target Azure SQL Database to verify:
+        - Network connectivity (firewall rules allow connection)
+        - Authentication credentials are valid
+        - Database exists and is accessible
+    .RETURNS
+        $true if connection successful, $false otherwise
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Server,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Database,
+
+        [Parameter(Mandatory = $true)]
+        [string]$User,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Password
+    )
+
+    Write-Host ""
+    Write-Host "Testing connection to Azure SQL Database..." -ForegroundColor Cyan
+    Write-Host "  Server:   $Server" -ForegroundColor Gray
+    Write-Host "  Database: $Database" -ForegroundColor Gray
+    Write-Host "  User:     $User" -ForegroundColor Gray
+    Write-Host ""
+
+    # Simple query to test connectivity
+    $testQuery = "SET NOCOUNT ON; SELECT 1 AS ConnectionTest"
+
+    try {
+        $result = sqlcmd -S $Server -d $Database -U $User -P $Password -Q $testQuery -h -1 -W -t 30 2>&1
+        $exitCode = $LASTEXITCODE
+
+        if ($exitCode -eq 0 -and $result -match '^\s*1\s*$') {
+            Write-Host "  ✓ Connection successful!" -ForegroundColor Green
+            Write-Host ""
+            return $true
+        }
+        else {
+            Write-Host "  ✗ Connection failed!" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "  Error details:" -ForegroundColor Yellow
+
+            # Parse common error messages for user-friendly output
+            $errorText = $result | Out-String
+
+            if ($errorText -match "Login failed") {
+                Write-Host "    - Authentication failed. Check username and password." -ForegroundColor Red
+            }
+            elseif ($errorText -match "Cannot open server|server was not found") {
+                Write-Host "    - Server not reachable. Check server name and network connectivity." -ForegroundColor Red
+            }
+            elseif ($errorText -match "firewall") {
+                Write-Host "    - Firewall blocking connection. Add your IP to Azure SQL firewall rules." -ForegroundColor Red
+            }
+            elseif ($errorText -match "database .* does not exist|Cannot open database") {
+                Write-Host "    - Database not found. Verify database name." -ForegroundColor Red
+            }
+            else {
+                Write-Host "    $errorText" -ForegroundColor Red
+            }
+
+            Write-Host ""
+            return $false
+        }
+    }
+    catch {
+        Write-Host "  ✗ Connection test failed with exception:" -ForegroundColor Red
+        Write-Host "    $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host ""
+        return $false
+    }
+}
+
 #endregion
 
 #region ==================== EXPORT OPERATIONS ====================
@@ -545,11 +617,35 @@ function Invoke-ImportPhase {
             [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
         )
     }
-    
+
+    # Test connection to Azure SQL before proceeding
+    $connectionValid = Test-AzureSqlConnection -Server $AzureServer `
+                                                -Database $AzureDatabase `
+                                                -User $AzureUser `
+                                                -Password $AzurePassword
+
+    if (-not $connectionValid) {
+        Write-LogMessage "Cannot proceed with import - connection to Azure SQL failed." -Level Error
+        Write-Host "Please verify:" -ForegroundColor Yellow
+        Write-Host "  1. Azure SQL server name is correct (include .database.windows.net)" -ForegroundColor Gray
+        Write-Host "  2. Database name exists on the server" -ForegroundColor Gray
+        Write-Host "  3. Username and password are correct" -ForegroundColor Gray
+        Write-Host "  4. Your IP address is allowed in Azure SQL firewall rules" -ForegroundColor Gray
+        Write-Host ""
+        return
+    }
+
     # Discover available .dat files if no inventory provided
     if (-not $Inventory) {
-        $datFiles = Get-ChildItem -Path $DataPath -Filter "*.dat" -File
-        $Inventory = $datFiles | ForEach-Object {
+        $datFiles = @(Get-ChildItem -Path $DataPath -Filter "*.dat" -File -ErrorAction SilentlyContinue)
+        
+        if ($datFiles.Count -eq 0) {
+            Write-LogMessage "No .dat files found in $DataPath" -Level Error
+            Write-LogMessage "Run the Export operation first, or verify the DataPath parameter." -Level Info
+            return
+        }
+        
+        $Inventory = @($datFiles | ForEach-Object {
             [PSCustomObject]@{
                 Table    = $_.BaseName
                 FilePath = $_.FullName
@@ -557,13 +653,13 @@ function Invoke-ImportPhase {
                 Rows     = -1  # Unknown when loading from files
                 Status   = "Pending"
             }
-        }
+        })
     }
     
     # Filter to only successful exports
-    $tablesToImport = $Inventory | Where-Object { 
+    $tablesToImport = @($Inventory | Where-Object { 
         $_.Status -eq "Success" -or $_.Status -eq "Pending" 
-    }
+    })
     
     if ($tablesToImport.Count -eq 0) {
         Write-LogMessage "No valid data files found for import!" -Level Error
@@ -576,11 +672,17 @@ function Invoke-ImportPhase {
     Write-Host "  Target Database:  $AzureDatabase" -ForegroundColor Cyan
     Write-Host "  Tables to Import: $($tablesToImport.Count)" -ForegroundColor Cyan
     Write-Host "  Batch Size:       $($BatchSize.ToString('N0')) rows" -ForegroundColor Cyan
-    Write-Host "  Parallel Threads: $ParallelThrottle" -ForegroundColor Cyan
+    if ($PSVersionTable.PSVersion.Major -ge 7) {
+        Write-Host "  Import Mode:      Parallel ($ParallelThrottle threads)" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "  Import Mode:      Sequential (PS7+ enables parallel)" -ForegroundColor Cyan
+    }
     Write-Host ""
     
     # Calculate total data size
     $totalImportSize = ($tablesToImport | Measure-Object -Property FileSize -Sum).Sum
+    if ($null -eq $totalImportSize) { $totalImportSize = 0 }
     Write-Host "  Total Data Size:  $(Format-FileSize $totalImportSize)" -ForegroundColor Cyan
     Write-Host ""
     
@@ -599,7 +701,7 @@ function Invoke-ImportPhase {
     
     # Confirmation prompt
     Write-Host "╔══════════════════════════════════════════════════════════════════╗" -ForegroundColor Red
-    Write-Host "║                             WARNING                              ║" -ForegroundColor Red
+    Write-Host "║                           WARNING                                ║" -ForegroundColor Red
     Write-Host "║                                                                  ║" -ForegroundColor Red
     Write-Host "║  This operation will INSERT data into the target Azure SQL       ║" -ForegroundColor Red
     Write-Host "║  database. Ensure that:                                          ║" -ForegroundColor Red
@@ -620,75 +722,168 @@ function Invoke-ImportPhase {
     }
     
     Write-Host ""
-    Write-LogMessage "Starting parallel import to Azure SQL..." -Level Info
+    Write-LogMessage "Starting import to Azure SQL..." -Level Info
     Write-Host ""
     
-    # Prepare import parameters for parallel execution
-    $importParams = @{
-        AzureServer   = $AzureServer
-        AzureDatabase = $AzureDatabase
-        AzureUser     = $AzureUser
-        AzurePassword = $AzurePassword
-        Schema        = $Schema
-        BatchSize     = $BatchSize
-        DataPath      = $DataPath
-    }
-    
-    # Execute parallel imports
+    # Execute imports (parallel if PS7+, sequential otherwise)
     $startTime = Get-Date
+    $importResults = @()
     
-    $importResults = $tablesToImport | ForEach-Object -Parallel {
-        $params = $using:importParams
-        $table = $_.Table
-        $datFile = $_.FilePath
+    # Check if we can use parallel processing (PowerShell 7+)
+    $useParallel = $PSVersionTable.PSVersion.Major -ge 7
+    
+    if ($useParallel) {
+        Write-LogMessage "Using parallel import (PowerShell $($PSVersionTable.PSVersion.Major) detected, ThrottleLimit: $ParallelThrottle)" -Level Info
+        Write-Host ""
         
-        $errFile = Join-Path $params.DataPath "$table-import.err"
+        # Prepare import parameters for parallel execution
+        $importParams = @{
+            AzureServer   = $AzureServer
+            AzureDatabase = $AzureDatabase
+            AzureUser     = $AzureUser
+            AzurePassword = $AzurePassword
+            Schema        = $Schema
+            BatchSize     = $BatchSize
+            DataPath      = $DataPath
+        }
         
-        # Build BCP import command
-        # -n: Native format
-        # -b: Batch size (rows per transaction)
-        # -h "TABLOCK": Table lock hint for faster bulk insert
-        $bcpArgs = @(
-            "$($params.AzureDatabase).$($params.Schema).$table"
-            "in"
-            "`"$datFile`""
-            "-S", $params.AzureServer
-            "-U", $params.AzureUser
-            "-P", $params.AzurePassword
-            "-n"
-            "-b", $params.BatchSize
-            "-h", "TABLOCK"
-            "-e", "`"$errFile`""
-        )
-        
-        try {
-            $bcpOutput = & bcp $bcpArgs 2>&1
-            $exitCode = $LASTEXITCODE
-            
-            # Parse rows copied from BCP output
-            $rowsCopied = 0
-            if ($bcpOutput -match '(\d+) rows copied') {
-                $rowsCopied = [int]$Matches[1]
+        $importResults = $tablesToImport | ForEach-Object -Parallel {
+            $params = $using:importParams
+            $table = $_.Table
+            $datFile = $_.FilePath
+
+            $errFile = Join-Path $params.DataPath "$table-import.err"
+
+            # Build BCP import command as a flat array
+            $bcpArgs = [System.Collections.ArrayList]@()
+            [void]$bcpArgs.Add("$($params.AzureDatabase).$($params.Schema).$table")
+            [void]$bcpArgs.Add("in")
+            [void]$bcpArgs.Add($datFile)
+            [void]$bcpArgs.Add("-S")
+            [void]$bcpArgs.Add($params.AzureServer)
+            [void]$bcpArgs.Add("-U")
+            [void]$bcpArgs.Add($params.AzureUser)
+            [void]$bcpArgs.Add("-P")
+            [void]$bcpArgs.Add($params.AzurePassword)
+            [void]$bcpArgs.Add("-n")
+            [void]$bcpArgs.Add("-b")
+            [void]$bcpArgs.Add($params.BatchSize.ToString())
+            [void]$bcpArgs.Add("-h")
+            [void]$bcpArgs.Add("TABLOCK")
+            [void]$bcpArgs.Add("-e")
+            [void]$bcpArgs.Add($errFile)
+
+            try {
+                $bcpOutput = & bcp $bcpArgs 2>&1
+                $exitCode = $LASTEXITCODE
+
+                # Parse rows copied from BCP output
+                $rowsCopied = 0
+                $bcpOutputStr = $bcpOutput | Out-String
+                if ($bcpOutputStr -match '(\d+) rows copied') {
+                    $rowsCopied = [int]$Matches[1]
+                }
+
+                [PSCustomObject]@{
+                    Table      = $table
+                    Success    = ($exitCode -eq 0)
+                    RowsCopied = $rowsCopied
+                    ExitCode   = $exitCode
+                    Output     = $bcpOutputStr
+                }
             }
-            
-            [PSCustomObject]@{
-                Table      = $table
-                Success    = ($exitCode -eq 0)
-                RowsCopied = $rowsCopied
-                ExitCode   = $exitCode
-                Output     = ($bcpOutput | Out-String)
+            catch {
+                [PSCustomObject]@{
+                    Table      = $table
+                    Success    = $false
+                    RowsCopied = 0
+                    ExitCode   = -1
+                    Output     = $_.Exception.Message
+                }
+            }
+        } -ThrottleLimit $ParallelThrottle
+    }
+    else {
+        Write-LogMessage "Using sequential import (PowerShell $($PSVersionTable.PSVersion) - upgrade to PS7+ for parallel processing)" -Level Warning
+        Write-Host ""
+        
+        $tableIndex = 0
+        $tableCount = @($tablesToImport).Count
+        foreach ($item in $tablesToImport) {
+            $tableIndex++
+            $table = $item.Table
+            $datFile = $item.FilePath
+
+            $percentComplete = [math]::Round(($tableIndex / $tableCount) * 100)
+            Write-Progress -Activity "Importing Tables" `
+                           -Status "Processing $table ($tableIndex of $tableCount)" `
+                           -PercentComplete $percentComplete
+
+            $errFile = Join-Path $DataPath "$table-import.err"
+
+            # Build BCP import command as a flat array
+            $bcpArgs = [System.Collections.ArrayList]@()
+            [void]$bcpArgs.Add("$AzureDatabase.$Schema.$table")
+            [void]$bcpArgs.Add("in")
+            [void]$bcpArgs.Add($datFile)
+            [void]$bcpArgs.Add("-S")
+            [void]$bcpArgs.Add($AzureServer)
+            [void]$bcpArgs.Add("-U")
+            [void]$bcpArgs.Add($AzureUser)
+            [void]$bcpArgs.Add("-P")
+            [void]$bcpArgs.Add($AzurePassword)
+            [void]$bcpArgs.Add("-n")
+            [void]$bcpArgs.Add("-b")
+            [void]$bcpArgs.Add($BatchSize.ToString())
+            [void]$bcpArgs.Add("-h")
+            [void]$bcpArgs.Add("TABLOCK")
+            [void]$bcpArgs.Add("-e")
+            [void]$bcpArgs.Add($errFile)
+
+            try {
+                $bcpOutput = & bcp $bcpArgs 2>&1
+                $exitCode = $LASTEXITCODE
+
+                # Parse rows copied from BCP output
+                $rowsCopied = 0
+                $bcpOutputStr = $bcpOutput | Out-String
+                if ($bcpOutputStr -match '(\d+) rows copied') {
+                    $rowsCopied = [int]$Matches[1]
+                }
+
+                $result = [PSCustomObject]@{
+                    Table      = $table
+                    Success    = ($exitCode -eq 0)
+                    RowsCopied = $rowsCopied
+                    ExitCode   = $exitCode
+                    Output     = $bcpOutputStr
+                }
+
+                # Show progress inline
+                if ($result.Success) {
+                    Write-Host "  ✓ $table - $($rowsCopied.ToString('N0')) rows" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "  ✗ $table - Failed (Exit: $exitCode)" -ForegroundColor Red
+                }
+
+                $importResults += $result
+            }
+            catch {
+                $result = [PSCustomObject]@{
+                    Table      = $table
+                    Success    = $false
+                    RowsCopied = 0
+                    ExitCode   = -1
+                    Output     = $_.Exception.Message
+                }
+                Write-Host "  ✗ $table - Error: $($_.Exception.Message)" -ForegroundColor Red
+                $importResults += $result
             }
         }
-        catch {
-            [PSCustomObject]@{
-                Table      = $table
-                Success    = $false
-                RowsCopied = 0
-                ExitCode   = -1
-                Output     = $_.Exception.Message
-            }
-        }
-    } -ThrottleLimit $ParallelThrottle
+        
+        Write-Progress -Activity "Importing Tables" -Completed
+    }
     
     $endTime = Get-Date
     $duration = $endTime - $startTime
@@ -700,9 +895,10 @@ function Invoke-ImportPhase {
     Write-Host "╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Green
     Write-Host ""
     
-    $successImports = $importResults | Where-Object { $_.Success }
-    $failedImports = $importResults | Where-Object { -not $_.Success }
+    $successImports = @($importResults | Where-Object { $_.Success })
+    $failedImports = @($importResults | Where-Object { -not $_.Success })
     $totalRowsImported = ($successImports | Measure-Object -Property RowsCopied -Sum).Sum
+    if ($null -eq $totalRowsImported) { $totalRowsImported = 0 }
     
     # Show successful imports
     if ($successImports.Count -gt 0) {
@@ -740,13 +936,21 @@ function Invoke-ImportPhase {
     }
     Write-Host "  Total Rows Imported: $($totalRowsImported.ToString('N0'))" -ForegroundColor Cyan
     Write-Host "  Duration: $($duration.ToString('hh\:mm\:ss'))" -ForegroundColor Cyan
-    Write-Host "  Throughput: $([math]::Round($totalRowsImported / $duration.TotalSeconds).ToString('N0')) rows/sec" -ForegroundColor Cyan
+    
+    # Calculate throughput safely (avoid divide by zero)
+    $throughput = 0
+    if ($duration.TotalSeconds -gt 0) {
+        $throughput = [math]::Round($totalRowsImported / $duration.TotalSeconds)
+    }
+    Write-Host "  Throughput: $($throughput.ToString('N0')) rows/sec" -ForegroundColor Cyan
     Write-Host ""
     
-    # Save results to CSV
-    $resultsCsv = Join-Path $DataPath "import-results.csv"
-    $importResults | Export-Csv -Path $resultsCsv -NoTypeInformation
-    Write-LogMessage "Import results saved to: $resultsCsv" -Level Info
+    # Save results to CSV (only if we have results)
+    if ($importResults.Count -gt 0) {
+        $resultsCsv = Join-Path $DataPath "import-results.csv"
+        $importResults | Export-Csv -Path $resultsCsv -NoTypeInformation
+        Write-LogMessage "Import results saved to: $resultsCsv" -Level Info
+    }
 }
 
 #endregion
@@ -759,7 +963,7 @@ Write-Host "╔═════════════════════�
 Write-Host "║                                                                  ║" -ForegroundColor Magenta
 Write-Host "║              MedRecPro BCP Migration Utility v1.0                ║" -ForegroundColor Magenta
 Write-Host "║                                                                  ║" -ForegroundColor Magenta
-Write-Host "║              Bulk Copy Program Data Transfer Tool                ║" -ForegroundColor Magenta
+Write-Host "║          Bulk Copy Program Data Transfer Tool                    ║" -ForegroundColor Magenta
 Write-Host "║                                                                  ║" -ForegroundColor Magenta
 Write-Host "╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Magenta
 Write-Host ""
@@ -783,13 +987,11 @@ else {
 
 # Verify PowerShell version for parallel support
 if ($PSVersionTable.PSVersion.Major -lt 7) {
-    Write-Host "  ⚠ PowerShell 7+ recommended for parallel import support" -ForegroundColor Yellow
-    Write-Host "    Current version: $($PSVersionTable.PSVersion)" -ForegroundColor Gray
-    Write-Host "    Falling back to sequential import..." -ForegroundColor Gray
-    $ParallelThrottle = 1
+    Write-Host "  ⚠ PowerShell $($PSVersionTable.PSVersion) detected (sequential import mode)" -ForegroundColor Yellow
+    Write-Host "    Tip: Install PowerShell 7+ for parallel imports: winget install Microsoft.PowerShell" -ForegroundColor Gray
 }
 else {
-    Write-Host "  ✓ PowerShell $($PSVersionTable.PSVersion.Major) detected (parallel support enabled)" -ForegroundColor Green
+    Write-Host "  ✓ PowerShell $($PSVersionTable.PSVersion.Major) detected (parallel import enabled)" -ForegroundColor Green
 }
 
 # Create data directory if needed
