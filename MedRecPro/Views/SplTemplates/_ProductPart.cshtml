@@ -1,0 +1,119 @@
+@using MedRecPro.Models;
+@using MedRecPro.Helpers;
+@using MedRecPro.Service;
+@inherits RazorLight.TemplatePage<MedRecPro.Models.ProductPartRendering>;
+@model ProductPartRendering;
+
+@* Template for rendering Kit product parts using the SPL part element structure *@
+@if (Model != null)
+{
+    <part>
+        @* Render part quantity *@
+        @if (Model.HasQuantity)
+        {
+            <quantity>
+                <numerator @SplTemplateHelpers.Attribute("value", Model.QuantityNumerator) @SplTemplateHelpers.Attribute("unit", Model.QuantityNumeratorUnit) />
+                <denominator @SplTemplateHelpers.Attribute("value", Model.QuantityDenominator) />
+            </quantity>
+        }
+        <partProduct>
+            @* Part products typically have empty code element *@
+            <code />
+
+            <name>@Model.PartProductName</name>
+            <formCode @SplTemplateHelpers.Attribute("code", Model.PartFormCode) @SplTemplateHelpers.Attribute("codeSystem", Model.PartFormCodeSystem) @SplTemplateHelpers.Attribute("displayName", Model.PartFormDisplayName) />
+
+            @* Render generic medicines for this part *@
+            @if (Model.HasGenericMedicines && Model.GenericMedicines != null)
+            {
+                foreach (var generic in Model.GenericMedicines)
+                {
+                    <asEntityWithGeneric>
+                        <genericMedicine>
+                            <name>@generic.GenericName</name>
+                        </genericMedicine>
+                    </asEntityWithGeneric>
+                }
+            }
+
+            @* Render active ingredients for this part *@
+            @if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
+            {
+                foreach (var ingredient in Model.ActiveIngredients)
+                {
+                    await IncludeAsync("_Ingredient", ingredient);
+                }
+            }
+
+            @* Render inactive ingredients for this part *@
+            @if (Model.HasInactiveIngredients && Model.InactiveIngredients != null)
+            {
+                foreach (var ingredient in Model.InactiveIngredients)
+                {
+                    await IncludeAsync("_Ingredient", ingredient);
+                }
+            }
+        </partProduct>
+
+        @* Render approval information (subjectOf/approval) for this part *@
+        @if (Model.HasMarketingCategories && Model.MarketingCategories != null)
+        {
+            foreach (var marketingCategory in Model.MarketingCategories)
+            {
+                <subjectOf>
+                    @{
+                        await IncludeAsync("_MarketingStatus", marketingCategory);
+                    }
+                </subjectOf>
+            }
+        }
+
+        @* Render marketing act (subjectOf/marketingAct) for this part *@
+        @if (Model.HasMarketingStatuses && Model.MarketingStatuses != null && Model.MarketingStatuses.Count == 1)
+        {
+            var marketingStatus = Model.MarketingStatuses.First();
+            <subjectOf>
+                <marketingAct>
+                    <code @SplTemplateHelpers.Attribute("code", marketingStatus.MarketingActCode) @SplTemplateHelpers.Attribute("codeSystem", marketingStatus.MarketingActCodeSystem) />
+                    <statusCode @SplTemplateHelpers.Attribute("code", marketingStatus.StatusCode) />
+                    <effectiveTime>
+                        @if (marketingStatus.EffectiveStartDate.HasValue)
+                        {
+                            <low @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveStartDate)) />
+                        }
+                        @if (marketingStatus.EffectiveEndDate.HasValue)
+                        {
+                            <high @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(marketingStatus.EffectiveEndDate)) />
+                        }
+                    </effectiveTime>
+                </marketingAct>
+            </subjectOf>
+        }
+
+        @* Render characteristics for this part *@
+        @if (Model.HasCharacteristics && Model.Characteristics != null)
+        {
+            foreach (var characteristic in Model.Characteristics)
+            {
+                <subjectOf>
+                    @{
+                        await IncludeAsync("_Characteristic", characteristic);
+                    }
+                </subjectOf>
+            }
+        }
+
+        @* Render routes for this part *@
+        @if (Model.HasRoutes && Model.Routes != null)
+        {
+            foreach (var route in Model.Routes)
+            {
+                <consumedIn>
+                    <substanceAdministration>
+                        <routeCode @SplTemplateHelpers.Attribute("code", route?.RouteCode) @SplTemplateHelpers.Attribute("codeSystem", route?.RouteCodeSystem) @SplTemplateHelpers.Attribute("displayName", route?.RouteDisplayName) />
+                    </substanceAdministration>
+                </consumedIn>
+            }
+        }
+    </part>
+}

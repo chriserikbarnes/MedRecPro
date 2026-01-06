@@ -319,11 +319,155 @@ namespace MedRecPro.Service
                 processCharacteristics(productRendering, _characteristicRenderingService, additionalParams);
             }
 
+            // Process Kit product parts if this is a Kit product
+            processKitProductParts(product, productRendering, ingredientRenderingService, characteristicRenderingService);
+
 #if DEBUG
             //string json = JsonConvert.SerializeObject(productRendering, Formatting.Indented);
 #endif
 
             return productRendering;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if a product is a Kit based on its form code.
+        /// Kit products have formCode = "C47916".
+        /// </summary>
+        private bool isKitProduct(ProductDto product)
+        {
+            return product?.FormCode?.Equals("C47916", StringComparison.OrdinalIgnoreCase) == true;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Processes Kit product parts and prepares them for rendering.
+        /// Kit products contain parts that should be rendered using the part element structure.
+        /// </summary>
+        private void processKitProductParts(
+            ProductDto product,
+            ProductRendering productRendering,
+            IIngredientRenderingService? ingredientRenderingService,
+            ICharacteristicRenderingService? characteristicRenderingService)
+        {
+            #region implementation
+
+            var isKit = isKitProduct(product);
+            productRendering.IsKit = isKit;
+
+            if (!isKit || product.ProductParts == null || !product.ProductParts.Any())
+            {
+                productRendering.HasProductParts = false;
+                return;
+            }
+
+            var partRenderings = new List<ProductPartRendering>();
+            ingredientRenderingService ??= new IngredientRenderingService();
+            characteristicRenderingService ??= new CharacteristicRenderingService();
+
+            foreach (var productPart in product.ProductParts)
+            {
+                var partRendering = prepareProductPartForRendering(productPart, ingredientRenderingService, characteristicRenderingService);
+                if (partRendering != null)
+                {
+                    partRenderings.Add(partRendering);
+                }
+            }
+
+            productRendering.ProductParts = partRenderings.Any() ? partRenderings : null;
+            productRendering.HasProductParts = partRenderings.Any();
+
+            // For Kit products, clear the parent-level ingredients since they belong to parts
+            if (isKit && partRenderings.Any())
+            {
+                productRendering.ActiveIngredients = null;
+                productRendering.InactiveIngredients = null;
+                productRendering.HasActiveIngredients = false;
+                productRendering.HasInactiveIngredients = false;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prepares a single product part for rendering with pre-computed properties.
+        /// </summary>
+        private ProductPartRendering? prepareProductPartForRendering(
+            ProductPartDto productPart,
+            IIngredientRenderingService ingredientRenderingService,
+            ICharacteristicRenderingService characteristicRenderingService)
+        {
+            #region implementation
+
+            if (productPart?.PartProduct == null)
+                return null;
+
+            var partProduct = productPart.PartProduct;
+
+            // Process ingredients for the part product
+            var activeIngredients = GetOrderedActiveIngredients(partProduct);
+            var inactiveIngredients = GetOrderedInactiveIngredients(partProduct);
+
+            var activeIngredientRenderings = activeIngredients?
+                .Select(i => ingredientRenderingService.PrepareForRendering(i))
+                .ToList();
+
+            var inactiveIngredientRenderings = inactiveIngredients?
+                .Select(i => ingredientRenderingService.PrepareForRendering(i))
+                .ToList();
+
+            // Process characteristics for the part product
+            var characteristics = GetOrderedCharacteristics(partProduct);
+            var characteristicRenderings = characteristics?
+                .Select(c => characteristicRenderingService.PrepareForRendering(c))
+                .ToList();
+
+            // Get routes for the part product
+            var routes = GetOrderedRoutes(partProduct);
+
+            return new ProductPartRendering
+            {
+                ProductPartDto = productPart,
+
+                // Quantity properties
+                QuantityNumerator = productPart.PartQuantityNumerator?.ToString("0.##"),
+                QuantityNumeratorUnit = productPart.PartQuantityNumeratorUnit ?? "1",
+                QuantityDenominator = "1",
+                HasQuantity = productPart.PartQuantityNumerator.HasValue,
+
+                // Part product properties
+                PartProductName = partProduct.ProductName,
+                PartFormCode = partProduct.FormCode,
+                PartFormCodeSystem = partProduct.FormCodeSystem,
+                PartFormDisplayName = partProduct.FormDisplayName,
+
+                // Ingredients
+                ActiveIngredients = activeIngredientRenderings,
+                InactiveIngredients = inactiveIngredientRenderings,
+                HasActiveIngredients = activeIngredientRenderings?.Any() == true,
+                HasInactiveIngredients = inactiveIngredientRenderings?.Any() == true,
+
+                // Generic medicines
+                GenericMedicines = partProduct.GenericMedicines,
+                HasGenericMedicines = partProduct.GenericMedicines?.Any() == true,
+
+                // Characteristics
+                Characteristics = characteristicRenderings,
+                HasCharacteristics = characteristicRenderings?.Any() == true,
+
+                // Routes
+                Routes = routes,
+                HasRoutes = routes?.Any() == true,
+
+                // Marketing data
+                MarketingCategories = GetOrderedMarketingCategories(partProduct),
+                MarketingStatuses = GetOrderedMarketingStatuses(partProduct),
+                HasMarketingCategories = GetOrderedMarketingCategories(partProduct)?.Any() == true,
+                HasMarketingStatuses = GetOrderedMarketingStatuses(partProduct)?.Any() == true
+            };
 
             #endregion
         }

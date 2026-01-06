@@ -55,21 +55,25 @@
                     }
                 }
 
-                @* Render active ingredients if available *@
-                @if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
+                @* For non-Kit products: Render ingredients directly on the product *@
+                @if (!Model.IsKit)
                 {
-                    foreach (var ingredient in Model.ActiveIngredients)
+                    @* Render active ingredients if available *@
+                    if (Model.HasActiveIngredients && Model.ActiveIngredients != null)
                     {
-                        await IncludeAsync("_Ingredient", ingredient);
+                        foreach (var ingredient in Model.ActiveIngredients)
+                        {
+                            await IncludeAsync("_Ingredient", ingredient);
+                        }
                     }
-                }
 
-                @* Render inactive ingredients if available *@
-                @if (Model.HasInactiveIngredients && Model.InactiveIngredients != null)
-                {
-                    foreach (var ingredient in Model.InactiveIngredients)
+                    @* Render inactive ingredients if available *@
+                    if (Model.HasInactiveIngredients && Model.InactiveIngredients != null)
                     {
-                        await IncludeAsync("_Ingredient", ingredient);
+                        foreach (var ingredient in Model.InactiveIngredients)
+                        {
+                            await IncludeAsync("_Ingredient", ingredient);
+                        }
                     }
                 }
 
@@ -79,6 +83,15 @@
                     foreach (var packageRendering in Model.PackageRendering)
                     {
                         await IncludeAsync("_Packaging", packageRendering);
+                    }
+                }
+
+                @* For Kit products: Render parts with their own ingredients, characteristics, etc. *@
+                @if (Model.IsKit && Model.HasProductParts && Model.ProductParts != null)
+                {
+                    foreach (var part in Model.ProductParts)
+                    {
+                        await IncludeAsync("_ProductPart", part);
                     }
                 }
 

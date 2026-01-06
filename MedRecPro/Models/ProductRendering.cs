@@ -359,6 +359,37 @@
 
         #endregion
 
+        #region kit product part properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this product is a Kit (formCode = C47916).
+        /// Kit products contain parts that should be rendered using the part element structure.
+        /// </summary>
+        /// <seealso cref="ProductPartRendering"/>
+        /// <seealso cref="Label.ProductPart"/>
+        public bool IsKit { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed product part rendering contexts for Kit products.
+        /// Contains ProductPartRendering objects with pre-computed properties for each part.
+        /// Null if this is not a Kit product or has no parts.
+        /// </summary>
+        /// <seealso cref="ProductPartRendering"/>
+        /// <seealso cref="Label.ProductPart"/>
+        public List<ProductPartRendering>? ProductParts { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed flag indicating whether this Kit product has parts to render.
+        /// </summary>
+        /// <seealso cref="ProductParts"/>
+        /// <seealso cref="IsKit"/>
+        public bool HasProductParts { get; set; }
+
+        #endregion
+
         #region legacy properties (for backward compatibility)
 
         /**************************************************************/
@@ -388,5 +419,154 @@
         public bool HasPackagingLevels => ProductDto?.PackagingLevels?.Any() == true;
 
         #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Context object for rendering product parts (Kit components) with pre-computed properties.
+    /// Used for rendering the part element structure in Kit products.
+    /// </summary>
+    /// <seealso cref="ProductPartDto"/>
+    /// <seealso cref="Label.ProductPart"/>
+    public class ProductPartRendering
+    {
+        /**************************************************************/
+        /// <summary>
+        /// The product part DTO containing the part metadata.
+        /// </summary>
+        /// <seealso cref="ProductPartDto"/>
+        public required ProductPartDto ProductPartDto { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed quantity numerator value for the part.
+        /// </summary>
+        public string? QuantityNumerator { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed quantity numerator unit for the part.
+        /// </summary>
+        public string? QuantityNumeratorUnit { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed quantity denominator value for the part (typically "1").
+        /// </summary>
+        public string? QuantityDenominator { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flag indicating whether this part has quantity information.
+        /// </summary>
+        public bool HasQuantity { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed product name for the part product.
+        /// </summary>
+        public string? PartProductName { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed form code for the part product.
+        /// </summary>
+        public string? PartFormCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed form code system for the part product.
+        /// </summary>
+        public string? PartFormCodeSystem { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed form display name for the part product.
+        /// </summary>
+        public string? PartFormDisplayName { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and ordered active ingredients for the part product.
+        /// </summary>
+        public List<IngredientRendering>? ActiveIngredients { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and ordered inactive ingredients for the part product.
+        /// </summary>
+        public List<IngredientRendering>? InactiveIngredients { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and ordered generic medicines for the part product.
+        /// </summary>
+        public List<GenericMedicineDto>? GenericMedicines { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and ordered characteristics for the part product.
+        /// </summary>
+        public List<CharacteristicRendering>? Characteristics { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed and ordered routes for the part product.
+        /// </summary>
+        public List<RouteDto>? Routes { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed marketing categories for the part product (approval info).
+        /// </summary>
+        public List<MarketingCategoryDto>? MarketingCategories { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-computed marketing statuses for the part product (marketing act).
+        /// </summary>
+        public List<MarketingStatusDto>? MarketingStatuses { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flag indicating whether part has active ingredients.
+        /// </summary>
+        public bool HasActiveIngredients { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flag indicating whether part has inactive ingredients.
+        /// </summary>
+        public bool HasInactiveIngredients { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flag indicating whether part has generic medicines.
+        /// </summary>
+        public bool HasGenericMedicines { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flag indicating whether part has characteristics.
+        /// </summary>
+        public bool HasCharacteristics { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flag indicating whether part has routes.
+        /// </summary>
+        public bool HasRoutes { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flag indicating whether part has marketing categories (approval).
+        /// </summary>
+        public bool HasMarketingCategories { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flag indicating whether part has marketing statuses (marketing act).
+        /// </summary>
+        public bool HasMarketingStatuses { get; set; }
     }
 }

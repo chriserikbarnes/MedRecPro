@@ -1569,14 +1569,82 @@ namespace MedRecPro.DataAccess
                 g => g.Select(e => new ProductIdentifierDto { ProductIdentifier = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads ProductPart entities for Kit products, including full PartProduct DTOs.
+        /// Each PartProduct includes its ingredients, characteristics, routes, marketing status, etc.
+        /// </summary>
         private static async Task<Dictionary<int, List<ProductPartDto>>> batchLoadProductPartsAsync(
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
+
             var entities = await db.Set<Label.ProductPart>().AsNoTracking()
-                .Where(e => e.KitProductID != null && productIds.Contains((int)e.KitProductID)).ToListAsync();
+                .Where(e => e.KitProductID != null && productIds.Contains((int)e.KitProductID))
+                .OrderBy(e => e.PartQuantityNumerator) // Order parts by quantity (active tablets first typically)
+                .ToListAsync();
+
+            if (!entities.Any())
+                return new();
+
+            // Get all PartProductIDs to load full product data
+            var partProductIds = entities
+                .Where(e => e.PartProductID != null)
+                .Select(e => (int)e.PartProductID!)
+                .Distinct()
+                .ToList();
+
+            // Load full product data for each part product
+            var partProducts = await batchLoadPartProductsAsync(db, partProductIds, pkSecret, logger);
+
             return entities.GroupBy(e => e.KitProductID!.Value).ToDictionary(g => g.Key,
-                g => g.Select(e => new ProductPartDto { ProductPart = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+                g => g.Select(e => new ProductPartDto
+                {
+                    ProductPart = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    PartProduct = e.PartProductID != null ? partProducts.GetValueOrDefault((int)e.PartProductID!) : null
+                }).ToList());
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads full Product DTOs for part products (used by Kit products).
+        /// Loads core product children needed for SPL partProduct rendering.
+        /// </summary>
+        private static async Task<Dictionary<int, ProductDto>> batchLoadPartProductsAsync(
+            ApplicationDbContext db, IReadOnlyList<int> partProductIds, string pkSecret, ILogger logger)
+        {
+            if (partProductIds == null || !partProductIds.Any()) return new();
+
+            // Load part product entities
+            var products = await db.Set<Label.Product>().AsNoTracking()
+                .Where(p => p.ProductID != null && partProductIds.Contains((int)p.ProductID))
+                .ToListAsync();
+
+            if (!products.Any())
+                return new();
+
+            // Batch load essential children for part products
+            var allIngredients = await batchLoadIngredientsAsync(db, partProductIds, pkSecret, logger);
+            var allCharacteristics = await batchLoadProductCharacteristicsAsync(db, partProductIds, pkSecret, logger);
+            var allRoutes = await batchLoadProductRoutesAsync(db, partProductIds, pkSecret, logger);
+            var allGenericMedicines = await batchLoadGenericMedicinesAsync(db, partProductIds, pkSecret, logger);
+            var allMarketingCategories = await batchLoadMarketingCategoriesAsync(db, partProductIds, pkSecret, logger);
+            var allMarketingStatuses = await batchLoadProductMarketingStatusesAsync(db, partProductIds, pkSecret, logger);
+            var allProductIdentifiers = await batchLoadProductIdentifiersAsync(db, partProductIds, pkSecret, logger);
+
+            return products.ToDictionary(
+                p => p.ProductID!.Value,
+                p => new ProductDto
+                {
+                    Product = p.ToEntityWithEncryptedId(pkSecret, logger),
+                    Ingredients = allIngredients.GetValueOrDefault((int)p.ProductID!) ?? new(),
+                    Characteristics = allCharacteristics.GetValueOrDefault((int)p.ProductID!) ?? new(),
+                    ProductRouteOfAdministrations = allRoutes.GetValueOrDefault((int)p.ProductID!) ?? new(),
+                    GenericMedicines = allGenericMedicines.GetValueOrDefault((int)p.ProductID!) ?? new(),
+                    MarketingCategories = allMarketingCategories.GetValueOrDefault((int)p.ProductID!) ?? new(),
+                    MarketingStatuses = allMarketingStatuses.GetValueOrDefault((int)p.ProductID!) ?? new(),
+                    ProductIdentifiers = allProductIdentifiers.GetValueOrDefault((int)p.ProductID!) ?? new()
+                });
         }
 
         private static async Task<Dictionary<int, List<ProductRouteOfAdministrationDto>>> batchLoadProductRoutesAsync(
@@ -1855,8 +1923,34 @@ namespace MedRecPro.DataAccess
             if (substanceIds == null || !substanceIds.Any()) return new();
             var entities = await db.Set<Label.IngredientSubstance>().AsNoTracking()
                 .Where(e => e.IngredientSubstanceID != null && substanceIds.Contains((int)e.IngredientSubstanceID)).ToListAsync();
+
+            if (!entities.Any())
+                return new();
+
+            // Batch load ActiveMoieties for all ingredient substances
+            var allActiveMoieties = await batchLoadActiveMoietiesAsync(db, substanceIds, pkSecret, logger);
+
             return entities.ToDictionary(e => e.IngredientSubstanceID!.Value,
-                e => new IngredientSubstanceDto { IngredientSubstance = e.ToEntityWithEncryptedId(pkSecret, logger) });
+                e => new IngredientSubstanceDto
+                {
+                    IngredientSubstance = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    ActiveMoieties = allActiveMoieties.GetValueOrDefault((int)e.IngredientSubstanceID!) ?? new()
+                });
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads ActiveMoiety entities for multiple IngredientSubstance IDs.
+        /// </summary>
+        private static async Task<Dictionary<int, List<ActiveMoietyDto>>> batchLoadActiveMoietiesAsync(
+            ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
+        {
+            if (substanceIds == null || !substanceIds.Any()) return new();
+            var entities = await db.Set<Label.ActiveMoiety>().AsNoTracking()
+                .Where(e => e.IngredientSubstanceID != null && substanceIds.Contains((int)e.IngredientSubstanceID))
+                .ToListAsync();
+            return entities.GroupBy(e => e.IngredientSubstanceID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new ActiveMoietyDto { ActiveMoiety = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
         }
 
         private static async Task<Dictionary<int, List<ReferenceSubstanceDto>>> batchLoadReferenceSubstancesAsync(

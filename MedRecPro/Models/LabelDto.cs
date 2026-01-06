@@ -4309,7 +4309,17 @@ namespace MedRecPro.Models
     public class ProductPartDto
     {
         public required Dictionary<string, object?> ProductPart { get; set; }
+
+        /// <summary>
+        /// The parent Kit product that contains this part.
+        /// </summary>
         public ProductDto? KitProduct { get; set; }
+
+        /// <summary>
+        /// The actual product representing this part (partProduct in SPL).
+        /// Contains the part's ingredients, characteristics, routes, etc.
+        /// </summary>
+        public ProductDto? PartProduct { get; set; }
 
         /// <summary>
         /// Primary key for the ProductPart table.
