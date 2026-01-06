@@ -1337,8 +1337,25 @@ namespace MedRecPro.DataAccess
         /**************************************************************/
         /// <summary>
         /// Batch loads Product entities with all 23 child collections for multiple section IDs.
+        /// Excludes products that are Kit part products since those should only be rendered
+        /// within their Kit's &lt;part&gt; elements.
         /// This is the second highest-impact batch loader.
         /// </summary>
+        /// <remarks>
+        /// Kit part product identification uses a view-based approach:
+        /// 1. Identify Kit products by FormCode = C47916
+        /// 2. Find other products in the same section without marketing data
+        /// 3. These are inferred as Kit parts and excluded from top-level rendering
+        ///
+        /// This approach is more reliable than relying solely on the ProductPart table
+        /// which may have data integrity issues (e.g., self-references).
+        ///
+        /// Backward compatibility is maintained:
+        /// - Non-Kit sections are unaffected
+        /// - Products with their own marketing data are never excluded
+        /// </remarks>
+        /// <seealso cref="identifyKitPartProductsAsync"/>
+        /// <seealso cref="batchLoadProductPartsAsync"/>
         private static async Task<Dictionary<int, List<ProductDto>>> batchLoadProductsAsync(
             ApplicationDbContext db,
             IReadOnlyList<int> sectionIds,
@@ -1350,10 +1367,30 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<ProductDto>>();
 
-            var products = await db.Set<Label.Product>()
+            // Load ALL products for the sections first (we'll filter after Kit analysis)
+            var allProducts = await db.Set<Label.Product>()
                 .AsNoTracking()
                 .Where(p => p.SectionID != null && sectionIds.Contains((int)p.SectionID))
                 .ToListAsync();
+
+            if (!allProducts.Any())
+                return new Dictionary<int, List<ProductDto>>();
+
+            // Identify Kit products and build mapping of Kit ProductID -> SectionID
+            var kitProducts = allProducts.Where(p => isKitProduct(p) && p.ProductID.HasValue).ToList();
+            var kitProductIds = kitProducts.Select(p => p.ProductID!.Value).ToList();
+            var kitSectionIds = kitProducts.ToDictionary(p => p.ProductID!.Value, p => p.SectionID!.Value);
+
+            // Use view-based logic to identify Kit part products
+            var kitPartsMapping = await identifyKitPartProductsAsync(db, kitProductIds, kitSectionIds, allProducts);
+
+            // Get all part product IDs that should be excluded from top-level rendering
+            var partProductIdsToExclude = getPartProductIdsToExclude(kitPartsMapping);
+
+            // Filter products: exclude part products (they'll be rendered inside Kit's <part> elements)
+            var products = allProducts
+                .Where(p => !p.ProductID.HasValue || !partProductIdsToExclude.Contains(p.ProductID.Value))
+                .ToList();
 
             if (!products.Any())
                 return new Dictionary<int, List<ProductDto>>();
@@ -1574,35 +1611,136 @@ namespace MedRecPro.DataAccess
         /// Batch loads ProductPart entities for Kit products, including full PartProduct DTOs.
         /// Each PartProduct includes its ingredients, characteristics, routes, marketing status, etc.
         /// </summary>
+        /// <remarks>
+        /// This method uses a view-based approach to identify Kit parts:
+        /// 1. Identify Kit products by FormCode = C47916
+        /// 2. Find other products in the same section without marketing data
+        /// 3. Build synthetic ProductPart records from the inferred relationships
+        ///
+        /// The view-based approach is used because the ProductPart table may have data integrity
+        /// issues (e.g., self-references where KitProductID == PartProductID).
+        ///
+        /// Backward compatibility: If the ProductPart table has valid data (non-self-referencing),
+        /// the quantity information from the table is used. Otherwise, parts are inferred from
+        /// section membership and marketing data absence.
+        /// </remarks>
+        /// <seealso cref="identifyKitPartProductsAsync"/>
+        /// <seealso cref="batchLoadPartProductsAsync"/>
         private static async Task<Dictionary<int, List<ProductPartDto>>> batchLoadProductPartsAsync(
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
+            #region implementation
+
             if (productIds == null || !productIds.Any()) return new();
 
-            var entities = await db.Set<Label.ProductPart>().AsNoTracking()
-                .Where(e => e.KitProductID != null && productIds.Contains((int)e.KitProductID))
-                .OrderBy(e => e.PartQuantityNumerator) // Order parts by quantity (active tablets first typically)
+            // Load all products for the sections where our Kit products reside
+            // We need this to identify part products by section membership
+            // Note: Cannot use isKitProduct() in LINQ-to-SQL, must inline the FormCode check
+            var kitProducts = await db.Set<Label.Product>().AsNoTracking()
+                .Where(p => p.ProductID != null && productIds.Contains((int)p.ProductID)
+                    && p.FormCode != null && p.FormCode == Constant.KIT_FORM_CODE)
                 .ToListAsync();
 
-            if (!entities.Any())
+            if (!kitProducts.Any())
                 return new();
 
-            // Get all PartProductIDs to load full product data
-            var partProductIds = entities
-                .Where(e => e.PartProductID != null)
-                .Select(e => (int)e.PartProductID!)
+            // Get section IDs for all Kit products
+            var kitSectionIds = kitProducts
+                .Where(p => p.SectionID.HasValue)
+                .Select(p => p.SectionID!.Value)
+                .Distinct()
+                .ToList();
+
+            // Load all products in Kit sections to identify parts
+            var allProductsInKitSections = await db.Set<Label.Product>().AsNoTracking()
+                .Where(p => p.SectionID != null && kitSectionIds.Contains((int)p.SectionID))
+                .ToListAsync();
+
+            // Build Kit ProductID -> SectionID mapping
+            var kitProductIdToSectionId = kitProducts
+                .Where(p => p.ProductID.HasValue && p.SectionID.HasValue)
+                .ToDictionary(p => p.ProductID!.Value, p => p.SectionID!.Value);
+
+            // Use view-based logic to identify Kit part products
+            var kitPartsMapping = await identifyKitPartProductsAsync(
+                db,
+                productIds.ToList(),
+                kitProductIdToSectionId,
+                allProductsInKitSections);
+
+            if (!kitPartsMapping.Any())
+                return new();
+
+            // Collect all part product IDs for batch loading their full data
+            var allPartProductIds = kitPartsMapping.Values
+                .SelectMany(parts => parts)
+                .Where(p => p.ProductID.HasValue)
+                .Select(p => p.ProductID!.Value)
                 .Distinct()
                 .ToList();
 
             // Load full product data for each part product
-            var partProducts = await batchLoadPartProductsAsync(db, partProductIds, pkSecret, logger);
+            var partProductDtos = await batchLoadPartProductsAsync(db, allPartProductIds, pkSecret, logger);
 
-            return entities.GroupBy(e => e.KitProductID!.Value).ToDictionary(g => g.Key,
-                g => g.Select(e => new ProductPartDto
+            // Try to get quantity information from ProductPart table (if available and valid)
+            // This handles cases where the table has correct data
+            var existingProductParts = await db.Set<Label.ProductPart>().AsNoTracking()
+                .Where(pp => pp.KitProductID != null && productIds.Contains((int)pp.KitProductID)
+                    && pp.PartProductID != null && pp.KitProductID != pp.PartProductID) // Exclude self-references
+                .ToListAsync();
+
+            // Build lookup for quantity data from ProductPart table
+            var quantityLookup = existingProductParts
+                .Where(pp => pp.KitProductID.HasValue && pp.PartProductID.HasValue)
+                .ToDictionary(
+                    pp => (KitId: pp.KitProductID!.Value, PartId: pp.PartProductID!.Value),
+                    pp => pp);
+
+            // Build the result dictionary
+            var result = new Dictionary<int, List<ProductPartDto>>();
+
+            foreach (var kvp in kitPartsMapping)
+            {
+                var kitProductId = kvp.Key;
+                var partProducts = kvp.Value;
+
+                var productPartDtos = new List<ProductPartDto>();
+
+                foreach (var partProduct in partProducts.OrderBy(p => p.ProductName)) // Order alphabetically by name
                 {
-                    ProductPart = e.ToEntityWithEncryptedId(pkSecret, logger),
-                    PartProduct = e.PartProductID != null ? partProducts.GetValueOrDefault((int)e.PartProductID!) : null
-                }).ToList());
+                    if (!partProduct.ProductID.HasValue)
+                        continue;
+
+                    var partProductId = partProduct.ProductID.Value;
+
+                    // Try to get existing ProductPart record for quantity info
+                    Label.ProductPart? existingPart = null;
+                    quantityLookup.TryGetValue((kitProductId, partProductId), out existingPart);
+
+                    // Create synthetic ProductPart entity if no valid one exists
+                    var productPartEntity = existingPart ?? new Label.ProductPart
+                    {
+                        KitProductID = kitProductId,
+                        PartProductID = partProductId,
+                        // Quantity will be null if not in table - templates should handle this
+                    };
+
+                    productPartDtos.Add(new ProductPartDto
+                    {
+                        ProductPart = productPartEntity.ToEntityWithEncryptedId(pkSecret, logger),
+                        PartProduct = partProductDtos.GetValueOrDefault(partProductId)
+                    });
+                }
+
+                if (productPartDtos.Any())
+                {
+                    result[kitProductId] = productPartDtos;
+                }
+            }
+
+            return result;
+
+            #endregion
         }
 
         /**************************************************************/
@@ -1730,14 +1868,108 @@ namespace MedRecPro.DataAccess
                 }).ToList());
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads PackagingHierarchy entities with full ChildPackagingLevel population.
+        /// Recursively loads inner packaging levels with all their children to support nested asContent rendering.
+        /// </summary>
         private static async Task<Dictionary<int, List<PackagingHierarchyDto>>> batchLoadPackagingHierarchiesAsync(
             ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
         {
             if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
-            var entities = await db.Set<Label.PackagingHierarchy>().AsNoTracking()
-                .Where(e => e.OuterPackagingLevelID != null && packagingLevelIds.Contains((int)e.OuterPackagingLevelID)).ToListAsync();
-            return entities.GroupBy(e => e.OuterPackagingLevelID!.Value).ToDictionary(g => g.Key,
-                g => g.Select(e => new PackagingHierarchyDto { PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+
+            // Load all hierarchy entities for the given outer packaging level IDs
+            var hierarchyEntities = await db.Set<Label.PackagingHierarchy>().AsNoTracking()
+                .Where(e => e.OuterPackagingLevelID != null && packagingLevelIds.Contains((int)e.OuterPackagingLevelID))
+                .ToListAsync();
+
+            if (!hierarchyEntities.Any())
+                return new();
+
+            // Collect all InnerPackagingLevelIDs to load the child packaging levels
+            var innerPackagingLevelIds = hierarchyEntities
+                .Where(h => h.InnerPackagingLevelID != null)
+                .Select(h => (int)h.InnerPackagingLevelID!)
+                .Distinct()
+                .ToList();
+
+            // Load all inner packaging levels with their children recursively
+            var innerPackagingLevels = await batchLoadInnerPackagingLevelsRecursiveAsync(db, innerPackagingLevelIds, pkSecret, logger);
+
+            // Build the hierarchy DTOs with populated ChildPackagingLevel
+            return hierarchyEntities.GroupBy(e => e.OuterPackagingLevelID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new PackagingHierarchyDto
+                {
+                    PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    ChildPackagingLevel = e.InnerPackagingLevelID != null
+                        ? innerPackagingLevels.GetValueOrDefault((int)e.InnerPackagingLevelID!)
+                        : null
+                }).ToList());
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recursively loads inner PackagingLevel entities with all their children.
+        /// Supports multi-level nested packaging structures (e.g., BLISTER PACK inside CARTON).
+        /// </summary>
+        private static async Task<Dictionary<int, PackagingLevelDto>> batchLoadInnerPackagingLevelsRecursiveAsync(
+            ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
+        {
+            if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
+
+            // Load all packaging level entities
+            var entities = await db.Set<Label.PackagingLevel>().AsNoTracking()
+                .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID))
+                .ToListAsync();
+
+            if (!entities.Any())
+                return new();
+
+            // Batch load all child collections for these packaging levels
+            var allProductEvents = await batchLoadProductEventsAsync(db, packagingLevelIds, pkSecret, logger);
+            var allMarketingStatuses = await batchLoadPackageMarketingStatusesAsync(db, packagingLevelIds, pkSecret, logger);
+            var allPackageIdentifiers = await batchLoadPackageIdentifiersByLevelAsync(db, packagingLevelIds, pkSecret, logger);
+            var allCharacteristics = await batchLoadPackageLevelCharacteristicsAsync(db, packagingLevelIds, pkSecret, logger);
+
+            // Load hierarchies for these packaging levels (for further nesting)
+            var hierarchyEntities = await db.Set<Label.PackagingHierarchy>().AsNoTracking()
+                .Where(e => e.OuterPackagingLevelID != null && packagingLevelIds.Contains((int)e.OuterPackagingLevelID))
+                .ToListAsync();
+
+            // Collect inner packaging level IDs for recursive loading
+            var nextLevelIds = hierarchyEntities
+                .Where(h => h.InnerPackagingLevelID != null)
+                .Select(h => (int)h.InnerPackagingLevelID!)
+                .Distinct()
+                .ToList();
+
+            // Recursively load the next level of inner packaging
+            var nestedInnerPackagingLevels = nextLevelIds.Any()
+                ? await batchLoadInnerPackagingLevelsRecursiveAsync(db, nextLevelIds, pkSecret, logger)
+                : new Dictionary<int, PackagingLevelDto>();
+
+            // Build hierarchy DTOs with nested ChildPackagingLevel
+            var allPackagingHierarchies = hierarchyEntities.GroupBy(e => e.OuterPackagingLevelID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new PackagingHierarchyDto
+                {
+                    PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    ChildPackagingLevel = e.InnerPackagingLevelID != null
+                        ? nestedInnerPackagingLevels.GetValueOrDefault((int)e.InnerPackagingLevelID!)
+                        : null
+                }).ToList());
+
+            // Build and return the packaging level DTOs
+            return entities.ToDictionary(
+                e => e.PackagingLevelID!.Value,
+                e => new PackagingLevelDto
+                {
+                    PackagingLevel = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    PackagingHierarchy = e.PackagingLevelID != null ? allPackagingHierarchies.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new(),
+                    ProductEvents = e.PackagingLevelID != null ? allProductEvents.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new(),
+                    MarketingStatuses = e.PackagingLevelID != null ? allMarketingStatuses.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new(),
+                    PackageIdentifiers = e.PackagingLevelID != null ? allPackageIdentifiers.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new(),
+                    Characteristics = e.PackagingLevelID != null ? allCharacteristics.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new()
+                });
         }
 
         private static async Task<Dictionary<int, List<ProductEventDto>>> batchLoadProductEventsAsync(
@@ -2391,6 +2623,136 @@ namespace MedRecPro.DataAccess
                 .Where(e => e.DocumentRelationshipID != null && relationshipIds.Contains((int)e.DocumentRelationshipID)).ToListAsync();
             return entities.GroupBy(e => e.DocumentRelationshipID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new DocumentRelationshipIdentifierDto { DocumentRelationshipIdentifier = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+        }
+
+        #endregion
+
+        #region Kit Product Helper Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines if a product is a Kit based on its FormCode.
+        /// Kit products use FormCode C47916 per FDA SPL specifications.
+        /// </summary>
+        /// <param name="product">The product entity to check.</param>
+        /// <returns>True if the product is a Kit; otherwise, false.</returns>
+        /// <seealso cref="Constant.KIT_FORM_CODE"/>
+        /// <seealso cref="Label.Product"/>
+        private static bool isKitProduct(Label.Product product)
+        {
+            #region implementation
+            return product?.FormCode?.Equals(Constant.KIT_FORM_CODE, StringComparison.OrdinalIgnoreCase) == true;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Identifies part products that belong to a Kit within the same section.
+        /// Part products are identified by:
+        /// - Being in the same section as a Kit product
+        /// - Not being a Kit themselves (FormCode != C47916)
+        /// - Having no marketing category data (marketing data belongs to Kit)
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="kitProductIds">Collection of Kit product IDs.</param>
+        /// <param name="kitSectionIds">Dictionary mapping Kit ProductID to its SectionID.</param>
+        /// <param name="allProductsInSections">All products loaded for the sections.</param>
+        /// <returns>Dictionary mapping Kit ProductID to list of part Product entities.</returns>
+        /// <seealso cref="Label.Product"/>
+        /// <seealso cref="Label.MarketingCategory"/>
+        /// <remarks>
+        /// This method uses a view-based approach to identify Kit parts by inferring relationships
+        /// from section membership and marketing data presence. This is more reliable than
+        /// relying on the ProductPart table which may have data integrity issues.
+        ///
+        /// The logic maintains backward compatibility:
+        /// - Non-Kit products are unaffected
+        /// - Products with their own marketing data are not treated as parts
+        /// - Only products in Kit sections without marketing data become parts
+        /// </remarks>
+        private static async Task<Dictionary<int, List<Label.Product>>> identifyKitPartProductsAsync(
+            ApplicationDbContext db,
+            IReadOnlyList<int> kitProductIds,
+            Dictionary<int, int> kitSectionIds,
+            IReadOnlyList<Label.Product> allProductsInSections)
+        {
+            #region implementation
+
+            var result = new Dictionary<int, List<Label.Product>>();
+
+            if (kitProductIds == null || !kitProductIds.Any())
+                return result;
+
+            // Get all product IDs that have marketing categories (these are NOT parts)
+            // Parts don't have their own marketing data - they inherit from the Kit
+            var productsWithMarketingData = await db.Set<Label.MarketingCategory>()
+                .AsNoTracking()
+                .Where(mc => mc.ProductID != null)
+                .Select(mc => mc.ProductID!.Value)
+                .Distinct()
+                .ToListAsync();
+
+            var productsWithMarketingSet = new HashSet<int>(productsWithMarketingData);
+
+            // For each Kit, find its part products
+            foreach (var kitProductId in kitProductIds)
+            {
+                if (!kitSectionIds.TryGetValue(kitProductId, out var kitSectionId))
+                    continue;
+
+                // Find products that:
+                // 1. Are in the same section as this Kit
+                // 2. Are NOT the Kit itself
+                // 3. Are NOT Kits themselves (FormCode != C47916)
+                // 4. Do NOT have their own marketing category data
+                var partProducts = allProductsInSections
+                    .Where(p =>
+                        p.SectionID == kitSectionId &&
+                        p.ProductID != kitProductId &&
+                        !isKitProduct(p) &&
+                        p.ProductID.HasValue &&
+                        !productsWithMarketingSet.Contains(p.ProductID.Value))
+                    .ToList();
+
+                if (partProducts.Any())
+                {
+                    result[kitProductId] = partProducts;
+                }
+            }
+
+            return result;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets all part product IDs that should be excluded from top-level product rendering.
+        /// These products will be rendered as &lt;part&gt; elements within their parent Kit.
+        /// </summary>
+        /// <param name="kitPartsMapping">Dictionary mapping Kit ProductID to list of part Products.</param>
+        /// <returns>HashSet of ProductIDs that are Kit parts and should be excluded from top-level.</returns>
+        /// <seealso cref="identifyKitPartProductsAsync"/>
+        private static HashSet<int> getPartProductIdsToExclude(Dictionary<int, List<Label.Product>> kitPartsMapping)
+        {
+            #region implementation
+
+            var excludeIds = new HashSet<int>();
+
+            foreach (var kvp in kitPartsMapping)
+            {
+                foreach (var partProduct in kvp.Value)
+                {
+                    if (partProduct.ProductID.HasValue)
+                    {
+                        excludeIds.Add(partProduct.ProductID.Value);
+                    }
+                }
+            }
+
+            return excludeIds;
+
+            #endregion
         }
 
         #endregion
