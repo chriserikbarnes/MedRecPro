@@ -417,6 +417,33 @@ function Invoke-ExportPhase {
         using BCP in native format (-n). Collects row counts and file sizes
         for inventory reporting.
     #>
+
+    # Check for existing export files
+    $existingDatFiles = Get-ChildItem -Path $DataPath -Filter "*.dat" -ErrorAction SilentlyContinue
+    if ($existingDatFiles -and $existingDatFiles.Count -gt 0) {
+        Write-Host ""
+        Write-Host "╔══════════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
+        Write-Host "║                    EXISTING FILES DETECTED                       ║" -ForegroundColor Yellow
+        Write-Host "║                                                                  ║" -ForegroundColor Yellow
+        Write-Host "║  Found existing .dat files in the export directory.              ║" -ForegroundColor Yellow
+        Write-Host "║                                                                  ║" -ForegroundColor Yellow
+        Write-Host "║  BCP appends to existing files, which will cause data            ║" -ForegroundColor Yellow
+        Write-Host "║  duplication if not removed.                                     ║" -ForegroundColor Yellow
+        Write-Host "║                                                                  ║" -ForegroundColor Yellow
+        Write-Host "╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
+        Write-Host ""
+    
+        $cleanup = Read-Host "Delete existing .dat files before export? (Y/N)"
+        if ($cleanup -eq 'Y' -or $cleanup -eq 'y') {
+            $existingDatFiles | Remove-Item -Force
+            Get-ChildItem -Path $DataPath -Filter "*.err" -ErrorAction SilentlyContinue | Remove-Item -Force
+            Write-LogMessage "Cleaned up existing export files" -Level Success
+        }
+        else {
+            Write-LogMessage "Export cancelled - clean up files manually or confirm to proceed" -Level Warning
+            return $null
+        }
+    }
     
     Write-Host ""
     Write-Host "╔══════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan

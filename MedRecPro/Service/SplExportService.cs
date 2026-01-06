@@ -752,6 +752,9 @@ namespace MedRecPro.Service
                 // The "GenerateSpl" template uses the fully prepared document rendering context with enhanced authors and products
                 var xmlContent = await _templateRenderingService.RenderAsync("GenerateSpl", documentRendering);
 
+                // DIAGNOSTIC: Extract and log all DUPLICATION_DIAG comments from rendered XML before any transformation
+                logDuplicationDiagnostics(xmlContent, documentGuid);
+
                 // Optional: Minify the XML output if requested to reduce size for transmission/storage
                 if(minify)
                 {
@@ -1303,6 +1306,59 @@ namespace MedRecPro.Service
                 // No products to process - initialize enhanced product collections as empty
                 sectionRendering.RenderedProducts = null;
                 sectionRendering.HasRenderedProducts = false;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts and logs DUPLICATION_DIAG comments from rendered XML for diagnostic analysis.
+        /// This allows viewing diagnostic data that would otherwise be stripped by client-side transformation.
+        /// </summary>
+        /// <param name="xmlContent">The rendered XML content containing diagnostic comments</param>
+        /// <param name="documentGuid">Document GUID for logging context</param>
+        private void logDuplicationDiagnostics(string xmlContent, Guid documentGuid)
+        {
+            #region implementation
+
+            if (string.IsNullOrEmpty(xmlContent))
+                return;
+
+            try
+            {
+                // Extract all DUPLICATION_DIAG comments using regex
+                var diagnosticPattern = new System.Text.RegularExpressions.Regex(
+                    @"<!--\s*DUPLICATION_DIAG:\s*([^>]+)-->",
+                    System.Text.RegularExpressions.RegexOptions.Compiled);
+
+                var matches = diagnosticPattern.Matches(xmlContent);
+
+                if (matches.Count > 0)
+                {
+                    _logger.LogInformation(
+                        "[DUPLICATION_DIAG] Document {DocumentGuid} - RENDERED XML DIAGNOSTICS: Found {Count} diagnostic comments in rendered output",
+                        documentGuid, matches.Count);
+
+                    foreach (System.Text.RegularExpressions.Match match in matches)
+                    {
+                        _logger.LogInformation(
+                            "[DUPLICATION_DIAG] Document {DocumentGuid} - XML_COMMENT: {DiagnosticContent}",
+                            documentGuid, match.Groups[1].Value.Trim());
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "[DUPLICATION_DIAG] Document {DocumentGuid} - RENDERED XML DIAGNOSTICS: No diagnostic comments found in rendered output",
+                        documentGuid);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - Error extracting diagnostic comments from XML",
+                    documentGuid);
             }
 
             #endregion
