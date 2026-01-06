@@ -239,10 +239,11 @@ namespace MedRecPro.Service
                 .Select(h => h.ChildSectionID!.Value));
 
             // Create parent-to-children lookup for efficient hierarchy building
+            // Use Distinct() to handle potential duplicate hierarchy entries (same parent-child pair)
             var parentToChildrenLookup = hierarchies
                 .Where(h => h != null && h.ParentSectionID.HasValue && h.ChildSectionID.HasValue)
                 .GroupBy(h => h.ParentSectionID!.Value)
-                .ToDictionary(g => g.Key, g => g.Select(h => h.ChildSectionID!.Value).ToList());
+                .ToDictionary(g => g.Key, g => g.Select(h => h.ChildSectionID!.Value).Distinct().ToList());
 
             // Process only top-level sections in their original order
             foreach (var section in structuredBodyDto.Sections
@@ -309,9 +310,12 @@ namespace MedRecPro.Service
             }
 
             // Get display order information from hierarchies for sorting
+            // Use GroupBy to handle potential duplicate hierarchy entries (same parent-child relationship)
+            // by taking the first occurrence's sequence number
             var childOrderLookup = hierarchies
                 .Where(h => h.ParentSectionID == parentSectionId && h.ChildSectionID.HasValue)
-                .ToDictionary(h => h.ChildSectionID!.Value, h => h.SequenceNumber ?? int.MaxValue);
+                .GroupBy(h => h.ChildSectionID!.Value)
+                .ToDictionary(g => g.Key, g => g.First().SequenceNumber ?? int.MaxValue);
 
             foreach (var childId in childIds)
             {

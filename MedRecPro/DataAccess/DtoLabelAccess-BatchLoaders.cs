@@ -1387,8 +1387,8 @@ namespace MedRecPro.DataAccess
             var allSpecializedKinds = await batchLoadSpecializedKindsAsync(db, productIds, pkSecret, logger);
             var allWebLinks = await batchLoadProductWebLinksAsync(db, productIds, pkSecret, logger);
 
-            // Note: DirectPackageIdentifiers requires sectionId context - simplified for batch
-            var allPackageIdentifiers = new Dictionary<int, List<PackageIdentifierDto>>();
+            // Batch load PackageIdentifiers via join with PackagingLevel -> Product
+            var allPackageIdentifiers = await batchLoadDirectPackageIdentifiersAsync(db, productIds, pkSecret, logger);
 
             // Group by SectionID and build DTOs
             return products
@@ -1635,8 +1635,151 @@ namespace MedRecPro.DataAccess
             if (productIds == null || !productIds.Any()) return new();
             var entities = await db.Set<Label.PackagingLevel>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
+
+            if (!entities.Any())
+                return new();
+
+            // Get all packaging level IDs for batch loading children
+            var packagingLevelIds = entities.Where(e => e.PackagingLevelID != null)
+                .Select(e => (int)e.PackagingLevelID!).ToList();
+
+            // Batch load all child collections
+            var allPackagingHierarchies = await batchLoadPackagingHierarchiesAsync(db, packagingLevelIds, pkSecret, logger);
+            var allProductEvents = await batchLoadProductEventsAsync(db, packagingLevelIds, pkSecret, logger);
+            var allMarketingStatuses = await batchLoadPackageMarketingStatusesAsync(db, packagingLevelIds, pkSecret, logger);
+            var allPackageIdentifiers = await batchLoadPackageIdentifiersByLevelAsync(db, packagingLevelIds, pkSecret, logger);
+            var allCharacteristics = await batchLoadPackageLevelCharacteristicsAsync(db, packagingLevelIds, pkSecret, logger);
+
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
-                g => g.Select(e => new PackagingLevelDto { PackagingLevel = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+                g => g.Select(e => new PackagingLevelDto
+                {
+                    PackagingLevel = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    PackagingHierarchy = e.PackagingLevelID != null ? allPackagingHierarchies.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new(),
+                    ProductEvents = e.PackagingLevelID != null ? allProductEvents.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new(),
+                    MarketingStatuses = e.PackagingLevelID != null ? allMarketingStatuses.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new(),
+                    PackageIdentifiers = e.PackagingLevelID != null ? allPackageIdentifiers.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new(),
+                    Characteristics = e.PackagingLevelID != null ? allCharacteristics.GetValueOrDefault((int)e.PackagingLevelID!) ?? new() : new()
+                }).ToList());
+        }
+
+        private static async Task<Dictionary<int, List<PackagingHierarchyDto>>> batchLoadPackagingHierarchiesAsync(
+            ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
+        {
+            if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
+            var entities = await db.Set<Label.PackagingHierarchy>().AsNoTracking()
+                .Where(e => e.OuterPackagingLevelID != null && packagingLevelIds.Contains((int)e.OuterPackagingLevelID)).ToListAsync();
+            return entities.GroupBy(e => e.OuterPackagingLevelID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new PackagingHierarchyDto { PackagingHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+        }
+
+        private static async Task<Dictionary<int, List<ProductEventDto>>> batchLoadProductEventsAsync(
+            ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
+        {
+            if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
+            var entities = await db.Set<Label.ProductEvent>().AsNoTracking()
+                .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID)).ToListAsync();
+            return entities.GroupBy(e => e.PackagingLevelID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new ProductEventDto { ProductEvent = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+        }
+
+        private static async Task<Dictionary<int, List<MarketingStatusDto>>> batchLoadPackageMarketingStatusesAsync(
+            ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
+        {
+            if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
+            var entities = await db.Set<Label.MarketingStatus>().AsNoTracking()
+                .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID)).ToListAsync();
+            return entities.GroupBy(e => e.PackagingLevelID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new MarketingStatusDto { MarketingStatus = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+        }
+
+        private static async Task<Dictionary<int, List<PackageIdentifierDto>>> batchLoadPackageIdentifiersByLevelAsync(
+            ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
+        {
+            if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
+            var entities = await db.Set<Label.PackageIdentifier>().AsNoTracking()
+                .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID)).ToListAsync();
+            return entities.GroupBy(e => e.PackagingLevelID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new PackageIdentifierDto { PackageIdentifier = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+        }
+
+        private static async Task<Dictionary<int, List<CharacteristicDto>>> batchLoadPackageLevelCharacteristicsAsync(
+            ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
+        {
+            if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
+            var entities = await db.Set<Label.Characteristic>().AsNoTracking()
+                .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID)).ToListAsync();
+            return entities.GroupBy(e => e.PackagingLevelID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new CharacteristicDto { Characteristic = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads PackageIdentifier entities for multiple products by joining through PackagingLevel.
+        /// Includes ComplianceActions for each PackageIdentifier.
+        /// </summary>
+        private static async Task<Dictionary<int, List<PackageIdentifierDto>>> batchLoadDirectPackageIdentifiersAsync(
+            ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
+        {
+            if (productIds == null || !productIds.Any()) return new();
+
+            // Join PackageIdentifier -> PackagingLevel to get ProductID association
+            var packageIdentifiersWithProducts = await (
+                from pi in db.Set<Label.PackageIdentifier>().AsNoTracking()
+                join pl in db.Set<Label.PackagingLevel>().AsNoTracking() on pi.PackagingLevelID equals pl.PackagingLevelID
+                where pl.ProductID != null && productIds.Contains((int)pl.ProductID)
+                select new { PackageIdentifier = pi, ProductID = pl.ProductID!.Value }
+            ).ToListAsync();
+
+            if (!packageIdentifiersWithProducts.Any())
+                return new();
+
+            // Get all package identifier IDs for batch loading compliance actions
+            var packageIdentifierIds = packageIdentifiersWithProducts
+                .Where(x => x.PackageIdentifier.PackageIdentifierID != null)
+                .Select(x => (int)x.PackageIdentifier.PackageIdentifierID!)
+                .Distinct()
+                .ToList();
+
+            // Batch load compliance actions for all package identifiers
+            var allComplianceActions = await batchLoadComplianceActionsForPackagesAsync(db, packageIdentifierIds, pkSecret, logger);
+
+            // Group by ProductID and build DTOs
+            return packageIdentifiersWithProducts
+                .GroupBy(x => x.ProductID)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(x => new PackageIdentifierDto
+                    {
+                        PackageIdentifier = x.PackageIdentifier.ToEntityWithEncryptedId(pkSecret, logger),
+                        ComplianceActions = x.PackageIdentifier.PackageIdentifierID != null
+                            ? allComplianceActions.GetValueOrDefault((int)x.PackageIdentifier.PackageIdentifierID!) ?? new()
+                            : new()
+                    }).ToList()
+                );
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads ComplianceAction entities for multiple PackageIdentifier IDs.
+        /// </summary>
+        private static async Task<Dictionary<int, List<ComplianceActionDto>>> batchLoadComplianceActionsForPackagesAsync(
+            ApplicationDbContext db, IReadOnlyList<int> packageIdentifierIds, string pkSecret, ILogger logger)
+        {
+            if (packageIdentifierIds == null || !packageIdentifierIds.Any()) return new();
+
+            var entities = await db.Set<Label.ComplianceAction>().AsNoTracking()
+                .Where(e => e.PackageIdentifierID != null && packageIdentifierIds.Contains((int)e.PackageIdentifierID))
+                .ToListAsync();
+
+            return entities
+                .GroupBy(e => e.PackageIdentifierID!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(e => new ComplianceActionDto
+                    {
+                        ComplianceAction = e.ToEntityWithEncryptedId(pkSecret, logger)
+                    }).ToList()
+                );
         }
 
         #endregion
@@ -1759,6 +1902,7 @@ namespace MedRecPro.DataAccess
         /**************************************************************/
         /// <summary>
         /// Batch loads IdentifiedSubstance entities with children for multiple section IDs.
+        /// Includes SubstanceSpecifications, ContributingFactors, PharmacologicClasses, and Moiety.
         /// </summary>
         private static async Task<Dictionary<int, List<IdentifiedSubstanceDto>>> batchLoadIdentifiedSubstancesAsync(
             ApplicationDbContext db,
@@ -1782,8 +1926,11 @@ namespace MedRecPro.DataAccess
             var substanceIds = entities.Where(e => e.IdentifiedSubstanceID != null)
                 .Select(e => (int)e.IdentifiedSubstanceID!).ToList();
 
-            // Batch load children - simplified for now
+            // Batch load all children
             var allSpecs = await batchLoadSubstanceSpecificationsAsync(db, substanceIds, pkSecret, logger);
+            var allContributingFactors = await batchLoadContributingFactorsAsync(db, substanceIds, pkSecret, logger);
+            var allPharmacologicClasses = await batchLoadPharmacologicClassesAsync(db, substanceIds, pkSecret, logger);
+            var allMoieties = await batchLoadMoietiesAsync(db, substanceIds, pkSecret, logger);
 
             return entities
                 .GroupBy(e => e.SectionID!.Value)
@@ -1792,7 +1939,10 @@ namespace MedRecPro.DataAccess
                     g => g.Select(e => new IdentifiedSubstanceDto
                     {
                         IdentifiedSubstance = e.ToEntityWithEncryptedId(pkSecret, logger),
-                        SubstanceSpecifications = allSpecs.GetValueOrDefault((int)e.IdentifiedSubstanceID!) ?? new()
+                        SubstanceSpecifications = allSpecs.GetValueOrDefault((int)e.IdentifiedSubstanceID!) ?? new(),
+                        ContributingFactors = allContributingFactors.GetValueOrDefault((int)e.IdentifiedSubstanceID!) ?? new(),
+                        PharmacologicClasses = allPharmacologicClasses.GetValueOrDefault((int)e.IdentifiedSubstanceID!) ?? new(),
+                        Moiety = allMoieties.GetValueOrDefault((int)e.IdentifiedSubstanceID!) ?? new()
                     }).ToList()
                 );
 
@@ -1807,6 +1957,74 @@ namespace MedRecPro.DataAccess
                 .Where(e => e.IdentifiedSubstanceID != null && substanceIds.Contains((int)e.IdentifiedSubstanceID)).ToListAsync();
             return entities.GroupBy(e => e.IdentifiedSubstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new SubstanceSpecificationDto { SubstanceSpecification = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+        }
+
+        private static async Task<Dictionary<int, List<ContributingFactorDto>>> batchLoadContributingFactorsAsync(
+            ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
+        {
+            if (substanceIds == null || !substanceIds.Any()) return new();
+            // ContributingFactor uses FactorSubstanceID to reference IdentifiedSubstance
+            var entities = await db.Set<Label.ContributingFactor>().AsNoTracking()
+                .Where(e => e.FactorSubstanceID != null && substanceIds.Contains((int)e.FactorSubstanceID)).ToListAsync();
+            return entities.GroupBy(e => e.FactorSubstanceID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new ContributingFactorDto { ContributingFactor = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+        }
+
+        private static async Task<Dictionary<int, List<PharmacologicClassDto>>> batchLoadPharmacologicClassesAsync(
+            ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
+        {
+            if (substanceIds == null || !substanceIds.Any()) return new();
+            var entities = await db.Set<Label.PharmacologicClass>().AsNoTracking()
+                .Where(e => e.IdentifiedSubstanceID != null && substanceIds.Contains((int)e.IdentifiedSubstanceID)).ToListAsync();
+            return entities.GroupBy(e => e.IdentifiedSubstanceID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new PharmacologicClassDto { PharmacologicClass = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
+        }
+
+        private static async Task<Dictionary<int, List<MoietyDto>>> batchLoadMoietiesAsync(
+            ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
+        {
+            if (substanceIds == null || !substanceIds.Any()) return new();
+            var entities = await db.Set<Label.Moiety>().AsNoTracking()
+                .Where(e => e.IdentifiedSubstanceID != null && substanceIds.Contains((int)e.IdentifiedSubstanceID))
+                .OrderBy(e => e.SequenceNumber)
+                .ToListAsync();
+
+            if (!entities.Any())
+                return new();
+
+            // Batch load characteristics for all moieties
+            var moietyIds = entities.Where(e => e.MoietyID != null).Select(e => (int)e.MoietyID!).ToList();
+            var allMoietyCharacteristics = await batchLoadMoietyCharacteristicsAsync(db, moietyIds, pkSecret, logger);
+
+            return entities.GroupBy(e => e.IdentifiedSubstanceID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new MoietyDto
+                {
+                    Moiety = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    Characteristics = e.MoietyID != null
+                        ? allMoietyCharacteristics.GetValueOrDefault((int)e.MoietyID!) ?? new()
+                        : new()
+                }).ToList());
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads Characteristic entities for multiple Moiety IDs.
+        /// Used for substance structure data including MOLFILE, InChI, and InChI-Key.
+        /// </summary>
+        private static async Task<Dictionary<int, List<CharacteristicDto>>> batchLoadMoietyCharacteristicsAsync(
+            ApplicationDbContext db, IReadOnlyList<int> moietyIds, string pkSecret, ILogger logger)
+        {
+            if (moietyIds == null || !moietyIds.Any()) return new();
+
+            var entities = await db.Set<Label.Characteristic>().AsNoTracking()
+                .Where(e => e.MoietyID != null && moietyIds.Contains((int)e.MoietyID))
+                .ToListAsync();
+
+            return entities.GroupBy(e => e.MoietyID!.Value).ToDictionary(g => g.Key,
+                g => g.Select(e => new CharacteristicDto
+                {
+                    Characteristic = e.ToEntityWithEncryptedId(pkSecret, logger)
+                }).ToList());
         }
 
         /**************************************************************/
@@ -1868,6 +2086,7 @@ namespace MedRecPro.DataAccess
         /**************************************************************/
         /// <summary>
         /// Batch loads Organization entities for multiple organization IDs.
+        /// Includes OrganizationIdentifier, Telecom, NamedEntity, and Holder records.
         /// </summary>
         private static async Task<Dictionary<int, OrganizationDto>> batchLoadOrganizationsAsync(
             ApplicationDbContext db,
@@ -1885,16 +2104,145 @@ namespace MedRecPro.DataAccess
                 .Where(o => o.OrganizationID != null && organizationIds.Contains((int)o.OrganizationID))
                 .ToListAsync();
 
-            // Simplified - not loading full hierarchy for performance
+            // Batch load all organization child collections
+            var allIdentifiers = await batchLoadOrganizationIdentifiersAsync(db, organizationIds, pkSecret, logger);
+            var allTelecoms = await batchLoadOrganizationTelecomsAsync(db, organizationIds, pkSecret, logger);
+            var allNamedEntities = await batchLoadNamedEntitiesAsync(db, organizationIds, pkSecret, logger);
+            var allHolders = await batchLoadHoldersAsync(db, organizationIds, pkSecret, logger);
+
             return entities.ToDictionary(
                 e => e.OrganizationID!.Value,
                 e => new OrganizationDto
                 {
-                    Organization = e.ToEntityWithEncryptedId(pkSecret, logger)
+                    Organization = e.ToEntityWithEncryptedId(pkSecret, logger),
+                    Identifiers = allIdentifiers.GetValueOrDefault((int)e.OrganizationID!) ?? new List<OrganizationIdentifierDto>(),
+                    Telecoms = allTelecoms.GetValueOrDefault((int)e.OrganizationID!) ?? new List<OrganizationTelecomDto>(),
+                    NamedEntities = allNamedEntities.GetValueOrDefault((int)e.OrganizationID!) ?? new List<NamedEntityDto>(),
+                    Holders = allHolders.GetValueOrDefault((int)e.OrganizationID!) ?? new List<HolderDto>()
                 }
             );
 
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads OrganizationIdentifier entities for multiple organization IDs.
+        /// </summary>
+        private static async Task<Dictionary<int, List<OrganizationIdentifierDto>>> batchLoadOrganizationIdentifiersAsync(
+            ApplicationDbContext db,
+            IReadOnlyList<int> organizationIds,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            if (organizationIds == null || !organizationIds.Any())
+                return new Dictionary<int, List<OrganizationIdentifierDto>>();
+
+            var entities = await db.Set<Label.OrganizationIdentifier>()
+                .AsNoTracking()
+                .Where(e => e.OrganizationID != null && organizationIds.Contains((int)e.OrganizationID))
+                .ToListAsync();
+
+            return entities
+                .GroupBy(e => e.OrganizationID!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(e => new OrganizationIdentifierDto
+                    {
+                        OrganizationIdentifier = e.ToEntityWithEncryptedId(pkSecret, logger)
+                    }).ToList()
+                );
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads OrganizationTelecom entities for multiple organization IDs.
+        /// </summary>
+        private static async Task<Dictionary<int, List<OrganizationTelecomDto>>> batchLoadOrganizationTelecomsAsync(
+            ApplicationDbContext db,
+            IReadOnlyList<int> organizationIds,
+            string pkSecret,
+            ILogger logger)
+        {
+            if (organizationIds == null || !organizationIds.Any())
+                return new Dictionary<int, List<OrganizationTelecomDto>>();
+
+            var entities = await db.Set<Label.OrganizationTelecom>()
+                .AsNoTracking()
+                .Where(e => e.OrganizationID != null && organizationIds.Contains((int)e.OrganizationID))
+                .ToListAsync();
+
+            return entities
+                .GroupBy(e => e.OrganizationID!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(e => new OrganizationTelecomDto
+                    {
+                        OrganizationTelecom = e.ToEntityWithEncryptedId(pkSecret, logger)
+                    }).ToList()
+                );
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads NamedEntity entities for multiple organization IDs.
+        /// </summary>
+        private static async Task<Dictionary<int, List<NamedEntityDto>>> batchLoadNamedEntitiesAsync(
+            ApplicationDbContext db,
+            IReadOnlyList<int> organizationIds,
+            string pkSecret,
+            ILogger logger)
+        {
+            if (organizationIds == null || !organizationIds.Any())
+                return new Dictionary<int, List<NamedEntityDto>>();
+
+            var entities = await db.Set<Label.NamedEntity>()
+                .AsNoTracking()
+                .Where(e => e.OrganizationID != null && organizationIds.Contains((int)e.OrganizationID))
+                .ToListAsync();
+
+            return entities
+                .GroupBy(e => e.OrganizationID!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(e => new NamedEntityDto
+                    {
+                        NamedEntity = e.ToEntityWithEncryptedId(pkSecret, logger)
+                    }).ToList()
+                );
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Batch loads Holder entities for multiple organization IDs.
+        /// </summary>
+        private static async Task<Dictionary<int, List<HolderDto>>> batchLoadHoldersAsync(
+            ApplicationDbContext db,
+            IReadOnlyList<int> organizationIds,
+            string pkSecret,
+            ILogger logger)
+        {
+            if (organizationIds == null || !organizationIds.Any())
+                return new Dictionary<int, List<HolderDto>>();
+
+            var entities = await db.Set<Label.Holder>()
+                .AsNoTracking()
+                .Where(e => e.HolderOrganizationID != null && organizationIds.Contains((int)e.HolderOrganizationID))
+                .ToListAsync();
+
+            return entities
+                .GroupBy(e => e.HolderOrganizationID!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(e => new HolderDto
+                    {
+                        Holder = e.ToEntityWithEncryptedId(pkSecret, logger)
+                    }).ToList()
+                );
         }
 
         #endregion
