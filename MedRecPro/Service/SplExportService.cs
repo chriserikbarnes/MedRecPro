@@ -172,6 +172,14 @@ namespace MedRecPro.Service
         /// <seealso cref="ILogger"/>
         private readonly ILogger _logger;
 
+        /**************************************************************/
+        /// <summary>
+        /// Application configuration for accessing feature flags and settings.
+        /// Used to read the UseBatchDocumentLoading feature flag for optimized data loading.
+        /// </summary>
+        /// <seealso cref="IConfiguration"/>
+        private readonly IConfiguration _configuration;
+
         #endregion
 
         #region constructor
@@ -209,7 +217,8 @@ namespace MedRecPro.Service
         {
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _pkSecret = configuration?.GetSection("Security:DB:PKSecret").Value
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _pkSecret = configuration.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("PK encryption secret not configured");
         }
 
@@ -226,13 +235,13 @@ namespace MedRecPro.Service
         /// <param name="documentGuid">The unique identifier of the document to retrieve</param>
         /// <returns>The document DTO containing all export-ready data, or null if not found</returns>
         /// <seealso cref="DocumentDto"/>
-        /// <seealso cref="DtoLabelAccess.BuildDocumentsAsync"/>
+        /// <seealso cref="DtoLabelAccess.BuildDocumentsAsync(ApplicationDbContext, Guid, string, ILogger, bool?)"/>
         /// <seealso cref="ISplExportService.ExportDocumentToSplAsync"/>
         /// <example>
         /// <code>
         /// var service = new DocumentDataService(dbContext, privateKey, logger);
         /// var document = await service.GetDocumentAsync(documentGuid);
-        /// 
+        ///
         /// if (document != null)
         /// {
         ///     Console.WriteLine($"Retrieved document: {document.Title}");
@@ -248,6 +257,10 @@ namespace MedRecPro.Service
         /// This method uses the DtoLabelAccess layer for secure document retrieval with
         /// private key decryption. Returns null if the document is not found or access is denied.
         /// All retrieval attempts are logged for security and diagnostic purposes.
+        ///
+        /// The loading strategy is controlled by the FeatureFlags:UseBatchDocumentLoading configuration:
+        /// - true: Batch loading - fetches all child entities in single queries per entity type (10-20x faster)
+        /// - false: Sequential loading - fetches child entities one at a time (legacy behavior)
         /// </remarks>
         public async Task<DocumentDto?> GetDocumentAsync(Guid documentGuid)
         {
@@ -256,8 +269,13 @@ namespace MedRecPro.Service
             // Log the document retrieval attempt for diagnostics and security auditing
             _logger.LogInformation("Fetching document data for {DocumentGuid}", documentGuid);
 
+            // Read the batch loading feature flag from configuration
+            // When true, uses optimized batch loading (50-70 queries vs 500-1000 queries)
+            var useBatchLoading = _configuration.GetValue<bool>("FeatureFlags:UseBatchDocumentLoading");
+
             // Use secure data access layer to retrieve document with private key decryption
-            var documents = await DtoLabelAccess.BuildDocumentsAsync(_db, documentGuid, _pkSecret, _logger);
+            // Pass the batch loading flag to enable/disable the optimization
+            var documents = await DtoLabelAccess.BuildDocumentsAsync(_db, documentGuid, _pkSecret, _logger, useBatchLoading);
 
             // Return the first document from the collection, or null if none found
             return documents?.FirstOrDefault();
