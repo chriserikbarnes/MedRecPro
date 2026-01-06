@@ -20,7 +20,10 @@
 <structuredBody>
     @foreach (var context in viewModel.AllSectionContexts)
     {
-        <!-- DUPLICATION_DIAG: Rendering section ID=@(context.Section?.SectionID), Code=@(context.Section?.SectionCode ?? "null"), IsStandalone=@context.IsStandalone -->
+        var sectionDtoHash = context.Section?.GetHashCode() ?? 0;
+        var sectionRenderingHash = context.GetHashCode();
+        var renderedTextCount = context.RenderedTextContent?.Count ?? 0;
+        <!-- DUPLICATION_DIAG: Rendering section ID=@(context.Section?.SectionID), Code=@(context.Section?.SectionCode ?? "null"), IsStandalone=@context.IsStandalone, SectionDtoHash=@sectionDtoHash, SectionRenderingHash=@sectionRenderingHash, RenderedTextCount=@renderedTextCount -->
         <component>
             @{
                 await IncludeAsync("_Section", context);

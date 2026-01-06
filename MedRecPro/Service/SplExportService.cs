@@ -1249,9 +1249,17 @@ namespace MedRecPro.Service
             var sectionId = sectionRendering.Section?.SectionID;
             var sectionCode = sectionRendering.Section?.SectionCode ?? "unknown";
 
+            // DIAGNOSTIC: Track object identity to detect if same objects are being reused
+            var sectionDtoHash = sectionRendering.Section?.GetHashCode() ?? 0;
+            var sectionRenderingHash = sectionRendering.GetHashCode();
+            var textContentCount = sectionRendering.Section?.TextContents?.Count ?? 0;
+            var renderedTextContentCount = sectionRendering.RenderedTextContent?.Count ?? 0;
+
             _logger.LogInformation(
-                "[DUPLICATION_DIAG] Document {DocumentGuid} - processProductsInSection called for SectionID={SectionId}, Code={SectionCode}, IsStandalone={IsStandalone}",
-                documentGuid, sectionId, sectionCode, sectionRendering.IsStandalone);
+                "[DUPLICATION_DIAG] Document {DocumentGuid} - processProductsInSection called for SectionID={SectionId}, Code={SectionCode}, IsStandalone={IsStandalone}, " +
+                "SectionDtoHash={SectionDtoHash}, SectionRenderingHash={SectionRenderingHash}, TextContentCount={TextContentCount}, RenderedTextContentCount={RenderedTextContentCount}",
+                documentGuid, sectionId, sectionCode, sectionRendering.IsStandalone,
+                sectionDtoHash, sectionRenderingHash, textContentCount, renderedTextContentCount);
 
             // Process products if they exist within this section's OrderedProducts collection
             if (sectionRendering.HasProducts && sectionRendering.OrderedProducts?.Any() == true)
