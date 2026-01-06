@@ -894,37 +894,92 @@ namespace MedRecPro.Service
             // Create the base view model using the factory (this handles section organization and relationships)
             var viewModel = _viewModelFactory.Create(structuredBody);
 
+            // DIAGNOSTIC: Log section collection sizes and IDs to identify potential duplication sources
+            _logger.LogInformation(
+                "[DUPLICATION_DIAG] Document {DocumentGuid} - Initial collections: " +
+                "Standalone={StandaloneCount}, Hierarchical={HierarchicalCount}, All={AllCount}",
+                documentGuid,
+                viewModel.StandaloneSectionContexts?.Count ?? 0,
+                viewModel.HierarchicalSectionContexts?.Count ?? 0,
+                viewModel.AllSectionContexts?.Count ?? 0);
+
+            // DIAGNOSTIC: Log section IDs to identify overlaps between collections
+            if (viewModel.StandaloneSectionContexts?.Any() == true)
+            {
+                var standaloneIds = string.Join(",", viewModel.StandaloneSectionContexts
+                    .Where(s => s.Section?.SectionID != null)
+                    .Select(s => s.Section.SectionID));
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - Standalone section IDs: [{SectionIds}]",
+                    documentGuid, standaloneIds);
+            }
+
+            if (viewModel.HierarchicalSectionContexts?.Any() == true)
+            {
+                var hierarchicalIds = string.Join(",", viewModel.HierarchicalSectionContexts
+                    .Where(s => s.Section?.SectionID != null)
+                    .Select(s => s.Section.SectionID));
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - Hierarchical root section IDs: [{SectionIds}]",
+                    documentGuid, hierarchicalIds);
+            }
+
+            if (viewModel.AllSectionContexts?.Any() == true)
+            {
+                var allIds = string.Join(",", viewModel.AllSectionContexts
+                    .Where(s => s.Section?.SectionID != null)
+                    .Select(s => s.Section.SectionID));
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - AllSectionContexts section IDs: [{SectionIds}]",
+                    documentGuid, allIds);
+            }
+
             // Step 2a: Enhance standalone section contexts with pre-computed properties and enhanced products
             if (viewModel.HasStandaloneSections && viewModel.StandaloneSectionContexts?.Any() == true)
             {
-                _logger.LogDebug("Enhancing {Count} standalone sections for document {DocumentGuid}",
-                    viewModel.StandaloneSectionContexts.Count, documentGuid);
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - STEP 2a: Beginning standalone section enhancement for {Count} sections",
+                    documentGuid, viewModel.StandaloneSectionContexts.Count);
 
                 // Process standalone sections with optimized rendering preparation and enhanced collections
                 var enhancedStandalone = enhanceSectionContexts(viewModel.StandaloneSectionContexts, true, documentGuid);
                 viewModel.StandaloneSectionContexts = enhancedStandalone;
+
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - STEP 2a: Completed standalone enhancement, result count: {Count}",
+                    documentGuid, enhancedStandalone.Count);
             }
 
             // Step 2b: Enhance hierarchical section contexts with pre-computed properties and recursive processing
             if (viewModel.HasHierarchicalSections && viewModel.HierarchicalSectionContexts?.Any() == true)
             {
-                _logger.LogDebug("Enhancing {Count} hierarchical sections for document {DocumentGuid}",
-                    viewModel.HierarchicalSectionContexts.Count, documentGuid);
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - STEP 2b: Beginning hierarchical section enhancement for {Count} sections",
+                    documentGuid, viewModel.HierarchicalSectionContexts.Count);
 
                 // Process hierarchical sections with recursive enhancement for nested structures and enhanced products
                 var enhancedHierarchical = await enhanceHierarchicalSectionContextsAsync(viewModel.HierarchicalSectionContexts, documentGuid);
                 viewModel.HierarchicalSectionContexts = enhancedHierarchical;
+
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - STEP 2b: Completed hierarchical enhancement, result count: {Count}",
+                    documentGuid, enhancedHierarchical.Count);
             }
 
             // Step 2c: Enhance the unified AllSectionContexts collection for comprehensive processing
             if (viewModel.AllSectionContexts?.Any() == true)
             {
-                _logger.LogDebug("Enhancing unified collection of {Count} sections for document {DocumentGuid}",
-                    viewModel.AllSectionContexts.Count, documentGuid);
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - STEP 2c: Beginning AllSectionContexts enhancement for {Count} sections",
+                    documentGuid, viewModel.AllSectionContexts.Count);
 
                 // Process the complete unified collection maintaining document order with enhanced products
                 var enhancedAll = await enhanceAllSectionContextsAsync(viewModel.AllSectionContexts, documentGuid);
                 viewModel.AllSectionContexts = enhancedAll;
+
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - STEP 2c: Completed AllSectionContexts enhancement, result count: {Count}",
+                    documentGuid, enhancedAll.Count);
             }
 
             // Assign the enhanced view model back to the structured body for template access
@@ -964,6 +1019,14 @@ namespace MedRecPro.Service
             #region implementation
 
             var enhancedContexts = new List<SectionRendering>();
+
+            // DIAGNOSTIC: Track which sections are being enhanced
+            var sectionIds = string.Join(",", sectionContexts
+                .Where(s => s.Section?.SectionID != null)
+                .Select(s => s.Section.SectionID));
+            _logger.LogInformation(
+                "[DUPLICATION_DIAG] Document {DocumentGuid} - enhanceSectionContexts START: isStandalone={IsStandalone}, SectionIDs=[{SectionIds}]",
+                documentGuid, isStandalone, sectionIds);
 
             // Process each section context individually for maximum rendering optimization
             foreach (var context in sectionContexts)
@@ -1018,6 +1081,14 @@ namespace MedRecPro.Service
             #region implementation
 
             var enhancedContexts = new List<SectionRendering>();
+
+            // DIAGNOSTIC: Track which hierarchical sections are being enhanced
+            var sectionIds = string.Join(",", hierarchicalContexts
+                .Where(s => s.Section?.SectionID != null)
+                .Select(s => s.Section.SectionID));
+            _logger.LogInformation(
+                "[DUPLICATION_DIAG] Document {DocumentGuid} - enhanceHierarchicalSectionContextsAsync START: SectionIDs=[{SectionIds}]",
+                documentGuid, sectionIds);
 
             // Process each hierarchical context with recursive child enhancement and comprehensive service integration
             foreach (var context in hierarchicalContexts)
@@ -1078,6 +1149,21 @@ namespace MedRecPro.Service
             #region implementation
 
             var enhancedContexts = new List<SectionRendering>();
+
+            // DIAGNOSTIC: Track which sections are being enhanced in AllSectionContexts
+            var sectionIds = string.Join(",", allSectionContexts
+                .Where(s => s.Section?.SectionID != null)
+                .Select(s => s.Section.SectionID));
+            var standaloneIds = string.Join(",", allSectionContexts
+                .Where(s => s.Section?.SectionID != null && s.IsStandalone)
+                .Select(s => s.Section.SectionID));
+            var hierarchicalIds = string.Join(",", allSectionContexts
+                .Where(s => s.Section?.SectionID != null && !s.IsStandalone)
+                .Select(s => s.Section.SectionID));
+            _logger.LogInformation(
+                "[DUPLICATION_DIAG] Document {DocumentGuid} - enhanceAllSectionContextsAsync START: " +
+                "Total={Total}, Standalone=[{StandaloneIds}], Hierarchical=[{HierarchicalIds}]",
+                documentGuid, allSectionContexts.Count, standaloneIds, hierarchicalIds);
 
             // Process each section context with type-appropriate enhancement logic and comprehensive service integration
             foreach (var context in allSectionContexts)
@@ -1159,11 +1245,24 @@ namespace MedRecPro.Service
         {
             #region implementation
 
+            // DIAGNOSTIC: Track which section is being processed for product enhancement
+            var sectionId = sectionRendering.Section?.SectionID;
+            var sectionCode = sectionRendering.Section?.SectionCode ?? "unknown";
+
+            _logger.LogInformation(
+                "[DUPLICATION_DIAG] Document {DocumentGuid} - processProductsInSection called for SectionID={SectionId}, Code={SectionCode}, IsStandalone={IsStandalone}",
+                documentGuid, sectionId, sectionCode, sectionRendering.IsStandalone);
+
             // Process products if they exist within this section's OrderedProducts collection
             if (sectionRendering.HasProducts && sectionRendering.OrderedProducts?.Any() == true)
             {
-                _logger.LogDebug("Processing {Count} products in section for document {DocumentGuid}",
-                    sectionRendering.OrderedProducts.Count(), documentGuid);
+                var productIds = string.Join(",", sectionRendering.OrderedProducts
+                    .Where(p => p.ProductID != null)
+                    .Select(p => p.ProductID));
+
+                _logger.LogInformation(
+                    "[DUPLICATION_DIAG] Document {DocumentGuid} - SectionID={SectionId} has {Count} products to process: [{ProductIds}]",
+                    documentGuid, sectionId, sectionRendering.OrderedProducts.Count(), productIds);
 
                 // Initialize enhanced products collection for optimized template processing
                 var enhancedProducts = new List<ProductRendering>();

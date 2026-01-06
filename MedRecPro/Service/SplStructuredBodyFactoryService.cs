@@ -1,4 +1,5 @@
 ﻿using MedRecPro.Models;
+using Microsoft.Extensions.Logging;
 
 namespace MedRecPro.Service
 {
@@ -80,6 +81,12 @@ namespace MedRecPro.Service
         /// <seealso cref="IStructuredBodyService"/>
         private readonly IStructuredBodyService _structuredBodyService;
 
+        /**************************************************************/
+        /// <summary>
+        /// Logger for diagnostic output and duplication tracking.
+        /// </summary>
+        private readonly ILogger<StructuredBodyViewModelFactory> _logger;
+
         #endregion
 
         #region constructor
@@ -104,12 +111,14 @@ namespace MedRecPro.Service
         /// </example>
         public StructuredBodyViewModelFactory(
             ISectionHierarchyService hierarchyService,
-            IStructuredBodyService structuredBodyService)
+            IStructuredBodyService structuredBodyService,
+            ILogger<StructuredBodyViewModelFactory> logger)
         {
             #region implementation
 
             _hierarchyService = hierarchyService ?? throw new ArgumentNullException(nameof(hierarchyService));
             _structuredBodyService = structuredBodyService ?? throw new ArgumentNullException(nameof(structuredBodyService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             #endregion
         }
@@ -158,8 +167,22 @@ namespace MedRecPro.Service
         {
             #region implementation
 
+            var structuredBodyId = structuredBodyDto?.StructuredBodyID;
+
+            _logger.LogInformation(
+                "[DUPLICATION_DIAG] Factory.Create START: StructuredBodyID={StructuredBodyId}, TotalSections={SectionCount}",
+                structuredBodyId, structuredBodyDto?.Sections?.Count ?? 0);
+
             // Use hierarchy service for core organization logic - separates standalone from hierarchical sections
             var organizedSections = _hierarchyService.OrganizeSections(structuredBodyDto);
+
+            // DIAGNOSTIC: Log organized section counts
+            _logger.LogInformation(
+                "[DUPLICATION_DIAG] Factory.Create StructuredBodyID={StructuredBodyId}: OrganizedSections - " +
+                "Standalone={StandaloneCount}, Root={RootCount}",
+                structuredBodyId,
+                organizedSections?.StandaloneSections?.Count ?? 0,
+                organizedSections?.RootSections?.Count ?? 0);
 
             // Get valid sections and create lookup dictionary for efficient access during context creation
             var allSections = _hierarchyService.GetValidSections(structuredBodyDto.Sections);
@@ -182,6 +205,27 @@ namespace MedRecPro.Service
             // Create unified section context list preserving original document order
             viewModel.AllSectionContexts = createAllSectionContexts(
                 structuredBodyDto, organizedSections, sectionLookup);
+
+            // DIAGNOSTIC: Log created collection details with section IDs
+            var standaloneIds = viewModel.StandaloneSectionContexts != null
+                ? string.Join(",", viewModel.StandaloneSectionContexts.Where(s => s.Section?.SectionID != null).Select(s => s.Section.SectionID))
+                : "none";
+            var hierarchicalIds = viewModel.HierarchicalSectionContexts != null
+                ? string.Join(",", viewModel.HierarchicalSectionContexts.Where(s => s.Section?.SectionID != null).Select(s => s.Section.SectionID))
+                : "none";
+            var allIds = viewModel.AllSectionContexts != null
+                ? string.Join(",", viewModel.AllSectionContexts.Where(s => s.Section?.SectionID != null).Select(s => s.Section.SectionID))
+                : "none";
+
+            _logger.LogInformation(
+                "[DUPLICATION_DIAG] Factory.Create COMPLETE: StructuredBodyID={StructuredBodyId} - " +
+                "StandaloneSectionContexts=[{StandaloneIds}] ({StandaloneCount}), " +
+                "HierarchicalSectionContexts=[{HierarchicalIds}] ({HierarchicalCount}), " +
+                "AllSectionContexts=[{AllIds}] ({AllCount})",
+                structuredBodyId,
+                standaloneIds, viewModel.StandaloneSectionContexts?.Count ?? 0,
+                hierarchicalIds, viewModel.HierarchicalSectionContexts?.Count ?? 0,
+                allIds, viewModel.AllSectionContexts?.Count ?? 0);
 
             return viewModel;
 

@@ -53,8 +53,10 @@
         @* Render enhanced products if available using the corrected approach *@
         @if (Model.HasRenderedProducts && Model.RenderedProducts != null)
         {
+            <!-- DUPLICATION_DIAG: Section ID=@(Model.Section?.SectionID) rendering @Model.RenderedProducts.Count products -->
             foreach (var productRendering in Model.RenderedProducts)
             {
+                <!-- DUPLICATION_DIAG: Rendering ProductID=@(productRendering.ProductDto?.ProductID) in SectionID=@(Model.Section?.SectionID) -->
                 @* Use the enhanced ProductRendering object instead of raw ProductDto *@
                 await IncludeAsync("_Product", productRendering);
             }
