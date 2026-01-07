@@ -21,7 +21,7 @@
 /*    - Extended properties added for documentation                            */
 /*                                                                             */
 /*******************************************************************************/
-
+Use MedRecLocal
 SET NOCOUNT ON;
 GO
 
@@ -2050,70 +2050,6 @@ GO
 --#endregion
 
 
-
-/*******************************************************************************/
-/*                                                                             */
-/*  SECTION FINAL SUMMARY                                                      */
-/*                                                                             */
-/*******************************************************************************/
-
--- Summary of all views created
-PRINT '';
-PRINT '=================================================================';
-PRINT 'MedRecPro SPL Label Navigation Views Creation Complete';
-PRINT '=================================================================';
-PRINT '';
-
--- Count total views created
-SELECT 
-    'Total Navigation Views Created' AS Summary,
-    COUNT(*) AS ViewCount
-FROM sys.views v
-WHERE v.schema_id = SCHEMA_ID('dbo')
-    AND v.name LIKE 'vw_%';
-
--- List all views with categories
-SELECT 
-    v.name AS ViewName,
-    CASE 
-        WHEN v.name LIKE '%Application%' THEN 'Application/Regulatory'
-        WHEN v.name LIKE '%Pharmacologic%' THEN 'Pharmacologic Class'
-        WHEN v.name LIKE '%Ingredient%' THEN 'Ingredient/Substance'
-        WHEN v.name LIKE '%NDC%' OR v.name LIKE '%Package%' THEN 'Product Codes'
-        WHEN v.name LIKE '%Labeler%' THEN 'Organization'
-        WHEN v.name LIKE '%Document%' OR v.name LIKE '%Version%' THEN 'Document Navigation'
-        WHEN v.name LIKE '%Section%' THEN 'Section Content'
-        WHEN v.name LIKE '%Drug%' OR v.name LIKE '%DEA%' THEN 'Drug Safety'
-        WHEN v.name LIKE '%Product%' THEN 'Product Information'
-        WHEN v.name LIKE '%Related%' THEN 'Cross-Reference'
-        WHEN v.name LIKE '%API%' THEN 'API Metadata'
-        ELSE 'General'
-    END AS Category
-FROM sys.views v
-WHERE v.schema_id = SCHEMA_ID('dbo')
-    AND v.name LIKE 'vw_%'
-ORDER BY Category, v.name;
-
-GO
-
-PRINT '';
-PRINT 'View creation script completed successfully.';
-PRINT '';
-PRINT 'Available Navigation Patterns:';
-PRINT '  - By Application Number: vw_ProductsByApplicationNumber, vw_ApplicationNumberSummary';
-PRINT '  - By Pharmacologic Class: vw_ProductsByPharmacologicClass, vw_PharmacologicClassHierarchy';
-PRINT '  - By Ingredient/UNII: vw_ProductsByIngredient, vw_IngredientSummary';
-PRINT '  - By NDC/Product Code: vw_ProductsByNDC, vw_PackageByNDC';
-PRINT '  - By Labeler: vw_ProductsByLabeler, vw_LabelerSummary';
-PRINT '  - Document Navigation: vw_DocumentNavigation, vw_DocumentVersionHistory';
-PRINT '  - Section Navigation: vw_SectionNavigation, vw_SectionTypeSummary';
-PRINT '  - Drug Safety: vw_DrugInteractionLookup, vw_DEAScheduleLookup';
-PRINT '  - Product Summary: vw_ProductSummary';
-PRINT '  - Cross-Reference: vw_RelatedProducts';
-PRINT '  - API Discovery: vw_APIEndpointGuide';
-PRINT '';
-GO
-
 /*******************************************************************************/
 /*                                                                             */
 /*  SECTION: LATEST LABEL NAVIGATION VIEWS                                     */
@@ -2192,6 +2128,72 @@ PRINT 'Created view: vw_ProductLatestLabel';
 GO
 
 --#endregion
+
+
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION FINAL SUMMARY                                                      */
+/*                                                                             */
+/*******************************************************************************/
+
+-- Summary of all views created
+PRINT '';
+PRINT '=================================================================';
+PRINT 'MedRecPro SPL Label Navigation Views Creation Complete';
+PRINT '=================================================================';
+PRINT '';
+
+-- Count total views created
+SELECT 
+    'Total Navigation Views Created' AS Summary,
+    COUNT(*) AS ViewCount
+FROM sys.views v
+WHERE v.schema_id = SCHEMA_ID('dbo')
+    AND v.name LIKE 'vw_%';
+
+-- List all views with categories
+SELECT 
+    v.name AS ViewName,
+    CASE 
+        WHEN v.name LIKE '%Application%' THEN 'Application/Regulatory'
+        WHEN v.name LIKE '%Pharmacologic%' THEN 'Pharmacologic Class'
+        WHEN v.name LIKE '%Ingredient%' THEN 'Ingredient/Substance'
+        WHEN v.name LIKE '%NDC%' OR v.name LIKE '%Package%' THEN 'Product Codes'
+        WHEN v.name LIKE '%Labeler%' THEN 'Organization'
+        WHEN v.name LIKE '%Document%' OR v.name LIKE '%Version%' THEN 'Document Navigation'
+        WHEN v.name LIKE '%Section%' THEN 'Section Content'
+        WHEN v.name LIKE '%Drug%' OR v.name LIKE '%DEA%' THEN 'Drug Safety'
+        WHEN v.name LIKE '%Product%' THEN 'Product Information'
+        WHEN v.name LIKE '%Related%' THEN 'Cross-Reference'
+        WHEN v.name LIKE '%API%' THEN 'API Metadata'
+        ELSE 'General'
+    END AS Category
+FROM sys.views v
+WHERE v.schema_id = SCHEMA_ID('dbo')
+    AND v.name LIKE 'vw_%'
+ORDER BY Category, v.name;
+
+GO
+
+PRINT '';
+PRINT 'View creation script completed successfully.';
+PRINT '';
+PRINT 'Available Navigation Patterns:';
+PRINT '  - By Application Number: vw_ProductsByApplicationNumber, vw_ApplicationNumberSummary';
+PRINT '  - By Pharmacologic Class: vw_ProductsByPharmacologicClass, vw_PharmacologicClassHierarchy';
+PRINT '  - By Ingredient/UNII: vw_ProductsByIngredient, vw_IngredientSummary';
+PRINT '  - By NDC/Product Code: vw_ProductsByNDC, vw_PackageByNDC';
+PRINT '  - By Labeler: vw_ProductsByLabeler, vw_LabelerSummary';
+PRINT '  - Document Navigation: vw_DocumentNavigation, vw_DocumentVersionHistory';
+PRINT '  - Section Navigation: vw_SectionNavigation, vw_SectionTypeSummary';
+PRINT '  - Drug Safety: vw_DrugInteractionLookup, vw_DEAScheduleLookup';
+PRINT '  - Product Summary: vw_ProductSummary';
+PRINT '  - Cross-Reference: vw_RelatedProducts';
+PRINT '  - API Discovery: vw_APIEndpointGuide';
+PRINT '';
+GO
+
+
 
 PRINT '';
 PRINT '=================================================================';
