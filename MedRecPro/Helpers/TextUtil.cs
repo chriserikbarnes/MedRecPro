@@ -20,6 +20,7 @@ using Humanizer;
 using System.ComponentModel.DataAnnotations;
 using static MedRecPro.Helpers.StringCipher;
 using MedRecPro.Models;
+using System.Collections;
 
 namespace MedRecPro.Helpers
 {
@@ -2150,6 +2151,388 @@ namespace MedRecPro.Helpers
         }
 
 
+
+        #region pipe delimited serialization
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts an object's properties into a compact pipe-delimited text representation
+        /// optimized for token efficiency when passing data to LLM APIs like Claude.
+        /// Property names are abbreviated to reduce token usage while maintaining readability.
+        /// </summary>
+        /// <typeparam name="T">The type of the object being serialized</typeparam>
+        /// <param name="obj">The object to convert to pipe-delimited format</param>
+        /// <param name="includeNulls">Whether to include null/empty values in the output (default: false)</param>
+        /// <returns>
+        /// A string with format: [KEY:Ab=Abbreviation|Nm=Name|...]\nAb|Nm|...\nval1|val2|...
+        /// Returns null if the object is null.
+        /// </returns>
+        /// <example>
+        /// <code>
+        /// var user = new User { FirstName = "John", LastName = "Doe", Age = 30 };
+        /// string result = user.ToPipe&lt;User&gt;();
+        /// // Output:
+        /// // [KEY:FN=FirstName|LN=LastName|Ag=Age]
+        /// // FN|LN|Ag
+        /// // John|Doe|30
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// Abbreviation strategy:
+        /// - Uses uppercase letters from property name (e.g., FirstName → FN)
+        /// - Falls back to first 2-3 characters if no uppercase letters exist
+        /// - Ensures uniqueness by appending numeric suffix if needed
+        /// - Designed to minimize token usage for LLM API calls
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="ToCommaString{T}(T)"/>
+        /// <seealso cref="ListToCommaString{T}(IEnumerable{T})"/>
+        public static string? ToPipe<T>(this T obj, bool includeNulls = false)
+        {
+            #region implementation
+
+            if (obj == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                // Check if object is an enumerable (but not a string)
+                if (obj is IEnumerable enumerable && !(obj is string))
+                {
+                    return toPipeFromEnumerable<T>(enumerable, includeNulls);
+                }
+
+                // Get properties for a single object
+                var properties = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+                if (properties == null || properties.Length == 0)
+                {
+                    return null;
+                }
+
+                // Generate abbreviations for property names
+                var abbreviations = generateAbbreviations(properties.Select(p => p.Name).ToArray());
+
+                var result = new StringBuilder();
+
+                // Build the key header [KEY:Ab=Abbreviation|...]
+                result.Append("[KEY:");
+                result.Append(string.Join("|", abbreviations.Select(kvp => $"{kvp.Value}={kvp.Key}")));
+                result.Append("]");
+                result.Append(Environment.NewLine);
+
+                // Build the abbreviated header row
+                result.Append(string.Join("|", properties.Select(p => abbreviations[p.Name])));
+                result.Append(Environment.NewLine);
+
+                // Build the value row
+                var values = new List<string>();
+                foreach (var prop in properties)
+                {
+                    var value = prop.GetValue(obj);
+                    string stringValue = formatPipeValue(value);
+
+                    // Skip nulls/empty if not including them
+                    if (!includeNulls && string.IsNullOrEmpty(stringValue))
+                    {
+                        values.Add(string.Empty);
+                    }
+                    else
+                    {
+                        values.Add(stringValue);
+                    }
+                }
+
+                result.Append(string.Join("|", values));
+
+                return result.ToString();
+            }
+            catch (Exception e)
+            {
+                ErrorHelper.AddErrorMsg("TextUtil.ToPipe: " + e);
+                return null;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts an enumerable collection to pipe-delimited format with abbreviated property names.
+        /// Each item in the collection becomes a row in the output.
+        /// </summary>
+        /// <typeparam name="T">The type parameter (used for consistency with calling method)</typeparam>
+        /// <param name="enumerable">The collection to convert</param>
+        /// <param name="includeNulls">Whether to include null/empty values</param>
+        /// <returns>Pipe-delimited string with key header and data rows</returns>
+        /// <seealso cref="Label"/>
+        /// <seealso cref="ToPipe{T}(T, bool)"/>
+        private static string? toPipeFromEnumerable<T>(IEnumerable enumerable, bool includeNulls)
+        {
+            #region implementation
+
+            var items = enumerable.Cast<object>().ToList();
+
+            if (items.Count == 0)
+            {
+                return null;
+            }
+
+            // Get the actual type from the first item
+            var itemType = items.First().GetType();
+            var properties = itemType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+            if (properties == null || properties.Length == 0)
+            {
+                return null;
+            }
+
+            // Generate abbreviations for property names
+            var abbreviations = generateAbbreviations(properties.Select(p => p.Name).ToArray());
+
+            var result = new StringBuilder();
+
+            // Build the key header [KEY:Ab=Abbreviation|...]
+            result.Append("[KEY:");
+            result.Append(string.Join("|", abbreviations.Select(kvp => $"{kvp.Value}={kvp.Key}")));
+            result.Append("]");
+            result.Append(Environment.NewLine);
+
+            // Build the abbreviated header row
+            result.Append(string.Join("|", properties.Select(p => abbreviations[p.Name])));
+            result.Append(Environment.NewLine);
+
+            // Build value rows for each item
+            foreach (var item in items)
+            {
+                var values = new List<string>();
+                foreach (var prop in properties)
+                {
+                    var value = prop.GetValue(item);
+                    string stringValue = formatPipeValue(value);
+
+                    // Handle nulls/empty based on parameter
+                    if (!includeNulls && string.IsNullOrEmpty(stringValue))
+                    {
+                        values.Add(string.Empty);
+                    }
+                    else
+                    {
+                        values.Add(stringValue);
+                    }
+                }
+
+                result.Append(string.Join("|", values));
+                result.Append(Environment.NewLine);
+            }
+
+            // Remove trailing newline
+            if (result.Length > 0)
+            {
+                result.Length -= Environment.NewLine.Length;
+            }
+
+            return result.ToString();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates compact abbreviations for an array of property names.
+        /// Uses uppercase letters from property name, falls back to first characters
+        /// if insufficient uppercase letters exist. Ensures uniqueness.
+        /// </summary>
+        /// <param name="propertyNames">Array of property names to abbreviate</param>
+        /// <returns>Dictionary mapping full property names to their abbreviations</returns>
+        /// <example>
+        /// <code>
+        /// var names = new[] { "FirstName", "LastName", "DateOfBirth" };
+        /// var abbrevs = generateAbbreviations(names);
+        /// // Result: { "FirstName": "FN", "LastName": "LN", "DateOfBirth": "DOB" }
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label"/>
+        private static Dictionary<string, string> generateAbbreviations(string[] propertyNames)
+        {
+            #region implementation
+
+            var result = new Dictionary<string, string>();
+            var usedAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var name in propertyNames)
+            {
+                string abbreviation = createAbbreviation(name, usedAbbreviations);
+                result[name] = abbreviation;
+                usedAbbreviations.Add(abbreviation);
+            }
+
+            return result;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a unique abbreviation for a single property name.
+        /// Strategy: Extract uppercase letters, use first N chars as fallback,
+        /// append numeric suffix if collision occurs.
+        /// </summary>
+        /// <param name="propertyName">The property name to abbreviate</param>
+        /// <param name="usedAbbreviations">Set of already used abbreviations to avoid collisions</param>
+        /// <returns>A unique abbreviation string</returns>
+        /// <seealso cref="Label"/>
+        private static string createAbbreviation(string propertyName, HashSet<string> usedAbbreviations)
+        {
+            #region implementation
+
+            if (string.IsNullOrEmpty(propertyName))
+            {
+                return "X";
+            }
+
+            // Strategy 1: Extract uppercase letters (including first char if lowercase)
+            var uppercaseChars = new StringBuilder();
+
+            // Always include first character (capitalize if needed)
+            uppercaseChars.Append(char.ToUpper(propertyName[0]));
+
+            // Add subsequent uppercase letters
+            for (int i = 1; i < propertyName.Length; i++)
+            {
+                if (char.IsUpper(propertyName[i]))
+                {
+                    uppercaseChars.Append(propertyName[i]);
+                }
+            }
+
+            string abbreviation = uppercaseChars.ToString();
+
+            // Strategy 2: If only one char or too short, use first 2-3 chars
+            if (abbreviation.Length < 2)
+            {
+                abbreviation = propertyName.Length >= 3
+                    ? propertyName.Substring(0, 3).ToUpper()
+                    : propertyName.ToUpper();
+            }
+
+            // Ensure uniqueness by appending numeric suffix if needed
+            string baseAbbreviation = abbreviation;
+            int suffix = 1;
+
+            while (usedAbbreviations.Contains(abbreviation))
+            {
+                abbreviation = $"{baseAbbreviation}{suffix}";
+                suffix++;
+            }
+
+            return abbreviation;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Formats a property value for pipe-delimited output.
+        /// Handles special types like DateTime, collections, and escapes pipe characters.
+        /// </summary>
+        /// <param name="value">The value to format</param>
+        /// <returns>String representation suitable for pipe-delimited format</returns>
+        /// <remarks>
+        /// Nullable value types (int?, double?, DateTime?, etc.) are handled correctly because:
+        /// - When null: caught by the null check before this switch
+        /// - When has value: .NET unboxes Nullable&lt;T&gt; to T during reflection GetValue(),
+        ///   so int? with value 5 becomes a boxed int, matching the appropriate case.
+        /// </remarks>
+        /// <seealso cref="Label"/>
+        private static string formatPipeValue(object? value)
+        {
+            #region implementation
+
+            if (value == null)
+            {
+                return string.Empty;
+            }
+
+            // Handle common types with compact formatting
+            // Note: Nullable<T> with a value is unboxed to T by reflection, so these patterns
+            // will match both T and T? when the nullable has a value
+            switch (value)
+            {
+                case DateTime dt:
+                    // Use compact ISO format, trim trailing zeros and colons for compactness
+                    return dt.ToString("yyyy-MM-dd HH:mm:ss").TrimEnd(' ', '0', ':').TrimEnd(':');
+
+                case DateTimeOffset dto:
+                    return dto.ToString("yyyy-MM-dd HH:mm:ss").TrimEnd(' ', '0', ':').TrimEnd(':');
+
+                case bool b:
+                    // Use single char for booleans (saves tokens)
+                    return b ? "1" : "0";
+
+                case Guid g:
+                    // Use short guid format without hyphens (32 chars vs 36)
+                    return g.ToString("N");
+
+                // Integer types - use invariant culture, no special formatting needed
+                case byte bt:
+                    return bt.ToString();
+
+                case sbyte sb:
+                    return sb.ToString();
+
+                case short s:
+                    return s.ToString();
+
+                case ushort us:
+                    return us.ToString();
+
+                case int i:
+                    return i.ToString();
+
+                case uint ui:
+                    return ui.ToString();
+
+                case long l:
+                    return l.ToString();
+
+                case ulong ul:
+                    return ul.ToString();
+
+                // Floating point types - remove trailing zeros for compactness
+                case decimal d:
+                    return d.ToString("G29");
+
+                case double dbl:
+                    return dbl.ToString("G15");
+
+                case float f:
+                    return f.ToString("G7");
+
+                case char c:
+                    return c.ToString();
+
+                case Enum e:
+                    // Use numeric value for enums (more compact than string name)
+                    return Convert.ToInt32(e).ToString();
+
+                case IEnumerable enumerable when !(value is string):
+                    // For nested collections, use semicolon separator
+                    var items = enumerable.Cast<object>().Select(o => o?.ToString() ?? string.Empty);
+                    return string.Join(";", items);
+
+                default:
+                    // Escape pipe characters in the value to preserve data integrity
+                    string stringValue = value.ToString() ?? string.Empty;
+                    return stringValue.Replace("|", "\\|");
+            }
+
+            #endregion
+        }
+
+        #endregion
 
         #region openai.com generated methods
         //https://beta.openai.com/playground/p/XFlvDAbPLd9Qs6io6vAsq519
