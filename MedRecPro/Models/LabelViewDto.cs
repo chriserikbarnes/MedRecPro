@@ -1974,4 +1974,158 @@ namespace MedRecPro.Models
     }
 
     #endregion Cross-Reference DTOs
+
+    #region Latest Label Navigation DTOs
+
+    /**************************************************************/
+    /// <summary>
+    /// DTO for ProductLatestLabel view results.
+    /// Provides the most recent label for each UNII/ProductName combination.
+    /// </summary>
+    /// <remarks>
+    /// Use this DTO to find the current label for a product or active ingredient.
+    /// The view returns only one row per UNII/ProductName, selecting the document with the most recent EffectiveTime.
+    /// </remarks>
+    /// <seealso cref="LabelView.ProductLatestLabel"/>
+    /// <seealso cref="LabelView.IngredientActiveSummary"/>
+    public class ProductLatestLabelDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all view columns.
+        /// </summary>
+        public required Dictionary<string, object?> ProductLatestLabel { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Proprietary product name.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ProductName =>
+            ProductLatestLabel.TryGetValue(nameof(ProductName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Active ingredient substance name.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ActiveIngredient =>
+            ProductLatestLabel.TryGetValue(nameof(ActiveIngredient), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// UNII code for the active ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? UNII =>
+            ProductLatestLabel.TryGetValue(nameof(UNII), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Document GUID for the latest label.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? DocumentGUID =>
+            ProductLatestLabel.TryGetValue(nameof(DocumentGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// URL for retrieving the complete label as DTO.
+        /// Returns null if DocumentGUID is not available.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? GetCompleteLabelUrl => DocumentGUID.HasValue
+            ? $"/api/label/single/{DocumentGUID}"
+            : null;
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// DTO for ProductIndications view results.
+    /// Provides product indication text combined with active ingredients.
+    /// </summary>
+    /// <remarks>
+    /// Use this DTO to retrieve indication text for products by active ingredient.
+    /// The view filters to INDICATION sections only and excludes inactive ingredients.
+    /// </remarks>
+    /// <seealso cref="LabelView.ProductIndications"/>
+    /// <seealso cref="LabelView.SectionNavigation"/>
+    public class ProductIndicationsDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all view columns.
+        /// </summary>
+        public required Dictionary<string, object?> ProductIndications { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Proprietary product name.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ProductName =>
+            ProductIndications.TryGetValue(nameof(ProductName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Active ingredient substance name.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SubstanceName =>
+            ProductIndications.TryGetValue(nameof(SubstanceName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// UNII code for the active ingredient.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? UNII =>
+            ProductIndications.TryGetValue(nameof(UNII), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Document GUID for label retrieval.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? DocumentGUID =>
+            ProductIndications.TryGetValue(nameof(DocumentGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Combined indication text content from SectionTextContent and TextListItem.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ContentText =>
+            ProductIndications.TryGetValue(nameof(ContentText), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// URL for retrieving the complete label as DTO.
+        /// Returns null if DocumentGUID is not available.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? GetCompleteLabelUrl => DocumentGUID.HasValue
+            ? $"/api/label/single/{DocumentGUID}"
+            : null;
+    }
+
+    #endregion Latest Label Navigation DTOs
 }

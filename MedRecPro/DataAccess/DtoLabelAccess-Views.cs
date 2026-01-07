@@ -802,6 +802,68 @@ namespace MedRecPro.DataAccess
 
         #endregion Cross-Reference Views
 
+        #region Latest Label Navigation Views
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of ProductLatestLabel DTOs from the navigation view.
+        /// Returns the most recent label for each UNII/ProductName combination.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="ProductLatestLabelDto"/> with latest label data.</returns>
+        /// <seealso cref="LabelView.ProductLatestLabel"/>
+        /// <seealso cref="ProductLatestLabelDto"/>
+        private static List<ProductLatestLabelDto> buildProductLatestLabelDtos(
+            ApplicationDbContext db,
+            List<LabelView.ProductLatestLabel> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Transform each entity to DTO - this view has no IDs to encrypt, only GUIDs
+            return entities.Select(entity => new ProductLatestLabelDto
+            {
+                ProductLatestLabel = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of ProductIndications DTOs from the navigation view.
+        /// Returns product indication text combined with active ingredients.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="ProductIndicationsDto"/> with indication text.</returns>
+        /// <seealso cref="LabelView.ProductIndications"/>
+        /// <seealso cref="ProductIndicationsDto"/>
+        private static List<ProductIndicationsDto> buildProductIndicationsDtos(
+            ApplicationDbContext db,
+            List<LabelView.ProductIndications> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Transform each entity to DTO - this view has no IDs to encrypt, only GUIDs
+            return entities.Select(entity => new ProductIndicationsDto
+            {
+                ProductIndications = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
+        #endregion Latest Label Navigation Views
+
         #region Generic Query Helpers
 
         /**************************************************************/

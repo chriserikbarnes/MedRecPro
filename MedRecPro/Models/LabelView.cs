@@ -2731,5 +2731,126 @@ namespace MedRecPro.Models
         }
 
         #endregion Cross-Reference and Discovery Views
+
+        #region Latest Label Navigation Views
+
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_ProductLatestLabel.
+        /// Returns the single most recent label (document) for each UNII/ProductName combination.
+        /// </summary>
+        /// <remarks>
+        /// Uses ROW_NUMBER() partitioned by UNII and ProductName, ordered by EffectiveTime DESC.
+        /// Only returns active ingredients (excludes IACT class).
+        /// Indexes Used: IX_Document_EffectiveTime_LatestLabel, IX_Ingredient_IngredientSubstanceID, IX_IngredientSubstance_UNII
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var latestLabels = await db.Set&lt;LabelView.ProductLatestLabel&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(p => p.UNII == "R16CO5Y76E")
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="Label.IngredientSubstance"/>
+        /// <seealso cref="IngredientActiveSummary"/>
+        /// <seealso cref="ProductsByIngredient"/>
+        [Table("vw_ProductLatestLabel")]
+        public class ProductLatestLabel
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Proprietary product name.
+            /// </summary>
+            public string? ProductName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Active ingredient substance name.
+            /// </summary>
+            public string? ActiveIngredient { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// UNII code for the active ingredient.
+            /// </summary>
+            public string? UNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Globally unique document identifier for the latest label.
+            /// Use this to retrieve the complete label via /api/label/single/{documentGuid}.
+            /// </summary>
+            public Guid? DocumentGUID { get; set; }
+
+            #endregion properties
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_ProductIndications.
+        /// Returns product indication text combined with active ingredients.
+        /// </summary>
+        /// <remarks>
+        /// Filters to INDICATION sections only and excludes inactive ingredients (IACT).
+        /// Combines ContentText and ItemText into a single ContentText column.
+        /// Related tables: vw_SectionNavigation, vw_Ingredients, SectionTextContent, TextList, TextListItem
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var indications = await db.Set&lt;LabelView.ProductIndications&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(p => p.UNII == "R16CO5Y76E")
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Section"/>
+        /// <seealso cref="Label.SectionTextContent"/>
+        /// <seealso cref="SectionNavigation"/>
+        /// <seealso cref="IngredientView"/>
+        [Table("vw_ProductIndications")]
+        public class ProductIndications
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Proprietary product name.
+            /// </summary>
+            public string? ProductName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Active ingredient substance name.
+            /// </summary>
+            public string? SubstanceName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// UNII code for the active ingredient.
+            /// </summary>
+            public string? UNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Globally unique document identifier.
+            /// Use this to retrieve the complete label via /api/label/single/{documentGuid}.
+            /// </summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Combined indication text content from SectionTextContent and TextListItem.
+            /// Contains the clinical indication information for the product.
+            /// </summary>
+            public string? ContentText { get; set; }
+
+            #endregion properties
+        }
+
+        #endregion Latest Label Navigation Views
     }
 }

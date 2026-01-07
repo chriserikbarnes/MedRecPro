@@ -2370,6 +2370,260 @@ namespace MedRecPro.DataAccess
 
         #endregion Product Summary and Cross-Reference
 
+        #region Latest Label Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the latest label for each product/active ingredient combination.
+        /// Use this to find the most recent labeling for a product or ingredient.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="unii">Optional UNII code for exact match filtering.</param>
+        /// <param name="productNameSearch">Optional product name for partial matching.</param>
+        /// <param name="activeIngredientSearch">Optional active ingredient name for partial matching.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="page">Optional 1-based page number for pagination.</param>
+        /// <param name="size">Optional page size for pagination.</param>
+        /// <returns>List of <see cref="ProductLatestLabelDto"/> with latest label for each product/ingredient.</returns>
+        /// <example>
+        /// <code>
+        /// // Find latest label for a specific UNII
+        /// var labels = await DtoLabelAccess.GetProductLatestLabelsAsync(db, "R16CO5Y76E", null, null, secret, logger, 1, 25);
+        ///
+        /// // Find latest label for a product name search
+        /// var labels2 = await DtoLabelAccess.GetProductLatestLabelsAsync(db, null, "Lipitor", null, secret, logger, 1, 25);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// The view returns only one row per UNII/ProductName combination, selecting the document
+        /// with the most recent EffectiveTime. This is useful for finding the current labeling
+        /// rather than historical versions.
+        /// </remarks>
+        /// <seealso cref="LabelView.ProductLatestLabel"/>
+        /// <seealso cref="LabelView.IngredientActiveSummary"/>
+        /// <seealso cref="LabelView.ProductsByIngredient"/>
+        public static async Task<List<ProductLatestLabelDto>> GetProductLatestLabelsAsync(
+            ApplicationDbContext db,
+            string? unii,
+            string? productNameSearch,
+            string? activeIngredientSearch,
+            string pkSecret,
+            ILogger logger,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+
+            // Build cache key from search parameters
+            string searchKey = $"{unii ?? ""}-{productNameSearch ?? ""}-{activeIngredientSearch ?? ""}";
+            string key = generateCacheKey(nameof(GetProductLatestLabelsAsync), searchKey, page, size);
+
+            var cached = Cached.GetCache<List<ProductLatestLabelDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetProductLatestLabelsAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            // Build query with optional filters
+            var query = db.Set<LabelView.ProductLatestLabel>()
+                .AsNoTracking()
+                .AsQueryable();
+
+            // Apply UNII exact match filter
+            if (!string.IsNullOrWhiteSpace(unii))
+            {
+                query = query.Where(p => p.UNII == unii);
+            }
+
+            // Apply product name partial match filter (no phonetic matching for precision)
+            if (!string.IsNullOrWhiteSpace(productNameSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    productNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.None,
+                    p => p.ProductName);
+            }
+
+            // Apply active ingredient partial match filter (no phonetic matching for precision)
+            if (!string.IsNullOrWhiteSpace(activeIngredientSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    activeIngredientSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.None,
+                    p => p.ActiveIngredient);
+            }
+
+#if DEBUG
+            var sql = query.ToQueryString();
+            Debug.WriteLine($"Generated SQL: {sql}");
+#endif
+
+            // Order by active ingredient then product name
+            query = query.OrderBy(p => p.ActiveIngredient).ThenBy(p => p.ProductName);
+
+            // Apply pagination
+            query = applyPagination(query, page, size);
+
+            var entities = await query.ToListAsync();
+            var ret = buildProductLatestLabelDtos(db, entities, pkSecret, logger);
+
+            if (ret != null && ret.Count > 0)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret ?? new List<ProductLatestLabelDto>();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets product indication text combined with active ingredients.
+        /// Use this to find indication information for products by UNII, product name, substance name, or indication text.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="unii">Optional UNII code for exact match filtering.</param>
+        /// <param name="productNameSearch">Optional product name for partial matching.</param>
+        /// <param name="substanceNameSearch">Optional substance name for partial matching.</param>
+        /// <param name="indicationSearch">Optional indication text search for finding products by clinical indication.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="page">Optional 1-based page number for pagination.</param>
+        /// <param name="size">Optional page size for pagination.</param>
+        /// <returns>List of <see cref="ProductIndicationsDto"/> with indication text.</returns>
+        /// <example>
+        /// <code>
+        /// // Find indications for a specific UNII
+        /// var indications = await DtoLabelAccess.GetProductIndicationsAsync(db, "R16CO5Y76E", null, null, null, secret, logger, 1, 25);
+        ///
+        /// // Find indications for a product name search
+        /// var indications2 = await DtoLabelAccess.GetProductIndicationsAsync(db, null, "Lipitor", null, null, secret, logger, 1, 25);
+        ///
+        /// // Find products indicated for hypertension
+        /// var indications3 = await DtoLabelAccess.GetProductIndicationsAsync(db, null, null, null, "hypertension", secret, logger, 1, 25);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// The view filters to INDICATION sections only and excludes inactive ingredients (IACT class).
+        /// Combines ContentText and ItemText from SectionTextContent and TextListItem into a single text column.
+        /// The indicationSearch parameter searches within the ContentText field for clinical indication terms.
+        /// Multiple search terms are OR-matched (any term can match).
+        /// </remarks>
+        /// <seealso cref="LabelView.ProductIndications"/>
+        /// <seealso cref="LabelView.SectionNavigation"/>
+        /// <seealso cref="LabelView.IngredientView"/>
+        public static async Task<List<ProductIndicationsDto>> GetProductIndicationsAsync(
+            ApplicationDbContext db,
+            string? unii,
+            string? productNameSearch,
+            string? substanceNameSearch,
+            string? indicationSearch,
+            string pkSecret,
+            ILogger logger,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+
+            // Build cache key from search parameters
+            string searchKey = $"{unii ?? ""}-{productNameSearch ?? ""}-{substanceNameSearch ?? ""}-{indicationSearch ?? ""}";
+            string key = generateCacheKey(nameof(GetProductIndicationsAsync), searchKey, page, size);
+
+            var cached = Cached.GetCache<List<ProductIndicationsDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetProductIndicationsAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            // Build query with optional filters
+            var query = db.Set<LabelView.ProductIndications>()
+                .AsNoTracking()
+                .AsQueryable();
+
+            // Apply UNII exact match filter
+            if (!string.IsNullOrWhiteSpace(unii))
+            {
+                query = query.Where(p => p.UNII == unii);
+            }
+
+            // Apply product name partial match filter (no phonetic matching for precision)
+            if (!string.IsNullOrWhiteSpace(productNameSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    productNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.None,
+                    p => p.ProductName);
+            }
+
+            // Apply substance name partial match filter (no phonetic matching for precision)
+            if (!string.IsNullOrWhiteSpace(substanceNameSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    substanceNameSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.None,
+                    p => p.SubstanceName);
+            }
+
+            // Apply indication text search filter (no phonetic matching for clinical precision)
+            // Uses PartialMatchAny - any of the search terms can match within ContentText
+            if (!string.IsNullOrWhiteSpace(indicationSearch))
+            {
+                query = query.FilterBySearchTerms(
+                    indicationSearch,
+                    MultiTermBehavior.PartialMatchAny,
+                    null,
+                    PhoneticMatchOptions.None,
+                    p => p.ContentText);
+            }
+
+#if DEBUG
+            var sql = query.ToQueryString();
+            Debug.WriteLine($"Generated SQL: {sql}");
+#endif
+
+            // Order by substance name then product name
+            query = query.OrderBy(p => p.SubstanceName).ThenBy(p => p.ProductName);
+
+            // Apply pagination
+            query = applyPagination(query, page, size);
+
+            var entities = await query.ToListAsync();
+            var ret = buildProductIndicationsDtos(db, entities, pkSecret, logger);
+
+            if (ret != null && ret.Count > 0)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret ?? new List<ProductIndicationsDto>();
+
+            #endregion
+        }
+
+        #endregion Latest Label Navigation
+
         #endregion View-Based Public Entry Points
 
     }

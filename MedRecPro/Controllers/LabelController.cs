@@ -3485,6 +3485,290 @@ namespace MedRecPro.Api.Controllers
 
         #endregion Product Summary and Cross-Reference
 
+        #region Latest Label Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the latest label for each product/active ingredient combination.
+        /// Returns the most recent document based on EffectiveTime for each UNII/ProductName pair.
+        /// </summary>
+        /// <param name="unii">
+        /// Optional UNII (Unique Ingredient Identifier) code for exact match filtering.
+        /// Example: "R16CO5Y76E" for aspirin.
+        /// </param>
+        /// <param name="productNameSearch">
+        /// Optional product name search term. Supports partial and phonetic matching.
+        /// </param>
+        /// <param name="activeIngredientSearch">
+        /// Optional active ingredient name search term. Supports partial and phonetic matching.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of latest labels matching the search criteria.</returns>
+        /// <response code="200">Returns the list of latest labels.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ## Usage Examples
+        ///
+        /// Get latest label by UNII:
+        /// ```
+        /// GET /api/Label/product/latest?unii=R16CO5Y76E
+        /// ```
+        ///
+        /// Search by product name:
+        /// ```
+        /// GET /api/Label/product/latest?productNameSearch=Lipitor
+        /// ```
+        ///
+        /// Search by active ingredient name:
+        /// ```
+        /// GET /api/Label/product/latest?activeIngredientSearch=atorvastatin
+        /// ```
+        ///
+        /// ## Response Format (200)
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "ProductLatestLabel": {
+        ///       "ProductName": "LIPITOR",
+        ///       "ActiveIngredient": "ATORVASTATIN CALCIUM",
+        ///       "UNII": "A0JWA85V8F",
+        ///       "DocumentGUID": "12345678-1234-1234-1234-123456789012"
+        ///     }
+        ///   }
+        /// ]
+        /// ```
+        ///
+        /// Use the DocumentGUID with `/api/label/single/{documentGuid}` to retrieve the complete label.
+        ///
+        /// This view returns only one row per UNII/ProductName combination, selecting the document
+        /// with the most recent EffectiveTime.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Find latest label for aspirin
+        /// GET /api/Label/product/latest?unii=R16CO5Y76E
+        ///
+        /// // Find latest label by product name
+        /// GET /api/Label/product/latest?productNameSearch=Lipitor&amp;pageNumber=1&amp;pageSize=25
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.GetProductLatestLabelsAsync"/>
+        /// <seealso cref="LabelView.ProductLatestLabel"/>
+        /// <seealso cref="GetSingleDocument"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("product/latest")]
+        [ProducesResponseType(typeof(IEnumerable<ProductLatestLabelDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ProductLatestLabelDto>>> GetProductLatestLabels(
+            [FromQuery] string? unii,
+            [FromQuery] string? productNameSearch,
+            [FromQuery] string? activeIngredientSearch,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null) return pagingValidation;
+
+            #endregion
+
+            #region implementation
+
+            try
+            {
+                // Get latest labels using the data access method
+                var results = await DtoLabelAccess.GetProductLatestLabelsAsync(
+                    _dbContext,
+                    unii,
+                    productNameSearch,
+                    activeIngredientSearch,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was requested
+                addPaginationHeaders(pageNumber, pageSize, results.Count);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving latest labels. UNII: {UNII}, Product: {Product}, Ingredient: {Ingredient}",
+                    unii, productNameSearch, activeIngredientSearch);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving latest labels.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets product indication text combined with active ingredients.
+        /// Returns indication section content for products filtered by UNII, product name, substance name, or indication text.
+        /// </summary>
+        /// <param name="unii">
+        /// Optional UNII (Unique Ingredient Identifier) code for exact match filtering.
+        /// Example: "R16CO5Y76E" for aspirin.
+        /// </param>
+        /// <param name="productNameSearch">
+        /// Optional product name search term. Supports partial matching.
+        /// </param>
+        /// <param name="substanceNameSearch">
+        /// Optional substance name search term. Supports partial matching.
+        /// </param>
+        /// <param name="indicationSearch">
+        /// Optional clinical indication search term. Searches within indication text content.
+        /// Examples: "hypertension", "diabetes", "pain"
+        /// Uses partial matching - any search term can match within the indication text.
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page.
+        /// </param>
+        /// <returns>List of product indications matching the search criteria.</returns>
+        /// <response code="200">Returns the list of product indications.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ## Usage Examples
+        ///
+        /// Get indications by UNII:
+        /// ```
+        /// GET /api/Label/product/indications?unii=R16CO5Y76E
+        /// ```
+        ///
+        /// Search by product name:
+        /// ```
+        /// GET /api/Label/product/indications?productNameSearch=Lipitor
+        /// ```
+        ///
+        /// Search by substance name:
+        /// ```
+        /// GET /api/Label/product/indications?substanceNameSearch=atorvastatin
+        /// ```
+        ///
+        /// **Search by clinical indication:**
+        /// ```
+        /// GET /api/Label/product/indications?indicationSearch=hypertension
+        /// GET /api/Label/product/indications?indicationSearch=type%202%20diabetes
+        /// GET /api/Label/product/indications?indicationSearch=chronic%20pain
+        /// ```
+        ///
+        /// ## Response Format (200)
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "ProductIndications": {
+        ///       "ProductName": "LIPITOR",
+        ///       "SubstanceName": "ATORVASTATIN CALCIUM",
+        ///       "UNII": "A0JWA85V8F",
+        ///       "DocumentGUID": "12345678-1234-1234-1234-123456789012",
+        ///       "ContentText": "LIPITOR is indicated as an adjunctive therapy to diet..."
+        ///     }
+        ///   }
+        /// ]
+        /// ```
+        ///
+        /// The view filters to INDICATION sections only and excludes inactive ingredients (IACT class).
+        /// ContentText combines text from SectionTextContent and TextListItem.
+        ///
+        /// ## Indication Search Tips
+        ///
+        /// - Use medical terminology for best results (e.g., "hypertension" not "high blood pressure")
+        /// - Multiple words are OR-matched (any term can match in indication text)
+        /// - Combine with substanceNameSearch to narrow results to specific drug classes
+        /// - For AI-assisted query interpretation, use POST /api/ai/interpret first
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Find indications for aspirin
+        /// GET /api/Label/product/indications?unii=R16CO5Y76E
+        ///
+        /// // Find indications by product name with pagination
+        /// GET /api/Label/product/indications?productNameSearch=Lipitor&amp;pageNumber=1&amp;pageSize=25
+        ///
+        /// // Find products indicated for hypertension
+        /// GET /api/Label/product/indications?indicationSearch=hypertension
+        ///
+        /// // Find statins indicated for hypercholesterolemia
+        /// GET /api/Label/product/indications?indicationSearch=hypercholesterolemia&amp;substanceNameSearch=statin
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.GetProductIndicationsAsync"/>
+        /// <seealso cref="LabelView.ProductIndications"/>
+        /// <seealso cref="SearchBySectionCode"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("product/indications")]
+        [ProducesResponseType(typeof(IEnumerable<ProductIndicationsDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ProductIndicationsDto>>> GetProductIndications(
+            [FromQuery] string? unii,
+            [FromQuery] string? productNameSearch,
+            [FromQuery] string? substanceNameSearch,
+            [FromQuery] string? indicationSearch,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            if (pagingValidation != null) return pagingValidation;
+
+            #endregion
+
+            #region implementation
+
+            try
+            {
+                // Get product indications using the data access method
+                var results = await DtoLabelAccess.GetProductIndicationsAsync(
+                    _dbContext,
+                    unii,
+                    productNameSearch,
+                    substanceNameSearch,
+                    indicationSearch,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Add pagination headers if paging was requested
+                addPaginationHeaders(pageNumber, pageSize, results.Count);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving product indications. UNII: {UNII}, Product: {Product}, Substance: {Substance}, Indication: {Indication}",
+                    unii, productNameSearch, substanceNameSearch, indicationSearch);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving product indications.");
+            }
+
+            #endregion
+        }
+
+        #endregion Latest Label Navigation
+
         /**************************************************************/
         /// <summary>
         /// Provides a list of available label sections (data tables) that can be interacted with.
