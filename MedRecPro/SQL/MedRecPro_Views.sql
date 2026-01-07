@@ -2129,6 +2129,70 @@ GO
 
 --#endregion
 
+--#region vw_ProductIndications View
+
+/**************************************************************/
+-- View: vw_ProductIndications
+-- Purpose: Returns product indication text combined with ingredients
+-- Usage: Searching and displaying product indications by active ingredient
+-- Related tables: vw_SectionNavigation, vw_Ingredients, SectionTextContent, TextList, TextListItem
+-- Notes: Filters to INDICATION sections only and excludes inactive ingredients (IACT)
+--        Combines ContentText and ItemText into single ContentText column
+
+IF OBJECT_ID('dbo.vw_ProductIndications', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ProductIndications;
+GO
+
+CREATE VIEW dbo.vw_ProductIndications
+AS
+SELECT DISTINCT
+    dbo.vw_Ingredients.ProductName,
+    dbo.vw_Ingredients.SubstanceName,
+    dbo.vw_Ingredients.UNII,
+    dbo.vw_SectionNavigation.DocumentGUID,
+    COALESCE(dbo.SectionTextContent.ContentText, '')
+        + CASE WHEN dbo.TextListItem.ItemText IS NOT NULL
+               THEN ' ' + dbo.TextListItem.ItemText
+               ELSE '' END AS ContentText
+FROM dbo.vw_SectionNavigation
+INNER JOIN dbo.vw_Ingredients
+    ON dbo.vw_SectionNavigation.DocumentID = dbo.vw_Ingredients.DocumentID
+INNER JOIN dbo.SectionTextContent
+    ON dbo.vw_SectionNavigation.SectionID = dbo.SectionTextContent.SectionID
+LEFT OUTER JOIN dbo.TextListItem
+    INNER JOIN dbo.TextList
+        ON dbo.TextListItem.TextListID = dbo.TextList.TextListID
+    ON dbo.SectionTextContent.SectionTextContentID = dbo.TextList.SectionTextContentID
+WHERE dbo.SectionTextContent.SectionID IN
+        (SELECT SectionID
+         FROM dbo.vw_SectionNavigation AS vw_SectionNavigation_1
+         WHERE SectionType LIKE 'INDICATION%')
+    AND dbo.vw_Ingredients.ClassCode <> 'IACT'
+    AND LTRIM(RTRIM(COALESCE(dbo.SectionTextContent.ContentText, '')
+        + CASE WHEN dbo.TextListItem.ItemText IS NOT NULL
+               THEN ' ' + dbo.TextListItem.ItemText
+               ELSE '' END)) <> '';
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_ProductIndications')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Returns product indication text combined with active ingredients. Filters to INDICATION sections and excludes inactive ingredients. Combines ContentText and ItemText into a single column.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ProductIndications';
+END
+GO
+
+PRINT 'Created view: vw_ProductIndications';
+GO
+
+--#endregion
+
 
 /*******************************************************************************/
 /*                                                                             */

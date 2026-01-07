@@ -650,8 +650,25 @@ BEGIN
     CREATE NONCLUSTERED INDEX IX_SectionTextContent_ContentType_on_SectionID
     ON SectionTextContent(ContentType, SectionID)
     INCLUDE (SequenceNumber);
-    
+
     PRINT 'Created index: IX_SectionTextContent_ContentType_on_SectionID';
+END
+GO
+
+/**************************************************************/
+-- Index on SectionTextContent.SectionID with ContentText
+-- Purpose: Optimized for vw_ProductIndications view
+-- Usage: Fast retrieval of section content text for indication queries
+-- See also: vw_ProductIndications
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_SectionTextContent_SectionID_ContentText' AND object_id = OBJECT_ID('SectionTextContent'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_SectionTextContent_SectionID_ContentText
+    ON SectionTextContent(SectionID)
+    INCLUDE (SectionTextContentID, ContentText)
+    WHERE SectionID IS NOT NULL;
+
+    PRINT 'Created index: IX_SectionTextContent_SectionID_ContentText';
 END
 GO
 
