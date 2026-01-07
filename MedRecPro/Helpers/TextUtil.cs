@@ -2150,8 +2150,6 @@ namespace MedRecPro.Helpers
             #endregion
         }
 
-
-
         #region pipe delimited serialization
 
         /**************************************************************/

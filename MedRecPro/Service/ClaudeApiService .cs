@@ -1458,21 +1458,23 @@ namespace MedRecPro.Service
                 }
                 else if (result.Result != null)
                 {
-                    var resultJson = Newtonsoft.Json.JsonConvert.SerializeObject(result.Result, Newtonsoft.Json.Formatting.Indented);
+                    // Use token-efficient serialization for collections (pipe-delimited format)
+                    // Falls back to JSON for single objects or when pipe serialization fails
+                    var serializedResult = serializeResultForPrompt(result.Result);
 
                     // Increased truncation limit for label data, with smart handling
                     int maxLength = 50000;
 
-                    if (resultJson.Length > maxLength)
+                    if (serializedResult.Length > maxLength)
                     {
                         // Try to find and preserve important sections
-                        var truncatedResult = smartTruncateLabelData(resultJson, maxLength, request.OriginalQuery);
-                        sb.AppendLine($"Result (smart truncation applied, {resultJson.Length} chars total):");
+                        var truncatedResult = smartTruncateLabelData(serializedResult, maxLength, request.OriginalQuery);
+                        sb.AppendLine($"Result (smart truncation applied, {serializedResult.Length} chars total):");
                         sb.AppendLine(truncatedResult);
                     }
                     else
                     {
-                        sb.AppendLine($"Result: {resultJson}");
+                        sb.AppendLine($"Result: {serializedResult}");
                     }
                 }
 
@@ -2171,6 +2173,103 @@ namespace MedRecPro.Service
             }
 
             return $"Document {index}";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Serializes a result object to a string format optimized for LLM token efficiency.
+        /// Uses pipe-delimited format for collections (reduces token count significantly),
+        /// falls back to JSON for non-collection types or when pipe serialization fails.
+        /// </summary>
+        /// <param name="result">The result object to serialize (typically from API endpoint response).</param>
+        /// <param name="usePipeFormat">Whether to attempt pipe-delimited format for collections (default: true).</param>
+        /// <returns>
+        /// A string representation of the result, either in pipe-delimited or JSON format.
+        /// Pipe format includes a KEY header with property name mappings.
+        /// </returns>
+        /// <remarks>
+        /// The pipe-delimited format significantly reduces token usage when sending large datasets
+        /// to Claude API. For example, a list of 100 products might use:
+        /// - JSON format: ~15,000 tokens
+        /// - Pipe format: ~3,000 tokens (80% reduction)
+        ///
+        /// The format includes a key header that maps abbreviated column names to full property names,
+        /// allowing Claude to understand the data structure while minimizing token count.
+        ///
+        /// Example output:
+        /// <code>
+        /// [KEY:PN=ProductName|DC=DocumentCount|LN=LabelerName]
+        /// PN|DC|LN
+        /// LIPITOR|5|Pfizer Inc
+        /// VIAGRA|3|Pfizer Inc
+        /// </code>
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Collection - uses pipe format
+        /// var products = new List&lt;Product&gt; { ... };
+        /// var serialized = serializeResultForPrompt(products);
+        /// // Returns pipe-delimited format
+        ///
+        /// // Single object - uses JSON format
+        /// var product = new Product { ... };
+        /// var serialized = serializeResultForPrompt(product, usePipeFormat: false);
+        /// // Returns JSON format
+        /// </code>
+        /// </example>
+        /// <seealso cref="TextUtil.ToPipe{T}(T, bool)"/>
+        /// <seealso cref="JsonPipeHelper.TryConvertToPipe(object?)"/>
+        /// <seealso cref="buildSynthesisPrompt"/>
+        private string serializeResultForPrompt(object? result, bool usePipeFormat = true)
+        {
+            #region implementation
+
+            if (result == null)
+            {
+                return "null";
+            }
+
+            // Attempt pipe-delimited format for collections when enabled
+            if (usePipeFormat)
+            {
+                try
+                {
+                    // FIRST: Try JSON-specific conversion for JArray/JObject/JsonElement
+                    // This handles cases where ToPipe() fails due to reflection limitations on JSON wrapper types
+                    var jsonPipeResult = JsonPipeHelper.TryConvertToPipe(result);
+                    if (!string.IsNullOrEmpty(jsonPipeResult))
+                    {
+                        _logger.LogDebug("Using JSON-to-pipe conversion for result serialization (token optimization)");
+                        return jsonPipeResult;
+                    }
+
+                    // SECOND: Try ToPipe for strongly-typed collections
+                    // Check if the result is a collection (array, list, etc.)
+                    bool isCollection = result is System.Collections.IEnumerable && !(result is string);
+
+                    if (isCollection)
+                    {
+                        // Use ToPipe extension method for token-efficient serialization
+                        var pipeResult = result.ToPipe();
+
+                        if (!string.IsNullOrEmpty(pipeResult))
+                        {
+                            _logger.LogDebug("Using pipe-delimited format for result serialization (token optimization)");
+                            return pipeResult;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log but don't fail - fall through to JSON serialization
+                    _logger.LogDebug(ex, "Pipe serialization failed, falling back to JSON format");
+                }
+            }
+
+            // THIRD: Fallback to JSON serialization for single objects or when pipe format fails
+            return Newtonsoft.Json.JsonConvert.SerializeObject(result, Newtonsoft.Json.Formatting.Indented);
 
             #endregion
         }
