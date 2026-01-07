@@ -2114,6 +2114,85 @@ PRINT '  - API Discovery: vw_APIEndpointGuide';
 PRINT '';
 GO
 
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION: LATEST LABEL NAVIGATION VIEWS                                     */
+/*  Views for locating the most recent label for products/ingredients          */
+/*  Date Added: 2026-01-07                                                     */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_ProductLatestLabel
+
+/**************************************************************/
+-- View: vw_ProductLatestLabel
+-- Purpose: Returns the single most recent label (document) for each
+--          UNII/ProductName combination based on EffectiveTime
+-- Usage: Find the latest label information for a product or active ingredient
+-- Returns: One row per UNII/ProductName with the most recent DocumentGUID
+-- Indexes Used: IX_Document_EffectiveTime_LatestLabel,
+--               IX_Ingredient_IngredientSubstanceID,
+--               IX_IngredientSubstance_UNII
+-- See also: vw_IngredientActiveSummary, vw_ProductsByIngredient
+
+IF OBJECT_ID('dbo.vw_ProductLatestLabel', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_ProductLatestLabel;
+GO
+
+CREATE VIEW dbo.vw_ProductLatestLabel
+AS
+/**************************************************************/
+-- Returns the latest label for each UNII/ProductName combination
+-- Uses ROW_NUMBER() partitioned by UNII and ProductName, ordered by EffectiveTime DESC
+-- Only returns active ingredients (excludes IACT class)
+/**************************************************************/
+SELECT
+    ProductName,
+    ActiveIngredient,
+    UNII,
+    DocumentGUID
+FROM (
+    SELECT
+        dbo.vw_IngredientActiveSummary.SubstanceName AS ActiveIngredient,
+        dbo.vw_IngredientActiveSummary.UNII,
+        dbo.vw_ProductsByIngredient.ProductName,
+        dbo.[Document].DocumentGUID,
+        ROW_NUMBER() OVER (
+            PARTITION BY dbo.vw_IngredientActiveSummary.UNII,
+                         dbo.vw_ProductsByIngredient.ProductName
+            ORDER BY dbo.[Document].EffectiveTime DESC
+        ) AS RowNum
+    FROM dbo.vw_IngredientActiveSummary
+    INNER JOIN dbo.vw_ProductsByIngredient
+        ON dbo.vw_IngredientActiveSummary.IngredientSubstanceID = dbo.vw_ProductsByIngredient.IngredientSubstanceID
+        AND dbo.vw_IngredientActiveSummary.UNII = dbo.vw_ProductsByIngredient.UNII
+    INNER JOIN dbo.[Document]
+        ON dbo.vw_ProductsByIngredient.DocumentID = dbo.[Document].DocumentID
+    WHERE dbo.vw_ProductsByIngredient.MoietyUNII IS NOT NULL
+        AND dbo.vw_ProductsByIngredient.IngredientClassCode <> 'IACT'
+) AS RankedDocs
+WHERE RowNum = 1;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_ProductLatestLabel')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Returns the single most recent label (document) for each UNII/ProductName combination. Use to find the latest label when searching by product or active ingredient.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_ProductLatestLabel';
+END
+GO
+
+PRINT 'Created view: vw_ProductLatestLabel';
+GO
+
+--#endregion
+
 PRINT '';
 PRINT '=================================================================';
 PRINT 'Additional Views and Indexes Creation Complete';
@@ -2126,6 +2205,7 @@ PRINT '  - vw_IngredientInactiveSummary: Inactive ingredient summary';
 PRINT '  - vw_Ingredients: All ingredients with normalized application numbers';
 PRINT '  - vw_InactiveIngredients: Inactive ingredients (IACT) with normalized app numbers';
 PRINT '  - vw_ActiveIngredients: Active ingredients (non-IACT) with normalized app numbers';
+PRINT '  - vw_ProductLatestLabel: Latest label per UNII/ProductName combination';
 PRINT '';
 
 GO

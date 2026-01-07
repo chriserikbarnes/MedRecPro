@@ -2002,6 +2002,161 @@ GO
 
 /*******************************************************************************/
 /*                                                                             */
+/*  SECTION 15: LATEST LABEL VIEW INDEXES                                      */
+/*  Non-clustered indexes to support vw_ProductLatestLabel view                */
+/*  Date Added: 2026-01-07                                                     */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region Latest Label View Supporting Indexes
+
+/**************************************************************/
+-- Indexes to support vw_ProductLatestLabel
+-- These indexes optimize:
+--   - ROW_NUMBER() OVER (PARTITION BY UNII, ProductName ORDER BY EffectiveTime DESC)
+--   - Joins between IngredientSubstance, Product, and Document tables
+/**************************************************************/
+
+/**************************************************************/
+-- Index on Document.EffectiveTime with DocumentID and DocumentGUID
+-- Purpose: Supports the ORDER BY EffectiveTime DESC in ROW_NUMBER()
+-- Usage: Latest label lookup by effective date
+-- See also: vw_ProductLatestLabel
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Document_EffectiveTime_LatestLabel' AND object_id = OBJECT_ID('dbo.Document'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Document_EffectiveTime_LatestLabel
+    ON dbo.[Document] (EffectiveTime DESC)
+    INCLUDE (DocumentID, DocumentGUID);
+    PRINT 'Created index: IX_Document_EffectiveTime_LatestLabel';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_Document_EffectiveTime_LatestLabel';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('Document')
+    AND name = 'IX_Document_EffectiveTime_LatestLabel_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_Document_EffectiveTime_LatestLabel_Description',
+        @value = N'Supports ROW_NUMBER() ordering by EffectiveTime DESC for latest label queries. Critical for vw_ProductLatestLabel view performance.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'Document',
+        @level2type = N'INDEX', @level2name = N'IX_Document_EffectiveTime_LatestLabel';
+END
+GO
+
+/**************************************************************/
+-- Composite Index on Document for DocumentID lookup with EffectiveTime
+-- Purpose: Covers the join on DocumentID and the ORDER BY on EffectiveTime
+-- Usage: Efficient document retrieval with date ordering
+-- See also: vw_ProductLatestLabel, vw_ProductsByIngredient
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Document_DocumentID_EffectiveTime' AND object_id = OBJECT_ID('dbo.Document'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Document_DocumentID_EffectiveTime
+    ON dbo.[Document] (DocumentID, EffectiveTime DESC)
+    INCLUDE (DocumentGUID);
+    PRINT 'Created index: IX_Document_DocumentID_EffectiveTime';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_Document_DocumentID_EffectiveTime';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('Document')
+    AND name = 'IX_Document_DocumentID_EffectiveTime_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_Document_DocumentID_EffectiveTime_Description',
+        @value = N'Covers DocumentID join with EffectiveTime ordering. Optimizes latest label queries joining on DocumentID.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'Document',
+        @level2type = N'INDEX', @level2name = N'IX_Document_DocumentID_EffectiveTime';
+END
+GO
+
+/**************************************************************/
+-- Index on ActiveMoiety for MoietyUNII filtering
+-- Purpose: Supports WHERE MoietyUNII IS NOT NULL filter
+-- Usage: Active moiety filtering in latest label queries
+-- See also: vw_ProductLatestLabel
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ActiveMoiety_MoietyUNII_LatestLabel' AND object_id = OBJECT_ID('dbo.ActiveMoiety'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_ActiveMoiety_MoietyUNII_LatestLabel
+    ON dbo.ActiveMoiety (MoietyUNII, IngredientSubstanceID)
+    WHERE MoietyUNII IS NOT NULL;
+    PRINT 'Created index: IX_ActiveMoiety_MoietyUNII_LatestLabel';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_ActiveMoiety_MoietyUNII_LatestLabel';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('ActiveMoiety')
+    AND name = 'IX_ActiveMoiety_MoietyUNII_LatestLabel_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_ActiveMoiety_MoietyUNII_LatestLabel_Description',
+        @value = N'Filtered index on MoietyUNII for active moiety lookups. Supports WHERE MoietyUNII IS NOT NULL filter in latest label queries.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'ActiveMoiety',
+        @level2type = N'INDEX', @level2name = N'IX_ActiveMoiety_MoietyUNII_LatestLabel';
+END
+GO
+
+/**************************************************************/
+-- Composite Index on Ingredient for ClassCode filtering with joins
+-- Purpose: Supports WHERE ClassCode <> 'IACT' filter and joins
+-- Usage: Active ingredient filtering in latest label queries
+-- See also: vw_ProductLatestLabel
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Ingredient_ClassCode_LatestLabel' AND object_id = OBJECT_ID('dbo.Ingredient'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Ingredient_ClassCode_LatestLabel
+    ON dbo.Ingredient (ClassCode, IngredientSubstanceID, ProductID)
+    WHERE ClassCode <> 'IACT';
+    PRINT 'Created index: IX_Ingredient_ClassCode_LatestLabel';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_Ingredient_ClassCode_LatestLabel';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('Ingredient')
+    AND name = 'IX_Ingredient_ClassCode_LatestLabel_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_Ingredient_ClassCode_LatestLabel_Description',
+        @value = N'Filtered index excluding IACT class ingredients. Optimizes active ingredient queries in latest label view.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'Ingredient',
+        @level2type = N'INDEX', @level2name = N'IX_Ingredient_ClassCode_LatestLabel';
+END
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
 /*  SECTION: INDEX STATISTICS AND SUMMARY                                      */
 /*  Reports on created indexes for verification.                               */
 /*                                                                             */
