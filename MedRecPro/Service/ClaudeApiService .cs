@@ -1753,14 +1753,24 @@ namespace MedRecPro.Service
                         // Use cached metadata first, then fall back to result extraction
                         var displayName = getDisplayNameFromCacheOrResult(
                             documentMetadataCache, guid, result.Result, seenGuids.Count);
-                        references[$"View Full Label ({displayName})"] = $"/api/Label/generate/{guid}/true";
+                        // Only add reference if we have a valid product name (skip generic "Document #" links)
+                        if (!string.IsNullOrEmpty(displayName))
+                        {
+                            references[$"View Full Label ({displayName})"] = $"/api/Label/generate/{guid}/true";
+                        }
                     }
                 }
                 #endregion
 
-                #region extract from result JSON (for Document list endpoints)
-                // Also extract GUIDs from Document list results (step 1)
-                if (result.Result != null && result.Specification.Path.Contains("/section/Document"))
+                #region extract from result JSON (for Document list, product, and section content endpoints)
+                // Extract GUIDs from Document list results, product/latest results, and section/content results
+                // Product latest returns: { "ProductLatestLabel": { "ProductName": "...", "DocumentGUID": "..." } }
+                // Section content returns: { "sectionContent": { "DocumentGUID": "...", "ContentText": "..." } }
+                if (result.Result != null &&
+                    (result.Specification.Path.Contains("/section/Document") ||
+                     result.Specification.Path.Contains("/section/content") ||
+                     result.Specification.Path.Contains("/product/latest") ||
+                     result.Specification.Path.Contains("/product/related")))
                 {
                     var resultJson = Newtonsoft.Json.JsonConvert.SerializeObject(result.Result);
                     var matches = guidPattern.Matches(resultJson);
@@ -1780,7 +1790,11 @@ namespace MedRecPro.Service
                                 seenGuids.Add(guid);
                                 var displayName = getDisplayNameFromCacheOrResult(
                                     documentMetadataCache, guid, result.Result, seenGuids.Count);
-                                references[$"View Full Label ({displayName})"] = $"/api/Label/generate/{guid}/true";
+                                // Only add reference if we have a valid product name (skip generic links)
+                                if (!string.IsNullOrEmpty(displayName))
+                                {
+                                    references[$"View Full Label ({displayName})"] = $"/api/Label/generate/{guid}/true";
+                                }
                             }
                         }
                     }
@@ -1846,6 +1860,7 @@ namespace MedRecPro.Service
             var cache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             // Find Document list results (typically from /api/label/section/Document)
+            // and product/latest results (which contain ProductName and DocumentGUID)
             foreach (var result in endpoints)
             {
                 if (result.StatusCode < 200 || result.StatusCode >= 300 || result.Result == null)
@@ -1853,9 +1868,10 @@ namespace MedRecPro.Service
                     continue;
                 }
 
-                // Look for endpoints that return document lists
+                // Look for endpoints that return document lists or product info
                 if (!result.Specification.Path.Contains("/section/Document") &&
-                    !result.Specification.Path.Contains("/document/search"))
+                    !result.Specification.Path.Contains("/document/search") &&
+                    !result.Specification.Path.Contains("/product/latest"))
                 {
                     continue;
                 }
@@ -1878,10 +1894,15 @@ namespace MedRecPro.Service
                         var guid = match.Groups[1].Value;
                         var docJson = match.Value;
 
-                        // Extract title
+                        // Extract title (from /section/Document response)
                         var titleMatch = System.Text.RegularExpressions.Regex.Match(
                             docJson, @"""title""\s*:\s*""([^""]+)""",
                             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                        // Extract ProductName (from /product/latest response)
+                        var productNameMatch = System.Text.RegularExpressions.Regex.Match(
+                            docJson, @"""[Pp]roduct[Nn]ame""\s*:\s*""([^""]+)""",
+                            System.Text.RegularExpressions.RegexOptions.None);
 
                         // Extract documentDisplayName
                         var displayNameMatch = System.Text.RegularExpressions.Regex.Match(
@@ -1889,7 +1910,15 @@ namespace MedRecPro.Service
                             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
                         string displayName = "";
-                        if (titleMatch.Success)
+
+                        // Priority: ProductName > title > documentDisplayName
+                        if (productNameMatch.Success)
+                        {
+                            // Use ProductName from /product/latest response
+                            var productName = productNameMatch.Groups[1].Value.Trim();
+                            displayName = sanitizeProductName(productName) ?? "";
+                        }
+                        else if (titleMatch.Success)
                         {
                             var title = titleMatch.Groups[1].Value.Trim();
                             // Clean HTML tags and FDA boilerplate from title
@@ -2019,8 +2048,9 @@ namespace MedRecPro.Service
         /**************************************************************/
         /// <summary>
         /// Gets display name from cache or extracts from result as fallback.
+        /// Returns null if no valid product name can be determined.
         /// </summary>
-        private string getDisplayNameFromCacheOrResult(
+        private string? getDisplayNameFromCacheOrResult(
             Dictionary<string, string> cache,
             string guid,
             object? result,
@@ -2031,10 +2061,11 @@ namespace MedRecPro.Service
             // Try cache first
             if (cache.TryGetValue(guid, out var cachedName))
             {
-                return cachedName;
+                // Sanitize cached name in case it contains control characters
+                return sanitizeProductName(cachedName);
             }
 
-            // Fall back to result extraction
+            // Fall back to result extraction (already returns sanitized or null)
             return extractLabelDisplayName(result, guid, index);
 
             #endregion
@@ -2054,7 +2085,7 @@ namespace MedRecPro.Service
         /// Falls back to generic numbered documents if specific names aren't found.
         /// </remarks>
         /// <seealso cref="extractDocumentReferences"/>
-        private string extractLabelDisplayName(object? result, string documentGuid, int index)
+        private string? extractLabelDisplayName(object? result, string documentGuid, int index)
         {
             #region implementation
 
@@ -2071,23 +2102,65 @@ namespace MedRecPro.Service
                 string? labelType = null;
                 string? documentTitle = null;
 
-                #region extract product name
-                // Product name patterns in order of preference
-                var productPatterns = new[]
+                #region extract product name for specific GUID
+                // First, try to find the product name associated with this specific documentGuid
+                // This handles array results like from /product/latest endpoint
+                // Pattern: finds the object block containing this GUID and extracts ProductName from it
+                if (!string.IsNullOrEmpty(documentGuid))
                 {
-                    "\"productName\"\\s*:\\s*\"([^\"]+)\"",
-                    "\"ProductName\"\\s*:\\s*\"([^\"]+)\"",
-                    "\"product_name\"\\s*:\\s*\"([^\"]+)\""
-                };
-
-                foreach (var pattern in productPatterns)
-                {
-                    var match = System.Text.RegularExpressions.Regex.Match(json, pattern,
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                    if (match.Success && match.Groups.Count > 1)
+                    // Find the position of this GUID in the JSON
+                    var guidIndex = json.IndexOf(documentGuid, StringComparison.OrdinalIgnoreCase);
+                    if (guidIndex > 0)
                     {
-                        productName = match.Groups[1].Value.Trim();
-                        break;
+                        // Search backwards and forwards from the GUID position for object boundaries
+                        // Look for the enclosing object's ProductName
+                        var searchStart = Math.Max(0, guidIndex - 500);
+                        var searchEnd = Math.Min(json.Length, guidIndex + 200);
+                        var contextJson = json.Substring(searchStart, searchEnd - searchStart);
+
+                        // Extract ProductName from this context (closest one to the GUID)
+                        var contextProductMatch = System.Text.RegularExpressions.Regex.Match(
+                            contextJson,
+                            "\"[Pp]roduct[Nn]ame\"\\s*:\\s*\"([^\"]+)\"",
+                            System.Text.RegularExpressions.RegexOptions.None);
+                        if (contextProductMatch.Success && contextProductMatch.Groups.Count > 1)
+                        {
+                            productName = contextProductMatch.Groups[1].Value.Trim();
+                        }
+
+                        // Also extract label type from context
+                        var contextLabelMatch = System.Text.RegularExpressions.Regex.Match(
+                            contextJson,
+                            "\"[Dd]ocument[Dd]isplay[Nn]ame\"\\s*:\\s*\"([^\"]+)\"",
+                            System.Text.RegularExpressions.RegexOptions.None);
+                        if (contextLabelMatch.Success && contextLabelMatch.Groups.Count > 1)
+                        {
+                            labelType = formatLabelType(contextLabelMatch.Groups[1].Value);
+                        }
+                    }
+                }
+                #endregion
+
+                #region fallback: extract first product name (for single-result responses)
+                if (string.IsNullOrEmpty(productName))
+                {
+                    // Product name patterns in order of preference
+                    var productPatterns = new[]
+                    {
+                        "\"productName\"\\s*:\\s*\"([^\"]+)\"",
+                        "\"ProductName\"\\s*:\\s*\"([^\"]+)\"",
+                        "\"product_name\"\\s*:\\s*\"([^\"]+)\""
+                    };
+
+                    foreach (var pattern in productPatterns)
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(json, pattern,
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (match.Success && match.Groups.Count > 1)
+                        {
+                            productName = match.Groups[1].Value.Trim();
+                            break;
+                        }
                     }
                 }
                 #endregion
@@ -2137,10 +2210,9 @@ namespace MedRecPro.Service
 
                 #region build display name
                 // Build the display name combining product and type
-                var displayParts = new List<string>();
+                // Sanitize the primary name to remove control characters and garbage from imports
+                var primaryName = sanitizeProductName(productName) ?? sanitizeProductName(documentTitle);
 
-                // Prefer product name, then document title
-                var primaryName = productName ?? documentTitle;
                 if (!string.IsNullOrEmpty(primaryName))
                 {
                     // Truncate long names for display
@@ -2148,22 +2220,14 @@ namespace MedRecPro.Service
                     {
                         primaryName = primaryName.Substring(0, 37) + "...";
                     }
-                    displayParts.Add(primaryName);
-                }
 
-                // Add label type if available
-                if (!string.IsNullOrEmpty(labelType))
-                {
-                    if (displayParts.Count > 0)
+                    // Add label type if available
+                    if (!string.IsNullOrEmpty(labelType))
                     {
-                        return $"{displayParts[0]} ({labelType})";
+                        return $"{primaryName} ({labelType})";
                     }
-                    return labelType;
-                }
 
-                if (displayParts.Count > 0)
-                {
-                    return displayParts[0];
+                    return primaryName;
                 }
                 #endregion
             }
@@ -2172,7 +2236,53 @@ namespace MedRecPro.Service
                 // Ignore serialization errors, use fallback
             }
 
-            return $"Document {index}";
+            // Return null instead of generic "Document {index}" to signal that no product name was found
+            // The caller should skip adding a reference when this returns null
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Sanitizes a product name by removing non-printable characters, control characters,
+        /// escape sequences, and excess whitespace.
+        /// </summary>
+        /// <param name="productName">The raw product name from the database.</param>
+        /// <returns>A cleaned product name suitable for display, or null if the result is empty.</returns>
+        /// <remarks>
+        /// This handles common import artifacts such as:
+        /// - Tab characters (\t) that appear as garbage in display
+        /// - Carriage returns and newlines
+        /// - Other control characters (ASCII 0-31)
+        /// - Multiple consecutive spaces
+        /// </remarks>
+        private static string? sanitizeProductName(string? productName)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(productName))
+            {
+                return null;
+            }
+
+            // Remove all control characters (ASCII 0-31 except space) and non-printable characters
+            var sanitized = System.Text.RegularExpressions.Regex.Replace(
+                productName,
+                @"[\x00-\x1F\x7F]+",  // Control characters and DEL
+                " ");
+
+            // Also remove any escaped tab/newline sequences that might be in the text literally
+            sanitized = sanitized
+                .Replace("\\t", " ")
+                .Replace("\\n", " ")
+                .Replace("\\r", " ");
+
+            // Collapse multiple spaces into single space and trim
+            sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, @"\s+", " ").Trim();
+
+            // Return null if the result is empty or only whitespace
+            return string.IsNullOrWhiteSpace(sanitized) ? null : sanitized;
 
             #endregion
         }

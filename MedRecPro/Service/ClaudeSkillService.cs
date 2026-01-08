@@ -289,7 +289,9 @@ namespace MedRecPro.Service
             { "userActivity", "Skill-UserActivity" },
             { "synthesis", "Skill-Synthesis" },
             { "retry", "Skill-Retry" },
-            { "rescueWorkflow", "Skill-RescueWorkflow" }
+            { "rescueWorkflow", "Skill-RescueWorkflow" },
+            { "labelIndicationWorkflow", "Skill-LabelIndicationWorkflow" },
+            { "labelProductIndication", "Skill-LabelProductIndication" }
         };
 
         #endregion
@@ -573,10 +575,19 @@ namespace MedRecPro.Service
             sb.AppendLine("## Available Skills");
             sb.AppendLine();
 
+            // Label Indication Workflow skill - FIRST PRIORITY for condition-based queries
+            sb.AppendLine("### labelIndicationWorkflow");
+            sb.AppendLine("**Description**: Product discovery by medical condition, disease, symptom, or therapeutic need.");
+            sb.AppendLine("**Use for**: Finding products for conditions (depression, hypertension, diabetes), symptom-based searches, treatment options, generic alternatives.");
+            sb.AppendLine("**Keywords**: what helps with, I have, options for, treatment for, products for, what can I take, alternatives to, depression, anxiety, diabetes, hypertension, condition, symptom");
+            sb.AppendLine("**Process**: 1) Load labelProductIndication.md reference data, 2) Match condition to UNII(s), 3) Call GetProductLatestLabels, 4) Call GetRelatedProducts");
+            sb.AppendLine("**Note**: This is the FIRST-LINE approach for condition-based queries. Always load labelProductIndication with this skill.");
+            sb.AppendLine();
+
             // Label skill - primary pharmaceutical labeling operations
             sb.AppendLine("### label");
             sb.AppendLine("**Description**: Pharmaceutical labeling management and SPL document operations.");
-            sb.AppendLine("**Use for**: Product searches, ingredient queries, NDC lookups, document navigation, labeler/manufacturer searches, pharmacologic class queries, import/export operations, section content retrieval, drug information.");
+            sb.AppendLine("**Use for**: Product searches, ingredient queries, NDC lookups, document navigation, labeler/manufacturer searches, pharmacologic class queries, import/export operations, section content retrieval (side effects, warnings, dosage), drug information.");
             sb.AppendLine("**Keywords**: drug, product, ingredient, NDC, manufacturer, labeler, import, export, label, section, warning, side effect, dosage, interaction, SPL, document");
             sb.AppendLine();
 
@@ -604,12 +615,13 @@ namespace MedRecPro.Service
 
             sb.AppendLine("## Selection Instructions");
             sb.AppendLine();
-            sb.AppendLine("1. Analyze the user's query for keywords matching the skill descriptions above.");
-            sb.AppendLine("2. Select the most specific skill(s) needed - avoid loading unnecessary skills.");
-            sb.AppendLine("3. Most queries about drug/product data use the 'label' skill.");
-            sb.AppendLine("4. Queries about logs, user activity, or performance use the 'userActivity' skill.");
-            sb.AppendLine("5. Queries about cache operations use the 'settings' skill.");
-            sb.AppendLine("6. If uncertain, default to 'label' skill.");
+            sb.AppendLine("1. **Check for condition/symptom queries FIRST** - If user asks 'what helps with X' or mentions conditions/symptoms, select 'labelIndicationWorkflow' + 'labelProductIndication'.");
+            sb.AppendLine("2. Analyze the user's query for keywords matching the skill descriptions above.");
+            sb.AppendLine("3. Select the most specific skill(s) needed - avoid loading unnecessary skills.");
+            sb.AppendLine("4. For detailed label content (side effects, warnings, dosage), use the 'label' skill.");
+            sb.AppendLine("5. Queries about logs, user activity, or performance use the 'userActivity' skill.");
+            sb.AppendLine("6. Queries about cache operations use the 'settings' skill.");
+            sb.AppendLine("7. If uncertain and not a condition-based query, default to 'label' skill.");
             sb.AppendLine();
 
             sb.AppendLine("## Response Format");
@@ -628,10 +640,19 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Performs keyword-based skill selection without an API call.
+        /// Performs keyword-based skill selection using keywords from the skillSelector.md manifest.
+        /// This ensures a single source of truth for skill selection logic.
         /// </summary>
         /// <param name="userMessage">The user's message to analyze.</param>
         /// <returns>List of skill names that should be loaded.</returns>
+        /// <remarks>
+        /// Keywords are loaded from skillSelector.md on first call and cached.
+        /// The manifest contains keyword definitions for each skill under "**Keywords**:" lines.
+        /// This approach consolidates skill selection logic to avoid duplication between
+        /// code and documentation.
+        /// </remarks>
+        /// <seealso cref="GetSkillManifestAsync"/>
+        /// <seealso cref="loadKeywordsFromManifest"/>
         private List<string> performKeywordSkillSelection(string userMessage)
         {
             #region implementation
@@ -639,72 +660,266 @@ namespace MedRecPro.Service
             var message = userMessage.ToLowerInvariant();
             var selectedSkills = new List<string>();
 
-            // User activity & monitoring skill keywords (includes logs, user activity, performance)
-            // Note: Logs have been moved from settings to userActivity for better organization
-            var userActivityKeywords = new[] {
-                // Log-related keywords
-                "log", "logs", "error log", "warning log", "application log", "admin log",
-                "debug", "trace", "diagnostic", "log statistics", "log categor", "log level",
-                "show errors", "show warnings", "recent errors", "what errors",
-                // User activity keywords
-                "user activity", "activity log", "what did user", "user's activity",
-                "what did", "how many times",
-                // Endpoint performance keywords
-                "endpoint performance", "endpoint stats", "response time",
-                "controller performance", "api performance", "how fast",
-                "performance for", "performance of"
-            };
+            // Load keywords from skillSelector.md (cached after first load)
+            var skillKeywords = loadKeywordsFromManifest();
 
-            // Settings skill keywords (cache management only)
-            var settingsKeywords = new[] {
-                "cache", "clear cache", "reset cache", "flush cache", "invalidate cache"
-            };
-
-            // Check for user activity/monitoring skill first (logs + user activity + performance)
-            if (userActivityKeywords.Any(k => message.Contains(k)))
+            // Check for indication workflow skill FIRST (condition-based queries)
+            // This takes priority for finding products by condition/symptom
+            if (skillKeywords.TryGetValue("labelIndicationWorkflow", out var indicationWorkflowKeywords))
             {
-                selectedSkills.Add("userActivity");
+                if (indicationWorkflowKeywords.Any(k => message.Contains(k)))
+                {
+                    selectedSkills.Add("labelIndicationWorkflow");
+                    // Also load the reference data file for UNII matching
+                    selectedSkills.Add("labelProductIndication");
+                }
+            }
+
+            // Check for user activity/monitoring skill (logs + user activity + performance)
+            if (skillKeywords.TryGetValue("userActivity", out var userActivityKeywords))
+            {
+                if (userActivityKeywords.Any(k => message.Contains(k)))
+                {
+                    selectedSkills.Add("userActivity");
+                }
             }
 
             // Check for settings skill (cache only)
-            if (settingsKeywords.Any(k => message.Contains(k)))
+            if (skillKeywords.TryGetValue("settings", out var settingsKeywords))
             {
-                selectedSkills.Add("settings");
+                if (settingsKeywords.Any(k => message.Contains(k)))
+                {
+                    selectedSkills.Add("settings");
+                }
             }
 
-            // Label skill is the default for most queries
-            // Add it if no other skills match or if pharmaceutical terms are present
-            var labelKeywords = new[] {
-                "drug", "product", "ingredient", "ndc", "manufacturer", "labeler",
-                "import", "export", "label", "section", "warning", "side effect",
-                "dosage", "dose", "interaction", "contraindication", "adverse",
-                "prescribing", "pharmaceutical", "medication", "medicine", "tablet",
-                "capsule", "injection", "anda", "nda", "bla", "pharmacologic",
-                "therapeutic", "class", "fda", "spl", "document"
-            };
-
-            if (labelKeywords.Any(k => message.Contains(k)) || selectedSkills.Count == 0)
+            // Label skill for detailed section content queries
+            // Add it if pharmaceutical terms are present and no indication workflow was selected
+            if (skillKeywords.TryGetValue("label", out var labelKeywords))
             {
-                // Insert label at the beginning as it's the primary skill
-                selectedSkills.Insert(0, "label");
+                // Define detailed label content keywords inline (these are specific to label sections)
+                var needsDetailedLabelContent = new[] { "side effect", "warning", "dosage", "section", "adverse", "contraindication" };
+
+                if (needsDetailedLabelContent.Any(k => message.Contains(k)))
+                {
+                    // Add label skill for detailed section content even if indication workflow was selected
+                    if (!selectedSkills.Contains("label"))
+                    {
+                        selectedSkills.Add("label");
+                    }
+                }
+                else if (labelKeywords.Any(k => message.Contains(k)) && !selectedSkills.Contains("labelIndicationWorkflow"))
+                {
+                    // Add label as primary skill only if indication workflow wasn't already selected
+                    selectedSkills.Insert(0, "label");
+                }
+                else if (selectedSkills.Count == 0)
+                {
+                    // Default to label skill if no other skills matched
+                    selectedSkills.Add("label");
+                }
+            }
+            else if (selectedSkills.Count == 0)
+            {
+                // Fallback if manifest couldn't be loaded - default to label skill
+                selectedSkills.Add("label");
             }
 
             // Rescue workflow skill keywords - used when primary queries fail to find data
-            // or when data needs to be extracted from narrative text in alternative locations
-            var rescueWorkflowKeywords = new[] {
-                "not found", "empty results", "where else", "alternative",
-                "rescue", "fallback", "text search", "description section",
-                "inactive ingredient", "excipient", "not available",
-                "couldn't find", "not in", "extract from text"
-            };
-
-            if (rescueWorkflowKeywords.Any(k => message.Contains(k)))
+            if (skillKeywords.TryGetValue("rescueWorkflow", out var rescueWorkflowKeywords))
             {
-                selectedSkills.Add("rescueWorkflow");
+                if (rescueWorkflowKeywords.Any(k => message.Contains(k)))
+                {
+                    selectedSkills.Add("rescueWorkflow");
+                }
             }
 
             // Remove duplicates and return
             return selectedSkills.Distinct().ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Cached skill keywords loaded from skillSelector.md manifest.
+        /// </summary>
+        private Dictionary<string, List<string>>? _skillKeywordsCache;
+
+        /**************************************************************/
+        /// <summary>
+        /// Timestamp of last skill keywords cache refresh.
+        /// </summary>
+        private DateTime _skillKeywordsCacheTimestamp = DateTime.MinValue;
+
+        /**************************************************************/
+        /// <summary>
+        /// Loads skill keywords from the skillSelector.md manifest file.
+        /// Keywords are extracted from "**Keywords**:" lines in each skill section.
+        /// </summary>
+        /// <returns>
+        /// Dictionary mapping skill names to their keyword lists.
+        /// Returns default keywords if manifest cannot be loaded.
+        /// </returns>
+        /// <remarks>
+        /// This method reads the skillSelector.md file and parses keyword definitions.
+        /// Results are cached for the same duration as other skill content.
+        ///
+        /// Expected manifest format:
+        /// ### skillName
+        /// **Keywords**: keyword1, keyword2, keyword phrase, ...
+        /// </remarks>
+        /// <seealso cref="GetSkillManifestAsync"/>
+        private Dictionary<string, List<string>> loadKeywordsFromManifest()
+        {
+            #region implementation
+
+            // Check cache validity
+            if (_skillKeywordsCache != null &&
+                DateTime.UtcNow - _skillKeywordsCacheTimestamp < _cacheDuration)
+            {
+                return _skillKeywordsCache;
+            }
+
+            _logger.LogDebug("Loading skill keywords from skillSelector.md manifest");
+
+            var skillKeywords = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                // Load the manifest file
+                var manifestPath = _configuration.GetValue<string>("ClaudeApiSettings:Skill-Selector");
+                if (string.IsNullOrEmpty(manifestPath))
+                {
+                    _logger.LogWarning("Skill-Selector path not configured, using default keywords");
+                    return getDefaultSkillKeywords();
+                }
+
+                var content = readSkillFileByPath(manifestPath);
+                if (content.StartsWith("Skills document not found"))
+                {
+                    _logger.LogWarning("skillSelector.md not found at {Path}, using default keywords", manifestPath);
+                    return getDefaultSkillKeywords();
+                }
+
+                // Parse the manifest to extract keywords for each skill
+                var lines = content.Split('\n');
+                string? currentSkill = null;
+
+                foreach (var line in lines)
+                {
+                    var trimmedLine = line.Trim();
+
+                    // Check for skill section header (### skillName)
+                    if (trimmedLine.StartsWith("### ") && !trimmedLine.Contains(" "))
+                    {
+                        currentSkill = trimmedLine.Substring(4).Trim();
+                        if (!skillKeywords.ContainsKey(currentSkill))
+                        {
+                            skillKeywords[currentSkill] = new List<string>();
+                        }
+                    }
+                    // Check for keywords line (**Keywords**: ...)
+                    else if (currentSkill != null && trimmedLine.StartsWith("**Keywords**:"))
+                    {
+                        var keywordsText = trimmedLine.Substring("**Keywords**:".Length).Trim();
+                        var keywords = keywordsText
+                            .Split(',')
+                            .Select(k => k.Trim().ToLowerInvariant())
+                            .Where(k => !string.IsNullOrWhiteSpace(k))
+                            .ToList();
+
+                        skillKeywords[currentSkill].AddRange(keywords);
+                    }
+                }
+
+                // Validate we got meaningful keywords
+                if (skillKeywords.Count == 0 || !skillKeywords.Any(kvp => kvp.Value.Count > 0))
+                {
+                    _logger.LogWarning("No keywords found in skillSelector.md, using default keywords");
+                    return getDefaultSkillKeywords();
+                }
+
+                _skillKeywordsCache = skillKeywords;
+                _skillKeywordsCacheTimestamp = DateTime.UtcNow;
+
+                _logger.LogInformation("Loaded keywords for {SkillCount} skills from skillSelector.md", skillKeywords.Count);
+
+                return skillKeywords;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading keywords from skillSelector.md, using default keywords");
+                return getDefaultSkillKeywords();
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns default skill keywords as a fallback when skillSelector.md cannot be loaded.
+        /// </summary>
+        /// <returns>Dictionary of default skill keywords.</returns>
+        /// <remarks>
+        /// This fallback ensures the system continues to function even if the manifest
+        /// file is missing or corrupted. The default keywords should be kept in sync
+        /// with skillSelector.md when possible.
+        /// </remarks>
+        private Dictionary<string, List<string>> getDefaultSkillKeywords()
+        {
+            #region implementation
+
+            return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["labelIndicationWorkflow"] = new List<string>
+                {
+                    "what helps with", "what can help", "i have", "options for",
+                    "treatment for", "products for", "what can i take",
+                    "alternatives to", "feeling down", "high blood pressure",
+                    "depression", "anxiety", "diabetes", "hypertension",
+                    "cholesterol", "pain relief", "condition", "symptom",
+                    "disease", "therapeutic", "indication", "what product",
+                    "which medication", "generics", "same ingredient",
+                    "what treats", "medicine for", "drug for",
+                    "generic alternative", "similar to", "like lipitor",
+                    "like prozac", "equivalent to",
+                    // Additional keywords for specific conditions
+                    "indicated for", "what is indicated", "shingles", "postherpetic",
+                    "neuralgia", "neuropathic", "neuropathy", "seizure", "epilepsy", "nerve pain"
+                },
+                ["userActivity"] = new List<string>
+                {
+                    "log", "logs", "error log", "warning log", "application log", "admin log",
+                    "debug", "trace", "diagnostic", "log statistics", "log categor", "log level",
+                    "show errors", "show warnings", "recent errors", "what errors",
+                    "user activity", "activity log", "what did user", "user's activity",
+                    "what did", "how many times",
+                    "endpoint performance", "endpoint stats", "response time",
+                    "controller performance", "api performance", "how fast",
+                    "performance for", "performance of"
+                },
+                ["settings"] = new List<string>
+                {
+                    "cache", "clear cache", "reset cache", "flush cache", "invalidate cache"
+                },
+                ["label"] = new List<string>
+                {
+                    "drug", "product", "ingredient", "ndc", "manufacturer", "labeler",
+                    "import", "export", "label", "section", "warning", "side effect",
+                    "dosage", "dose", "interaction", "contraindication", "adverse",
+                    "prescribing", "pharmaceutical", "medication", "medicine", "tablet",
+                    "capsule", "injection", "anda", "nda", "bla", "pharmacologic",
+                    "therapeutic", "class", "fda", "spl", "document"
+                },
+                ["rescueWorkflow"] = new List<string>
+                {
+                    "not found", "empty results", "where else", "alternative",
+                    "rescue", "fallback", "text search", "description section",
+                    "inactive ingredient", "excipient", "not available",
+                    "couldn't find", "not in", "extract from text"
+                }
+            };
 
             #endregion
         }

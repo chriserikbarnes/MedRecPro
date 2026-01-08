@@ -304,9 +304,73 @@ Match user query keywords to the appropriate sectionCode:
 
 ---
 
-## Search Endpoint Selection
+## First-Line Product Selector
 
-Choose the appropriate Step 1 search based on user's query:
+**IMPORTANT**: For product identification queries, use `/api/Label/product/latest` as the **first-line selector**. This endpoint returns the most recent label for each UNII/ProductName combination.
+
+### When to Use First-Line Selector
+
+Use `/api/Label/product/latest` when:
+- User provides a product name (Lipitor, aspirin)
+- User provides an active ingredient name (atorvastatin)
+- User provides a UNII code (R16CO5Y76E)
+- You need to identify a product before retrieving section content
+
+### First-Line Selector Endpoint
+
+```
+GET /api/Label/product/latest?productNameSearch={name}&pageNumber=1&pageSize=10
+GET /api/Label/product/latest?activeIngredientSearch={ingredient}&pageNumber=1&pageSize=10
+GET /api/Label/product/latest?unii={uniiCode}&pageNumber=1&pageSize=10
+```
+
+**Response Fields**:
+- `ProductName`: Proprietary product name
+- `ActiveIngredient`: Active ingredient name
+- `UNII`: Unique Ingredient Identifier
+- `DocumentGUID`: Use this for section content retrieval
+
+### Example: Product Lookup then Section Content
+
+```json
+{
+  "success": true,
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/product/latest",
+      "queryParameters": { "productNameSearch": "Lipitor", "pageNumber": 1, "pageSize": 1 },
+      "description": "Find Lipitor using first-line product selector",
+      "outputMapping": { "documentGuid": "$[0].ProductLatestLabel.DocumentGUID" }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/section/content/{{documentGuid}}",
+      "queryParameters": { "sectionCode": "34084-4" },
+      "dependsOn": 1,
+      "description": "Get adverse reactions section"
+    }
+  ],
+  "explanation": "Using first-line selector to find Lipitor, then retrieving adverse reactions."
+}
+```
+
+### Finding Related Products After First-Line Selection
+
+After identifying a product, use the DocumentGUID to find related products:
+
+```
+GET /api/Label/product/related?sourceDocumentGuid={DocumentGUID}
+GET /api/Label/product/related?sourceDocumentGuid={DocumentGUID}&relationshipType=SameActiveIngredient
+```
+
+---
+
+## Legacy Search Endpoint Selection
+
+For backwards compatibility and specialized searches, these endpoints remain available:
 
 | User Provides | Use This Search Endpoint |
 |---------------|--------------------------|
@@ -315,6 +379,8 @@ Choose the appropriate Step 1 search based on user's query:
 | Manufacturer name (Pfizer, Merck) | `/api/Label/labeler/search?labelerNameSearch=` |
 | Drug class (beta blocker, SSRI) | `/api/Label/pharmacologic-class/search?classNameSearch=` |
 | Application number (NDA, ANDA) | `/api/Label/application-number/search?applicationNumber=` |
+
+**Recommendation**: Prefer `/api/Label/product/latest` for product identification as it returns the most current label.
 
 ---
 
@@ -572,9 +638,9 @@ When synthesizing a comprehensive drug summary:
     "manufacturer": "Bryant Ranch Prepack"
   },
   "dataReferences": {
-    "View Full Label (Prescription Drug)": "/api/Label/generate/{{documentGuid}}/true",
+    "View Full Label (MIRTAZAPINE)": "/api/Label/generate/{{documentGuid}}/true",
     "Search for mirtazapine products": "/api/Label/ingredient/search?substanceNameSearch=mirtazapine",
-    "Get indications and usage section (LOINC 34067-9) - HUMAN PRESCRIPTION DRUG LABEL": "/api/Label/section/content/{{documentGuid}}?sectionCode=34067-9"
+    "Get indications and usage section (LOINC 34067-9)": "/api/Label/section/content/{{documentGuid}}?sectionCode=34067-9"
   },
   "suggestedFollowUps": [
     "What are the side effects of mirtazapine?",

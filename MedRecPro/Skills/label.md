@@ -1410,6 +1410,25 @@ Response: Array of packages (PackageDescription, PackageQuantity, etc.)
 
 ---
 
+## UNIVERSAL REQUIREMENT: Label Links for Every Product
+
+**Every response that mentions a pharmaceutical product MUST include a clickable link to view the full FDA label.**
+
+**Required Format:**
+```
+View Full Labels:
+• [View Full Label (ProductName)](/api/Label/generate/{DocumentGUID}/true)
+```
+
+**Rules:**
+1. **Every product = one link**: If you mention 3 products, include 3 label links
+2. **Use the ACTUAL product name**: Get `ProductName` from the API response
+3. **Use the correct DocumentGUID**: From the API response (e.g., `/api/Label/product/latest`, `/api/Label/section/content`)
+4. **Link format**: `/api/Label/generate/{DocumentGUID}/true`
+5. **NEVER use placeholders**: "Prescription Drug", "OTC Drug", "Document #" are FORBIDDEN
+
+---
+
 ## Critical Reminders for Data Queries
 
 1. **ALWAYS try /api/label/section/{table} if views fail** - This is the reliable fallback
@@ -1420,6 +1439,7 @@ Response: Array of packages (PackageDescription, PackageQuantity, etc.)
 6. **Check context first** - `GET /api/ai/context` tells you document/product counts
 7. **For multi-step AI**: interpret returns endpoint specs; synthesize converts executed results into answers
 8. **When global data changes**: use managed cache clear to reduce stale reads (`POST /api/settings/clearmanagedcache`)
+9. **ALWAYS include label links**: Every product mentioned MUST have a "View Full Label" link with the actual ProductName
 
 ---
 

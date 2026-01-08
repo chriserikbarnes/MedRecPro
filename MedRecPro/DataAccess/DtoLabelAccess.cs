@@ -2250,7 +2250,8 @@ namespace MedRecPro.DataAccess
         /// Useful for finding alternatives, generics, or similar drugs.
         /// </summary>
         /// <param name="db">The application database context.</param>
-        /// <param name="sourceProductId">The source product ID to find related products for.</param>
+        /// <param name="sourceProductId">Optional source product ID to find related products for. Either this or sourceDocumentGuid must be provided.</param>
+        /// <param name="sourceDocumentGuid">Optional source document GUID to find related products for. Either this or sourceProductId must be provided.</param>
         /// <param name="relationshipType">Optional filter by relationship type (SameApplicationNumber, SameActiveIngredient).</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
@@ -2258,9 +2259,11 @@ namespace MedRecPro.DataAccess
         /// <param name="size">Optional page size for pagination.</param>
         /// <returns>List of <see cref="RelatedProductsDto"/> with related products.</returns>
         /// <seealso cref="LabelView.RelatedProducts"/>
+        /// <seealso cref="LabelView.ProductLatestLabel"/>
         public static async Task<List<RelatedProductsDto>> GetRelatedProductsAsync(
             ApplicationDbContext db,
-            int sourceProductId,
+            int? sourceProductId,
+            Guid? sourceDocumentGuid,
             string? relationshipType,
             string pkSecret,
             ILogger logger,
@@ -2269,7 +2272,8 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string searchKey = $"{sourceProductId}-{relationshipType ?? "all"}";
+            // Build search key including both identifiers
+            string searchKey = $"{sourceProductId?.ToString() ?? "null"}-{sourceDocumentGuid?.ToString() ?? "null"}-{relationshipType ?? "all"}";
             string key = generateCacheKey(nameof(GetRelatedProductsAsync), searchKey, page, size);
 
             var cached = Cached.GetCache<List<RelatedProductsDto>>(key);
@@ -2285,9 +2289,21 @@ namespace MedRecPro.DataAccess
 
             var query = db.Set<LabelView.RelatedProducts>()
                 .AsNoTracking()
-                .Where(r => r.SourceProductID == sourceProductId)
                 .AsQueryable();
 
+            // Filter by sourceProductId if provided
+            if (sourceProductId.HasValue && sourceProductId.Value > 0)
+            {
+                query = query.Where(r => r.SourceProductID == sourceProductId.Value);
+            }
+
+            // Filter by sourceDocumentGuid if provided (takes precedence if both are provided)
+            if (sourceDocumentGuid.HasValue)
+            {
+                query = query.Where(r => r.SourceDocumentGUID == sourceDocumentGuid.Value);
+            }
+
+            // Filter by relationship type if provided
             if (!string.IsNullOrWhiteSpace(relationshipType))
             {
                 query = query.Where(r => r.RelationshipType == relationshipType);

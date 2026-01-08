@@ -3318,7 +3318,13 @@ namespace MedRecPro.Api.Controllers
         /// Useful for finding alternatives, generics, or similar drugs.
         /// </summary>
         /// <param name="sourceProductId">
-        /// The source product ID (decrypted) to find related products for.
+        /// Optional source product ID (decrypted) to find related products for.
+        /// Either sourceProductId or sourceDocumentGuid must be provided.
+        /// </param>
+        /// <param name="sourceDocumentGuid">
+        /// Optional source document GUID to find related products for.
+        /// Either sourceProductId or sourceDocumentGuid must be provided.
+        /// Use this parameter when you have the DocumentGUID from GetProductLatestLabels.
         /// </param>
         /// <param name="relationshipType">
         /// Optional filter by relationship type. Valid values:
@@ -3333,28 +3339,53 @@ namespace MedRecPro.Api.Controllers
         /// </param>
         /// <returns>List of products related to the source product.</returns>
         /// <response code="200">Returns the list of related products.</response>
-        /// <response code="400">If sourceProductId is invalid or paging parameters are invalid.</response>
+        /// <response code="400">If neither sourceProductId nor sourceDocumentGuid is provided, or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
+        /// ## Usage Examples
+        ///
+        /// Find related products by Product ID:
+        /// ```
         /// GET /api/Label/product/related?sourceProductId=12345
-        /// GET /api/Label/product/related?sourceProductId=12345&amp;relationshipType=SameActiveIngredient
-        /// 
-        /// Response (200):
+        /// ```
+        ///
+        /// Find related products by Document GUID (from GetProductLatestLabels):
+        /// ```
+        /// GET /api/Label/product/related?sourceDocumentGuid=12345678-1234-1234-1234-123456789012
+        /// ```
+        ///
+        /// Filter by relationship type:
+        /// ```
+        /// GET /api/Label/product/related?sourceDocumentGuid=12345678-1234-1234-1234-123456789012&amp;relationshipType=SameActiveIngredient
+        /// ```
+        ///
+        /// ## Response Format (200)
+        ///
         /// ```json
         /// [
         ///   {
-        ///     "EncryptedRelatedProductID": "encrypted_string",
-        ///     "RelatedProductName": "GENERIC LIPITOR",
-        ///     "RelationshipType": "SameActiveIngredient",
-        ///     "SharedAttribute": "ATORVASTATIN CALCIUM"
+        ///     "RelatedProducts": {
+        ///       "EncryptedRelatedProductID": "encrypted_string",
+        ///       "RelatedProductName": "GENERIC LIPITOR",
+        ///       "RelatedDocumentGUID": "87654321-4321-4321-4321-210987654321",
+        ///       "RelationshipType": "SameActiveIngredient",
+        ///       "SharedValue": "ATORVASTATIN CALCIUM"
+        ///     }
         ///   }
         /// ]
         /// ```
-        /// 
+        ///
         /// Results are ordered by RelatedProductName.
+        ///
+        /// ## Workflow Integration
+        ///
+        /// Use this endpoint after GetProductLatestLabels to find alternative products:
+        /// 1. Call `/api/Label/product/latest?productNameSearch=Lipitor` to get DocumentGUID
+        /// 2. Call `/api/Label/product/related?sourceDocumentGuid={DocumentGUID}` to find related products
         /// </remarks>
         /// <seealso cref="DtoLabelAccess.GetRelatedProductsAsync"/>
         /// <seealso cref="LabelView.RelatedProducts"/>
+        /// <seealso cref="GetProductLatestLabels"/>
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("product/related")]
@@ -3362,17 +3393,18 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<RelatedProductsDto>>> GetRelatedProducts(
-            [FromQuery] int sourceProductId,
+            [FromQuery] int? sourceProductId,
+            [FromQuery] Guid? sourceDocumentGuid,
             [FromQuery] string? relationshipType,
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
         {
             #region Input Validation
 
-            // Validate source product ID
-            if (sourceProductId <= 0)
+            // Validate that at least one identifier is provided
+            if ((!sourceProductId.HasValue || sourceProductId.Value <= 0) && !sourceDocumentGuid.HasValue)
             {
-                return BadRequest("Valid source product ID is required.");
+                return BadRequest("Either sourceProductId or sourceDocumentGuid must be provided.");
             }
 
             // Validate paging parameters
@@ -3388,12 +3420,13 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                _logger.LogInformation("Getting related products for ProductID: {SourceProductId}, RelationshipType: {RelationshipType}, Page: {PageNumber}, Size: {PageSize}",
-                    sourceProductId, relationshipType ?? "all", pageNumber, pageSize);
+                _logger.LogInformation("Getting related products for ProductID: {SourceProductId}, DocumentGUID: {SourceDocumentGuid}, RelationshipType: {RelationshipType}, Page: {PageNumber}, Size: {PageSize}",
+                    sourceProductId, sourceDocumentGuid, relationshipType ?? "all", pageNumber, pageSize);
 
                 var results = await DtoLabelAccess.GetRelatedProductsAsync(
                     _dbContext,
                     sourceProductId,
+                    sourceDocumentGuid,
                     relationshipType,
                     _pkEncryptionSecret,
                     _logger,
@@ -3407,7 +3440,7 @@ namespace MedRecPro.Api.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving related products for ProductID {SourceProductId}", sourceProductId);
+                _logger.LogError(ex, "Error retrieving related products for ProductID {SourceProductId}, DocumentGUID {SourceDocumentGuid}", sourceProductId, sourceDocumentGuid);
                 return StatusCode(StatusCodes.Status500InternalServerError,
                     "An error occurred while retrieving related products.");
             }
