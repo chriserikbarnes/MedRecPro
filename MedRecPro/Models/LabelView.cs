@@ -2852,5 +2852,113 @@ namespace MedRecPro.Models
         }
 
         #endregion Latest Label Navigation Views
+
+        #region Section Markdown Views
+
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_LabelSectionMarkdown.
+        /// Provides aggregated, markdown-formatted section text for LLM/API consumption.
+        /// </summary>
+        /// <remarks>
+        /// This view addresses the need for complete, contiguous section text that can
+        /// be efficiently consumed by AI/LLM APIs for label summarization. The view:
+        /// <list type="bullet">
+        ///   <item><description>Aggregates all ContentText rows for each section using STRING_AGG</description></item>
+        ///   <item><description>Converts HTML-style SPL content tags to markdown formatting</description></item>
+        ///   <item><description>Prepends section title as markdown header (## SectionTitle)</description></item>
+        ///   <item><description>Provides ContentBlockCount for diagnostics</description></item>
+        /// </list>
+        ///
+        /// Markdown Conversion:
+        /// - bold tags → **text**
+        /// - italics tags → *text*
+        /// - underline tags → _text_
+        ///
+        /// Indexes Used: IX_Section_DocumentID, IX_SectionTextContent_SectionID
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Get all sections for a specific document
+        /// var sections = await db.Set&lt;LabelView.LabelSectionMarkdown&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(s => s.DocumentGUID == documentGuid)
+        ///     .OrderBy(s => s.SectionCode)
+        ///     .ToListAsync();
+        ///
+        /// // Combine all sections for complete document markdown
+        /// var fullMarkdown = string.Join("\n\n", sections.Select(s => s.FullSectionText));
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="Label.Section"/>
+        /// <seealso cref="Label.SectionTextContent"/>
+        /// <seealso cref="SectionContent"/>
+        /// <seealso cref="SectionNavigation"/>
+        [Table("vw_LabelSectionMarkdown")]
+        public class LabelSectionMarkdown
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Globally unique identifier for the document version.
+            /// Use this to retrieve the complete label via /api/label/single/{documentGuid}.
+            /// </summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Set GUID (constant across document versions).
+            /// Use this to track all versions of a document.
+            /// </summary>
+            public Guid? SetGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Title of the document (e.g., "LIPITOR- atorvastatin calcium tablet").
+            /// </summary>
+            public string? DocumentTitle { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// LOINC section code identifying the section type (e.g., "34084-4" for Adverse Reactions).
+            /// May be NULL for some sections.
+            /// </summary>
+            public string? SectionCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Human-readable section title (e.g., "ADVERSE REACTIONS", "INDICATIONS AND USAGE").
+            /// </summary>
+            public string? SectionTitle { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Computed unique key combining DocumentGUID, SectionCode, and SectionTitle.
+            /// Format: {DocumentGUID}|{SectionCode or 'NULL'}|{SectionTitle}
+            /// Used for grouping and identification.
+            /// </summary>
+            public string? SectionKey { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Complete markdown-formatted section text with header.
+            /// Includes "## SectionTitle" header followed by aggregated, markdown-converted content.
+            /// Ready for direct consumption by LLM APIs.
+            /// </summary>
+            public string? FullSectionText { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Number of content blocks aggregated into this section.
+            /// Useful for diagnostics and understanding section complexity.
+            /// </summary>
+            public int? ContentBlockCount { get; set; }
+
+            #endregion properties
+        }
+
+        #endregion Section Markdown Views
     }
 }

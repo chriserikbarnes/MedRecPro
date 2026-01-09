@@ -2128,4 +2128,184 @@ namespace MedRecPro.Models
     }
 
     #endregion Latest Label Navigation DTOs
+
+    #region Section Markdown DTOs
+
+    /**************************************************************/
+    /// <summary>
+    /// DTO for LabelSectionMarkdown view results.
+    /// Provides aggregated, markdown-formatted section text for LLM/API consumption.
+    /// </summary>
+    /// <remarks>
+    /// Use this DTO to retrieve complete section text formatted as markdown.
+    /// The view aggregates all content blocks for each section and converts
+    /// SPL formatting tags to markdown equivalents (bold, italics, underline).
+    ///
+    /// This DTO is designed for AI summarization workflows where the Claude API
+    /// needs authoritative label content rather than relying on training data.
+    /// </remarks>
+    /// <seealso cref="LabelView.LabelSectionMarkdown"/>
+    /// <seealso cref="LabelView.SectionContent"/>
+    public class LabelSectionMarkdownDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all view columns.
+        /// </summary>
+        public required Dictionary<string, object?> LabelSectionMarkdown { get; set; }
+
+        #region Helper Properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Document GUID for linking to label retrieval endpoints.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? DocumentGUID =>
+            LabelSectionMarkdown.TryGetValue(nameof(DocumentGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Set GUID for version history navigation.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? SetGUID =>
+            LabelSectionMarkdown.TryGetValue(nameof(SetGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Title of the document.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? DocumentTitle =>
+            LabelSectionMarkdown.TryGetValue(nameof(DocumentTitle), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// LOINC section code.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SectionCode =>
+            LabelSectionMarkdown.TryGetValue(nameof(SectionCode), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Human-readable section title.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SectionTitle =>
+            LabelSectionMarkdown.TryGetValue(nameof(SectionTitle), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Computed unique key for this section.
+        /// Format: {DocumentGUID}|{SectionCode or 'NULL'}|{SectionTitle}
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? SectionKey =>
+            LabelSectionMarkdown.TryGetValue(nameof(SectionKey), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Complete markdown-formatted section text with header.
+        /// Ready for direct consumption by LLM APIs.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? FullSectionText =>
+            LabelSectionMarkdown.TryGetValue(nameof(FullSectionText), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Number of content blocks aggregated into this section.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ContentBlockCount =>
+            LabelSectionMarkdown.TryGetValue(nameof(ContentBlockCount), out var value)
+                ? value as int?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// URL for retrieving the complete label as DTO.
+        /// Returns null if DocumentGUID is not available.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? GetCompleteLabelUrl => DocumentGUID.HasValue
+            ? $"/api/label/single/{DocumentGUID}"
+            : null;
+
+        #endregion Helper Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Result DTO for complete document markdown generation.
+    /// Contains the full markdown text along with metadata about the document.
+    /// </summary>
+    /// <remarks>
+    /// This DTO is designed for AI skill augmentation workflows where the Claude API
+    /// needs authoritative, complete label content to generate accurate summaries.
+    ///
+    /// The markdown includes:
+    /// - Document header with title and metadata
+    /// - All sections in order with ## headers
+    /// - Markdown formatting converted from SPL tags
+    /// </remarks>
+    /// <seealso cref="LabelSectionMarkdownDto"/>
+    /// <seealso cref="LabelView.LabelSectionMarkdown"/>
+    public class LabelMarkdownExportDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Document GUID identifying this label version.
+        /// </summary>
+        public Guid? DocumentGUID { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Set GUID for version tracking (constant across versions).
+        /// </summary>
+        public Guid? SetGUID { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Title of the document.
+        /// </summary>
+        public string? DocumentTitle { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Number of sections included in the markdown.
+        /// </summary>
+        public int SectionCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Total content blocks aggregated across all sections.
+        /// </summary>
+        public int TotalContentBlocks { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Complete markdown text for the entire document.
+        /// Includes header information and all section content.
+        /// </summary>
+        public string? FullMarkdown { get; set; }
+    }
+
+    #endregion Section Markdown DTOs
 }

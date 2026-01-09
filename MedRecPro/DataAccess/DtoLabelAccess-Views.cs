@@ -864,6 +864,106 @@ namespace MedRecPro.DataAccess
 
         #endregion Latest Label Navigation Views
 
+        #region Section Markdown Views
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of LabelSectionMarkdown DTOs from the view entities.
+        /// Returns aggregated, markdown-formatted section text for LLM consumption.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="LabelSectionMarkdownDto"/> with markdown content.</returns>
+        /// <seealso cref="LabelView.LabelSectionMarkdown"/>
+        /// <seealso cref="LabelSectionMarkdownDto"/>
+        private static List<LabelSectionMarkdownDto> buildLabelSectionMarkdownDtos(
+            ApplicationDbContext db,
+            List<LabelView.LabelSectionMarkdown> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Transform each entity to DTO - this view has no IDs to encrypt, only GUIDs
+            return entities.Select(entity => new LabelSectionMarkdownDto
+            {
+                LabelSectionMarkdown = entity.ToEntityWithEncryptedId(pkSecret, logger)
+            }).ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates complete document markdown with header information for LLM skill augmentation.
+        /// Combines all section markdown into a single document with metadata header.
+        /// </summary>
+        /// <param name="sections">Collection of section markdown DTOs.</param>
+        /// <param name="documentTitle">The document title for the header.</param>
+        /// <returns>Complete markdown string with header and all section content.</returns>
+        /// <remarks>
+        /// The generated markdown follows a consistent format:
+        /// 1. Header with document title and data dictionary
+        /// 2. All sections in order, each with ## header
+        /// 3. Section content with markdown formatting
+        ///
+        /// This format is optimized for AI summarization workflows where
+        /// authoritative label content is needed to prevent training data bias.
+        /// </remarks>
+        /// <seealso cref="LabelSectionMarkdownDto"/>
+        /// <seealso cref="LabelMarkdownExportDto"/>
+        private static string generateLabelMarkdown(
+            List<LabelSectionMarkdownDto> sections,
+            Guid? documentGuid,
+            Guid? setGuid,
+            string? documentTitle)
+        {
+            #region implementation
+
+            // Build header section
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("# FDA Drug Label Reference");
+            sb.AppendLine();
+            sb.AppendLine("This file contains FDA drug label content formatted as markdown for AI/LLM consumption.");
+            sb.AppendLine("The content is sourced from Structured Product Labeling (SPL) data and converted to markdown format.");
+            sb.AppendLine();
+            sb.AppendLine("## Document Information");
+            sb.AppendLine();
+            sb.AppendLine($"- **Document Title**: {documentTitle ?? "Unknown"}");
+            sb.AppendLine($"- **Document GUID**: {documentGuid?.ToString() ?? "Not Available"}");
+            sb.AppendLine($"- **Set GUID**: {setGuid?.ToString() ?? "Not Available"}");
+            sb.AppendLine($"- **Section Count**: {sections.Count}");
+            sb.AppendLine($"- **Total Content Blocks**: {sections.Sum(s => s.ContentBlockCount ?? 0)}");
+            sb.AppendLine();
+            sb.AppendLine("## Data Dictionary");
+            sb.AppendLine();
+            sb.AppendLine("- **SectionCode**: LOINC code identifying the section type (e.g., 34084-4 for Adverse Reactions)");
+            sb.AppendLine("- **SectionTitle**: Human-readable section name (e.g., INDICATIONS AND USAGE)");
+            sb.AppendLine("- **ContentBlockCount**: Number of content paragraphs/items aggregated in each section");
+            sb.AppendLine();
+            sb.AppendLine("## Label Content");
+            sb.AppendLine();
+
+            // Add all section content
+            foreach (var section in sections)
+            {
+                // FullSectionText already includes ## header and content
+                if (!string.IsNullOrWhiteSpace(section.FullSectionText))
+                {
+                    sb.AppendLine(section.FullSectionText);
+                    sb.AppendLine();
+                }
+            }
+
+            return sb.ToString();
+
+            #endregion
+        }
+
+        #endregion Section Markdown Views
+
         #region Generic Query Helpers
 
         /**************************************************************/

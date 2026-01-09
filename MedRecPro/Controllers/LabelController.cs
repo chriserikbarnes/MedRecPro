@@ -79,6 +79,8 @@ namespace MedRecPro.Api.Controllers
 
         private readonly ApplicationDbContext _dbContext;
 
+        private readonly Service.IClaudeApiService _claudeApiService;
+
         #endregion
 
         /**************************************************************/
@@ -95,6 +97,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="scopeFactory"></param>
         /// <param name="applicationDbContext"></param>
         /// <param name="splExportService"></param>
+        /// <param name="claudeApiService">Service for Claude AI API calls for markdown cleanup</param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null</exception>
         /// <exception cref="InvalidOperationException">Thrown when PKSecret configuration is missing</exception>
         public LabelController(
@@ -107,7 +110,8 @@ namespace MedRecPro.Api.Controllers
             IOperationStatusStore statusStore,
             IServiceScopeFactory scopeFactory,
             ApplicationDbContext applicationDbContext,
-            ISplExportService splExportService)
+            ISplExportService splExportService,
+            Service.IClaudeApiService claudeApiService)
         {
             #region Implementation
 
@@ -126,7 +130,8 @@ namespace MedRecPro.Api.Controllers
             _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
 
-            _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService)); ;
+            _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService));
+            _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
 
             #endregion
         }
@@ -2988,6 +2993,411 @@ namespace MedRecPro.Api.Controllers
         }
 
         #endregion Section Navigation
+
+        #region Section Markdown Export
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets markdown-formatted section content for a document by DocumentGUID.
+        /// Returns aggregated, LLM-ready section text from the vw_LabelSectionMarkdown view.
+        /// </summary>
+        /// <param name="documentGuid">
+        /// The unique identifier (GUID) for the document to retrieve sections for.
+        /// </param>
+        /// <returns>List of section markdown DTOs with formatted content.</returns>
+        /// <response code="200">Returns the list of markdown-formatted sections.</response>
+        /// <response code="400">If documentGuid is not a valid GUID.</response>
+        /// <response code="404">If no sections are found for the document.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ### Get Label Sections as Markdown
+        ///
+        /// This endpoint returns all sections of a drug label formatted as markdown,
+        /// designed for AI/LLM consumption. Each section includes:
+        /// - **SectionKey**: Unique identifier combining DocumentGUID, SectionCode, and SectionTitle
+        /// - **FullSectionText**: Complete markdown text with ## header and content
+        /// - **ContentBlockCount**: Number of content blocks aggregated
+        ///
+        /// ### Example
+        ///
+        /// ```
+        /// GET /api/Label/markdown/sections/052493C7-89A3-452E-8140-04DD95F0D9E2
+        /// ```
+        ///
+        /// ### Response
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "LabelSectionMarkdown": {
+        ///       "DocumentGUID": "052493C7-89A3-452E-8140-04DD95F0D9E2",
+        ///       "SectionCode": "34067-9",
+        ///       "SectionTitle": "INDICATIONS AND USAGE",
+        ///       "SectionKey": "052493C7-89A3-452E-8140-04DD95F0D9E2|34067-9|INDICATIONS AND USAGE",
+        ///       "FullSectionText": "## INDICATIONS AND USAGE\n\nLIPITOR is indicated...",
+        ///       "ContentBlockCount": 5
+        ///     }
+        ///   }
+        /// ]
+        /// ```
+        ///
+        /// ### Use Case
+        ///
+        /// This endpoint is designed for AI skill augmentation workflows where the Claude API
+        /// needs authoritative label content rather than relying on training data to generate
+        /// accurate summaries and descriptions.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetLabelSectionMarkdownAsync"/>
+        /// <seealso cref="LabelView.LabelSectionMarkdown"/>
+        /// <seealso cref="GetLabelMarkdownExport"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("markdown/sections/{documentGuid:guid}")]
+        [ProducesResponseType(typeof(IEnumerable<LabelSectionMarkdownDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<LabelSectionMarkdownDto>>> GetLabelSectionMarkdown(
+            [FromRoute] Guid documentGuid)
+        {
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting markdown sections for DocumentGUID: {DocumentGuid}", documentGuid);
+
+                var results = await DtoLabelAccess.GetLabelSectionMarkdownAsync(
+                    _dbContext,
+                    documentGuid,
+                    _pkEncryptionSecret,
+                    _logger);
+
+                // Return 404 if no sections found
+                if (results == null || results.Count == 0)
+                {
+                    return NotFound($"No sections found for DocumentGUID {documentGuid}.");
+                }
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving markdown sections for DocumentGUID {DocumentGuid}", documentGuid);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving markdown sections.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates a complete markdown document for a drug label by DocumentGUID.
+        /// Combines all sections with header information for AI skill augmentation.
+        /// </summary>
+        /// <param name="documentGuid">
+        /// The unique identifier (GUID) for the document to export.
+        /// </param>
+        /// <returns>A LabelMarkdownExportDto containing the complete markdown and metadata.</returns>
+        /// <response code="200">Returns the complete markdown export.</response>
+        /// <response code="400">If documentGuid is not a valid GUID.</response>
+        /// <response code="404">If no document is found for the GUID.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ### Generate Complete Label Markdown Export
+        ///
+        /// This endpoint generates a complete markdown document suitable for AI/LLM consumption.
+        /// The output includes:
+        ///
+        /// **Header Section:**
+        /// - Document title and identifiers
+        /// - Data dictionary explaining the structure
+        /// - Section count and content block totals
+        ///
+        /// **Content Sections:**
+        /// - All label sections in LOINC code order
+        /// - Each section with ## markdown header
+        /// - Content with markdown formatting (bold, italics, underline)
+        ///
+        /// ### Example
+        ///
+        /// ```
+        /// GET /api/Label/markdown/export/052493C7-89A3-452E-8140-04DD95F0D9E2
+        /// ```
+        ///
+        /// ### Response
+        ///
+        /// ```json
+        /// {
+        ///   "documentGUID": "052493C7-89A3-452E-8140-04DD95F0D9E2",
+        ///   "setGUID": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+        ///   "documentTitle": "LIPITOR- atorvastatin calcium tablet",
+        ///   "sectionCount": 15,
+        ///   "totalContentBlocks": 87,
+        ///   "fullMarkdown": "# FDA Drug Label Reference\n\n..."
+        /// }
+        /// ```
+        ///
+        /// ### Use Case
+        ///
+        /// This endpoint is designed for building Claude API skills that need to summarize
+        /// or analyze FDA drug label content accurately and completely, without relying
+        /// on AI training data which may be outdated or incomplete.
+        ///
+        /// **Workflow:**
+        /// 1. Query this endpoint with the DocumentGUID of the label
+        /// 2. Pass the `fullMarkdown` content to your Claude API skill
+        /// 3. Use the authoritative content for accurate summarization
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GenerateLabelMarkdownAsync"/>
+        /// <seealso cref="LabelMarkdownExportDto"/>
+        /// <seealso cref="GetLabelSectionMarkdown"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("markdown/export/{documentGuid:guid}")]
+        [ProducesResponseType(typeof(LabelMarkdownExportDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<LabelMarkdownExportDto>> GetLabelMarkdownExport(
+            [FromRoute] Guid documentGuid)
+        {
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Generating markdown export for DocumentGUID: {DocumentGuid}", documentGuid);
+
+                var result = await DtoLabelAccess.GenerateLabelMarkdownAsync(
+                    _dbContext,
+                    documentGuid,
+                    _pkEncryptionSecret,
+                    _logger);
+
+                // Return 404 if no content generated (empty document)
+                if (result == null || result.SectionCount == 0)
+                {
+                    return NotFound($"No sections found for DocumentGUID {documentGuid}.");
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating markdown export for DocumentGUID {DocumentGuid}", documentGuid);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while generating markdown export.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Downloads the complete markdown export as a .md file.
+        /// Returns the markdown content with appropriate content-type for download.
+        /// </summary>
+        /// <param name="documentGuid">
+        /// The unique identifier (GUID) for the document to export.
+        /// </param>
+        /// <returns>A downloadable markdown file.</returns>
+        /// <response code="200">Returns the markdown file for download.</response>
+        /// <response code="400">If documentGuid is not a valid GUID.</response>
+        /// <response code="404">If no document is found for the GUID.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ### Download Label as Markdown File
+        ///
+        /// This endpoint returns the same content as `/api/Label/markdown/export/{documentGuid}`
+        /// but formatted as a downloadable .md file with appropriate headers.
+        ///
+        /// ### Example
+        ///
+        /// ```
+        /// GET /api/Label/markdown/download/052493C7-89A3-452E-8140-04DD95F0D9E2
+        /// ```
+        ///
+        /// ### Response Headers
+        ///
+        /// ```
+        /// Content-Type: text/markdown
+        /// Content-Disposition: attachment; filename="LIPITOR-label.md"
+        /// ```
+        ///
+        /// ### Use Case
+        ///
+        /// This endpoint allows users to download the complete label markdown for:
+        /// - Offline AI skill development and testing
+        /// - Local storage of authoritative label content
+        /// - Integration with documentation systems
+        /// </remarks>
+        /// <seealso cref="GetLabelMarkdownExport"/>
+        /// <seealso cref="DtoLabelAccess.GenerateLabelMarkdownAsync"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("markdown/download/{documentGuid:guid}")]
+        [Produces("text/markdown")]
+        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> DownloadLabelMarkdown(
+            [FromRoute] Guid documentGuid)
+        {
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Downloading markdown for DocumentGUID: {DocumentGuid}", documentGuid);
+
+                var result = await DtoLabelAccess.GenerateLabelMarkdownAsync(
+                    _dbContext,
+                    documentGuid,
+                    _pkEncryptionSecret,
+                    _logger);
+
+                // Return 404 if no content generated (empty document)
+                if (result == null || result.SectionCount == 0)
+                {
+                    return NotFound($"No sections found for DocumentGUID {documentGuid}.");
+                }
+
+                // Generate safe filename from document title
+                var safeTitle = result.DocumentTitle?.Replace(" ", "-")
+                    .Replace(",", "")
+                    .Replace("/", "-")
+                    .Replace("\\", "-")
+                    ?? "drug-label";
+
+                // Truncate if too long
+                if (safeTitle.Length > 50)
+                {
+                    safeTitle = safeTitle.Substring(0, 50);
+                }
+
+                var fileName = $"{safeTitle}-label.md";
+
+                // Return as file download
+                var bytes = System.Text.Encoding.UTF8.GetBytes(result.FullMarkdown ?? "");
+                return File(bytes, "text/markdown", fileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error downloading markdown for DocumentGUID {DocumentGuid}", documentGuid);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while downloading markdown.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates clean, human-readable markdown for display by processing content through Claude AI.
+        /// Returns formatted markdown suitable for static web app rendering.
+        /// </summary>
+        /// <param name="documentGuid">
+        /// The unique identifier (GUID) for the document to export.
+        /// </param>
+        /// <returns>Clean, formatted markdown text suitable for display.</returns>
+        /// <response code="200">Returns the clean markdown content.</response>
+        /// <response code="400">If documentGuid is not a valid GUID.</response>
+        /// <response code="404">If no document is found for the GUID.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ### Generate Clean Display Markdown
+        ///
+        /// This endpoint generates clean, human-readable markdown by:
+        /// 1. Retrieving all sections from vw_LabelSectionMarkdown
+        /// 2. Passing the raw content to Claude AI for cleanup
+        /// 3. Returning formatted markdown without XML/HTML artifacts
+        ///
+        /// The output is optimized for:
+        /// - **Static web app display** (React/Angular markdown renderers)
+        /// - **Documentation generation**
+        /// - **Human readability** without technical artifacts
+        ///
+        /// ### Example
+        ///
+        /// ```
+        /// GET /api/Label/markdown/display/22212bf6-1414-4b32-bc67-25d614c357ee
+        /// ```
+        ///
+        /// ### Response (text/markdown)
+        ///
+        /// ```markdown
+        /// # Lorazepam Tablets, USP CIV
+        ///
+        /// **Rx only**
+        ///
+        /// ## INDICATIONS AND USAGE
+        ///
+        /// Lorazepam tablets are indicated for the management of anxiety disorders...
+        ///
+        /// ## DOSAGE AND ADMINISTRATION
+        ///
+        /// Lorazepam tablets are administered orally...
+        /// ```
+        ///
+        /// ### Performance Notes
+        ///
+        /// - Results are cached for 1 hour to minimize Claude API calls
+        /// - First request may take 5-15 seconds for Claude processing
+        /// - Subsequent requests return cached content instantly
+        ///
+        /// ### Use Case
+        ///
+        /// This endpoint is designed for displaying drug labels in static web applications
+        /// where clean, readable markdown is preferred over XML rendering. It may be more
+        /// performant than XML→XSLT transformation for simple display scenarios.
+        /// </remarks>
+        /// <seealso cref="GetLabelMarkdownExport"/>
+        /// <seealso cref="DownloadLabelMarkdown"/>
+        /// <seealso cref="DtoLabelAccess.GenerateCleanLabelMarkdownAsync"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("markdown/display/{documentGuid:guid}")]
+        [Produces("text/markdown")]
+        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetCleanLabelMarkdown(
+            [FromRoute] Guid documentGuid)
+        {
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Generating clean display markdown for DocumentGUID: {DocumentGuid}", documentGuid);
+
+                var cleanMarkdown = await DtoLabelAccess.GenerateCleanLabelMarkdownAsync(
+                    _dbContext,
+                    documentGuid,
+                    _claudeApiService,
+                    _pkEncryptionSecret,
+                    _logger);
+
+                // Return 404 if no content generated (empty document)
+                if (string.IsNullOrWhiteSpace(cleanMarkdown))
+                {
+                    return NotFound($"No sections found for DocumentGUID {documentGuid}.");
+                }
+
+                // Return as text/markdown content
+                return Content(cleanMarkdown, "text/markdown", System.Text.Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating clean markdown for DocumentGUID {DocumentGuid}", documentGuid);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while generating clean markdown.");
+            }
+
+            #endregion
+        }
+
+        #endregion Section Markdown Export
 
         #region Drug Safety Navigation
 

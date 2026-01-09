@@ -192,83 +192,6 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Creates a new conversation session and returns the server-generated conversation ID.
-        /// </summary>
-        /// <param name="userId">Optional encrypted user ID to associate with the conversation.</param>
-        /// <returns>
-        /// A task that resolves to a <see cref="Conversation"/> containing the new conversation
-        /// metadata including the server-generated ID.
-        /// </returns>
-        /// <remarks>
-        /// Use this method to explicitly start a new conversation session. The returned
-        /// conversation ID should be included in subsequent <see cref="InterpretRequestAsync"/>
-        /// calls to maintain context.
-        /// 
-        /// Alternatively, calling <see cref="InterpretRequestAsync"/> without a conversation ID
-        /// will automatically create a new conversation.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// var conversation = await claudeService.CreateConversationAsync(encryptedUserId);
-        /// // Use conversation.ConversationId in subsequent requests
-        /// </code>
-        /// </example>
-        /// <seealso cref="Conversation"/>
-        /// <seealso cref="GetConversationAsync"/>
-        Task<Conversation> CreateConversationAsync(string? userId = null);
-
-        /**************************************************************/
-        /// <summary>
-        /// Retrieves an existing conversation by ID, including its full message history.
-        /// </summary>
-        /// <param name="conversationId">The conversation ID to retrieve.</param>
-        /// <returns>
-        /// A task that resolves to the <see cref="Conversation"/> if found and not expired,
-        /// or null if the conversation does not exist or has expired.
-        /// </returns>
-        /// <remarks>
-        /// This method does not reset the conversation's expiration timer. Use it for
-        /// read-only operations like displaying conversation history to the user.
-        /// </remarks>
-        /// <seealso cref="Conversation"/>
-        /// <seealso cref="GetConversationHistoryAsync"/>
-        Task<Conversation?> GetConversationAsync(string conversationId);
-
-        /**************************************************************/
-        /// <summary>
-        /// Retrieves the message history for a conversation.
-        /// </summary>
-        /// <param name="conversationId">The conversation ID.</param>
-        /// <param name="maxMessages">Optional maximum number of recent messages to return.</param>
-        /// <returns>
-        /// A task that resolves to a list of messages in chronological order,
-        /// or an empty list if the conversation is not found.
-        /// </returns>
-        /// <remarks>
-        /// When <paramref name="maxMessages"/> is specified, returns the most recent messages.
-        /// This is useful for limiting context window size when building prompts.
-        /// </remarks>
-        /// <seealso cref="AiConversationMessage"/>
-        Task<List<AiConversationMessage>> GetConversationHistoryAsync(string conversationId, int? maxMessages = null);
-
-        /**************************************************************/
-        /// <summary>
-        /// Deletes a conversation and its message history.
-        /// </summary>
-        /// <param name="conversationId">The conversation ID to delete.</param>
-        /// <returns>True if the conversation was found and deleted, false otherwise.</returns>
-        Task<bool> DeleteConversationAsync(string conversationId);
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets statistics about the conversation store.
-        /// </summary>
-        /// <returns>Statistics including conversation counts and message totals.</returns>
-        /// <seealso cref="ConversationStoreStats"/>
-        Task<ConversationStoreStats> GetConversationStatsAsync();
-
-        /**************************************************************/
-        /// <summary>
         /// Retrieves the current system context including authentication status, demo mode state,
         /// available capabilities, and database statistics. This context is used to inform Claude
         /// about the current operating environment and any limitations that apply to the session.
@@ -515,6 +438,56 @@ namespace MedRecPro.Service
             int attemptNumber);
 
         #endregion
+
+        #region markdown formatting methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates clean, human-readable markdown from raw SPL label content using Claude AI.
+        /// Transforms aggregated section text into properly formatted markdown suitable for
+        /// display in static web applications and documentation.
+        /// </summary>
+        /// <param name="rawMarkdown">
+        /// The raw markdown content from vw_LabelSectionMarkdown view, containing aggregated
+        /// section text with basic markdown formatting converted from SPL tags.
+        /// </param>
+        /// <param name="documentTitle">
+        /// The document title to use as the main header in the output.
+        /// </param>
+        /// <returns>
+        /// A task that resolves to clean, well-formatted markdown text suitable for display.
+        /// The output includes proper headers, cleaned HTML/XML tags, formatted tables,
+        /// and organized content preserving all clinical information.
+        /// </returns>
+        /// <remarks>
+        /// This method uses Claude AI to transform raw SPL content into clean markdown by:
+        /// <list type="bullet">
+        ///   <item><description>Using proper markdown headers (## for main sections)</description></item>
+        ///   <item><description>Cleaning up malformed HTML/XML tags</description></item>
+        ///   <item><description>Converting tables to markdown table format</description></item>
+        ///   <item><description>Organizing content logically</description></item>
+        ///   <item><description>Preserving all clinical information</description></item>
+        ///   <item><description>Using bold, lists, and formatting appropriately</description></item>
+        /// </list>
+        ///
+        /// The resulting markdown is optimized for:
+        /// - Static web app display (React/Angular markdown renderers)
+        /// - Documentation generation
+        /// - Human readability without technical artifacts
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var rawContent = await GetLabelSectionMarkdownAsync(db, documentGuid, secret, logger);
+        /// var fullRawMarkdown = string.Join("\n\n", rawContent.Select(s => s.FullSectionText));
+        /// var cleanMarkdown = await claudeService.GenerateCleanMarkdownAsync(fullRawMarkdown, "Lipitor Tablets");
+        /// // Returns clean, human-readable markdown
+        /// </code>
+        /// </example>
+        /// <seealso cref="GenerateDocumentComparisonAsync"/>
+        /// <seealso cref="DtoLabelAccess.GetLabelSectionMarkdownAsync"/>
+        Task<string> GenerateCleanMarkdownAsync(string rawMarkdown, string? documentTitle);
+
+        #endregion
     }
 
     #endregion
@@ -656,84 +629,83 @@ namespace MedRecPro.Service
             }
         }
 
-        #region ai agent public methods
-
-        #region conversation management
-
         /**************************************************************/
         /// <inheritdoc/>
-        public Task<Conversation> CreateConversationAsync(string? userId = null)
+        public async Task<string> GenerateCleanMarkdownAsync(string rawMarkdown, string? documentTitle)
         {
             #region implementation
 
-            var conversation = _conversationStore.Create(userId);
-
-            _logger.LogInformation("Created new conversation {ConversationId} for user {UserId}",
-                conversation.ConversationId, userId ?? "anonymous");
-
-            return Task.FromResult(conversation);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <inheritdoc/>
-        public Task<Conversation?> GetConversationAsync(string conversationId)
-        {
-            #region implementation
-
-            var conversation = _conversationStore.Get(conversationId);
-
-            return Task.FromResult(conversation);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <inheritdoc/>
-        public Task<List<AiConversationMessage>> GetConversationHistoryAsync(string conversationId, int? maxMessages = null)
-        {
-            #region implementation
-
-            var messages = _conversationStore.GetMessages(conversationId, maxMessages);
-
-            return Task.FromResult(messages);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <inheritdoc/>
-        public Task<bool> DeleteConversationAsync(string conversationId)
-        {
-            #region implementation
-
-            var result = _conversationStore.Remove(conversationId);
-
-            if (result)
+            try
             {
-                _logger.LogInformation("Deleted conversation {ConversationId}", conversationId);
+                // Build the prompt for Claude to clean up the markdown
+                var prompt = $"""
+                    Convert the following FDA SPL drug label content to clean, well-formatted markdown.
+
+                    Document Title: {documentTitle ?? "FDA Drug Label"}
+
+                    Requirements:
+                    - Start with the document title as a level 1 header (# Title)
+                    - Use proper markdown headers (## for main sections)
+                    - Clean up any malformed HTML/XML tags completely - remove all XML/HTML artifacts
+                    - Convert tables to markdown table format
+                    - Organize content logically
+                    - Preserve all clinical information exactly as provided
+                    - Use **bold** for emphasis on important terms
+                    - Use bullet lists where appropriate for readability
+                    - Do NOT add any commentary or analysis - only format the existing content
+                    - Do NOT include any "Document Information" or metadata sections
+                    - Output ONLY the formatted markdown content, nothing else
+
+                    SPL Content:
+                    {rawMarkdown}
+                    """;
+
+                var request = new
+                {
+                    model = _settings.Model,
+                    max_tokens = _settings.MaxTokens,
+                    temperature = 0.1, // Low temperature for consistent formatting
+                    messages = new[]
+                    {
+                        new { role = "user", content = prompt }
+                    }
+                };
+
+                var json = JsonConvert.SerializeObject(request);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                _logger.LogInformation("Calling Claude API to generate clean markdown for: {DocumentTitle}", documentTitle);
+
+                var response = await _httpClient.PostAsync("https://api.anthropic.com/v1/messages", content);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError("Claude API error generating clean markdown: {StatusCode} - {Error}",
+                        response.StatusCode, errorContent);
+                    throw new HttpRequestException($"Claude API error: {response.StatusCode} - {errorContent}");
+                }
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var claudeResponse = JsonConvert.DeserializeObject<ClaudeApiResponse>(responseContent);
+
+                var cleanMarkdown = claudeResponse?.Content?.FirstOrDefault()?.Text ?? rawMarkdown;
+
+                _logger.LogInformation("Successfully generated clean markdown for: {DocumentTitle}", documentTitle);
+
+                return cleanMarkdown;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling Claude API for markdown cleanup. Returning raw markdown.");
+                // Return raw markdown as fallback if Claude API fails
+                return rawMarkdown;
             }
 
-            return Task.FromResult(result);
-
             #endregion
         }
 
-        /**************************************************************/
-        /// <inheritdoc/>
-        public Task<ConversationStoreStats> GetConversationStatsAsync()
-        {
-            #region implementation
-
-            var stats = _conversationStore.GetStats();
-
-            return Task.FromResult(stats);
-
-            #endregion
-        }
-
-        #endregion
+        #region ai agent public methods
 
         #region interpretation and synthesis
 
@@ -2671,60 +2643,6 @@ namespace MedRecPro.Service
         }
 
         #endregion
-    }
-
-    public class ClaudeApiResponse
-    {
-        [JsonProperty("id")]
-        public string? Id { get; set; }
-
-        [JsonProperty("type")]
-        public string? Type { get; set; }
-
-        [JsonProperty("role")]
-        public string? Role { get; set; }
-
-        [JsonProperty("model")]
-        public string? Model { get; set; }
-
-        [JsonProperty("content")]
-        public ClaudeContent[]? Content { get; set; }
-
-        [JsonProperty("stop_reason")]
-        public string? StopReason { get; set; }
-
-        [JsonProperty("stop_sequence")]
-        public string? StopSequence { get; set; }
-
-        [JsonProperty("usage")]
-        public ClaudeUsage? Usage { get; set; }
-    }
-
-    public class ClaudeContent
-    {
-        [JsonProperty("type")]
-        public string? Type { get; set; }
-
-        [JsonProperty("text")]
-        public string? Text { get; set; }
-    }
-
-    public class ClaudeUsage
-    {
-        [JsonProperty("input_tokens")]
-        public int InputTokens { get; set; }
-
-        [JsonProperty("cache_creation_input_tokens")]
-        public int CacheCreationInputTokens { get; set; }
-
-        [JsonProperty("cache_read_input_tokens")]
-        public int CacheReadInputTokens { get; set; }
-
-        [JsonProperty("output_tokens")]
-        public int OutputTokens { get; set; }
-
-        [JsonProperty("service_tier")]
-        public string? ServiceTier { get; set; }
     }
 
     #endregion

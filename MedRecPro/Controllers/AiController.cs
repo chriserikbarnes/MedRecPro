@@ -86,7 +86,15 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Claude API service for AI interpretation and result synthesis.
         /// </summary>
+        /// <seealso cref="IClaudeApiService"/>
         private readonly IClaudeApiService _claudeApiService;
+
+        /**************************************************************/
+        /// <summary>
+        /// Claude conversation service for managing conversation sessions.
+        /// </summary>
+        /// <seealso cref="IClaudeConversationService"/>
+        private readonly IClaudeConversationService _claudeConversationService;
 
         /**************************************************************/
         /// <summary>
@@ -121,13 +129,17 @@ namespace MedRecPro.Api.Controllers
         /// Initializes a new instance of the AiController with required dependencies.
         /// </summary>
         /// <param name="claudeApiService">Claude API service for interpretation and synthesis.</param>
+        /// <param name="claudeConversationService">Claude conversation service for managing conversation sessions.</param>
         /// <param name="stringCipher">String cipher utility for encryption.</param>
         /// <param name="configuration">Configuration provider.</param>
         /// <param name="logger">Logger instance.</param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when encryption secret is not configured.</exception>
+        /// <seealso cref="IClaudeApiService"/>
+        /// <seealso cref="IClaudeConversationService"/>
         public AiController(
             IClaudeApiService claudeApiService,
+            IClaudeConversationService claudeConversationService,
             StringCipher stringCipher,
             IConfiguration configuration,
             ILogger<AiController> logger)
@@ -135,6 +147,7 @@ namespace MedRecPro.Api.Controllers
             #region implementation
 
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
+            _claudeConversationService = claudeConversationService ?? throw new ArgumentNullException(nameof(claudeConversationService));
             _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -661,7 +674,7 @@ namespace MedRecPro.Api.Controllers
 
                 _logger.LogInformation("Creating new conversation for user {UserId}", userId ?? "anonymous");
 
-                var conversation = await _claudeApiService.CreateConversationAsync(userId);
+                var conversation = await _claudeConversationService.CreateConversationAsync(userId);
 
                 return Ok(conversation);
             }
@@ -734,7 +747,7 @@ namespace MedRecPro.Api.Controllers
 
                 _logger.LogDebug("Retrieving conversation {ConversationId}", conversationId);
 
-                var conversation = await _claudeApiService.GetConversationAsync(conversationId);
+                var conversation = await _claudeConversationService.GetConversationAsync(conversationId);
 
                 if (conversation == null)
                 {
@@ -809,14 +822,14 @@ namespace MedRecPro.Api.Controllers
                     conversationId, maxMessages?.ToString() ?? "all");
 
                 // First check if conversation exists
-                var conversation = await _claudeApiService.GetConversationAsync(conversationId);
+                var conversation = await _claudeConversationService.GetConversationAsync(conversationId);
 
                 if (conversation == null)
                 {
                     return NotFound($"Conversation '{conversationId}' not found or has expired.");
                 }
 
-                var messages = await _claudeApiService.GetConversationHistoryAsync(conversationId, maxMessages);
+                var messages = await _claudeConversationService.GetConversationHistoryAsync(conversationId, maxMessages);
 
                 return Ok(messages);
             }
@@ -866,7 +879,7 @@ namespace MedRecPro.Api.Controllers
 
                 _logger.LogInformation("Deleting conversation {ConversationId}", conversationId);
 
-                var deleted = await _claudeApiService.DeleteConversationAsync(conversationId);
+                var deleted = await _claudeConversationService.DeleteConversationAsync(conversationId);
 
                 if (!deleted)
                 {
@@ -929,7 +942,7 @@ namespace MedRecPro.Api.Controllers
             {
                 _logger.LogDebug("Retrieving conversation store statistics");
 
-                var stats = await _claudeApiService.GetConversationStatsAsync();
+                var stats = await _claudeConversationService.GetConversationStatsAsync();
 
                 return Ok(stats);
             }

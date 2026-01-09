@@ -2640,6 +2640,272 @@ namespace MedRecPro.DataAccess
 
         #endregion Latest Label Navigation
 
+        #region Section Markdown Navigation
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets markdown-formatted section content for a document by DocumentGUID.
+        /// Returns aggregated, LLM-ready section text from the vw_LabelSectionMarkdown view.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="documentGuid">The unique identifier for the document to retrieve sections for.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="LabelSectionMarkdownDto"/> with markdown-formatted section content.</returns>
+        /// <example>
+        /// <code>
+        /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
+        /// var sections = await DtoLabelAccess.GetLabelSectionMarkdownAsync(db, documentGuid, secret, logger);
+        ///
+        /// // Access section content
+        /// foreach (var section in sections)
+        /// {
+        ///     Console.WriteLine($"Section: {section.SectionTitle}");
+        ///     Console.WriteLine(section.FullSectionText);
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// Uses the vw_LabelSectionMarkdown view which:
+        /// - Aggregates all ContentText rows for each section using STRING_AGG
+        /// - Converts SPL formatting tags to markdown (bold, italics, underline)
+        /// - Prepends section title as markdown header (## SectionTitle)
+        /// - Returns sections ordered by SectionCode for consistent reading order
+        ///
+        /// This method is designed for AI/LLM summarization workflows where
+        /// authoritative label content is needed rather than relying on training data.
+        /// </remarks>
+        /// <seealso cref="LabelView.LabelSectionMarkdown"/>
+        /// <seealso cref="LabelSectionMarkdownDto"/>
+        /// <seealso cref="GenerateLabelMarkdownAsync"/>
+        public static async Task<List<LabelSectionMarkdownDto>> GetLabelSectionMarkdownAsync(
+            ApplicationDbContext db,
+            Guid documentGuid,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Generate cache key for this document
+            string key = generateCacheKey(nameof(GetLabelSectionMarkdownAsync), documentGuid.ToString(), null, null);
+
+            var cached = Cached.GetCache<List<LabelSectionMarkdownDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetLabelSectionMarkdownAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            // Query the view for all sections of this document
+            var entities = await db.Set<LabelView.LabelSectionMarkdown>()
+                .AsNoTracking()
+                .Where(s => s.DocumentGUID == documentGuid)
+                .OrderBy(s => s.SectionCode)
+                .ToListAsync();
+
+            var ret = buildLabelSectionMarkdownDtos(db, entities, pkSecret, logger);
+
+            if (ret != null && ret.Count > 0)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret ?? new List<LabelSectionMarkdownDto>();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates a complete markdown document from all sections for a given DocumentGUID.
+        /// Combines section content with header information for AI skill augmentation.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="documentGuid">The unique identifier for the document to export.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>A <see cref="LabelMarkdownExportDto"/> containing the complete markdown and metadata.</returns>
+        /// <example>
+        /// <code>
+        /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
+        /// var export = await DtoLabelAccess.GenerateLabelMarkdownAsync(db, documentGuid, secret, logger);
+        ///
+        /// // Use the complete markdown
+        /// Console.WriteLine(export.FullMarkdown);
+        ///
+        /// // Or access metadata
+        /// Console.WriteLine($"Document: {export.DocumentTitle}, Sections: {export.SectionCount}");
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// The generated markdown includes:
+        /// - Header with document title and metadata
+        /// - Data dictionary explaining the structure
+        /// - All sections in order with ## headers
+        /// - Content with markdown formatting converted from SPL tags
+        ///
+        /// This format is designed for AI skill augmentation workflows where the Claude API
+        /// needs authoritative, complete label content to generate accurate summaries
+        /// rather than relying on training data.
+        ///
+        /// **Use Case:** Building Claude API skills that need to summarize or analyze
+        /// FDA drug label content accurately and completely.
+        /// </remarks>
+        /// <seealso cref="GetLabelSectionMarkdownAsync"/>
+        /// <seealso cref="LabelMarkdownExportDto"/>
+        /// <seealso cref="LabelView.LabelSectionMarkdown"/>
+        public static async Task<LabelMarkdownExportDto> GenerateLabelMarkdownAsync(
+            ApplicationDbContext db,
+            Guid documentGuid,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Generate cache key for this document export
+            string key = generateCacheKey(nameof(GenerateLabelMarkdownAsync), documentGuid.ToString(), null, null);
+
+            var cached = Cached.GetCache<LabelMarkdownExportDto>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key}.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GenerateLabelMarkdownAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            // Get all sections for this document
+            var sections = await GetLabelSectionMarkdownAsync(db, documentGuid, pkSecret, logger);
+
+            // Extract document metadata from first section (all sections share the same document info)
+            var firstSection = sections.FirstOrDefault();
+            var documentTitle = firstSection?.DocumentTitle;
+            var setGuid = firstSection?.SetGUID;
+
+            // Generate the complete markdown document
+            var fullMarkdown = generateLabelMarkdown(sections, documentGuid, setGuid, documentTitle);
+
+            // Build the export DTO
+            var ret = new LabelMarkdownExportDto
+            {
+                DocumentGUID = documentGuid,
+                SetGUID = setGuid,
+                DocumentTitle = documentTitle,
+                SectionCount = sections.Count,
+                TotalContentBlocks = sections.Sum(s => s.ContentBlockCount ?? 0),
+                FullMarkdown = fullMarkdown
+            };
+
+            Cached.SetCacheManageKey(key, ret, 1.0);
+            logger.LogDebug($"Cache set for {key} with {sections.Count} sections.");
+
+            return ret;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates clean, human-readable markdown for display from a document's label sections.
+        /// Uses Claude AI to transform raw SPL content into properly formatted markdown.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="documentGuid">The unique identifier for the document to export.</param>
+        /// <param name="claudeApiService">The Claude API service for markdown cleanup.</param>
+        /// <param name="pkSecret">Secret used for ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>Clean, formatted markdown string suitable for display.</returns>
+        /// <example>
+        /// <code>
+        /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
+        /// var cleanMarkdown = await DtoLabelAccess.GenerateCleanLabelMarkdownAsync(
+        ///     db, documentGuid, claudeApiService, secret, logger);
+        ///
+        /// // Returns clean markdown like:
+        /// // # Lipitor Tablets
+        /// // ## INDICATIONS AND USAGE
+        /// // Lipitor is indicated for...
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// This method:
+        /// 1. Retrieves all sections from vw_LabelSectionMarkdown for the document
+        /// 2. Combines section content into raw markdown
+        /// 3. Passes the raw content to Claude API for cleanup and formatting
+        /// 4. Returns clean, human-readable markdown
+        ///
+        /// The result is cached for 1 hour to minimize Claude API calls.
+        /// If Claude API fails, the raw markdown is returned as fallback.
+        ///
+        /// **Use Case:** Static web app display, documentation generation,
+        /// markdown rendering in React/Angular applications.
+        /// </remarks>
+        /// <seealso cref="GetLabelSectionMarkdownAsync"/>
+        /// <seealso cref="GenerateLabelMarkdownAsync"/>
+        /// <seealso cref="IClaudeApiService.GenerateCleanMarkdownAsync"/>
+        public static async Task<string> GenerateCleanLabelMarkdownAsync(
+            ApplicationDbContext db,
+            Guid documentGuid,
+            Service.IClaudeApiService claudeApiService,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Generate cache key for this clean markdown export
+            string key = generateCacheKey(nameof(GenerateCleanLabelMarkdownAsync), documentGuid.ToString(), null, null);
+
+            var cached = Cached.GetCache<string>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for clean markdown {key}.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GenerateCleanLabelMarkdownAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            // Get all sections for this document
+            var sections = await GetLabelSectionMarkdownAsync(db, documentGuid, pkSecret, logger);
+
+            if (sections == null || sections.Count == 0)
+            {
+                logger.LogWarning("No sections found for DocumentGUID {DocumentGuid}", documentGuid);
+                return string.Empty;
+            }
+
+            // Extract document title from first section
+            var documentTitle = sections.FirstOrDefault()?.DocumentTitle;
+
+            // Combine all section content into raw markdown (without our metadata header)
+            var rawSectionContent = string.Join(
+                "\n\n",
+                sections
+                    .Where(s => !string.IsNullOrWhiteSpace(s.FullSectionText))
+                    .Select(s => s.FullSectionText));
+
+            // Call Claude API to clean up the markdown
+            var cleanMarkdown = await claudeApiService.GenerateCleanMarkdownAsync(rawSectionContent, documentTitle);
+
+            // Cache the result for 1 hour
+            Cached.SetCacheManageKey(key, cleanMarkdown, 1.0);
+            logger.LogDebug($"Cache set for clean markdown {key}.");
+
+            return cleanMarkdown;
+
+            #endregion
+        }
+
+        #endregion Section Markdown Navigation
+
         #endregion View-Based Public Entry Points
 
     }

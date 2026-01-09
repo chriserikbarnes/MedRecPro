@@ -145,6 +145,9 @@ builder.Services.AddScoped<IComparisonService, ComparisonService>();
 
 builder.Services.AddSingleton<ConversationStore>();
 
+// Register ClaudeConversationService for conversation management
+builder.Services.AddScoped<IClaudeConversationService, ClaudeConversationService>();
+
 builder.Services.AddUserLogger(); // custom service
 
 builder.Services.AddScoped<IActivityLogService, ActivityLogService>();

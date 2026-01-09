@@ -1,4 +1,4 @@
-/*******************************************************************************/
+﻿/*******************************************************************************/
 /*                                                                             */
 /*  MedRecPro SPL Label Navigation Views                                       */
 /*  SQL Server 2012 Compatible                                                 */
@@ -21,8 +21,12 @@
 /*    - Extended properties added for documentation                            */
 /*                                                                             */
 /*******************************************************************************/
-Use MedRecLocal
+
 SET NOCOUNT ON;
+GO
+SET ANSI_NULLS ON;
+GO
+SET QUOTED_IDENTIFIER ON;
 GO
 
 /*******************************************************************************/
@@ -2192,6 +2196,283 @@ PRINT 'Created view: vw_ProductIndications';
 GO
 
 --#endregion
+
+/**************************************************************/
+-- File: MedRecPro_Views_LabelSectionMarkdown.sql
+-- Purpose: Creates vw_LabelSectionMarkdown view for aggregating section content
+--          into markdown-formatted text blocks for LLM/API consumption
+--
+-- Dependencies:
+--   - dbo.vw_SectionContent (must exist)
+--   - SQL Server 2017+ (requires STRING_AGG function)
+--
+-- Execution: Run this script against MedRecLocal database
+--   sqlcmd -S .\SQLEXPRESS -d MedRecLocal -i MedRecPro_Views_LabelSectionMarkdown.sql
+--
+-- Author: Auto-generated for LLM summarization optimization
+-- Date: 2026-01-09
+/**************************************************************/
+
+
+
+
+PRINT '';
+PRINT '=================================================================';
+PRINT 'Creating vw_LabelSectionMarkdown View';
+PRINT '=================================================================';
+PRINT '';
+GO
+
+/**************************************************************/
+-- View: vw_LabelSectionMarkdown
+-- Purpose: Aggregates all ContentText for each document section into a single
+--          markdown-formatted text block, optimized for LLM/API consumption
+--          and label summarization workflows.
+--
+-- Design Rationale:
+--   This view addresses the need for complete, contiguous section text that can
+--   be efficiently consumed by AI/LLM APIs for label summarization. The existing
+--   vw_SectionContent view returns individual content rows which requires
+--   complex application-side aggregation and produces inconsistent results
+--   when used with AI summarization skills.
+--
+-- Key Features:
+--   1. STRING_AGG aggregation: Concatenates all ContentText rows for a section
+--      in SequenceNumber order, separated by paragraph breaks
+--   2. Markdown conversion: Transforms HTML-style SPL content tags to markdown:
+--      - <content styleCode="bold"> → **text**
+--      - <content styleCode="italics"> → *text*
+--      - <content styleCode="underline"> → _text_ (markdown convention)
+--   3. Section identification: Uses COALESCE to handle NULL SectionCode values
+--      and generates a unique SectionKey for grouping
+--   4. Markdown section headers: Prepends section title as ## header
+--
+-- Output Columns:
+--   - DocumentGUID: Unique identifier for the label document
+--   - SetGUID: Document set identifier (for version tracking)
+--   - DocumentTitle: Full document title
+--   - SectionCode: LOINC section code (may be NULL for some sections)
+--   - SectionTitle: Human-readable section title (e.g., "ADVERSE REACTIONS")
+--   - SectionKey: Computed unique key combining DocumentGUID + SectionCode/Title
+--   - FullSectionText: Complete markdown-formatted section text with header
+--   - ContentBlockCount: Number of content blocks aggregated (for diagnostics)
+--
+-- Usage Examples:
+--   -- Get full markdown for all sections of a specific document:
+--   SELECT SectionTitle, FullSectionText
+--   FROM vw_LabelSectionMarkdown
+--   WHERE DocumentGUID = '052493C7-89A3-452E-8140-04DD95F0D9E2'
+--   ORDER BY SectionCode;
+--
+--   -- Get all ADVERSE REACTIONS sections for batch processing:
+--   SELECT DocumentGUID, FullSectionText
+--   FROM vw_LabelSectionMarkdown
+--   WHERE SectionTitle = 'ADVERSE REACTIONS';
+--
+--   -- Combine all sections for a complete document markdown:
+--   SELECT STRING_AGG(FullSectionText, CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10))
+--          WITHIN GROUP (ORDER BY SectionCode)
+--   FROM vw_LabelSectionMarkdown
+--   WHERE DocumentGUID = '052493C7-89A3-452E-8140-04DD95F0D9E2';
+--
+-- Performance Considerations:
+--   - Uses STRING_AGG (SQL Server 2017+) for efficient text aggregation
+--   - Groups by DocumentGUID and SectionTitle to minimize row count
+--   - Relies on existing indexes: IX_SectionTextContent_SectionID
+--   - For very large result sets, consider filtering by DocumentGUID
+--
+-- Related Views:
+--   - vw_SectionContent: Source view with individual content rows
+--   - vw_SectionNavigation: Section hierarchy and navigation
+--   - vw_ProductIndications: Filtered view for indication sections only
+--
+-- Markdown Conversion Notes:
+--   The SPL XML format uses <content styleCode="X"> tags for formatting.
+--   This view converts common styleCode values to markdown equivalents:
+--   - "bold" → **bold**
+--   - "italics" → *italics*
+--   - "underline" → _underline_
+--   - Nested tags are processed in sequence (innermost first in REPLACE chain)
+--   - Tags with unrecognized styleCodes are stripped, preserving inner text
+--
+-- Version History:
+--   2026-01-09: Initial creation for LLM summarization optimization
+
+IF OBJECT_ID('dbo.vw_LabelSectionMarkdown', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_LabelSectionMarkdown;
+GO
+
+CREATE VIEW dbo.vw_LabelSectionMarkdown
+AS
+WITH ContentWithMarkdown AS (
+    -- Step 1: Convert HTML-style content tags to Markdown
+    -- Process each ContentText row, replacing SPL formatting with markdown
+    SELECT
+        sc.DocumentGUID,
+        sc.SetGUID,
+        sc.DocumentTitle,
+        sc.SectionCode,
+        sc.SectionTitle,
+        sc.SequenceNumber,
+        -- Create unique section key for grouping (handles NULL SectionCode)
+        CAST(sc.DocumentGUID AS VARCHAR(36)) + '|' +
+            COALESCE(sc.SectionCode, 'NULL') + '|' +
+            COALESCE(sc.SectionTitle, '') AS SectionKey,
+        -- Convert SPL content tags to Markdown
+        -- Order matters: process specific patterns before generic cleanup
+        REPLACE(
+            REPLACE(
+                REPLACE(
+                    REPLACE(
+                        REPLACE(
+                            REPLACE(
+                                REPLACE(
+                                    REPLACE(
+                                        REPLACE(
+                                            REPLACE(sc.ContentText,
+                                                -- Bold: <content styleCode="bold">text</content> → **text**
+                                                '<content styleCode="bold">', '**'),
+                                            '</content>', ''), -- First pass: close tags after bold
+                                        '<content styleCode="italics">', '*'),
+                                    -- Handle closing tags that remain
+                                    '</content>', ''),
+                                '<content styleCode="underline">', '_'),
+                            '</content>', ''),
+                        -- Clean up any remaining content tags with other styleCodes
+                        '<content styleCode=', ''),
+                    '">', ''),
+                -- Handle self-closing variations
+                '/>', ''),
+            -- Clean up orphaned closing tags
+            '</content>', '') AS ContentMarkdown
+    FROM dbo.vw_SectionContent sc
+    WHERE sc.ContentText IS NOT NULL
+      AND LEN(LTRIM(RTRIM(sc.ContentText))) > 0
+),
+AggregatedSections AS (
+    -- Step 2: Aggregate all content for each section
+    SELECT
+        DocumentGUID,
+        SetGUID,
+        DocumentTitle,
+        SectionCode,
+        SectionTitle,
+        SectionKey,
+        -- Aggregate content in sequence order, separated by double newlines
+        STRING_AGG(
+            CAST(ContentMarkdown AS NVARCHAR(MAX)),
+            CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)  -- Paragraph separator (CRLF + blank line)
+        ) WITHIN GROUP (ORDER BY SequenceNumber) AS AggregatedText,
+        COUNT(*) AS ContentBlockCount
+    FROM ContentWithMarkdown
+    GROUP BY
+        DocumentGUID,
+        SetGUID,
+        DocumentTitle,
+        SectionCode,
+        SectionTitle,
+        SectionKey
+)
+-- Step 3: Add markdown section header and final formatting
+SELECT
+    DocumentGUID,
+    SetGUID,
+    DocumentTitle,
+    SectionCode,
+    SectionTitle,
+    SectionKey,
+    -- Prepend section title as markdown header
+    '## ' + COALESCE(SectionTitle, 'Untitled Section') +
+        CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10) +
+        COALESCE(AggregatedText, '') AS FullSectionText,
+    ContentBlockCount
+FROM AggregatedSections;
+GO
+
+-- Add extended property description
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_LabelSectionMarkdown')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Aggregates section content into markdown-formatted text blocks for LLM/API consumption. Converts SPL HTML-style tags to markdown and concatenates all ContentText by DocumentGUID and SectionTitle.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_LabelSectionMarkdown';
+END
+GO
+
+PRINT 'Created view: vw_LabelSectionMarkdown';
+GO
+
+/**************************************************************/
+-- Verification Queries
+-- Uncomment and run to test the view after creation
+/**************************************************************/
+
+-- Test 1: Check view exists and has expected columns
+/*
+SELECT
+    c.name AS ColumnName,
+    t.name AS DataType
+FROM sys.columns c
+INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
+WHERE c.object_id = OBJECT_ID('dbo.vw_LabelSectionMarkdown')
+ORDER BY c.column_id;
+*/
+
+-- Test 2: Sample a single document's sections
+/*
+SELECT TOP 5
+    SectionTitle,
+    ContentBlockCount,
+    LEN(FullSectionText) AS TextLength,
+    LEFT(FullSectionText, 200) AS TextPreview
+FROM vw_LabelSectionMarkdown
+WHERE DocumentGUID = (SELECT TOP 1 DocumentGUID FROM vw_LabelSectionMarkdown)
+ORDER BY SectionCode;
+*/
+
+-- Test 3: Compare row counts (should be significantly fewer rows than source)
+/*
+SELECT
+    'vw_SectionContent' AS ViewName,
+    COUNT(*) AS RowCount
+FROM vw_SectionContent
+UNION ALL
+SELECT
+    'vw_LabelSectionMarkdown' AS ViewName,
+    COUNT(*) AS RowCount
+FROM vw_LabelSectionMarkdown;
+*/
+
+-- Test 4: Get complete document markdown for a single document
+/*
+SELECT STRING_AGG(FullSectionText, CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10))
+       WITHIN GROUP (ORDER BY SectionCode) AS CompleteDocumentMarkdown
+FROM vw_LabelSectionMarkdown
+WHERE DocumentGUID = '052493C7-89A3-452E-8140-04DD95F0D9E2';
+*/
+
+PRINT '';
+PRINT '=================================================================';
+PRINT 'vw_LabelSectionMarkdown Creation Complete';
+PRINT '=================================================================';
+PRINT '';
+PRINT 'View Usage:';
+PRINT '  - Query by DocumentGUID to get all sections for a label';
+PRINT '  - Query by SectionTitle for cross-label analysis';
+PRINT '  - Use STRING_AGG on FullSectionText for complete document markdown';
+PRINT '';
+PRINT 'Example Query:';
+PRINT '  SELECT SectionTitle, FullSectionText';
+PRINT '  FROM vw_LabelSectionMarkdown';
+PRINT '  WHERE DocumentGUID = ''your-guid-here''';
+PRINT '  ORDER BY SectionCode;';
+PRINT '';
+GO
 
 
 /*******************************************************************************/
