@@ -1172,6 +1172,28 @@ GO
 
 --#endregion
 
+--#region MarketingCategory Table Indexes
+
+/**************************************************************/
+-- Index on MarketingCategory.ProductID
+-- Purpose: Fast retrieval of marketing categories for a product
+-- Usage: Product marketing category display, application number lookup
+-- See also: Label.MarketingCategory
+-- Added: 2026-01-12 - Based on missing index analysis (Impact Score: 113.90)
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_MarketingCategory_ProductID' AND object_id = OBJECT_ID('MarketingCategory'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_MarketingCategory_ProductID
+    ON MarketingCategory(ProductID)
+    INCLUDE (CategoryDisplayName, ApplicationOrMonographIDValue)
+    WHERE ProductID IS NOT NULL;
+
+    PRINT 'Created index: IX_MarketingCategory_ProductID';
+END
+GO
+
+--#endregion
+
 --#region GenericMedicine Table Indexes
 
 /**************************************************************/
@@ -1253,14 +1275,15 @@ GO
 -- Purpose: Fast lookup of products containing a substance
 -- Usage: Drug interaction queries, ingredient search
 -- See also: Label.Ingredient.IngredientSubstanceID
+-- Updated: 2026-01-12 - Added additional INCLUDE columns for covering queries
 
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Ingredient_IngredientSubstanceID' AND object_id = OBJECT_ID('Ingredient'))
 BEGIN
     CREATE NONCLUSTERED INDEX IX_Ingredient_IngredientSubstanceID
     ON Ingredient(IngredientSubstanceID)
-    INCLUDE (ProductID)
+    INCLUDE (ProductID, ClassCode, QuantityNumerator, QuantityNumeratorUnit, QuantityDenominator, SequenceNumber, DisplayName)
     WHERE IngredientSubstanceID IS NOT NULL;
-    
+
     PRINT 'Created index: IX_Ingredient_IngredientSubstanceID';
 END
 GO
@@ -1374,13 +1397,15 @@ GO
 -- Purpose: Fast retrieval of identifiers for a packaging level
 -- Usage: Package identifier listing
 -- See also: Label.PackageIdentifier
+-- Updated: 2026-01-12 - Added INCLUDE columns for covering queries
 
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_PackageIdentifier_PackagingLevelID' AND object_id = OBJECT_ID('PackageIdentifier'))
 BEGIN
     CREATE NONCLUSTERED INDEX IX_PackageIdentifier_PackagingLevelID
     ON PackageIdentifier(PackagingLevelID)
+    INCLUDE (IdentifierValue, IdentifierSystemOID, IdentifierType)
     WHERE PackagingLevelID IS NOT NULL;
-    
+
     PRINT 'Created index: IX_PackageIdentifier_PackagingLevelID';
 END
 GO
