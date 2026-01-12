@@ -667,6 +667,32 @@ export const ApiService = (function () {
 
     /**************************************************************/
     /**
+     * Sanitizes API URLs in AI-generated response content.
+     *
+     * @param {string} content - The response content to sanitize
+     * @returns {string} Content with absolute localhost URLs converted to relative URLs
+     *
+     * @description
+     * Fixes URLs that Claude may incorrectly generate with absolute localhost paths.
+     * Despite prompt instructions to use relative URLs, Claude sometimes generates
+     * URLs like `http://localhost:5001/api/...` or `http://localhost:5093/api/...`.
+     * This function converts them to relative URLs starting with `/api/...` so the
+     * frontend can add the correct base URL via ChatConfig.buildUrl().
+     */
+    /**************************************************************/
+    function sanitizeApiUrls(content) {
+        if (!content) return content;
+
+        // Replace absolute localhost URLs with relative URLs
+        // Handles http://localhost:PORT/api/... patterns
+        return content.replace(
+            /https?:\/\/localhost(?::\d+)?(?=\/api\/)/gi,
+            ''
+        );
+    }
+
+    /**************************************************************/
+    /**
      * Extracts response content from directResponse which can be string or object.
      *
      * @param {string|Object} directResponse - Direct response from interpretation
@@ -714,12 +740,14 @@ export const ApiService = (function () {
                 }
             }
 
-            return { content: directResponse, hasDataReferences: false };
+            // Sanitize any localhost URLs in the response
+            return { content: sanitizeApiUrls(directResponse), hasDataReferences: false };
         }
 
         // Handle object format (new synthesis response structure)
         if (typeof directResponse === 'object' && directResponse !== null) {
-            let content = directResponse.response || '';
+            // Sanitize any localhost URLs in the response
+            let content = sanitizeApiUrls(directResponse.response || '');
             const hasDataReferences = directResponse.dataReferences && Object.keys(directResponse.dataReferences).length > 0;
 
             // Append suggested follow-ups if present
@@ -731,7 +759,10 @@ export const ApiService = (function () {
             }
 
             // Append data references as clickable links if present
-            if (hasDataReferences) {
+            // Only add if response doesn't already contain "View Full Labels" section
+            // Check for various formats: bold (**View Full Labels:**), plain text, with/without colon
+            const hasViewFullLabels = /(?:\*\*)?View Full Labels?:?(?:\*\*)?/i.test(content);
+            if (!hasViewFullLabels && hasDataReferences) {
                 content += '\n\n**View Full Labels:**\n';
                 for (const [displayName, url] of Object.entries(directResponse.dataReferences)) {
                     content += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
@@ -741,8 +772,8 @@ export const ApiService = (function () {
             return { content, hasDataReferences };
         }
 
-        // Fallback: convert to string
-        return { content: String(directResponse || ''), hasDataReferences: false };
+        // Fallback: convert to string and sanitize
+        return { content: sanitizeApiUrls(String(directResponse || '')), hasDataReferences: false };
     }
 
     /**************************************************************/

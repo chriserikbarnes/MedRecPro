@@ -10,6 +10,7 @@
  * - Code block extraction and syntax highlighting labels
  * - Inline formatting (bold, italic, inline code, links)
  * - Block elements (headers, lists, blockquotes, horizontal rules)
+ * - Markdown tables with styled HTML output
  * - Code copy-to-clipboard functionality
  * - XSS prevention through proper escaping
  *
@@ -26,6 +27,7 @@
 /**************************************************************/
 
 import { ChatUtils } from './utils.js';
+import { ChatConfig } from './config.js';
 
 export const MarkdownRenderer = (function () {
     'use strict';
@@ -47,6 +49,160 @@ export const MarkdownRenderer = (function () {
 
     // Expose storage globally for copy button onclick handlers
     window.codeBlockStorage = codeBlockStorage;
+
+    /**************************************************************/
+    /**
+     * Processes markdown tables and converts them to styled HTML tables.
+     *
+     * @param {string} text - Text containing potential markdown tables
+     * @returns {string} Text with markdown tables converted to HTML
+     *
+     * @description
+     * Parses markdown table syntax:
+     * | Header 1 | Header 2 |
+     * |----------|----------|
+     * | Cell 1   | Cell 2   |
+     *
+     * Converts to styled HTML tables with:
+     * - Proper thead/tbody structure
+     * - Styled headers and cells
+     * - Responsive overflow handling
+     * - Dark theme compatible colors
+     *
+     * @example
+     * processMarkdownTables('| Name | Value |\n|------|-------|\n| A | 1 |');
+     * // Returns styled HTML table
+     */
+    /**************************************************************/
+    function processMarkdownTables(text) {
+        const lines = text.split('\n');
+        const result = [];
+        let tableLines = [];
+        let inTable = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+
+            // Check if line looks like a table row (starts and ends with |, or has | separators)
+            const isTableRow = /^\|.*\|$/.test(line) || /^[^|]+\|[^|]+/.test(line);
+            // Check if line is a separator row (contains only |, -, :, and spaces)
+            const isSeparatorRow = /^\|?[\s\-:|]+\|?$/.test(line) && line.includes('-');
+
+            if (isTableRow || (inTable && isSeparatorRow)) {
+                inTable = true;
+                tableLines.push(line);
+            } else {
+                // End of table or not a table
+                if (inTable && tableLines.length >= 2) {
+                    // We have a complete table, convert it
+                    const tableHtml = convertTableToHtml(tableLines);
+                    result.push(tableHtml);
+                }
+                tableLines = [];
+                inTable = false;
+                result.push(lines[i]); // Keep original line (not trimmed)
+            }
+        }
+
+        // Handle table at end of content
+        if (inTable && tableLines.length >= 2) {
+            const tableHtml = convertTableToHtml(tableLines);
+            result.push(tableHtml);
+        }
+
+        return result.join('\n');
+    }
+
+    /**************************************************************/
+    /**
+     * Converts parsed table lines to a styled HTML table.
+     *
+     * @param {string[]} tableLines - Array of table row strings
+     * @returns {string} Styled HTML table string
+     *
+     * @description
+     * Takes raw markdown table lines and produces a complete HTML table
+     * with inline styles for consistent rendering across themes.
+     */
+    /**************************************************************/
+    function convertTableToHtml(tableLines) {
+        if (tableLines.length < 2) return tableLines.join('\n');
+
+        // Parse cells from a table row
+        const parseCells = (row) => {
+            // Remove leading/trailing pipes and split by |
+            let cells = row.replace(/^\||\|$/g, '').split('|');
+            return cells.map(cell => cell.trim());
+        };
+
+        // Find the separator row (contains dashes)
+        let separatorIndex = -1;
+        for (let i = 0; i < tableLines.length; i++) {
+            if (/^[\s|:-]+$/.test(tableLines[i].replace(/-/g, '')) && tableLines[i].includes('-')) {
+                separatorIndex = i;
+                break;
+            }
+        }
+
+        // If no separator found, treat first row as header
+        if (separatorIndex === -1) {
+            separatorIndex = 1;
+        }
+
+        // Parse alignment from separator row
+        const alignments = [];
+        if (separatorIndex > 0 && separatorIndex < tableLines.length) {
+            const sepCells = parseCells(tableLines[separatorIndex]);
+            sepCells.forEach(cell => {
+                const trimmed = cell.trim();
+                if (trimmed.startsWith(':') && trimmed.endsWith(':')) {
+                    alignments.push('center');
+                } else if (trimmed.endsWith(':')) {
+                    alignments.push('right');
+                } else {
+                    alignments.push('left');
+                }
+            });
+        }
+
+        // Build HTML table
+        const tableStyle = 'width:100%;border-collapse:collapse;margin:0.75rem 0;font-size:0.9rem;';
+        const thStyle = 'padding:0.5rem 0.75rem;text-align:left;border-bottom:2px solid var(--color-border, #444);background:var(--color-bg-secondary, #2a2a2a);color:var(--color-text, #fff);font-weight:600;';
+        const tdStyle = 'padding:0.5rem 0.75rem;border-bottom:1px solid var(--color-border, #333);color:var(--color-text-secondary, #ccc);';
+
+        let html = `<div style="overflow-x:auto;margin:0.5rem 0;"><table style="${tableStyle}">`;
+
+        // Header rows (everything before separator)
+        if (separatorIndex > 0) {
+            html += '<thead><tr>';
+            const headerCells = parseCells(tableLines[0]);
+            headerCells.forEach((cell, idx) => {
+                const align = alignments[idx] || 'left';
+                html += `<th style="${thStyle}text-align:${align};">${cell}</th>`;
+            });
+            html += '</tr></thead>';
+        }
+
+        // Body rows (everything after separator)
+        html += '<tbody>';
+        for (let i = separatorIndex + 1; i < tableLines.length; i++) {
+            const cells = parseCells(tableLines[i]);
+            // Skip empty rows
+            if (cells.length === 0 || (cells.length === 1 && cells[0] === '')) continue;
+
+            html += '<tr>';
+            cells.forEach((cell, idx) => {
+                const align = alignments[idx] || 'left';
+                // Add hover effect via alternating row colors
+                const rowBg = (i - separatorIndex) % 2 === 0 ? 'background:var(--color-bg-tertiary, #252525);' : '';
+                html += `<td style="${tdStyle}text-align:${align};${rowBg}">${cell}</td>`;
+            });
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+
+        return html;
+    }
 
     /**************************************************************/
     /**
@@ -74,6 +230,7 @@ export const MarkdownRenderer = (function () {
      * - > quote -> <blockquote>quote</blockquote>
      * - --- -> <hr>
      * - ```lang\ncode\n``` -> code block with copy button
+     * - | Col | Col | -> styled HTML table with headers
      *
      * @example
      * // Basic formatting
@@ -151,10 +308,23 @@ export const MarkdownRenderer = (function () {
         html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
         // Links: [text](url) -> <a href="url" target="_blank">text</a>
+        // For relative API URLs (starting with /api/), prepend the base URL
+        // This ensures links work correctly in local development (different ports)
         html = html.replace(
             /\[([^\]]+)\]\(([^)]+)\)/g,
-            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+            (match, text, url) => {
+                // If URL starts with /api/, prepend the configured base URL
+                const finalUrl = url.startsWith('/api/') ? ChatConfig.buildUrl(url) : url;
+                return `<a href="${finalUrl}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+            }
         );
+
+        // Step 3.5: Process markdown tables before block elements
+        // Markdown table format:
+        // | Header 1 | Header 2 |
+        // |----------|----------|
+        // | Cell 1   | Cell 2   |
+        html = processMarkdownTables(html);
 
         // Step 4: Process block elements (line by line)
         const lines = html.split('\n');

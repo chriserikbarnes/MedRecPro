@@ -14,8 +14,6 @@ Use for queries about:
 - Symptom-based product searches (pain, anxiety, insomnia)
 - Treatment options and alternatives
 - "What helps with X?" questions
-- Generic alternatives to brand-name products
-- Products with same active ingredients
 
 **Keywords**: what helps with, I have, options for, treatment for, products for, what can I take, what can be used for, alternatives to, feeling down, high blood pressure, diabetes, depression, anxiety, pain, hypertension, cholesterol, condition, symptom, disease, therapeutic, indication, what product, which medication, generics, same ingredient, indicated for, what is indicated, shingles, postherpetic, neuralgia, neuropathic, neuropathy, seizure, epilepsy, nerve pain, cancer, carcinoma, breast cancer, prostate cancer, estrogen sensitive, hormone receptor, malignancy, tumor, oncology, allergy, allergies, allergic, seasonal allergies, antihistamine, rhinitis, sneezing, hay fever, asthma, respiratory, surgical, analgesic, anesthetic, anesthesia, perioperative, surgery, operative, sedation, sedative, induction, intubation, muscle relaxant, neuromuscular, local anesthetic, general anesthesia, regional anesthesia, epidural, spinal anesthesia, procedural sedation, preoperative, postoperative, intraoperative
 

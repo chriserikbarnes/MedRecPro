@@ -435,6 +435,39 @@ const MedRecProChat = (function () {
 
     /**************************************************************/
     /**
+     * Sanitizes API URLs in AI-generated response content.
+     *
+     * @param {string} content - The response content to sanitize
+     * @returns {string} Content with absolute localhost URLs converted to relative URLs
+     *
+     * @description
+     * Fixes URLs that Claude may incorrectly generate with absolute localhost paths.
+     * Despite prompt instructions to use relative URLs, Claude sometimes generates
+     * URLs like `http://localhost:5001/api/...` or `http://localhost:5093/api/...`.
+     * This function converts them to relative URLs starting with `/api/...` so the
+     * frontend can add the correct base URL via ChatConfig.buildUrl().
+     *
+     * @example
+     * sanitizeApiUrls('View [label](http://localhost:5001/api/Label/generate/abc/true)')
+     * // Returns: 'View [label](/api/Label/generate/abc/true)'
+     *
+     * @see executeAndSynthesizeEndpoints - Uses this to clean synthesis responses
+     */
+    /**************************************************************/
+    function sanitizeApiUrls(content) {
+        if (!content) return content;
+
+        // Replace absolute localhost URLs with relative URLs
+        // Handles http://localhost:PORT/api/... patterns
+        // Common ports: 5001 (old), 5093 (current local), and any other localhost port
+        return content.replace(
+            /https?:\/\/localhost(?::\d+)?(?=\/api\/)/gi,
+            ''
+        );
+    }
+
+    /**************************************************************/
+    /**
      * Executes endpoints and synthesizes results into a response.
      *
      * @param {string} originalInput - User's original message
@@ -575,6 +608,10 @@ const MedRecProChat = (function () {
 
             responseContent = synthesis.response || 'No results found.';
 
+            // Sanitize AI response to fix any absolute localhost URLs to relative URLs
+            // Claude may generate localhost:5001 or localhost:5093 URLs despite instructions
+            responseContent = sanitizeApiUrls(responseContent);
+
             // Add follow-up suggestions
             if (synthesis.suggestedFollowUps && synthesis.suggestedFollowUps.length > 0) {
                 responseContent += '\n\n**Suggested follow-ups:**\n';
@@ -583,8 +620,11 @@ const MedRecProChat = (function () {
                 });
             }
 
-            // Add document reference links
-            if (synthesis.dataReferences && Object.keys(synthesis.dataReferences).length > 0) {
+            // Add document reference links (only if response doesn't already contain "View Full Labels")
+            // This prevents duplicate sections when Claude includes labels in its response
+            // Check for various formats: bold (**View Full Labels:**), plain text, with/without colon
+            const hasViewFullLabels = /(?:\*\*)?View Full Labels?:?(?:\*\*)?/i.test(responseContent);
+            if (!hasViewFullLabels && synthesis.dataReferences && Object.keys(synthesis.dataReferences).length > 0) {
                 responseContent += '\n\n**View Full Labels:**\n';
                 for (const [displayName, url] of Object.entries(synthesis.dataReferences)) {
                     responseContent += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
