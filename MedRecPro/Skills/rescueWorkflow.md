@@ -69,34 +69,37 @@ GET /api/Label/ingredient/search?substanceNameSearch={activeIngredient}&pageNumb
 Retrieve all section content to search for the target information:
 
 ```
-GET /api/Label/section/content/{documentGUID}
+GET /api/Label/markdown/sections/{documentGUID}
 ```
 
 **Example**:
 ```
-GET /api/Label/section/content/15a26986-58b8-444b-9759-2529bd41cd25
+GET /api/Label/markdown/sections/15a26986-58b8-444b-9759-2529bd41cd25
 ```
+
+**Note:** Without the `sectionCode` parameter, this returns all sections (~88KB) which is appropriate for scanning.
 
 #### Step 3: Scan Section Text for Target Keyword
 
-Look through the `contentText` field of each section for the keyword **"inactive"**. The section containing this text typically has:
+Look through the `fullSectionText` field of each section for the keyword **"inactive"**. The section containing this text typically has:
 
 - `sectionCode`: "34089-3" (DESCRIPTION SECTION)
-- `sectionDisplayName`: "DESCRIPTION SECTION"
 - `sectionTitle`: "11 DESCRIPTION"
 
-#### Step 4: Retrieve the Specific Section
+#### Step 4: Retrieve the Specific Section (Token Optimized)
 
 Once the section code is identified, get just that section:
 
 ```
-GET /api/Label/section/content/{documentGUID}?sectionCode=34089-3
+GET /api/Label/markdown/sections/{documentGUID}?sectionCode=34089-3
 ```
 
 **Example**:
 ```
-GET /api/Label/section/content/15a26986-58b8-444b-9759-2529bd41cd25?sectionCode=34089-3
+GET /api/Label/markdown/sections/15a26986-58b8-444b-9759-2529bd41cd25?sectionCode=34089-3
 ```
+
+**Token Optimization:** Using `sectionCode` reduces payload from ~88KB (all sections) to ~1-2KB per section.
 
 #### Step 5: Extract Inactive Ingredients from Text
 
@@ -129,14 +132,14 @@ The `contentText` will contain a sentence like:
     },
     {
       "step": 2,
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "method": "GET",
       "dependsOn": 1,
       "description": "Get all sections to scan for target keyword"
     },
     {
       "step": 3,
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "method": "GET",
       "queryParameters": {
         "sectionCode": "34089-3"
@@ -232,19 +235,21 @@ GET /api/Label/ingredient/search?substanceNameSearch={ingredient}&pageNumber=1&p
 #### Step 2: Retrieve All Section Content
 
 ```
-GET /api/Label/section/content/{documentGuid}
+GET /api/Label/markdown/sections/{documentGuid}
 ```
+
+**Note:** Without `sectionCode`, returns all sections for scanning.
 
 #### Step 3: Text Scan
 
-Scan all `contentText` values for the target keyword(s). Note which section(s) contain matches.
+Scan all `fullSectionText` values for the target keyword(s). Note which section(s) contain matches.
 
-#### Step 4: Targeted Section Retrieval
+#### Step 4: Targeted Section Retrieval (Token Optimized)
 
 For each matching section, retrieve full content:
 
 ```
-GET /api/Label/section/content/{documentGuid}?sectionCode={matchingSectionCode}
+GET /api/Label/markdown/sections/{documentGuid}?sectionCode={matchingSectionCode}
 ```
 
 ### Common Search Targets and Likely Locations
@@ -318,7 +323,7 @@ User: "What are the inactive ingredients in Cephalexin?"
 → Step 2 (rescueWorkflow.md): GET /api/Label/ingredient/search?substanceNameSearch=Cephalexin
 ← Result: documentGUID found
 
-→ Step 3 (rescueWorkflow.md): GET /api/Label/section/content/{documentGUID}?sectionCode=34089-3
+→ Step 3 (rescueWorkflow.md): GET /api/Label/markdown/sections/{documentGUID}?sectionCode=34089-3
 ← Result: Description text containing inactive ingredients list
 
 → Step 4 (text analysis): Extract list from "inactive ingredients:" phrase

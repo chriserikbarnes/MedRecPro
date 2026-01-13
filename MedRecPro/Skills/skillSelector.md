@@ -20,12 +20,19 @@ Use for queries about:
 **Process**:
 1. **Load reference data**: Use `labelProductIndication.md` to match condition keywords to UNII(s) - this provides UNII codes for API calls
 2. **Get latest labels**: Call `/api/Label/product/latest?unii={UNII}` - this returns **ProductName**, **SubstanceName**, and **DocumentGUID** for each matched product
-3. **Get full label content**: Call `/api/Label/section/content/{DocumentGUID}` (WITHOUT sectionCode) to retrieve ALL label sections for summaries
+3. **Get label content (PREFERRED)**: Call `/api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9` - use sectionCode filter for token optimization
 4. **Build label links**: Use the DocumentGUID from step 2 to construct: `/api/Label/generate/{DocumentGUID}/true`
 5. **Find alternatives** (optional): Use `/api/Label/product/related?sourceDocumentGuid={guid}` to find generics and related products
 
-**CRITICAL - Full Label Content Required**:
-- Step 3 is REQUIRED, not optional - always call `/api/Label/section/content/{DocumentGUID}` without a sectionCode parameter
+**CRITICAL - Use Markdown Sections Endpoint**:
+- Step 3 uses `/api/Label/markdown/sections/{DocumentGUID}?sectionCode={loincCode}` for token-optimized content retrieval
+- Use `sectionCode=34067-9` for Indications and Usage
+- Use `sectionCode=34089-3` for Description (drug class info)
+- Returns `fullSectionText` with pre-formatted markdown ready for AI consumption
+- Reduces payload from ~88KB (all sections) to ~1-2KB per section
+
+**CRITICAL - Full Label Content Required for any product summarization**:
+- Step 3 is REQUIRED, not optional - always call `/api/Label/smarkdown/sections/{DocumentGUID}` without a sectionCode parameter
 - This returns ALL sections of the label including Indications, Description, Dosage, Warnings, etc.
 - Use this data for product summaries, NOT training data or the reference file alone
 
@@ -163,6 +170,35 @@ Use for queries about:
 
 ---
 
+### equianalgesicConversion
+**Opioid dose conversion and equianalgesic dosing information from FDA labels.**
+
+Use for queries about:
+- Opioid dose conversions (morphine to hydromorphone, fentanyl to morphine, etc.)
+- Equianalgesic dosing tables and ratios
+- Opioid-tolerant patient definitions
+- Morphine milligram equivalents (MME)
+- Switching between opioid medications
+
+**Keywords**: equianalgesic, opioid conversion, convert morphine, convert hydromorphone, convert fentanyl, convert oxycodone, morphine equivalent, mme, opioid tolerant, dose conversion, switching opioids, opioid switch, equivalent dose, morphine to hydromorphone, hydromorphone to morphine, fentanyl to morphine, morphine to fentanyl, oxycodone to morphine, morphine to oxycodone
+
+**Process**:
+1. **Identify source and target opioids**: Use `labelProductIndication.md` to find UNII codes
+2. **Get product labels**: Call `/api/Label/product/latest?unii={UNII}` for each opioid
+3. **Retrieve dosage sections**: Call `/api/Label/markdown/sections/{DocumentGUID}?sectionCode=34068-7` (Dosage and Administration)
+4. **Retrieve indication sections**: Call `/api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9` (for opioid-tolerant definitions)
+5. **Extract and cite FDA data**: Use only content from label sections - NEVER from training data
+
+**CRITICAL - NO TRAINING DATA FOR CONVERSIONS**:
+- Equianalgesic ratios and conversion formulas MUST come from FDA label content
+- Extended-release opioid labels (fentanyl transdermal, hydromorphone ER) contain equianalgesic thresholds
+- If label does not contain conversion data, say so explicitly and provide label links
+- DO NOT generate conversion tables or formulas from training data
+
+**Note**: This skill supplements the `label` skill. Load `labelProductIndication` alongside for UNII lookups.
+
+---
+
 ## Selection Rules
 
 ### UNIVERSAL REQUIREMENT: Label Links for Every Product
@@ -180,7 +216,7 @@ View Full Labels:
 **Rules:**
 1. **Every product = one link**: If you mention 3 products, include 3 label links
 2. **Use the ACTUAL product name**: Get `ProductName` from the API response, NOT from training data
-3. **Use the correct DocumentGUID**: Get `DocumentGUID` from `/api/Label/product/latest` or `/api/Label/section/content` response
+3. **Use the correct DocumentGUID**: Get `DocumentGUID` from `/api/Label/product/latest` or `/api/Label/markdown/sections` response
 4. **Link format**: `/api/Label/generate/{DocumentGUID}/true` (the `/true` suffix is required for minified XML)
 5. **Never use placeholders**: Do NOT use "Prescription Drug", "OTC Drug", "Document #", or any generic term
 6. **ALWAYS use RELATIVE URLs**: Start with `/api/...` - NEVER include `http://`, `https://`, `localhost`, or any domain
@@ -420,6 +456,12 @@ Query: "Show me inactive ingredients for Cephalexin"
 | "Who am I logged in as?" | general |
 | "Logout" | general |
 | "Interpret this query" | general |
+| "Convert morphine to hydromorphone" | equianalgesicConversion |
+| "Equianalgesic dose" | equianalgesicConversion |
+| "Opioid conversion" | equianalgesicConversion |
+| "What is the equivalent dose of fentanyl?" | equianalgesicConversion |
+| "Morphine milligram equivalent" | equianalgesicConversion |
+| "Switching from oxycodone to morphine" | equianalgesicConversion |
 
 ### Multi-Skill Selection
 

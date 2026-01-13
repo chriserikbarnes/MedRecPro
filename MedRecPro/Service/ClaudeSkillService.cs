@@ -292,7 +292,8 @@ namespace MedRecPro.Service
             { "rescueWorkflow", "Skill-RescueWorkflow" },
             { "labelIndicationWorkflow", "Skill-LabelIndicationWorkflow" },
             { "labelProductIndication", "Skill-LabelProductIndication" },
-            { "general", "Skill-General" }
+            { "general", "Skill-General" },
+            { "equianalgesicConversion", "Skill-EquianalgesicConversion" }
         };
 
         #endregion
@@ -744,6 +745,20 @@ namespace MedRecPro.Service
                 }
             }
 
+            // Equianalgesic conversion skill keywords - opioid dose conversions
+            if (skillKeywords.TryGetValue("equianalgesicConversion", out var equianalgesicKeywords))
+            {
+                if (equianalgesicKeywords.Any(k => message.Contains(k)))
+                {
+                    selectedSkills.Add("equianalgesicConversion");
+                    // Also add labelProductIndication for UNII lookups
+                    if (!selectedSkills.Contains("labelProductIndication"))
+                    {
+                        selectedSkills.Add("labelProductIndication");
+                    }
+                }
+            }
+
             // Remove duplicates and return
             return selectedSkills.Distinct().ToList();
 
@@ -935,6 +950,16 @@ namespace MedRecPro.Service
                     "login", "logout", "authenticate", "sign in", "sign out",
                     "profile", "current user", "who am i", "context",
                     "oauth", "google login", "microsoft login"
+                },
+                ["equianalgesicConversion"] = new List<string>
+                {
+                    "equianalgesic", "opioid conversion", "convert morphine",
+                    "convert hydromorphone", "convert fentanyl", "convert oxycodone",
+                    "morphine equivalent", "mme", "opioid tolerant", "dose conversion",
+                    "switching opioids", "opioid switch", "equivalent dose",
+                    "morphine to hydromorphone", "hydromorphone to morphine",
+                    "fentanyl to morphine", "morphine to fentanyl",
+                    "oxycodone to morphine", "morphine to oxycodone"
                 }
             };
 

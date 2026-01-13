@@ -23,10 +23,10 @@ Respond with a JSON object in the following format:
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "34084-4" },
       "dependsOn": 1,
-      "description": "Get adverse reactions section content"
+      "description": "Get adverse reactions section as pre-formatted markdown (token optimized)"
     }
   ],
   "explanation": "Brief explanation of the interpretation",
@@ -43,8 +43,8 @@ Respond with a JSON object in the following format:
 
 For queries about label content (side effects, warnings, dosing, etc.), use a 2-step workflow:
 
-**Step 1**: Search to find the documentGUID  
-**Step 2**: Use `/api/Label/section/content/{documentGuid}` with appropriate sectionCode
+**Step 1**: Search to find the documentGUID
+**Step 2**: Use `/api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}` (PREFERRED - token optimized, returns pre-formatted markdown)
 
 ### Dependency Properties
 
@@ -58,13 +58,38 @@ For queries about label content (side effects, warnings, dosing, etc.), use a 2-
 
 ---
 
-## Section Content Endpoint
+## Section Content Endpoints
+
+### PREFERRED: Markdown Sections Endpoint (Token Optimized)
+
+**Endpoint:** `GET /api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}`
+
+Returns pre-formatted markdown content ready for AI consumption:
+
+```json
+[
+  {
+    "labelSectionMarkdown": {
+      "documentGUID": "guid",
+      "sectionCode": "34084-4",
+      "sectionTitle": "6 ADVERSE REACTIONS",
+      "fullSectionText": "## 6 ADVERSE REACTIONS\r\n\r\nThe actual section text content...",
+      "contentBlockCount": 5
+    }
+  }
+]
+```
+
+**Key Fields:**
+- `fullSectionText` - Pre-aggregated markdown content ready for AI consumption
+- `sectionCode` - LOINC code for attribution
+- Token optimized: ~1-2KB per section vs ~88KB for all sections
+
+### Legacy: Section Content Endpoint
 
 **Endpoint:** `GET /api/Label/section/content/{documentGuid}?sectionCode={code}`
 
-### Response Format
-
-Array of section content objects:
+Returns array of individual content blocks that must be combined:
 
 ```json
 [
@@ -127,7 +152,7 @@ Match user query keywords to the appropriate sectionCode:
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "34084-4" },
       "dependsOn": 1,
       "description": "Get adverse reactions section (LOINC 34084-4)"
@@ -135,7 +160,7 @@ Match user query keywords to the appropriate sectionCode:
     {
       "step": 3,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "42229-5" },
       "dependsOn": 1,
       "skipIfPreviousHasResults": 2,
@@ -172,7 +197,7 @@ Match user query keywords to the appropriate sectionCode:
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "43685-7" },
       "dependsOn": 1,
       "description": "Get warnings and precautions section (LOINC 43685-7)"
@@ -180,7 +205,7 @@ Match user query keywords to the appropriate sectionCode:
     {
       "step": 3,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "42229-5" },
       "dependsOn": 1,
       "skipIfPreviousHasResults": 2,
@@ -212,7 +237,7 @@ Match user query keywords to the appropriate sectionCode:
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "34073-7" },
       "dependsOn": 1,
       "description": "Get drug interactions section"
@@ -243,7 +268,7 @@ Match user query keywords to the appropriate sectionCode:
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "34068-7" },
       "dependsOn": 1,
       "description": "Get dosage and administration section"
@@ -273,7 +298,7 @@ Match user query keywords to the appropriate sectionCode:
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "dependsOn": 1,
       "description": "Get ALL section content (no sectionCode filter)"
     }
@@ -347,7 +372,7 @@ GET /api/Label/product/latest?unii={uniiCode}&pageNumber=1&pageSize=10
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "34084-4" },
       "dependsOn": 1,
       "description": "Get adverse reactions section"
@@ -420,14 +445,14 @@ When users ask about data across the ENTIRE database (e.g., "all side effects", 
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuids}}",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
       "queryParameters": { "sectionCode": "34084-4" },
       "description": "Get adverse reactions sections from all documents (LOINC 34084-4)"
     },
     {
       "step": 3,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuids}}",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
       "queryParameters": { "sectionCode": "42229-5" },
       "skipIfPreviousHasResults": 2,
       "description": "FALLBACK: Get unclassified sections if step 2 was empty"
@@ -482,7 +507,7 @@ When `{{documentGuids}}` contains multiple values, the client should:
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuids}}",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
       "queryParameters": { "sectionCode": "43685-7" },
       "description": "Get warnings and precautions from all documents"
     }
@@ -569,7 +594,7 @@ When users ask for a **summary**, **overview**, or **usage** of a drug, the work
     {
       "step": 3,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "34067-9" },
       "dependsOn": 1,
       "description": "Get Indications and Usage section (LOINC 34067-9) - PRIMARY source for usage"
@@ -577,7 +602,7 @@ When users ask for a **summary**, **overview**, or **usage** of a drug, the work
     {
       "step": 4,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "34089-3" },
       "dependsOn": 1,
       "description": "Get Description section (LOINC 34089-3) - Contains drug class, mechanism"
@@ -585,7 +610,7 @@ When users ask for a **summary**, **overview**, or **usage** of a drug, the work
     {
       "step": 5,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "queryParameters": { "sectionCode": "42229-5" },
       "dependsOn": 1,
       "skipIfPreviousHasResults": 3,
@@ -640,7 +665,7 @@ When synthesizing a comprehensive drug summary:
   "dataReferences": {
     "View Full Label (MIRTAZAPINE)": "/api/Label/generate/{{documentGuid}}/true",
     "Search for mirtazapine products": "/api/Label/ingredient/search?substanceNameSearch=mirtazapine",
-    "Get indications and usage section (LOINC 34067-9)": "/api/Label/section/content/{{documentGuid}}?sectionCode=34067-9"
+    "Get indications and usage section (LOINC 34067-9)": "/api/Label/markdown/sections/{{documentGuid}}?sectionCode=34067-9"
   },
   "suggestedFollowUps": [
     "What are the side effects of mirtazapine?",

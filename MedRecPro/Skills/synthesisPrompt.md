@@ -30,7 +30,7 @@ View Full Labels:
 **Non-Negotiable Rules:**
 1. **Every product mentioned = one label link** - No exceptions
 2. **Use ACTUAL ProductName from API** - NOT from training data, NOT generic terms
-3. **Use DocumentGUID from API response** - From `/api/Label/product/latest` or `/api/Label/section/content`
+3. **Use DocumentGUID from API response** - From `/api/Label/product/latest` or `/api/Label/markdown/sections`
 4. **Include `/true` suffix** - Required for minified XML rendering
 5. **NEVER use placeholders** - "Prescription Drug", "OTC Drug", "Document #" are FORBIDDEN
 6. **ALWAYS use RELATIVE URLs** - Start with `/api/...` - NEVER include `http://`, `https://`, `localhost`, or any domain
@@ -99,9 +99,36 @@ Before finalizing ANY response that contains label links, scan for these FORBIDD
 
 ---
 
-## Section Content Response Format
+## Section Content Response Formats
 
-When processing results from `/api/Label/section/content/{documentGuid}`, the response is a clean array:
+### PREFERRED: Markdown Sections Endpoint (Token Optimized)
+
+When processing results from `/api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}`, the response contains pre-formatted markdown:
+
+```json
+[
+  {
+    "labelSectionMarkdown": {
+      "documentGUID": "0c21b9bd-5c53-4313-89db-9b8a0cd61624",
+      "sectionCode": "34068-7",
+      "sectionTitle": "2 DOSAGE AND ADMINISTRATION",
+      "fullSectionText": "## 2 DOSAGE AND ADMINISTRATION\r\n\r\nThe recommended adult dose...",
+      "contentBlockCount": 5
+    }
+  }
+]
+```
+
+**Key Fields:**
+- `fullSectionText` - Pre-aggregated markdown content ready for AI consumption
+- `sectionCode` - LOINC code for attribution
+- `documentTitle` - For source attribution
+
+**Token Optimization:** Use `sectionCode` parameter to fetch only needed sections (~1-2KB per section vs ~88KB for all sections).
+
+### Legacy: Section Content Endpoint
+
+When processing results from `/api/Label/section/content/{documentGuid}`, the response is an array of individual content blocks:
 
 ```json
 [
@@ -117,6 +144,8 @@ When processing results from `/api/Label/section/content/{documentGuid}`, the re
   { "sectionContent": { "ContentText": "More content...", "SequenceNumber": 2 } }
 ]
 ```
+
+**Note:** The legacy endpoint returns multiple content blocks that must be combined. Prefer the markdown/sections endpoint for pre-formatted content.
 
 ---
 
@@ -434,26 +463,26 @@ When synthesizing results from product discovery queries (e.g., "What products h
 - Use the EXACT `productName` values from `productLatestLabel.productName`
 - Use the EXACT `activeIngredient` values from `productLatestLabel.activeIngredient`
 - Use the EXACT `documentGUID` values from `productLatestLabel.documentGUID`
-- **Get product summaries from `/api/Label/section/content/{DocumentGUID}`** (PRIMARY - use without sectionCode to get ALL label sections)
+- **Get product summaries from `/api/Label/markdown/sections/{DocumentGUID}?sectionCode={loincCode}`** (PREFERRED - token optimized)
 
 **REQUIRED API Call for Summaries:**
-The workflow MUST include a call to `/api/Label/section/content/{DocumentGUID}` (without sectionCode parameter) for each product. This retrieves the FULL label content including:
-- Indications and Usage (LOINC 34067-9) - what the drug treats
-- Description (LOINC 34089-3) - drug class, formulation
-- Dosage and Administration - how to take the drug
-- All other label sections
+The workflow MUST include a call to `/api/Label/markdown/sections/{DocumentGUID}?sectionCode={loincCode}` for each product:
+- Use `sectionCode=34067-9` for Indications and Usage (what the drug treats)
+- Use `sectionCode=34089-3` for Description (drug class, formulation)
+- Returns `fullSectionText` with pre-formatted markdown content
+- Token optimized: ~1-2KB per section vs ~88KB for all sections
 
 **DO NOT:**
 - Add products that weren't in the API response
 - Generate drug class descriptions (e.g., "bronchodilator", "LAMA", "beta agonist") from training data
 - Add mechanism of action descriptions from training data
 - Describe what the drug is "used for" unless that text comes from:
-  1. `/api/Label/section/content/{documentGUID}` API response (PRIMARY - use without sectionCode for full label)
+  1. `/api/Label/markdown/sections/{documentGUID}?sectionCode=34067-9` API response (PRIMARY - token optimized)
   2. The loaded `labelProductIndication.md` reference file (SECONDARY - for initial UNII matching)
 
 ### Product Discovery Response Format
 
-The API results from `/api/Label/product/latest` contain `productName`, `activeIngredient`, `unii`, and `documentGUID` for each product. Product summaries MUST come from `/api/Label/section/content/{DocumentGUID}` (the full label content).
+The API results from `/api/Label/product/latest` contain `productName`, `activeIngredient`, `unii`, and `documentGUID` for each product. Product summaries MUST come from `/api/Label/markdown/sections/{DocumentGUID}` (token optimized markdown content).
 
 ```json
 {
@@ -461,7 +490,7 @@ The API results from `/api/Label/product/latest` contain `productName`, `activeI
   "dataHighlights": {
     "totalProducts": 2,
     "condition": "gout",
-    "summarySource": "/api/Label/section/content/{DocumentGUID} (full FDA label)"
+    "summarySource": "/api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9 (token optimized)"
   },
   "dataReferences": {
     "View Full Label (Colchicine)": "/api/Label/generate/459c796b-4b43-354e-e063-6294a90a7dec/true",
@@ -473,7 +502,7 @@ The API results from `/api/Label/product/latest` contain `productName`, `activeI
 }
 ```
 
-**IMPORTANT**: The "Indication" text in the response MUST come from `/api/Label/section/content/{documentGUID}` API response (PRIMARY). The `labelProductIndication.md` reference file is used for UNII matching only, not for final summaries.
+**IMPORTANT**: The "Indication" text in the response MUST come from `/api/Label/markdown/sections/{documentGUID}?sectionCode=34067-9` API response (PRIMARY). The `labelProductIndication.md` reference file is used for UNII matching only, not for final summaries.
 
 ### CRITICAL Requirements for Product Discovery dataReferences
 
