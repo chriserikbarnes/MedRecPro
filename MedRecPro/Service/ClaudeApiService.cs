@@ -854,6 +854,25 @@ namespace MedRecPro.Service
             {
                 _logger.LogError(ex, "Claude API communication error during interpretation");
 
+                // Check if the error is due to insufficient API credits
+                var isCreditError = ex.Message.Contains("credit balance", StringComparison.OrdinalIgnoreCase) ||
+                                    ex.Message.Contains("too low to access", StringComparison.OrdinalIgnoreCase);
+
+                if (isCreditError)
+                {
+                    return new AiAgentInterpretation
+                    {
+                        Success = false,
+                        ConversationId = request.ConversationId,
+                        Error = "The AI token limiter has been exhausted. Please try again once it has reset.",
+                        Suggestions = new List<string>
+                        {
+                            "Wait for the token limit to reset",
+                            "Use the API documentation to construct your query manually"
+                        }
+                    };
+                }
+
                 return new AiAgentInterpretation
                 {
                     Success = false,
@@ -2527,10 +2546,16 @@ namespace MedRecPro.Service
             {
                 _logger.LogError(ex, "Claude API error during retry interpretation attempt {Attempt}", attemptNumber);
 
+                // Check if the error is due to insufficient API credits
+                var isCreditError = ex.Message.Contains("credit balance", StringComparison.OrdinalIgnoreCase) ||
+                                    ex.Message.Contains("too low to access", StringComparison.OrdinalIgnoreCase);
+
                 return new AiAgentInterpretation
                 {
                     Success = false,
-                    Error = "Unable to process retry request due to API communication error.",
+                    Error = isCreditError
+                        ? "The AI token limiter has been exhausted. Please try again once it has reset."
+                        : "Unable to process retry request due to API communication error.",
                     RetryAttempt = attemptNumber
                 };
             }

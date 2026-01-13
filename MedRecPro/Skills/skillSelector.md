@@ -147,6 +147,22 @@ Use for queries where:
 
 ---
 
+### general
+**AI agent workflow, authentication, and user management operations.**
+
+Use for queries about:
+- AI conversation management (start, interpret, synthesize)
+- One-shot chat queries
+- Authentication (OAuth login, logout, get current user)
+- User profile management
+- System context checks
+
+**Keywords**: conversation, interpret, synthesize, chat, login, logout, authenticate, sign in, sign out, profile, current user, who am i, context, oauth, google login, microsoft login
+
+**Note**: This skill handles general platform operations. For detailed user activity monitoring and logs, use `userActivity` skill instead.
+
+---
+
 ## Selection Rules
 
 ### UNIVERSAL REQUIREMENT: Label Links for Every Product
@@ -314,8 +330,9 @@ Query: "Show me the dosage for metformin"
 2. Search IndicationsSummary for condition keywords
 3. Extract matching UNII(s) and ProductNames
 4. Call `/api/Label/product/latest?unii={UNII}` for each match
-5. Call `/api/Label/product/related?sourceDocumentGuid={guid}` for alternatives
-6. Build response with label links
+5. Call `/api/Label/markdown/sections?documentGuid={guid}` to get full label content **USE for summaries**
+6. Call `/api/Label/product/related?sourceDocumentGuid={guid}` for alternatives
+7. Build response with label links
 
 Example scenarios:
 ```
@@ -324,6 +341,7 @@ Query: "I have high blood pressure, what are my options?"
 → Search labelProductIndication.md for "hypertension"
 → Find UNIIs: Lisinopril (7Q3P4BS2FD), Amlodipine (1J444QC288)
 → GET /api/Label/product/latest?unii=7Q3P4BS2FD
+→ GET /api/Label/markdown/sections?documentGuid={guid}
 → GET /api/Label/product/related?sourceDocumentGuid={guid}
 
 Query: "What is Lipitor?"
@@ -397,6 +415,11 @@ Query: "Show me inactive ingredients for Cephalexin"
 | "Filter logs by error level" | userActivity |
 | "Inactive ingredients not found" (retry) | label + rescueWorkflow |
 | "Data not in expected location" | label + rescueWorkflow |
+| "How do I login?" | general |
+| "Start a conversation" | general |
+| "Who am I logged in as?" | general |
+| "Logout" | general |
+| "Interpret this query" | general |
 
 ### Multi-Skill Selection
 

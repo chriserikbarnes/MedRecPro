@@ -202,36 +202,46 @@ GET /api/Label/product/latest?unii=R16CO5Y76E&pageSize=5
 - `UNII`: Unique Ingredient Identifier
 - `DocumentGUID`: For retrieving the complete label and related products
 
-### Step 2: Get Full Label Content for Summary (REQUIRED)
+### Step 2: Get Label Content for Summary (REQUIRED)
 
-**ALWAYS** retrieve the full label content for each product to provide accurate summaries:
+**ALWAYS** retrieve label content for each product to provide accurate, attributable summaries.
+
+**PREFERRED ENDPOINT (Markdown with sectionCode filter):**
 
 ```
-GET /api/Label/section/content/{DocumentGUID}
+GET /api/Label/markdown/sections/{DocumentGUID}?sectionCode={loincCode}
 ```
 
-**CRITICAL**: Omit the `sectionCode` parameter to retrieve ALL sections from the label. This provides comprehensive data including:
-- Indications and Usage (what the drug treats)
-- Description (drug class, mechanism)
-- Dosage forms and strengths
-- Warnings and precautions
-- Adverse reactions
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `DocumentGUID` | GUID | Yes | The document identifier from Step 1 |
+| `sectionCode` | string | No | LOINC code to filter sections (e.g., "34067-9" for Indications) |
 
-**Response Fields**:
-- `sectionContent.SectionDisplayName`: Section name (e.g., "INDICATIONS AND USAGE", "DESCRIPTION")
-- `sectionContent.SectionTitle`: Section title from label
-- `sectionContent.ContentText`: **The actual label text to use in summaries**
-- `sectionContent.SequenceNumber`: Order for multiple content blocks
+**Token Optimization:** Use `sectionCode` parameter to fetch only the needed section. This reduces payload from ~88KB (all sections) to ~1-2KB per section.
+
+**Common LOINC Codes for Indication Workflows:**
+- `34067-9` = Indications and Usage (what the drug treats)
+- `34089-3` = Description (drug class, mechanism)
+- `34068-7` = Dosage and Administration
+- `43685-7` = Warnings and Precautions
+- `34084-4` = Adverse Reactions
+
+**Response Fields:**
+- `sectionCode`: LOINC code for the section
+- `sectionTitle`: Human-readable section title
+- `fullSectionText`: **Pre-formatted markdown content ready for AI consumption**
+- `documentTitle`: For attribution
 
 **IMPORTANT - Data Sources for Summaries**:
-1. **Primary**: Use `/api/Label/section/content/{DocumentGUID}` (without sectionCode) to get the FULL label content
+1. **Primary**: Use `/api/Label/markdown/sections/{DocumentGUID}?sectionCode={loincCode}` for attributable content
 2. **Secondary**: Use text from `labelProductIndication.md` reference file (contains curated indication summaries)
 3. **Never**: Do NOT generate descriptions from training data
 
-**Why Full Label Content is Required**:
-- The `labelProductIndication.md` file provides quick UNII-to-indication matching
-- But the actual API call `/api/Label/section/content/{DocumentGUID}` provides the authoritative, complete information
-- Summaries should be based on the actual retrieved label content, not just the reference file
+**Why Markdown Endpoint is Preferred**:
+- Returns pre-formatted markdown ready for AI summarization
+- `fullSectionText` contains aggregated, formatted content
+- Server-side sectionCode filtering reduces token usage significantly
+- Content is directly attributable to the API response
 
 ### Step 3: Get Related Products Using DocumentGUID
 
@@ -312,9 +322,10 @@ When processing a condition-based query, respond with:
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
+      "queryParameters": { "sectionCode": "34067-9" },
       "dependsOn": 1,
-      "description": "Get FULL label content for summary (no sectionCode = all sections)"
+      "description": "Get Indications section as markdown (token optimized)"
     },
     {
       "step": 3,
@@ -395,16 +406,18 @@ Sertraline tablets are indicated for major depressive disorder (MDD)...
     {
       "step": 3,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid1}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid1}}",
+      "queryParameters": { "sectionCode": "34067-9" },
       "dependsOn": 1,
-      "description": "Get FULL label content for Citalopram summary (no sectionCode = all sections)"
+      "description": "Get Citalopram Indications section as markdown (token optimized)"
     },
     {
       "step": 4,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid2}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid2}}",
+      "queryParameters": { "sectionCode": "34067-9" },
       "dependsOn": 2,
-      "description": "Get FULL label content for Fluoxetine summary (no sectionCode = all sections)"
+      "description": "Get Fluoxetine Indications section as markdown (token optimized)"
     },
     {
       "step": 5,
@@ -489,19 +502,21 @@ Diphenhydramine is indicated for allergic conditions...
     {
       "step": 3,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid1}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid1}}",
+      "queryParameters": { "sectionCode": "34067-9" },
       "dependsOn": 1,
-      "description": "Get FULL label content for Cetirizine (no sectionCode = all sections)"
+      "description": "Get Cetirizine Indications section as markdown (token optimized)"
     },
     {
       "step": 4,
       "method": "GET",
-      "path": "/api/Label/section/content/{{documentGuid2}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid2}}",
+      "queryParameters": { "sectionCode": "34067-9" },
       "dependsOn": 2,
-      "description": "Get FULL label content for Fexofenadine (no sectionCode = all sections)"
+      "description": "Get Fexofenadine Indications section as markdown (token optimized)"
     }
   ],
-  "explanation": "Found antihistamines matching 'seasonal allergies' using UNII codes from reference data."
+  "explanation": "Found antihistamines matching 'seasonal allergies' using UNII codes from reference data. Token-optimized calls fetch only Indications section."
 }
 ```
 
@@ -582,7 +597,7 @@ For product-specific queries (not condition-based), use the first-line selector 
 - **ONLY use data from the API responses** - do NOT supplement with training data
 - Product names MUST come from `productLatestLabel.productName` in the API response
 - Active ingredients MUST come from `productLatestLabel.activeIngredient` in the API response
-- **Product summaries/descriptions MUST come from `/api/Label/section/content/{documentGuid}`**
+- **Product summaries/descriptions MUST come from `/api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}`**
 - **DO NOT generate drug descriptions, mechanisms of action, or clinical details from training data**
 - If the API didn't return data for a product, do NOT describe that product
 
@@ -597,11 +612,11 @@ Based on the API results, I found **{count}** products in your database:
 
 ### {ProductName from API}
 - **Active Ingredient**: {activeIngredient from API response}
-- **Indication**: {ContentText from section/content API call - LOINC 34067-9}
+- **Indication**: {fullSectionText from markdown/sections API call - sectionCode=34067-9}
 
 ### {ProductName2 from API}
 - **Active Ingredient**: {activeIngredient from API response}
-- **Indication**: {ContentText from section/content API call}
+- **Indication**: {fullSectionText from markdown/sections API call}
 
 ---
 
@@ -616,8 +631,8 @@ Based on the API results, I found **{count}** products in your database:
 - Related products from `/api/Label/product/related` response
 
 **DATA SOURCE PRIORITY FOR PRODUCT DESCRIPTIONS:**
-1. **Primary**: Use text from `labelProductIndication.md` reference file (contains curated indication summaries generated from FDA labels)
-2. **Supplemental**: Use `/api/Label/section/content/{DocumentGUID}` (without sectionCode) for additional context when needed
+1. **Primary**: Use `/api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9` for attributable, token-optimized content
+2. **Supplemental**: Use text from `labelProductIndication.md` reference file (contains curated indication summaries)
 3. **Never**: Do NOT generate descriptions from training data
 
 **WHAT NOT TO INCLUDE:**
@@ -659,16 +674,16 @@ For each product returned by the API calls, add an entry to `dataReferences`:
 1. **List ONLY products returned by the API** - use exact `productName` values from API response
 2. **Limit to 10 products or fewer** - use `pageSize=5` per UNII to avoid slow database performance
 3. **Include active ingredients** exactly as returned by `activeIngredient` field in API
-4. **Product summaries from full label content (REQUIRED)**:
-   - ALWAYS call `/api/Label/section/content/{DocumentGUID}` (no sectionCode) to get ALL label sections
-   - Use the ContentText from the "INDICATIONS AND USAGE" section (LOINC 34067-9) for indication summaries
-   - Use the ContentText from the "DESCRIPTION" section (LOINC 34089-3) for drug class information
+4. **Product summaries from markdown sections endpoint (REQUIRED)**:
+   - Use `/api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9` for Indications (token optimized)
+   - Use `/api/Label/markdown/sections/{DocumentGUID}?sectionCode=34089-3` for Description/drug class
+   - Use `fullSectionText` field which contains pre-formatted markdown content
    - The `labelProductIndication.md` reference file is for UNII matching only, not for final summaries
 5. **ALWAYS include dataReferences** with label links using `/api/Label/generate/{DocumentGUID}/true`
 6. **Show related products** ONLY from the `/api/Label/product/related` API response
 7. **Add medical disclaimer** at the end
 8. **NEVER add drug descriptions from training data** - all descriptions must come from:
-   - `/api/Label/section/content/{documentGuid}` API response (PRIMARY - use without sectionCode for full label)
+   - `/api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}` API response (PRIMARY - token optimized)
    - `labelProductIndication.md` reference file (for UNII matching only)
 
 ---
@@ -752,7 +767,7 @@ After identifying products, users may want detailed information:
 7. **Extract ProductName and DocumentGUID** from the API responses to build label links
 8. **Add medical disclaimer** reminding users to consult healthcare providers
 9. **NEVER USE TRAINING DATA** - All product information (names, ingredients, descriptions) must come from:
-   - `labelProductIndication.md` reference file (for product summaries - PRIMARY, generated from FDA labels)
+   - `/api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}` API response (PRIMARY - token optimized)
+   - `labelProductIndication.md` reference file (for UNII matching and supplemental summaries)
    - The API response fields (`productName`, `activeIngredient`, `unii`, `documentGUID`)
-   - `/api/Label/section/content/{documentGuid}` API response (SUPPLEMENTAL - use without sectionCode for full label)
    - NOT from your training knowledge about medications

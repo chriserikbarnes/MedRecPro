@@ -1374,6 +1374,10 @@ namespace MedRecPro.Api.Controllers
         /// Gets ingredient summaries with product counts.
         /// Discover the most common ingredients across products in the database.
         /// </summary>
+        /// <param name="ingredient">
+        /// Optional. Filter by ingredient name (partial match on SubstanceName).
+        /// Use this to vary results for AI skill discovery workflows.
+        /// </param>
         /// <param name="minProductCount">
         /// Optional minimum product count filter. Only returns ingredients appearing in at least this many products.
         /// </param>
@@ -1390,7 +1394,8 @@ namespace MedRecPro.Api.Controllers
         /// <remarks>
         /// GET /api/Label/ingredient/summaries
         /// GET /api/Label/ingredient/summaries?minProductCount=10
-        /// 
+        /// GET /api/Label/ingredient/summaries?ingredient=aspirin
+        ///
         /// Response (200):
         /// ```json
         /// [
@@ -1401,8 +1406,9 @@ namespace MedRecPro.Api.Controllers
         ///   }
         /// ]
         /// ```
-        /// 
+        ///
         /// Results are ordered by ProductCount in descending order.
+        /// The ingredient parameter enables varied results for paginated queries.
         /// </remarks>
         /// <seealso cref="DtoLabelAccess.GetIngredientSummariesAsync"/>
         /// <seealso cref="LabelView.IngredientSummary"/>
@@ -1413,6 +1419,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<IngredientSummaryDto>>> GetIngredientSummaries(
+            [FromQuery] string? ingredient,
             [FromQuery] int? minProductCount,
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
@@ -1438,12 +1445,13 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                _logger.LogInformation("Getting ingredient summaries. MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
-                    minProductCount, pageNumber, pageSize);
+                _logger.LogInformation("Getting ingredient summaries. Ingredient: {Ingredient}, MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
+                    ingredient ?? "null", minProductCount, pageNumber, pageSize);
 
                 var results = await DtoLabelAccess.GetIngredientSummariesAsync(
                     _dbContext,
                     minProductCount,
+                    ingredient,
                     _pkEncryptionSecret,
                     _logger,
                     pageNumber,
@@ -1469,6 +1477,10 @@ namespace MedRecPro.Api.Controllers
         /// Gets active ingredient summaries with product, document, and labeler counts.
         /// Discover the most common active ingredients across products in the database.
         /// </summary>
+        /// <param name="ingredient">
+        /// Optional. Filter by ingredient name (partial match on SubstanceName).
+        /// Use this to vary results for AI skill discovery workflows.
+        /// </param>
         /// <param name="minProductCount">
         /// Optional minimum product count filter. Only returns ingredients appearing in at least this many products.
         /// </param>
@@ -1485,7 +1497,8 @@ namespace MedRecPro.Api.Controllers
         /// <remarks>
         /// GET /api/Label/ingredient/active/summaries
         /// GET /api/Label/ingredient/active/summaries?minProductCount=10
-        /// 
+        /// GET /api/Label/ingredient/active/summaries?ingredient=aspirin
+        ///
         /// Response (200):
         /// ```json
         /// [
@@ -1500,8 +1513,9 @@ namespace MedRecPro.Api.Controllers
         ///   }
         /// ]
         /// ```
-        /// 
+        ///
         /// Results are ordered by ProductCount in descending order.
+        /// The ingredient parameter enables varied results for paginated queries.
         /// </remarks>
         /// <seealso cref="DtoLabelAccess.GetIngredientActiveSummariesAsync"/>
         /// <seealso cref="LabelView.IngredientActiveSummary"/>
@@ -1512,6 +1526,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<IngredientActiveSummaryDto>>> GetIngredientActiveSummaries(
+            [FromQuery] string? ingredient,
             [FromQuery] int? minProductCount,
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
@@ -1537,12 +1552,13 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                _logger.LogInformation("Getting active ingredient summaries. MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
-                    minProductCount, pageNumber, pageSize);
+                _logger.LogInformation("Getting active ingredient summaries. Ingredient: {Ingredient}, MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
+                    ingredient ?? "null", minProductCount, pageNumber, pageSize);
 
                 var results = await DtoLabelAccess.GetIngredientActiveSummariesAsync(
                     _dbContext,
                     minProductCount,
+                    ingredient,
                     _pkEncryptionSecret,
                     _logger,
                     pageNumber,
@@ -1568,6 +1584,10 @@ namespace MedRecPro.Api.Controllers
         /// Gets inactive ingredient (excipient) summaries with product, document, and labeler counts.
         /// Discover the most common inactive ingredients across products in the database.
         /// </summary>
+        /// <param name="ingredient">
+        /// Optional. Filter by ingredient name (partial match on SubstanceName).
+        /// Use this to vary results for AI skill discovery workflows.
+        /// </param>
         /// <param name="minProductCount">
         /// Optional minimum product count filter. Only returns ingredients appearing in at least this many products.
         /// </param>
@@ -1584,7 +1604,8 @@ namespace MedRecPro.Api.Controllers
         /// <remarks>
         /// GET /api/Label/ingredient/inactive/summaries
         /// GET /api/Label/ingredient/inactive/summaries?minProductCount=10
-        /// 
+        /// GET /api/Label/ingredient/inactive/summaries?ingredient=starch
+        ///
         /// Response (200):
         /// ```json
         /// [
@@ -1599,9 +1620,10 @@ namespace MedRecPro.Api.Controllers
         ///   }
         /// ]
         /// ```
-        /// 
+        ///
         /// Results are ordered by ProductCount in descending order.
         /// Inactive ingredients include excipients, fillers, binders, and other non-active substances.
+        /// The ingredient parameter enables varied results for paginated queries.
         /// </remarks>
         /// <seealso cref="DtoLabelAccess.GetIngredientInactiveSummariesAsync"/>
         /// <seealso cref="LabelView.IngredientInactiveSummary"/>
@@ -1612,6 +1634,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<IngredientInactiveSummaryDto>>> GetIngredientInactiveSummaries(
+            [FromQuery] string? ingredient,
             [FromQuery] int? minProductCount,
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
@@ -1637,12 +1660,13 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                _logger.LogInformation("Getting inactive ingredient summaries. MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
-                    minProductCount, pageNumber, pageSize);
+                _logger.LogInformation("Getting inactive ingredient summaries. Ingredient: {Ingredient}, MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
+                    ingredient ?? "null", minProductCount, pageNumber, pageSize);
 
                 var results = await DtoLabelAccess.GetIngredientInactiveSummariesAsync(
                     _dbContext,
                     minProductCount,
+                    ingredient,
                     _pkEncryptionSecret,
                     _logger,
                     pageNumber,
@@ -3004,6 +3028,10 @@ namespace MedRecPro.Api.Controllers
         /// <param name="documentGuid">
         /// The unique identifier (GUID) for the document to retrieve sections for.
         /// </param>
+        /// <param name="sectionCode">
+        /// Optional LOINC section code to filter results (e.g., "34067-9" for Indications).
+        /// When provided, only sections matching this code are returned, significantly reducing payload size.
+        /// </param>
         /// <returns>List of section markdown DTOs with formatted content.</returns>
         /// <response code="200">Returns the list of markdown-formatted sections.</response>
         /// <response code="400">If documentGuid is not a valid GUID.</response>
@@ -3022,6 +3050,9 @@ namespace MedRecPro.Api.Controllers
         ///
         /// ```
         /// GET /api/Label/markdown/sections/052493C7-89A3-452E-8140-04DD95F0D9E2
+        ///
+        /// // Filter to specific section (reduces payload significantly)
+        /// GET /api/Label/markdown/sections/052493C7-89A3-452E-8140-04DD95F0D9E2?sectionCode=34067-9
         /// ```
         ///
         /// ### Response
@@ -3046,6 +3077,19 @@ namespace MedRecPro.Api.Controllers
         /// This endpoint is designed for AI skill augmentation workflows where the Claude API
         /// needs authoritative label content rather than relying on training data to generate
         /// accurate summaries and descriptions.
+        ///
+        /// ### Token Optimization
+        ///
+        /// When comparing multiple drugs, use the `sectionCode` parameter to fetch only
+        /// the relevant section(s). This reduces payload from ~88KB (all sections) to ~1-2KB
+        /// per section, significantly reducing token usage for AI skill augmentation.
+        ///
+        /// **Common LOINC Section Codes:**
+        /// - `34067-9` = Indications and Usage
+        /// - `34084-4` = Adverse Reactions
+        /// - `34070-3` = Contraindications
+        /// - `43685-7` = Warnings and Precautions
+        /// - `34068-7` = Dosage and Administration
         /// </remarks>
         /// <seealso cref="DtoLabelAccess.GetLabelSectionMarkdownAsync"/>
         /// <seealso cref="LabelView.LabelSectionMarkdown"/>
@@ -3058,24 +3102,36 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<LabelSectionMarkdownDto>>> GetLabelSectionMarkdown(
-            [FromRoute] Guid documentGuid)
+            [FromRoute] Guid documentGuid,
+            [FromQuery] string? sectionCode = null)
         {
             #region Implementation
 
             try
             {
-                _logger.LogInformation("Getting markdown sections for DocumentGUID: {DocumentGuid}", documentGuid);
+                if (string.IsNullOrWhiteSpace(sectionCode))
+                {
+                    _logger.LogInformation("Getting all markdown sections for DocumentGUID: {DocumentGuid}", documentGuid);
+                }
+                else
+                {
+                    _logger.LogInformation("Getting markdown section {SectionCode} for DocumentGUID: {DocumentGuid}", sectionCode, documentGuid);
+                }
 
                 var results = await DtoLabelAccess.GetLabelSectionMarkdownAsync(
                     _dbContext,
                     documentGuid,
                     _pkEncryptionSecret,
-                    _logger);
+                    _logger,
+                    sectionCode);
 
                 // Return 404 if no sections found
                 if (results == null || results.Count == 0)
                 {
-                    return NotFound($"No sections found for DocumentGUID {documentGuid}.");
+                    var message = string.IsNullOrWhiteSpace(sectionCode)
+                        ? $"No sections found for DocumentGUID {documentGuid}."
+                        : $"No sections found for DocumentGUID {documentGuid} with SectionCode {sectionCode}.";
+                    return NotFound(message);
                 }
 
                 return Ok(results);

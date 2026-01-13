@@ -595,6 +595,7 @@ namespace MedRecPro.DataAccess
         /// </summary>
         /// <param name="db">The application database context.</param>
         /// <param name="minProductCount">Optional minimum product count filter.</param>
+        /// <param name="ingredient">Optional ingredient name filter for partial matching on SubstanceName.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <param name="page">Optional 1-based page number for pagination.</param>
@@ -604,6 +605,7 @@ namespace MedRecPro.DataAccess
         public static async Task<List<IngredientActiveSummaryDto>> GetIngredientActiveSummariesAsync(
             ApplicationDbContext db,
             int? minProductCount,
+            string? ingredient,
             string pkSecret,
             ILogger logger,
             int? page = null,
@@ -611,7 +613,9 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetIngredientActiveSummariesAsync), minProductCount?.ToString(), page, size);
+            // Include ingredient in cache key for varied results (concatenate filter params for cache key)
+            string searchParams = $"{minProductCount}_{ingredient}";
+            string key = generateCacheKey(nameof(GetIngredientActiveSummariesAsync), searchParams, page, size);
 
             var cached = Cached.GetCache<List<IngredientActiveSummaryDto>>(key);
 
@@ -627,6 +631,12 @@ namespace MedRecPro.DataAccess
             var query = db.Set<LabelView.IngredientActiveSummary>()
                 .AsNoTracking()
                 .AsQueryable();
+
+            // Apply ingredient name filter if specified (partial match on SubstanceName)
+            if (!string.IsNullOrWhiteSpace(ingredient))
+            {
+                query = query.Where(s => s.SubstanceName != null && s.SubstanceName.Contains(ingredient));
+            }
 
             // Apply minimum product count filter if specified
             if (minProductCount.HasValue)
@@ -661,6 +671,7 @@ namespace MedRecPro.DataAccess
         /// </summary>
         /// <param name="db">The application database context.</param>
         /// <param name="minProductCount">Optional minimum product count filter.</param>
+        /// <param name="ingredient">Optional ingredient name filter for partial matching on SubstanceName.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <param name="page">Optional 1-based page number for pagination.</param>
@@ -670,6 +681,7 @@ namespace MedRecPro.DataAccess
         public static async Task<List<IngredientInactiveSummaryDto>> GetIngredientInactiveSummariesAsync(
             ApplicationDbContext db,
             int? minProductCount,
+            string? ingredient,
             string pkSecret,
             ILogger logger,
             int? page = null,
@@ -677,7 +689,9 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetIngredientInactiveSummariesAsync), minProductCount?.ToString(), page, size);
+            // Include ingredient in cache key for varied results (concatenate filter params for cache key)
+            string searchParams = $"{minProductCount}_{ingredient}";
+            string key = generateCacheKey(nameof(GetIngredientInactiveSummariesAsync), searchParams, page, size);
 
             var cached = Cached.GetCache<List<IngredientInactiveSummaryDto>>(key);
 
@@ -693,6 +707,12 @@ namespace MedRecPro.DataAccess
             var query = db.Set<LabelView.IngredientInactiveSummary>()
                 .AsNoTracking()
                 .AsQueryable();
+
+            // Apply ingredient name filter if specified (partial match on SubstanceName)
+            if (!string.IsNullOrWhiteSpace(ingredient))
+            {
+                query = query.Where(s => s.SubstanceName != null && s.SubstanceName.Contains(ingredient));
+            }
 
             // Apply minimum product count filter if specified
             if (minProductCount.HasValue)
@@ -782,7 +802,7 @@ namespace MedRecPro.DataAccess
                     substanceNameSearch,
                     MultiTermBehavior.PartialMatchAny,
                     null,
-                    PhoneticMatchOptions.Strict,
+                    PhoneticMatchOptions.None,
                     x => x.SubstanceName);
             }
 
@@ -818,6 +838,7 @@ namespace MedRecPro.DataAccess
         /// </summary>
         /// <param name="db">The application database context.</param>
         /// <param name="minProductCount">Optional minimum product count filter.</param>
+        /// <param name="ingredient">Optional ingredient name filter for partial matching on SubstanceName.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <param name="page">Optional 1-based page number for pagination.</param>
@@ -827,6 +848,7 @@ namespace MedRecPro.DataAccess
         public static async Task<List<IngredientSummaryDto>> GetIngredientSummariesAsync(
             ApplicationDbContext db,
             int? minProductCount,
+            string? ingredient,
             string pkSecret,
             ILogger logger,
             int? page = null,
@@ -834,7 +856,9 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetIngredientSummariesAsync), minProductCount?.ToString(), page, size);
+            // Include ingredient in cache key for varied results (concatenate filter params for cache key)
+            string searchParams = $"{minProductCount}_{ingredient}";
+            string key = generateCacheKey(nameof(GetIngredientSummariesAsync), searchParams, page, size);
 
             var cached = Cached.GetCache<List<IngredientSummaryDto>>(key);
 
@@ -851,6 +875,13 @@ namespace MedRecPro.DataAccess
                 .AsNoTracking()
                 .AsQueryable();
 
+            // Apply ingredient name filter if specified (partial match on SubstanceName)
+            if (!string.IsNullOrWhiteSpace(ingredient))
+            {
+                query = query.Where(s => s.SubstanceName != null && s.SubstanceName.Contains(ingredient));
+            }
+
+            // Apply minimum product count filter if specified
             if (minProductCount.HasValue)
             {
                 query = query.Where(s => s.ProductCount >= minProductCount.Value);
@@ -1241,14 +1272,14 @@ namespace MedRecPro.DataAccess
                 query = query.Where(i => i.UNII == unii);
             }
 
-            // Substance name partial/phonetic match
+            // Substance name partial match
             if (!string.IsNullOrWhiteSpace(substanceNameSearch))
             {
                 query = query.FilterBySearchTerms(
                     substanceNameSearch,
                     MultiTermBehavior.PartialMatchAny,
                     null,
-                    PhoneticMatchOptions.Strict,
+                    PhoneticMatchOptions.None,
                     x => x.SubstanceName);
             }
 
@@ -1277,14 +1308,14 @@ namespace MedRecPro.DataAccess
                     i.ApplicationType.ToUpper().Contains(normalizedType));
             }
 
-            // Product name partial/phonetic match
+            // Product name partial match
             if (!string.IsNullOrWhiteSpace(productNameSearch))
             {
                 query = query.FilterBySearchTerms(
                     productNameSearch,
                     MultiTermBehavior.PartialMatchAny,
                     null,
-                    PhoneticMatchOptions.Strict,
+                    PhoneticMatchOptions.None,
                     x => x.ProductName);
             }
 
@@ -1313,14 +1344,14 @@ namespace MedRecPro.DataAccess
                 query = query.Where(i => i.UNII == unii);
             }
 
-            // Substance name partial/phonetic match
+            // Substance name partial match
             if (!string.IsNullOrWhiteSpace(substanceNameSearch))
             {
                 query = query.FilterBySearchTerms(
                     substanceNameSearch,
                     MultiTermBehavior.PartialMatchAny,
                     null,
-                    PhoneticMatchOptions.Strict,
+                    PhoneticMatchOptions.None,
                     x => x.SubstanceName);
             }
 
@@ -1345,14 +1376,14 @@ namespace MedRecPro.DataAccess
                     i.ApplicationType.ToUpper().Contains(normalizedType));
             }
 
-            // Product name partial/phonetic match
+            // Product name partial match
             if (!string.IsNullOrWhiteSpace(productNameSearch))
             {
                 query = query.FilterBySearchTerms(
                     productNameSearch,
                     MultiTermBehavior.PartialMatchAny,
                     null,
-                    PhoneticMatchOptions.Strict,
+                    PhoneticMatchOptions.None,
                     x => x.ProductName);
             }
 
@@ -1381,14 +1412,14 @@ namespace MedRecPro.DataAccess
                 query = query.Where(i => i.UNII == unii);
             }
 
-            // Substance name partial/phonetic match
+            // Substance name partial match
             if (!string.IsNullOrWhiteSpace(substanceNameSearch))
             {
                 query = query.FilterBySearchTerms(
                     substanceNameSearch,
                     MultiTermBehavior.PartialMatchAny,
                     null,
-                    PhoneticMatchOptions.Strict,
+                    PhoneticMatchOptions.None,
                     x => x.SubstanceName);
             }
 
@@ -1413,14 +1444,14 @@ namespace MedRecPro.DataAccess
                     i.ApplicationType.ToUpper().Contains(normalizedType));
             }
 
-            // Product name partial/phonetic match
+            // Product name partial match
             if (!string.IsNullOrWhiteSpace(productNameSearch))
             {
                 query = query.FilterBySearchTerms(
                     productNameSearch,
                     MultiTermBehavior.PartialMatchAny,
                     null,
-                    PhoneticMatchOptions.Strict,
+                    PhoneticMatchOptions.None,
                     x => x.ProductName);
             }
 
@@ -2651,11 +2682,20 @@ namespace MedRecPro.DataAccess
         /// <param name="documentGuid">The unique identifier for the document to retrieve sections for.</param>
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="sectionCode">
+        /// Optional LOINC section code to filter results (e.g., "34067-9" for Indications).
+        /// When provided, only sections matching this code are returned, significantly reducing payload size.
+        /// </param>
         /// <returns>List of <see cref="LabelSectionMarkdownDto"/> with markdown-formatted section content.</returns>
         /// <example>
         /// <code>
         /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
+        ///
+        /// // Get all sections
         /// var sections = await DtoLabelAccess.GetLabelSectionMarkdownAsync(db, documentGuid, secret, logger);
+        ///
+        /// // Get specific section (reduces payload from ~88KB to ~1-2KB)
+        /// var indications = await DtoLabelAccess.GetLabelSectionMarkdownAsync(db, documentGuid, secret, logger, "34067-9");
         ///
         /// // Access section content
         /// foreach (var section in sections)
@@ -2674,6 +2714,9 @@ namespace MedRecPro.DataAccess
         ///
         /// This method is designed for AI/LLM summarization workflows where
         /// authoritative label content is needed rather than relying on training data.
+        ///
+        /// **Token Optimization:** When comparing multiple drugs, use the sectionCode parameter
+        /// to fetch only the relevant section(s), reducing payload from ~88KB to ~1-2KB per section.
         /// </remarks>
         /// <seealso cref="LabelView.LabelSectionMarkdown"/>
         /// <seealso cref="LabelSectionMarkdownDto"/>
@@ -2682,12 +2725,13 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
-            ILogger logger)
+            ILogger logger,
+            string? sectionCode = null)
         {
             #region implementation
 
-            // Generate cache key for this document
-            string key = generateCacheKey(nameof(GetLabelSectionMarkdownAsync), documentGuid.ToString(), null, null);
+            // Generate cache key for this document (include sectionCode if provided)
+            string key = generateCacheKey(nameof(GetLabelSectionMarkdownAsync), $"{documentGuid.ToString()}{sectionCode}", null, null);
 
             var cached = Cached.GetCache<List<LabelSectionMarkdownDto>>(key);
 
@@ -2700,10 +2744,18 @@ namespace MedRecPro.DataAccess
                 return cached;
             }
 
-            // Query the view for all sections of this document
-            var entities = await db.Set<LabelView.LabelSectionMarkdown>()
+            // Build query with optional section code filter for server-side filtering
+            var query = db.Set<LabelView.LabelSectionMarkdown>()
                 .AsNoTracking()
-                .Where(s => s.DocumentGUID == documentGuid)
+                .Where(s => s.DocumentGUID == documentGuid);
+
+            // Apply section code filter if provided (reduces payload from ~88KB to ~1-2KB)
+            if (!string.IsNullOrWhiteSpace(sectionCode))
+            {
+                query = query.Where(s => s.SectionCode == sectionCode);
+            }
+
+            var entities = await query
                 .OrderBy(s => s.SectionCode)
                 .ToListAsync();
 
@@ -2721,44 +2773,44 @@ namespace MedRecPro.DataAccess
         }
 
         /**************************************************************/
-        /// <summary>
-        /// Generates a complete markdown document from all sections for a given DocumentGUID.
-        /// Combines section content with header information for AI skill augmentation.
-        /// </summary>
-        /// <param name="db">The application database context.</param>
-        /// <param name="documentGuid">The unique identifier for the document to export.</param>
-        /// <param name="pkSecret">Secret used for ID encryption.</param>
-        /// <param name="logger">Logger instance for diagnostics.</param>
-        /// <returns>A <see cref="LabelMarkdownExportDto"/> containing the complete markdown and metadata.</returns>
-        /// <example>
-        /// <code>
-        /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
-        /// var export = await DtoLabelAccess.GenerateLabelMarkdownAsync(db, documentGuid, secret, logger);
-        ///
-        /// // Use the complete markdown
-        /// Console.WriteLine(export.FullMarkdown);
-        ///
-        /// // Or access metadata
-        /// Console.WriteLine($"Document: {export.DocumentTitle}, Sections: {export.SectionCount}");
-        /// </code>
-        /// </example>
-        /// <remarks>
-        /// The generated markdown includes:
-        /// - Header with document title and metadata
-        /// - Data dictionary explaining the structure
-        /// - All sections in order with ## headers
-        /// - Content with markdown formatting converted from SPL tags
-        ///
-        /// This format is designed for AI skill augmentation workflows where the Claude API
-        /// needs authoritative, complete label content to generate accurate summaries
-        /// rather than relying on training data.
-        ///
-        /// **Use Case:** Building Claude API skills that need to summarize or analyze
-        /// FDA drug label content accurately and completely.
-        /// </remarks>
-        /// <seealso cref="GetLabelSectionMarkdownAsync"/>
-        /// <seealso cref="LabelMarkdownExportDto"/>
-        /// <seealso cref="LabelView.LabelSectionMarkdown"/>
+            /// <summary>
+            /// Generates a complete markdown document from all sections for a given DocumentGUID.
+            /// Combines section content with header information for AI skill augmentation.
+            /// </summary>
+            /// <param name="db">The application database context.</param>
+            /// <param name="documentGuid">The unique identifier for the document to export.</param>
+            /// <param name="pkSecret">Secret used for ID encryption.</param>
+            /// <param name="logger">Logger instance for diagnostics.</param>
+            /// <returns>A <see cref="LabelMarkdownExportDto"/> containing the complete markdown and metadata.</returns>
+            /// <example>
+            /// <code>
+            /// var documentGuid = Guid.Parse("12345678-1234-1234-1234-123456789012");
+            /// var export = await DtoLabelAccess.GenerateLabelMarkdownAsync(db, documentGuid, secret, logger);
+            ///
+            /// // Use the complete markdown
+            /// Console.WriteLine(export.FullMarkdown);
+            ///
+            /// // Or access metadata
+            /// Console.WriteLine($"Document: {export.DocumentTitle}, Sections: {export.SectionCount}");
+            /// </code>
+            /// </example>
+            /// <remarks>
+            /// The generated markdown includes:
+            /// - Header with document title and metadata
+            /// - Data dictionary explaining the structure
+            /// - All sections in order with ## headers
+            /// - Content with markdown formatting converted from SPL tags
+            ///
+            /// This format is designed for AI skill augmentation workflows where the Claude API
+            /// needs authoritative, complete label content to generate accurate summaries
+            /// rather than relying on training data.
+            ///
+            /// **Use Case:** Building Claude API skills that need to summarize or analyze
+            /// FDA drug label content accurately and completely.
+            /// </remarks>
+            /// <seealso cref="GetLabelSectionMarkdownAsync"/>
+            /// <seealso cref="LabelMarkdownExportDto"/>
+            /// <seealso cref="LabelView.LabelSectionMarkdown"/>
         public static async Task<LabelMarkdownExportDto> GenerateLabelMarkdownAsync(
             ApplicationDbContext db,
             Guid documentGuid,

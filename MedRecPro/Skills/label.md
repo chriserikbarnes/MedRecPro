@@ -5,22 +5,19 @@ This document describes the available API endpoints for querying and managing SP
 ## Table of Contents
 
 1. [System Overview](#system-overview)
-2. [Navigation Views (Search & Discovery)](#navigation-views-search--discovery)
-3. [Label CRUD Operations](#label-crud-operations)
-4. [Import/Export Operations](#importexport-operations)
-5. [AI Comparison Analysis](#ai-comparison-analysis)
-6. [AI Agent Workflow](#ai-agent-workflow-interpret--execute--synthesize)
-7. [Authentication](#authentication)
-8. [User Management](#user-management)
-9. [Settings & Caching](#settings--caching)
-10. [Data Discovery Workflow](#data-discovery-workflow-important)
-11. [Query Decision Tree](#query-decision-tree-expanded-scenarios)
-12. [Table-to-Data Mapping Reference](#table-to-data-mapping-reference)
-13. [Fallback Strategy](#fallback-strategy-for-404-errors)
-14. [Multi-Step Workflows](#multi-step-workflows-dependent-endpoint-execution)
-15. [Complete Request Examples](#complete-request-examples)
-16. [Critical Reminders](#critical-reminders-for-data-queries)
-17. [Important Notes](#important-notes)
+2. [Quick Reference: Key Endpoints](#quick-reference-key-endpoints)
+3. [Navigation Views (Search & Discovery)](#navigation-views-search--discovery)
+4. [Label CRUD Operations](#label-crud-operations)
+5. [Import/Export Operations](#importexport-operations)
+6. [AI Comparison Analysis](#ai-comparison-analysis)
+7. [Data Discovery Workflow](#data-discovery-workflow-important)
+8. [Query Decision Tree](#query-decision-tree-expanded-scenarios)
+9. [Table-to-Data Mapping Reference](#table-to-data-mapping-reference)
+10. [Fallback Strategy](#fallback-strategy-for-404-errors)
+11. [Multi-Step Workflows](#multi-step-workflows-dependent-endpoint-execution)
+12. [Complete Request Examples](#complete-request-examples)
+13. [Critical Reminders](#critical-reminders-for-data-queries)
+14. [Important Notes](#important-notes)
 
 ---
 
@@ -34,6 +31,58 @@ This document describes the available API endpoints for querying and managing SP
 - **Authentication**: Google OAuth, Microsoft OAuth, Cookie-based
 - **Data Security**: All primary/foreign keys are encrypted using secure cipher
 - **Data Source**: SPL XML files from FDA DailyMed
+
+---
+
+## Quick Reference: Key Endpoints
+
+### CRITICAL: Attribution Policy
+
+**ALL content in summaries and comparisons MUST be sourced from API responses.** Never supplement with training data. Every fact must be attributable to a specific API endpoint.
+
+### Primary Endpoints by Task
+
+| Task | Endpoint | Notes |
+|------|----------|-------|
+| **Summarize/Compare Drug Labels** | `GET /api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}` | **PREFERRED** - Use sectionCode filter for token optimization |
+| Find Products by Name | `GET /api/Label/document/search?productNameSearch={name}` | Returns `documentGuid` |
+| Find Products by Ingredient | `GET /api/Label/ingredient/advanced?substanceNameSearch={name}` | Returns `documentGUID` |
+| Get Complete Document | `GET /api/Label/single/{documentGuid}` | Full document metadata |
+| Generate SPL XML | `GET /api/Label/generate/{documentGuid}/true` | View full label link |
+
+### Markdown Sections Endpoint (For AI Summarization)
+
+```
+GET /api/Label/markdown/sections/{documentGuid}
+GET /api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `documentGuid` | GUID | Yes | The document identifier from search results |
+| `sectionCode` | string | No | LOINC code to filter sections (e.g., "34067-9" for Indications) |
+
+**Token Optimization:** Use `sectionCode` parameter when comparing multiple drugs. Reduces payload from ~88KB (all sections) to ~1-2KB per section.
+
+**Response:** Array of sections with pre-formatted `fullSectionText` ready for AI consumption.
+
+**Key Fields:**
+- `sectionCode` - LOINC code (e.g., "34089-3" for DESCRIPTION)
+- `sectionTitle` - Human-readable title
+- `fullSectionText` - **Pre-aggregated markdown content**
+- `documentTitle` - For attribution
+
+### Common LOINC Codes
+
+| Code | Section | Use For |
+|------|---------|---------|
+| 34089-3 | DESCRIPTION | Drug class, mechanism |
+| 34067-9 | INDICATIONS AND USAGE | What it treats |
+| 34084-4 | ADVERSE REACTIONS | Side effects comparison |
+| 34070-3 | CONTRAINDICATIONS | When not to use |
+| 43685-7 | WARNINGS AND PRECAUTIONS | Safety info |
+| 34068-7 | DOSAGE AND ADMINISTRATION | Dosing info |
+| 34073-7 | DRUG INTERACTIONS | Interaction warnings |
 
 ---
 
@@ -73,100 +122,56 @@ Get aggregated summaries with product/document counts.
 
 ---
 
-### Pharmacologic Class Search
-
-Search by therapeutic/pharmacologic class.
-
-#### Search by Pharmacologic Class
-```
-GET /api/Label/pharmacologic-class/search?classNameSearch={value}&pageNumber={n}&pageSize={n}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `classNameSearch` | string | Yes | Pharmacologic class name |
-| `pageNumber` | int | No | 1-based page number |
-| `pageSize` | int | No | Records per page |
-
-**Example**: Find all beta blockers, ACE inhibitors
-
-**Trigger Phrases**: "find by drug class", "beta blockers", "ACE inhibitors", "drugs in class"
-
-#### Pharmacologic Class Summaries
-```
-GET /api/Label/pharmacologic-class/summaries?pageNumber={n}&pageSize={n}
-```
-
-Get class summaries with product counts.
-
-#### Pharmacologic Class Hierarchy
-```
-GET /api/Label/pharmacologic-class/hierarchy
-```
-
-Get the therapeutic class hierarchy tree (useful for faceted navigation).
-
----
-
-### Ingredient Search
-
-Search products by active or inactive ingredient (UNII or substance name).
-
-#### Search by Ingredient (Basic)
-```
-GET /api/Label/ingredient/search?unii={code}&substanceNameSearch={name}&pageNumber={n}&pageSize={n}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `unii` | string | No* | FDA Unique Ingredient Identifier |
-| `substanceNameSearch` | string | No* | Substance/ingredient name |
-| `pageNumber` | int | No | 1-based page number |
-| `pageSize` | int | No | Records per page |
-
-*At least one of `unii` or `substanceNameSearch` is required.
-
-**NOTE:** This endpoint does NOT return application numbers. If you need application number information, use the **Advanced Ingredient Search** endpoint instead: `/api/Label/ingredient/advanced`
-
-**Example**: Find products containing aspirin, acetaminophen
-
-**Trigger Phrases**: "find by ingredient", "products containing aspirin", "drugs with acetaminophen"
-
 #### All Ingredient Summaries
 ```
-GET /api/Label/ingredient/summaries?minProductCount={n}&pageNumber={n}&pageSize={n}
+GET /api/Label/ingredient/summaries?ingredient={text}&minProductCount={n}&pageNumber={n}&pageSize={n}
 ```
 
 Get all ingredient summaries ranked by frequency.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
+| `ingredient` | string | No | Filter by ingredient name (partial match on SubstanceName). Use to vary results for paginated queries. |
 | `minProductCount` | int | No | Minimum product count filter |
 | `pageNumber` | int | No | 1-based page number |
 | `pageSize` | int | No | Records per page |
 
 #### Active Ingredient Summaries
 ```
-GET /api/Label/ingredient/active/summaries?minProductCount={n}&pageNumber={n}&pageSize={n}
+GET /api/Label/ingredient/active/summaries?ingredient={text}&minProductCount={n}&pageNumber={n}&pageSize={n}
 ```
 
 Get active ingredient summaries with product, document, and labeler counts.
 
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ingredient` | string | No | Filter by ingredient name (partial match on SubstanceName). Use to vary results for paginated queries. |
+| `minProductCount` | int | No | Minimum product count filter |
+| `pageNumber` | int | No | 1-based page number |
+| `pageSize` | int | No | Records per page |
+
 #### Inactive Ingredient Summaries
 ```
-GET /api/Label/ingredient/inactive/summaries?minProductCount={n}&pageNumber={n}&pageSize={n}
+GET /api/Label/ingredient/inactive/summaries?ingredient={text}&minProductCount={n}&pageNumber={n}&pageSize={n}
 ```
 
 Get inactive ingredient (excipient) summaries with product, document, and labeler counts.
 
-#### Advanced Ingredient Search
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ingredient` | string | No | Filter by ingredient name (partial match on SubstanceName). Use to vary results for paginated queries. |
+| `minProductCount` | int | No | Minimum product count filter |
+| `pageNumber` | int | No | 1-based page number |
+| `pageSize` | int | No | Records per page |
+
+#### Ingredient Search
 ```
 GET /api/Label/ingredient/advanced?unii={code}&substanceNameSearch={name}&applicationNumber={appNum}&applicationType={type}&productNameSearch={product}&activeOnly={bool}&pageNumber={n}&pageSize={n}
 ```
 
 Enhanced ingredient search with application number filtering, document linkage, and product name matching.
 
-**IMPORTANT:** This is the ONLY ingredient search endpoint that returns application numbers. Use this instead of `/ingredient/search` when you need application number information.
+**IMPORTANT:** This is the ONLY ingredient search endpoint that returns application numbers.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -186,7 +191,9 @@ Enhanced ingredient search with application number filtering, document linkage, 
 - `ApplicationNumber` and `ApplicationType` for regulatory context
 - `ClassCode` to distinguish active vs inactive ingredients
 
-**Trigger Phrases**: "find by application number", "search NDA ingredients", "products with ANDA", "inactive ingredients for product", "what application number", "show application number for", "what is the NDA for", "what is the ANDA for"
+**Example**: Find products containing aspirin, acetaminophen
+
+**Trigger Phrases**: "find by application number", "search NDA ingredients", "products with ANDA", "inactive ingredients for product", "what application number", "show application number for", "what is the NDA for", "what is the ANDA for","find by ingredient", "products containing aspirin", "drugs with acetaminophen"
 
 #### Find Products by Application Number with Same Ingredient
 ```
@@ -359,10 +366,54 @@ Get section type frequency statistics (ordered by document count).
 
 Get section text content for AI summarization workflows.
 
-#### Get Section Content
+#### Get Section Content as Markdown (PREFERRED)
+```
+GET /api/Label/markdown/sections/{documentGuid}
+```
+
+**This is the PREFERRED endpoint for all summarization and comparison workflows.** It returns pre-formatted markdown text with all section content aggregated and ready for AI consumption.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `documentGuid` | GUID | Yes | Document GUID to retrieve content for |
+
+**Response Fields:**
+- `documentGUID`: The document identifier
+- `setGUID`: The document set identifier
+- `documentTitle`: Full document title with approval info
+- `sectionCode`: LOINC code for the section
+- `sectionTitle`: Human-readable section title
+- `sectionKey`: Unique key combining document, code, and title
+- `fullSectionText`: **Pre-formatted markdown content ready for summarization**
+- `contentBlockCount`: Number of content blocks aggregated
+
+**Example Response:**
+```json
+{
+  "labelSectionMarkdown": {
+    "documentGUID": "774105bc-8258-481c-8883-f25f25166aea",
+    "sectionCode": "34089-3",
+    "sectionTitle": "11 DESCRIPTION",
+    "fullSectionText": "## 11 DESCRIPTION\r\n\r\nFEMARA (letrozole) is a nonsteroidal aromatase inhibitor...",
+    "contentBlockCount": 13
+  }
+}
+```
+
+**Use Cases:**
+- Summarizing drug labels for users
+- Comparing sections across multiple products
+- Generating comparison tables with attributable data
+- Any AI-powered content synthesis
+
+**Trigger Phrases**: "summarize section", "compare drugs", "drug comparison", "section content for", "text from section"
+
+#### Get Section Content (Raw/Legacy)
 ```
 GET /api/Label/section/content/{documentGuid}?sectionGuid={guid?}&sectionCode={code?}&pageNumber={n}&pageSize={n}
 ```
+
+Returns individual content blocks (use markdown endpoint above for aggregated content).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -372,10 +423,6 @@ GET /api/Label/section/content/{documentGuid}?sectionGuid={guid?}&sectionCode={c
 | `pageNumber` | int | No | 1-based page number |
 | `pageSize` | int | No | Records per page |
 
-**Example**: Get adverse reactions text for summarization
-
-**Trigger Phrases**: "summarize section", "get section text", "section content for", "text from section"
-
 ##### Common LOINC Section Codes
 
 | Code | Section Name | User Request Examples |
@@ -383,8 +430,8 @@ GET /api/Label/section/content/{documentGuid}?sectionGuid={guid?}&sectionCode={c
 | 34066-1 | Boxed Warning | boxed warning, black box warning |
 | 34067-9 | Indications and Usage | indications, uses, what is it for |
 | 34068-7 | Dosage and Administration | dosing, dosage, how to take, administration |
-| 34069-5 | Contraindications | contraindications, when not to use |
-| 34070-3 | Warnings | warnings |
+| 34070-3 | Contraindications | contraindications, when not to use |
+| 34071-1 | Warnings | warnings |
 | 43685-7 | Warnings and Precautions | warnings and precautions |
 | 34073-7 | Drug Interactions | drug interactions |
 | 34084-4 | Adverse Reactions | adverse reactions, side effects |
@@ -570,189 +617,6 @@ Check analysis progress.
 
 ---
 
-## AI Agent Workflow (Interpret → Execute → Synthesize)
-
-MedRecPro supports an agentic workflow where the server returns *endpoint specifications* for the client to execute, then the server synthesizes results into a final answer.
-
-### Start / Manage Conversation Context
-```
-POST /api/ai/conversations
-```
-
-Create a new conversation session (optional).
-
-**Notes**:
-- Conversations expire after 1 hour of inactivity
-- You can skip this; calling interpret without a conversationId can auto-create one
-
-### Interpret a Natural Language Query into Endpoint Calls
-```
-POST /api/ai/interpret
-Body: AiAgentRequest (originalQuery, optional conversationId/history/system context)
-Response: AiAgentInterpretation (endpoints, reasoning hints, direct responses when applicable)
-```
-
-Return endpoint specifications to execute.
-
-### Synthesize Executed Results Back into a Human Answer
-```
-POST /api/ai/synthesize
-Body: AiSynthesisRequest (originalQuery, conversationId, executedEndpoints[])
-Response: synthesized answer + highlights + suggested follow-ups
-```
-
-Provide executed endpoint results and get final narrative response.
-
-### Convenience: One-shot Query
-```
-GET /api/ai/chat?message={text}
-```
-
-Convenience endpoint (interpret + immediate execution for simple queries).
-
-Use when you don't need multi-step client execution. For richer conversation/history, prefer `POST /api/ai/interpret`.
-
-### Context / Readiness Checks
-
-#### Get System Context
-```
-GET /api/ai/context
-```
-
-Returns system context (e.g., documentCount) used to guide workflows.
-
-#### Get Skills Document
-```
-GET /api/ai/skills
-```
-
-Returns the current skills document (this content) for AI/tooling clients.
-
----
-
-## Authentication
-
-### OAuth Login
-```
-GET /api/auth/login/{provider}
-```
-
-Initiate OAuth login.
-
-| Parameter | Values |
-|-----------|--------|
-| `provider` | Google, Microsoft |
-
-### Get Current User
-```
-GET /api/auth/user
-```
-
-Get current user info. Requires authentication.
-
-### Logout
-```
-POST /api/auth/logout
-```
-
-Log out. Requires authentication.
-
----
-
-## User Management
-
-### Get My Profile
-```
-GET /api/users/me
-```
-
-Get current user profile. Requires authentication.
-
-### Get User by ID
-```
-GET /api/users/{encryptedUserId}
-```
-
-Get user by ID.
-
-### Update User Profile
-```
-PUT /api/users/{encryptedUserId}/profile
-```
-
-Update a user's own profile.
-
-### Get User Activity (Admin)
-```
-GET /api/users/user/{encryptedUserId}/activity
-```
-
-Get user activity log (paged, newest first). Requires authentication.
-
-### Get User Activity by Date Range
-```
-GET /api/users/user/{encryptedUserId}/activity/daterange?startDate={dt}&endDate={dt}
-```
-
-Activity within date range.
-
-### Get Endpoint Statistics (Admin)
-```
-GET /api/users/endpoint-stats?startDate={dt?}&endDate={dt?}
-```
-
-Endpoint usage statistics.
-
----
-
-### Local Authentication (Legacy/Alternative to OAuth)
-
-#### Sign Up
-```
-POST /api/users/signup
-```
-
-Create a new user account.
-
-#### Authenticate
-```
-POST /api/users/authenticate
-```
-
-Authenticate user (email/password) and return user details.
-
-#### Rotate Password
-```
-POST /api/users/rotate-password
-```
-
-Rotate password (current + new password).
-
-#### Admin Update
-```
-PUT /api/users/admin-update
-```
-
-(Admin) Bulk update user properties.
-
----
-
-## Settings & Caching
-
-### Managed Cache Reset
-
-Clears managed cache entries when critical data changes require immediate consistency.
-
-```
-POST /api/settings/clearmanagedcache
-```
-
-Clears managed performance cache key-chain entries.
-
-**Use after**: Updates like assignment ownership changes, organization changes, or other global edits.
-
----
-
 ## Data Discovery Workflow (IMPORTANT)
 
 When views return 404 or do not provide the data needed, use the Label CRUD system:
@@ -841,13 +705,12 @@ Use this decision tree to select the correct endpoint.
 
 **Standard workflow - use BOTH endpoints for comprehensive results:**
 
-1. **Basic search**: `GET /api/Label/ingredient/search?substanceNameSearch={name}` (or `unii={code}` if known)
-2. **ALSO USE Advanced search**: `GET /api/Label/ingredient/advanced?substanceNameSearch={name}` (or `unii={code}`)
+1. **Search**: `GET /api/Label/ingredient/advanced?substanceNameSearch={name}` (or `unii={code}`)
    - Returns ApplicationNumber, ApplicationType, DocumentGUID for linking to labels
    - Include this link in Data Sources for user reference
-3. **For related ingredients**: `GET /api/Label/ingredient/related?substanceNameSearch={name}&isActive=true`
+2. **For related ingredients**: `GET /api/Label/ingredient/related?substanceNameSearch={name}&isActive=true`
    - Returns both active and inactive ingredients for products containing the ingredient
-4. If views fail: query `ActiveIngredient` / `InactiveIngredient` tables via Label CRUD and filter client-side
+3. If views fail: query `ActiveIngredient` / `InactiveIngredient` tables via Label CRUD and filter client-side
 
 **Data Sources should include:**
 - Link to advanced search: `/api/Label/ingredient/advanced?substanceNameSearch={name}` (shows application numbers)
@@ -855,15 +718,12 @@ Use this decision tree to select the correct endpoint.
 
 ### User asks: 'What is the application number for [ingredient/UNII/product]?'
 
-**IMPORTANT:** The basic `/ingredient/search` endpoint does NOT return application numbers. You MUST use the advanced search.
-
 1. **USE THIS**: `GET /api/Label/ingredient/advanced?unii={code}` (returns ApplicationNumber and ApplicationType)
 2. **OR**: `GET /api/Label/ingredient/advanced?substanceNameSearch={name}` (if UNII not known)
 3. **OR**: `GET /api/Label/ingredient/advanced?productNameSearch={product}` (search by product name)
 
 The response includes `ApplicationNumber` and `ApplicationType` fields directly in the results.
 
-**DO NOT USE** `/api/Label/ingredient/search` for application number lookups - it doesn't return that data.
 
 ### User asks: 'Find products by application number' or 'Find generic equivalents'
 
@@ -908,31 +768,29 @@ The response includes `ApplicationNumber` and `ApplicationType` fields directly 
 
 1. **Get DocumentGUID first** (if not known):
    - `GET /api/Label/document/search?productNameSearch={name}&pageNumber=1&pageSize=1`
-2. **Get section content for summarization**:
-   - `GET /api/Label/section/content/{documentGuid}?sectionCode={loincCode}`
+2. **Get section content for summarization (PREFERRED)**:
+   - `GET /api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}` - use sectionCode filter for token optimization
+   - Example: `GET /api/Label/markdown/sections/{documentGuid}?sectionCode=34084-4` for adverse reactions
 3. **LOINC codes for common requests**:
-   - Warnings: `43685-7` (Warnings and Precautions) or `34070-3` (Warnings)
+   - Warnings: `43685-7` (Warnings and Precautions) or `34071-1` (Warnings)
    - Adverse reactions/side effects: `34084-4`
    - Dosing: `34068-7` (Dosage and Administration)
    - Drug interactions: `34073-7`
    - Boxed warning: `34066-1`
+   - Description/Mechanism: `34089-3`
 
-### User asks: 'How do I do multi-step AI-assisted querying?'
+### User asks: 'Compare drug X vs drug Y' or 'Compare these drugs'
 
-1. `POST /api/ai/interpret` with a natural language query
-2. Execute returned endpoints on the client
-3. `POST /api/ai/synthesize` with executed endpoint results
-4. Optional: `POST /api/ai/conversations` to explicitly start a session first
-
-### User asks: 'Clear cache / I changed core reference data and need consistency'
-
-1. `POST /api/settings/clearmanagedcache` (admin-only in most deployments)
-
-### Admin asks: 'Show endpoint usage / audit activity'
-
-1. `GET /api/users/endpoint-stats?startDate={dt?}&endDate={dt?}`
-2. `GET /api/users/user/{encryptedUserId}/activity?pageNumber=1&pageSize=50`
-3. Date filtering: `/activity/daterange?startDate={dt}&endDate={dt}`
+1. **Find documents for each product**:
+   - `GET /api/Label/document/search?productNameSearch={product1}` → get `documentGuid1`
+   - `GET /api/Label/document/search?productNameSearch={product2}` → get `documentGuid2`
+2. **Get relevant sections for each product (use sectionCode filter for token optimization)**:
+   - `GET /api/Label/markdown/sections/{documentGuid1}?sectionCode={loincCode}`
+   - `GET /api/Label/markdown/sections/{documentGuid2}?sectionCode={loincCode}`
+   - Example for adverse reactions: `sectionCode=34084-4`
+   - Example for indications: `sectionCode=34067-9`
+3. **Build comparison using `fullSectionText`** from matching `sectionCode` values
+4. **CRITICAL**: Only include information found in the API responses - never supplement with training data
 
 ---
 
@@ -946,7 +804,8 @@ The response includes `ApplicationNumber` and `ApplicationType` fields directly 
 | Inactive Ingredients | InactiveIngredient | substanceName, unii |
 | Manufacturers/Labelers | Organization | organizationName, dunsNumber |
 | Sections/Content | Section | sectionCode, sectionTitle, contentText |
-| Section Text Content | vw_SectionContent (via endpoint) | documentGuid, sectionCode, contentText |
+| Section Markdown (PREFERRED) | /api/Label/markdown/sections/{guid}?sectionCode={loincCode} | documentGuid, sectionCode, fullSectionText |
+| Section Text Content (Legacy) | vw_SectionContent (via endpoint) | documentGuid, sectionCode, contentText |
 | NDC Codes | ProductIdentifier, PackageIdentifier | code, codeSystem |
 | Packaging | PackagingLevel, PackageItem | quantity, formCode |
 | Drug Classes | PharmacologicClass | className, classCode |
@@ -979,12 +838,14 @@ If a view endpoint returns 404, the view may not be implemented. Use this fallba
 
 ### Section content retrieval fails
 
-If `/api/Label/section/content/{documentGuid}` returns empty:
+If section content endpoints return empty:
 
-1. Verify the documentGuid is valid: `GET /api/label/single/{documentGuid}`
-2. Check available sections: `GET /api/Label/section/summaries?pageNumber=1&pageSize=50`
-3. Try the full document endpoint and extract sections: `GET /api/label/single/{documentGuid}`
-4. Fallback to Section table: `GET /api/label/section/Section?pageNumber=1&pageSize=200` and filter by documentId
+1. **PREFERRED**: Try markdown endpoint: `GET /api/Label/markdown/sections/{documentGuid}`
+   - Returns all sections as pre-formatted markdown with `fullSectionText`
+2. Verify the documentGuid is valid: `GET /api/label/single/{documentGuid}`
+3. Check available sections: `GET /api/Label/section/summaries?pageNumber=1&pageSize=50`
+4. Try the full document endpoint and extract sections: `GET /api/label/single/{documentGuid}`
+5. Fallback to Section table: `GET /api/label/section/Section?pageNumber=1&pageSize=200` and filter by documentId
 
 ---
 
@@ -1000,21 +861,22 @@ the interpret endpoint should return endpoints with `step`, `dependsOn`, and `ou
   "suggestedEndpoints": [
     {
       "step": 1,
-      "path": "/api/Label/ingredient/search",
+      "path": "/api/Label/ingredient/advanced",
       "method": "GET",
       "queryParameters": { "substanceNameSearch": "{ingredient}" },
       "description": "Search for products containing the ingredient",
       "outputMapping": {
-        "documentGuid": "$[0].documentGuid",
+        "documentGuid": "$[0].documentGUID",
         "productName": "$[0].productName"
       }
     },
     {
       "step": 2,
-      "path": "/api/label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "method": "GET",
+      "queryParameters": { "sectionCode": "{loincCode}" },
       "dependsOn": 1,
-      "description": "Get the paragraph text for the section"
+      "description": "Get specific section as pre-formatted markdown (use sectionCode for token optimization)"
     }
   ]
 }
@@ -1047,14 +909,14 @@ the interpret endpoint should return endpoints with `step`, `dependsOn`, and `ou
 | **Intent** | Retrieve warnings, precautions, adverse effects, or side effects for an ingredient |
 | **Triggers** | "adverse effects for {ingredient}", "side effects for {ingredient}", "precautions for {ingredient}", "warnings for {ingredient}" |
 
-### Endpoint Specification (for interpret response)
+### Endpoint Specification (Using Markdown Endpoint with sectionCode Filter)
 
 ```json
 {
   "suggestedEndpoints": [
     {
       "step": 1,
-      "path": "/api/Label/ingredient/search",
+      "path": "/api/Label/ingredient/advanced",
       "method": "GET",
       "queryParameters": {
         "substanceNameSearch": "{ingredient}",
@@ -1063,17 +925,26 @@ the interpret endpoint should return endpoints with `step`, `dependsOn`, and `ou
       },
       "description": "Search for products containing {ingredient}",
       "outputMapping": {
-        "documentGuid": "$[0].documentGuid",
+        "documentGuid": "$[0].documentGUID",
         "productName": "$[0].productName",
         "labelerName": "$[0].labelerName"
       }
     },
     {
       "step": 2,
-      "path": "/api/label/single/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "method": "GET",
+      "queryParameters": { "sectionCode": "43685-7" },
       "dependsOn": 1,
-      "description": "Get complete label for {{productName}}"
+      "description": "Get warnings/precautions section (token optimized)"
+    },
+    {
+      "step": 3,
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
+      "method": "GET",
+      "queryParameters": { "sectionCode": "34084-4" },
+      "dependsOn": 1,
+      "description": "Get adverse reactions section (token optimized)"
     }
   ]
 }
@@ -1084,27 +955,29 @@ the interpret endpoint should return endpoints with `step`, `dependsOn`, and `ou
 When synthesizing results from this workflow:
 
 1. **From Step 1**: Note how many products were found, list product names and manufacturers
-2. **From Step 2**: Locate the section where `sectionDisplayName` contains:
-   - "WARNINGS AND PRECAUTIONS" (LOINC: 43685-7)
-   - "ADVERSE REACTIONS" (LOINC: 34084-4)
-3. **Extract**: All `contentText` values from the matching section and its children
-4. **Format**: Present as hierarchical content with section headers
+2. **From Steps 2-3**: Use the filtered sections directly:
+   - Step 2: `43685-7` for WARNINGS AND PRECAUTIONS
+   - Step 3: `34084-4` for ADVERSE REACTIONS
+3. **Use `fullSectionText`**: Content is already formatted as markdown
+4. **Format**: Present directly with attribution
 
 ### Example Response Format
 
 ```
-Found {n} products containing {ingredient}. Here are the warnings and precautions 
+Found {n} products containing {ingredient}. Here are the warnings and precautions
 for {productName} by {labelerName}:
 
-## Warnings and Precautions
+{fullSectionText from sectionCode 43685-7}
 
-### {subsection title}
-{contentText}
+## Adverse Reactions
 
-### {subsection title}  
-{contentText}
+{fullSectionText from sectionCode 34084-4}
 
 ---
+**Data sources:**
+- Warnings and Precautions - {documentTitle}
+- Adverse Reactions - {documentTitle}
+
 **Other products containing {ingredient}:**
 - {product 2} by {labeler 2}
 - {product 3} by {labeler 3}
@@ -1129,19 +1002,19 @@ Would you like to see warnings for a different product?
 - Marketing start date is NOT the same as original FDA approval date
 - Clinical study results must come from section 34092-7, not general knowledge
 
-### Endpoint Specification (Multi-Step with Complete Document)
+### Endpoint Specification (Using Markdown Endpoint)
 
 ```json
 {
   "suggestedEndpoints": [
     {
       "step": 1,
-      "path": "/api/Label/ingredient/search",
+      "path": "/api/Label/ingredient/advanced",
       "method": "GET",
       "queryParameters": {
         "substanceNameSearch": "{ingredient}",
         "pageNumber": 1,
-        "pageSize": 10
+        "pageSize": 50
       },
       "description": "Search for products containing {ingredient}",
       "outputMapping": {
@@ -1161,36 +1034,32 @@ Would you like to see warnings for a different product?
     },
     {
       "step": 3,
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "method": "GET",
-      "queryParameters": { "sectionCode": "34067-9" },
       "dependsOn": 1,
-      "description": "Get Indications and Usage section (LOINC 34067-9)"
-    },
-    {
-      "step": 4,
-      "path": "/api/Label/section/content/{{documentGuid}}",
-      "method": "GET",
-      "queryParameters": { "sectionCode": "34089-3" },
-      "dependsOn": 1,
-      "description": "Get Description section (LOINC 34089-3) - drug class info"
+      "description": "Get all sections as pre-formatted markdown for summarization"
     }
   ]
 }
 ```
 
+**Note:** Step 3 returns all sections in a single call (~88KB). For comprehensive summaries this is appropriate. For targeted queries, use `?sectionCode={loincCode}` to reduce payload to ~1-2KB:
+- `34067-9` for Indications and Usage
+- `34089-3` for Description (drug class info)
+- `34084-4` for Adverse Reactions
+
 ### Data Source Mapping
 
 | Response Field | Source | Path |
 |----------------|--------|------|
-| Indication | Step 3 | sectionContent.ContentText |
+| Indication | Step 3 | `fullSectionText` where `sectionCode` = "34067-9" |
 | Active Ingredient | Step 2 | activeIngredients[].substanceName, strength |
 | Dosage Form | Step 2 | products[].dosageForm |
 | Route | Step 2 | routes[].routeName |
 | Marketing Date | Step 2 | marketingCategories[].startDate |
 | Application Number | Step 1 | applicationNumber |
 | Manufacturer | Step 1 | labelerName |
-| Drug Class | Step 4 | sectionContent.ContentText |
+| Drug Class | Step 3 | `fullSectionText` where `sectionCode` = "34089-3" |
 
 ### Synthesis Format
 
@@ -1234,7 +1103,7 @@ Would you like to see warnings for a different product?
 | **Intent** | Get section text content for AI summarization |
 | **Triggers** | "summarize {section} for {product}", "get text from {section}", "section content", "summarize warnings" |
 
-### Endpoint Specification
+### Endpoint Specification (Using Markdown Endpoint)
 
 ```json
 {
@@ -1256,36 +1125,181 @@ Would you like to see warnings for a different product?
     },
     {
       "step": 2,
-      "path": "/api/Label/section/content/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
       "method": "GET",
-      "queryParameters": {
-        "sectionCode": "{loincCode}"
-      },
+      "queryParameters": { "sectionCode": "{requestedLoincCode}" },
       "dependsOn": 1,
-      "description": "Get section text content for summarization"
+      "description": "Get specific section as pre-formatted markdown (use sectionCode for token optimization)"
     }
   ]
 }
 ```
+
+**Token Optimization:** Use `sectionCode` parameter to fetch only the requested section. This reduces payload from ~88KB (all sections) to ~1-2KB per section.
 
 ### Synthesis Instructions
 
 When synthesizing section content for summarization:
 
 1. **From Step 1**: Confirm the product was found, note the product name
-2. **From Step 2**: Aggregate all `ContentText` values in `SequenceNumber` order
-3. **Format**: Present as cohesive text, preserving section structure
+2. **From Step 2**: Find section by matching `sectionCode` to the requested LOINC code
+3. **Use `fullSectionText`**: This contains pre-aggregated, markdown-formatted content
+4. **Format**: Present the content directly—it's already properly formatted
 
 ### Example Response Format
 
 ```
-Here is the {sectionName} section for {productName}:
+Here is the {sectionTitle} section for {productName}:
 
-{aggregated ContentText from all returned records, in sequence order}
+{fullSectionText from matching section}
 
 ---
+**Data source:** {sectionTitle} section from {documentTitle}
+
 Would you like me to summarize this content or retrieve a different section?
 ```
+
+---
+
+## Workflow: Drug Comparison
+
+| Property | Value |
+|----------|-------|
+| **Intent** | Compare two or more drugs on specific attributes (mechanism, adverse reactions, formulation, etc.) |
+| **Triggers** | "compare {drug1} vs {drug2}", "differences between {drug1} and {drug2}", "compare aromatase inhibitors", "compare {drug class}" |
+
+### CRITICAL: Attribution Requirement
+
+**ALL comparison information MUST be sourced from API data.** Never use training data to fill in comparison details. Every fact in the comparison must be attributable to a specific label section.
+
+### Endpoint Specification (Multi-Product Comparison)
+
+```json
+{
+  "suggestedEndpoints": [
+    {
+      "step": 1,
+      "path": "/api/Label/document/search",
+      "method": "GET",
+      "queryParameters": {
+        "productNameSearch": "{product1}",
+        "pageNumber": 1,
+        "pageSize": 1
+      },
+      "description": "Find document for {product1}",
+      "outputMapping": {
+        "documentGuid1": "$[0].documentGuid",
+        "productName1": "$[0].productName"
+      }
+    },
+    {
+      "step": 2,
+      "path": "/api/Label/document/search",
+      "method": "GET",
+      "queryParameters": {
+        "productNameSearch": "{product2}",
+        "pageNumber": 1,
+        "pageSize": 1
+      },
+      "description": "Find document for {product2}",
+      "outputMapping": {
+        "documentGuid2": "$[0].documentGuid",
+        "productName2": "$[0].productName"
+      }
+    },
+    {
+      "step": 3,
+      "path": "/api/Label/markdown/sections/{{documentGuid1}}",
+      "method": "GET",
+      "queryParameters": { "sectionCode": "{relevantLoincCode}" },
+      "dependsOn": 1,
+      "description": "Get relevant section for {product1} (use sectionCode for token optimization)"
+    },
+    {
+      "step": 4,
+      "path": "/api/Label/markdown/sections/{{documentGuid2}}",
+      "method": "GET",
+      "queryParameters": { "sectionCode": "{relevantLoincCode}" },
+      "dependsOn": 2,
+      "description": "Get relevant section for {product2} (use sectionCode for token optimization)"
+    }
+  ]
+}
+```
+
+**Token Optimization:** Use `sectionCode` parameter to fetch only the sections needed for comparison. This reduces payload from ~88KB per product to ~1-2KB per section.
+
+### Key Sections for Comparison
+
+| Comparison Aspect | LOINC Code | Section Title |
+|-------------------|------------|---------------|
+| Drug Class/Mechanism | 34089-3 | DESCRIPTION |
+| Indications | 34067-9 | INDICATIONS AND USAGE |
+| Adverse Reactions | 34084-4 | ADVERSE REACTIONS |
+| Contraindications | 34070-3 | CONTRAINDICATIONS |
+| Warnings | 43685-7 | WARNINGS AND PRECAUTIONS |
+| Drug Interactions | 34073-7 | DRUG INTERACTIONS |
+| Dosing | 34068-7 | DOSAGE AND ADMINISTRATION |
+| How Supplied | 34069-5 | HOW SUPPLIED/STORAGE AND HANDLING |
+
+### Synthesis Instructions
+
+When synthesizing a drug comparison:
+
+1. **Match sections by `sectionCode`** from both products
+2. **Extract relevant text from `fullSectionText`** for each comparison aspect
+3. **Create structured comparison tables** using ONLY data from the API responses
+4. **Include Data Sources section** with links to the specific sections used
+
+### Example Response Format
+
+```markdown
+## {Product1} vs {Product2} Comparison
+
+I found {n} products in the database for this comparison.
+
+### Drug Class & Mechanism
+
+| Product | Drug Class | Description |
+|---------|------------|-------------|
+| {Product1} | {from 34089-3 fullSectionText} | {mechanism excerpt} |
+| {Product2} | {from 34089-3 fullSectionText} | {mechanism excerpt} |
+
+### Adverse Reactions Comparison
+
+#### {Product1}
+{Extract from 34084-4 fullSectionText}
+
+#### {Product2}
+{Extract from 34084-4 fullSectionText}
+
+### Key Differences
+
+| Aspect | {Product1} | {Product2} |
+|--------|------------|------------|
+| Mechanism | {from label} | {from label} |
+| Formulation | {from label} | {from label} |
+
+---
+
+**View Full Labels:**
+• [View Full Label ({Product1})](/api/Label/generate/{DocumentGUID1}/true)
+• [View Full Label ({Product2})](/api/Label/generate/{DocumentGUID2}/true)
+
+**Data sources:**
+- {Product1} Description (mechanism) - HUMAN PRESCRIPTION DRUG LABEL
+- {Product1} Adverse Reactions - HUMAN PRESCRIPTION DRUG LABEL
+- {Product2} Description (mechanism) - HUMAN PRESCRIPTION DRUG LABEL
+- {Product2} Adverse Reactions - HUMAN PRESCRIPTION DRUG LABEL
+```
+
+### What NOT to Include (Training Data Leakage)
+
+- ❌ Adverse reaction frequencies not in the label
+- ❌ Mechanism details beyond what's in DESCRIPTION section
+- ❌ Comparative efficacy claims not in the label
+- ❌ General drug class knowledge not from the specific label
+- ❌ Historical approval information unless in documentTitle
 
 ---
 
@@ -1333,7 +1347,7 @@ I searched for products containing {ingredient} but found no matches in the data
 Suggestions:
 - Check the spelling of the ingredient name
 - Try the generic name instead of brand name
-- Search by UNII code if known: `GET /api/Label/ingredient/search?unii={code}`
+- Search by UNII code if known: `GET /api/Label/ingredient/advanced?unii={code}`
 ```
 
 ### Step 2 Fails (Label Retrieval Error)
@@ -1423,7 +1437,7 @@ View Full Labels:
 **Rules:**
 1. **Every product = one link**: If you mention 3 products, include 3 label links
 2. **Use the ACTUAL product name**: Get `ProductName` from the API response
-3. **Use the correct DocumentGUID**: From the API response (e.g., `/api/Label/product/latest`, `/api/Label/section/content`)
+3. **Use the correct DocumentGUID**: From the API response (e.g., `/api/Label/document/search`, `/api/Label/ingredient/advanced`)
 4. **Link format**: `/api/Label/generate/{DocumentGUID}/true`
 5. **NEVER use placeholders**: "Prescription Drug", "OTC Drug", "Document #" are FORBIDDEN
 
@@ -1431,15 +1445,23 @@ View Full Labels:
 
 ## Critical Reminders for Data Queries
 
-1. **ALWAYS try /api/label/section/{table} if views fail** - This is the reliable fallback
-2. **Use sectionMenu to discover tables** - `GET /api/label/sectionMenu`
-3. **Table names are case-sensitive** - Use exactly: Document, Product, ActiveIngredient, etc.
-4. **Pagination is required for large datasets** - Always include pageNumber and pageSize
-5. **IDs are encrypted** - Use the encryptedId values returned, not raw database IDs
-6. **Check context first** - `GET /api/ai/context` tells you document/product counts
-7. **For multi-step AI**: interpret returns endpoint specs; synthesize converts executed results into answers
-8. **When global data changes**: use managed cache clear to reduce stale reads (`POST /api/settings/clearmanagedcache`)
-9. **ALWAYS include label links**: Every product mentioned MUST have a "View Full Label" link with the actual ProductName
+### Attribution is Mandatory
+
+1. **NEVER use training data for drug information** - ALL facts must come from API responses
+2. **Use markdown sections endpoint for summaries/comparisons** - `GET /api/Label/markdown/sections/{documentGuid}`
+3. **Include Data Sources section** - Every response should cite the specific endpoints used
+
+### Technical Requirements
+
+4. **ALWAYS try /api/label/section/{table} if views fail** - This is the reliable fallback
+5. **Use sectionMenu to discover tables** - `GET /api/label/sectionMenu`
+6. **Table names are case-sensitive** - Use exactly: Document, Product, ActiveIngredient, etc.
+7. **Pagination is required for large datasets** - Always include pageNumber and pageSize
+8. **IDs are encrypted** - Use the encryptedId values returned, not raw database IDs
+9. **Check context first** - `GET /api/ai/context` tells you document/product counts
+10. **For multi-step AI**: interpret returns endpoint specs; synthesize converts executed results into answers
+11. **When global data changes**: use managed cache clear to reduce stale reads (`POST /api/settings/clearmanagedcache`)
+12. **ALWAYS include label links**: Every product mentioned MUST have a "View Full Label" link with the actual ProductName
 
 ---
 
@@ -1500,11 +1522,11 @@ Suggested action: `GET /api/auth/login/Google`
 
 | User Intent | Endpoint | Key Parameter |
 |-------------|----------|---------------|
-| Find products by ingredient | `/api/Label/ingredient/search` | `substanceNameSearch` |
+| Find products by ingredient | `/api/Label/ingredient/advanced` | `substanceNameSearch` |
 | Find products by manufacturer | `/api/Label/labeler/search` | `labelerNameSearch` |
 | Search by NDC | `/api/Label/ndc/search` | `productCode` |
 | Search by application number | `/api/Label/application-number/search` | `applicationNumber` |
 | Search by drug class | `/api/Label/pharmacologic-class/search` | `classNameSearch` |
 | Find specific sections | `/api/Label/section/search` | `sectionCode` (LOINC) |
-| Get section content for summarization | `/api/Label/section/content/{documentGuid}` | `sectionCode` (LOINC) |
+| Get section content for summarization | `/api/Label/markdown/sections/{documentGuid}` | Filter by `sectionCode` |
 | Import data | `/api/label/import` | (file upload) |

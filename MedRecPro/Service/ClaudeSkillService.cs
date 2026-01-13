@@ -291,7 +291,8 @@ namespace MedRecPro.Service
             { "retry", "Skill-Retry" },
             { "rescueWorkflow", "Skill-RescueWorkflow" },
             { "labelIndicationWorkflow", "Skill-LabelIndicationWorkflow" },
-            { "labelProductIndication", "Skill-LabelProductIndication" }
+            { "labelProductIndication", "Skill-LabelProductIndication" },
+            { "general", "Skill-General" }
         };
 
         #endregion
@@ -734,6 +735,15 @@ namespace MedRecPro.Service
                 }
             }
 
+            // General skill keywords - AI workflow, auth, user management
+            if (skillKeywords.TryGetValue("general", out var generalKeywords))
+            {
+                if (generalKeywords.Any(k => message.Contains(k)))
+                {
+                    selectedSkills.Add("general");
+                }
+            }
+
             // Remove duplicates and return
             return selectedSkills.Distinct().ToList();
 
@@ -918,6 +928,13 @@ namespace MedRecPro.Service
                     "rescue", "fallback", "text search", "description section",
                     "inactive ingredient", "excipient", "not available",
                     "couldn't find", "not in", "extract from text"
+                },
+                ["general"] = new List<string>
+                {
+                    "conversation", "interpret", "synthesize", "chat",
+                    "login", "logout", "authenticate", "sign in", "sign out",
+                    "profile", "current user", "who am i", "context",
+                    "oauth", "google login", "microsoft login"
                 }
             };
 
