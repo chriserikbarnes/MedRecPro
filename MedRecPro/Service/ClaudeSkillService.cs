@@ -162,6 +162,71 @@ namespace MedRecPro.Service
         string GetRetryPromptSkills();
 
         #endregion
+
+        #region refactored architecture methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the capability contracts document (skills.md) from the refactored architecture.
+        /// This document defines stable capability contracts without implementation details.
+        /// </summary>
+        /// <returns>
+        /// A task that resolves to the capability contracts content as a string.
+        /// </returns>
+        /// <remarks>
+        /// The capability contracts document describes WHAT the system can do, not HOW.
+        /// Use this for high-level capability understanding and regulatory review.
+        /// </remarks>
+        /// <seealso cref="GetSelectorsDocumentAsync"/>
+        /// <seealso cref="GetInterfaceDocumentAsync"/>
+        Task<string> GetCapabilityContractsAsync();
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the selectors document (selectors.md) containing skill routing rules.
+        /// </summary>
+        /// <returns>
+        /// A task that resolves to the selectors document content as a string.
+        /// </returns>
+        /// <remarks>
+        /// The selectors document contains decision trees, keyword mappings, and priority rules
+        /// for routing user queries to appropriate skills.
+        /// </remarks>
+        /// <seealso cref="GetCapabilityContractsAsync"/>
+        Task<string> GetSelectorsDocumentAsync();
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves a specific interface mapping document by skill name.
+        /// Interface documents contain API endpoints, workflows, and output mappings.
+        /// </summary>
+        /// <param name="skillName">
+        /// The skill name to retrieve the interface for (e.g., "indicationDiscovery", "labelContent").
+        /// </param>
+        /// <returns>
+        /// A task that resolves to the interface document content as a string,
+        /// or an error message if the interface is not found.
+        /// </returns>
+        /// <remarks>
+        /// Interface documents map capability contracts to actual API implementations.
+        /// They contain endpoint specifications, parameter details, and workflow patterns.
+        /// </remarks>
+        /// <seealso cref="GetCapabilityContractsAsync"/>
+        Task<string> GetInterfaceDocumentAsync(string skillName);
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the response format standards document.
+        /// </summary>
+        /// <returns>
+        /// A task that resolves to the response format document content as a string.
+        /// </returns>
+        /// <remarks>
+        /// Contains output requirements, label link formats, and data source rules.
+        /// </remarks>
+        Task<string> GetResponseFormatDocumentAsync();
+
+        #endregion
     }
 
     #endregion
@@ -295,6 +360,44 @@ namespace MedRecPro.Service
             { "general", "Skill-General" },
             { "equianalgesicConversion", "Skill-EquianalgesicConversion" }
         };
+
+        /**************************************************************/
+        /// <summary>
+        /// Mapping of skill names to their interface document paths in the refactored architecture.
+        /// </summary>
+        /// <remarks>
+        /// These paths are relative to the Skills directory and map capability contracts
+        /// to their implementation specifications. Interface documents contain API endpoints,
+        /// workflows, and output mappings.
+        /// </remarks>
+        private readonly Dictionary<string, string> _interfaceDocPaths = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { "indicationDiscovery", "Skills/interfaces/api/indication-discovery.md" },
+            { "labelContent", "Skills/interfaces/api/label-content.md" },
+            { "equianalgesicConversion", "Skills/interfaces/api/equianalgesic-conversion.md" },
+            { "userActivity", "Skills/interfaces/api/user-activity.md" },
+            { "cacheManagement", "Skills/interfaces/api/cache-management.md" },
+            { "sessionManagement", "Skills/interfaces/api/session-management.md" },
+            { "dataRescue", "Skills/interfaces/api/data-rescue.md" }
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Path to the capability contracts document in the refactored architecture.
+        /// </summary>
+        private const string CapabilityContractsPath = "Skills/skills.md";
+
+        /**************************************************************/
+        /// <summary>
+        /// Path to the selectors document in the refactored architecture.
+        /// </summary>
+        private const string SelectorsDocPath = "Skills/selectors.md";
+
+        /**************************************************************/
+        /// <summary>
+        /// Path to the response format standards document.
+        /// </summary>
+        private const string ResponseFormatPath = "Skills/interfaces/response-format.md";
 
         #endregion
 
@@ -553,6 +656,157 @@ namespace MedRecPro.Service
         public string GetRetryPromptSkills()
         {
             return readSkillFile("Skill-Retry", "GetRetryPromptSkills");
+        }
+
+        #endregion
+
+        #region refactored architecture methods
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <seealso cref="GetSelectorsDocumentAsync"/>
+        /// <seealso cref="GetInterfaceDocumentAsync"/>
+        public Task<string> GetCapabilityContractsAsync()
+        {
+            #region implementation
+
+            var key = $"ClaudeSkillService_CapabilityContracts".Base64Encode();
+            var cached = PerformanceHelper.GetCache<string>(key);
+
+            if (!string.IsNullOrEmpty(cached))
+            {
+                return Task.FromResult(cached);
+            }
+
+            _logger.LogDebug("Loading capability contracts from {Path}", CapabilityContractsPath);
+
+            var content = readSkillFileByPath(CapabilityContractsPath);
+
+            // Cache for 8 hours
+            if (!content.StartsWith("Skills document not found"))
+            {
+                PerformanceHelper.SetCacheManageKey(key, content, 8);
+            }
+
+            return Task.FromResult(content);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <seealso cref="GetCapabilityContractsAsync"/>
+        /// <seealso cref="GetInterfaceDocumentAsync"/>
+        public Task<string> GetSelectorsDocumentAsync()
+        {
+            #region implementation
+
+            var key = $"ClaudeSkillService_SelectorsDoc".Base64Encode();
+            var cached = PerformanceHelper.GetCache<string>(key);
+
+            if (!string.IsNullOrEmpty(cached))
+            {
+                return Task.FromResult(cached);
+            }
+
+            _logger.LogDebug("Loading selectors document from {Path}", SelectorsDocPath);
+
+            var content = readSkillFileByPath(SelectorsDocPath);
+
+            // Cache for 8 hours
+            if (!content.StartsWith("Skills document not found"))
+            {
+                PerformanceHelper.SetCacheManageKey(key, content, 8);
+            }
+
+            return Task.FromResult(content);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <seealso cref="GetCapabilityContractsAsync"/>
+        /// <seealso cref="GetSelectorsDocumentAsync"/>
+        public Task<string> GetInterfaceDocumentAsync(string skillName)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(skillName))
+            {
+                return Task.FromResult("Skill name cannot be empty.");
+            }
+
+            var normalizedName = skillName.Trim();
+
+            // Try direct lookup first
+            if (_interfaceDocPaths.TryGetValue(normalizedName, out var docPath))
+            {
+                var key = $"ClaudeSkillService_Interface_{normalizedName}".Base64Encode();
+                var cached = PerformanceHelper.GetCache<string>(key);
+
+                if (!string.IsNullOrEmpty(cached))
+                {
+                    return Task.FromResult(cached);
+                }
+
+                _logger.LogDebug("Loading interface document for {SkillName} from {Path}", normalizedName, docPath);
+
+                var content = readSkillFileByPath(docPath);
+
+                // Cache for 8 hours
+                if (!content.StartsWith("Skills document not found"))
+                {
+                    PerformanceHelper.SetCacheManageKey(key, content, 8);
+                }
+
+                return Task.FromResult(content);
+            }
+
+            // Try fuzzy matching
+            var matchedKey = _interfaceDocPaths.Keys
+                .FirstOrDefault(k => k.Contains(normalizedName, StringComparison.OrdinalIgnoreCase) ||
+                                     normalizedName.Contains(k, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedKey != null)
+            {
+                return GetInterfaceDocumentAsync(matchedKey);
+            }
+
+            return Task.FromResult(
+                $"Interface document for '{skillName}' not found. " +
+                $"Available interfaces: {string.Join(", ", _interfaceDocPaths.Keys)}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        public Task<string> GetResponseFormatDocumentAsync()
+        {
+            #region implementation
+
+            var key = $"ClaudeSkillService_ResponseFormat".Base64Encode();
+            var cached = PerformanceHelper.GetCache<string>(key);
+
+            if (!string.IsNullOrEmpty(cached))
+            {
+                return Task.FromResult(cached);
+            }
+
+            _logger.LogDebug("Loading response format document from {Path}", ResponseFormatPath);
+
+            var content = readSkillFileByPath(ResponseFormatPath);
+
+            // Cache for 8 hours
+            if (!content.StartsWith("Skills document not found"))
+            {
+                PerformanceHelper.SetCacheManageKey(key, content, 8);
+            }
+
+            return Task.FromResult(content);
+
+            #endregion
         }
 
         #endregion
