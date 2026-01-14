@@ -4,6 +4,38 @@ This document provides instructions for handling opioid dose conversion and equi
 
 ---
 
+## ⚠️ CRITICAL WORKFLOW REQUIREMENTS - READ FIRST
+
+**For ANY opioid conversion query, you MUST:**
+
+1. **Search for BOTH opioids** - Use `/api/Label/ingredient/advanced` for source AND target opioids
+2. **Extract ALL documentGUIDs** - Use `documentGUID[]` array extraction syntax (the `[]` suffix is REQUIRED)
+3. **Fetch ONLY THESE TWO sections from ALL products for BOTH opioids:**
+   - **34068-7** (Dosage and Administration) - Main section with conversion tables
+   - **42229-5** (SPL Unclassified) - Subsections contain detailed conversion tables like "Table 1"
+4. **Fetch from BOTH source AND target opioid products** - Conversion tables are often in BOTH labels
+
+**ONLY USE sectionCode=34068-7 and sectionCode=42229-5. NO OTHER SECTION CODES.**
+
+**Example: "Convert methadone to buprenorphine"**
+- Step 1: Search methadone products → extract `methadoneDocumentGuids: "documentGUID[]"`
+- Step 2: Search buprenorphine products → extract `buprenorphineDocumentGuids: "documentGUID[]"`
+- Step 3: Fetch **sectionCode=34068-7** from ALL methadone products
+- Step 4: Fetch **sectionCode=42229-5** from ALL methadone products ← **"Table 1: Conversion Factors" is HERE!**
+- Step 5: Fetch **sectionCode=34068-7** from ALL buprenorphine products
+- Step 6: Fetch **sectionCode=42229-5** from ALL buprenorphine products
+
+**❌ WRONG - DO NOT USE THESE SECTION CODES:**
+- ❌ sectionCode=34090-1 (Clinical Pharmacology) - NO conversion tables here
+- ❌ sectionCode=43685-7 (Warnings and Precautions) - NO conversion tables here
+- ❌ sectionCode=34067-9 (Indications and Usage) - NO conversion tables here
+
+**✅ CORRECT - ONLY USE THESE SECTION CODES:**
+- ✅ sectionCode=34068-7 (Dosage and Administration)
+- ✅ sectionCode=42229-5 (SPL Unclassified - contains "Table 1: Conversion Factors")
+
+---
+
 ## Table of Contents
 
 1. [When to Use This Skill](#when-to-use-this-skill)
@@ -97,54 +129,92 @@ From the fentanyl transdermal label (and similar ER opioid labels), equianalgesi
 
 ## Common LOINC Codes for Dosing Information
 
-| LOINC Code | Section | Contains |
-|------------|---------|----------|
-| 34068-7 | DOSAGE AND ADMINISTRATION | Conversion tables, titration schedules, equianalgesic charts |
-| 34067-9 | INDICATIONS AND USAGE | Opioid-tolerant definitions with equianalgesic thresholds |
-| 34090-1 | CLINICAL PHARMACOLOGY | Pharmacokinetic comparisons |
-| 42229-5 | SPL UNCLASSIFIED SECTION | May contain supplemental equianalgesic tables |
-| 43685-7 | WARNINGS AND PRECAUTIONS | Cross-tolerance warnings, dose reduction recommendations |
+### ⭐ REQUIRED SECTIONS - ONLY USE THESE TWO
+
+| LOINC Code | Section | Contains | Priority |
+|------------|---------|----------|----------|
+| **34068-7** | **DOSAGE AND ADMINISTRATION** | **Conversion tables, titration schedules, equianalgesic charts** | **PRIMARY - MUST FETCH** |
+| **42229-5** | **SPL UNCLASSIFIED SECTION** | **Subsections under Dosage - detailed conversion tables (e.g., "Table 1: Conversion Factors")** | **PRIMARY - MUST FETCH** |
+
+### ❌ DO NOT USE THESE SECTIONS - They do NOT contain conversion tables
+
+| LOINC Code | Section | Why NOT to Use |
+|------------|---------|----------------|
+| 34090-1 | CLINICAL PHARMACOLOGY | ❌ Contains pharmacokinetics, NOT conversion tables |
+| 43685-7 | WARNINGS AND PRECAUTIONS | ❌ Contains warnings, NOT conversion tables |
+| 34067-9 | INDICATIONS AND USAGE | ❌ Contains indications, NOT conversion tables |
+
+**CRITICAL**: Only fetch 34068-7 and 42229-5. Do NOT fetch 34090-1, 43685-7, or 34067-9 for conversion queries.
 
 ---
 
 ## API Workflow: Retrieve Equianalgesic Data
 
-### Step 1: Get Product Labels by UNII
+### ⚠️ MANDATORY: Use Multi-Product Workflow
 
-For the source opioid (e.g., morphine):
+**DO NOT use single-product queries.** Always use the multi-product workflow described below.
 
-```
-GET /api/Label/product/latest?unii={sourceUNII}&pageSize=3
-```
+### REQUIRED SECTIONS - ALWAYS FETCH BOTH
 
-For the target opioid (e.g., hydromorphone):
+For ANY equianalgesic conversion query, you MUST fetch **BOTH sections** from ALL products for **BOTH opioids**:
 
-```
-GET /api/Label/product/latest?unii={targetUNII}&pageSize=3
-```
+| Section | LOINC | Why Required |
+|---------|-------|--------------|
+| **Dosage and Administration** | **34068-7** | **PRIMARY - Main section header with conversion tables** |
+| **SPL Unclassified** | **42229-5** | **PRIMARY - Subsections under Dosage with detailed conversion tables, calculation examples** |
 
-### Step 2: Retrieve Dosage Sections (REQUIRED)
-
-**CRITICAL**: Always retrieve the Dosage and Administration section which contains conversion tables:
+### ❌ WRONG - Do NOT Do This
 
 ```
-GET /api/Label/markdown/sections/{DocumentGUID}?sectionCode=34068-7
+# WRONG - Single product, wrong section
+GET /api/Label/markdown/sections/{singleGUID}?sectionCode=34090-1  # Clinical Pharmacology
+
+# WRONG - Only fetching Indications from one opioid
+GET /api/Label/markdown/sections/{singleGUID}?sectionCode=34067-9  # Indications only
+
+# WRONG - Only fetching from one opioid (must fetch BOTH)
+GET /api/Label/ingredient/advanced?substanceNameSearch=buprenorphine  # Missing methadone!
 ```
 
-Also retrieve Indications for opioid-tolerant definitions:
+### ✅ CORRECT - Always Do This (6-Step Workflow)
 
 ```
-GET /api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9
+# CORRECT - Multi-product workflow for BOTH opioids, BOTH sections
+
+Step 1: GET /api/Label/ingredient/advanced?substanceNameSearch={sourceOpioid}&pageSize=50
+        outputMapping: { "sourceDocumentGuids": "documentGUID[]" }
+
+Step 2: GET /api/Label/ingredient/advanced?substanceNameSearch={targetOpioid}&pageSize=50
+        outputMapping: { "targetDocumentGuids": "documentGUID[]" }
+
+Step 3: GET /api/Label/markdown/sections/{{sourceDocumentGuids}}?sectionCode=34068-7
+        (Batch expansion - Dosage and Administration from ALL SOURCE opioid products)
+
+Step 4: GET /api/Label/markdown/sections/{{sourceDocumentGuids}}?sectionCode=42229-5
+        (Batch expansion - Unclassified subsections from ALL SOURCE opioid products)
+        ⭐ DETAILED CONVERSION TABLES OFTEN HERE (e.g., methadone "Table 1: Conversion Factors")
+
+Step 5: GET /api/Label/markdown/sections/{{targetDocumentGuids}}?sectionCode=34068-7
+        (Batch expansion - Dosage and Administration from ALL TARGET opioid products)
+
+Step 6: GET /api/Label/markdown/sections/{{targetDocumentGuids}}?sectionCode=42229-5
+        (Batch expansion - Unclassified subsections from ALL TARGET opioid products)
 ```
 
-### Step 3: Extract Conversion Data from Label Content
+### Why Both 34068-7 AND 42229-5 are REQUIRED
 
-The `fullSectionText` response will contain the official FDA conversion information. Parse this for:
+FDA labels structure dosing information hierarchically. The main Dosage section (34068-7) contains header text, but **detailed conversion tables are often in subsections classified as "Unclassified" (42229-5)**:
 
-- Equianalgesic dose tables
-- Conversion factors
-- Opioid-tolerant patient definitions
-- Cross-tolerance warnings
+| What You Need | Where It Is | LOINC |
+|---------------|-------------|-------|
+| Main dosing header | Dosage and Administration | 34068-7 |
+| **Detailed conversion tables** | **SPL Unclassified (subsections)** | **42229-5** |
+| **"Table 1: Conversion Factors"** | **SPL Unclassified** | **42229-5** |
+| **Calculation examples** | **SPL Unclassified** | **42229-5** |
+| "Switching from" instructions | Either section | 34068-7 or 42229-5 |
+| Pharmacokinetics (NOT conversions) | Clinical Pharmacology | 34090-1 |
+
+**Example**: Methadone's "Table 1: Conversion Factors to Methadone Hydrochloride Tablets" is in section 42229-5, NOT in 34068-7.
 
 ---
 
@@ -297,9 +367,14 @@ Before using dosing section content, check for these indicators:
 
 ### Multi-Product Workflow for Complete Dosing Data
 
-For equianalgesic queries, **ALWAYS use multi-product workflow** to ensure complete conversion data:
+For equianalgesic queries, **ALWAYS use multi-product workflow** to search BOTH the source AND target opioids:
 
 **CRITICAL - Array Extraction Syntax**: Use `[]` suffix to extract ALL values from the array, not just the first one.
+
+**CRITICAL - Dual-Opioid Search + Both Sections**: When converting between two opioids (e.g., methadone to buprenorphine), you MUST:
+1. Search for BOTH substances
+2. Fetch BOTH 34068-7 (Dosage and Administration) AND 42229-5 (SPL Unclassified) from ALL products for BOTH opioids
+3. Conversion tables are often in 42229-5 subsections (e.g., methadone's "Table 1: Conversion Factors")
 
 ```json
 {
@@ -310,36 +385,78 @@ For equianalgesic queries, **ALWAYS use multi-product workflow** to ensure compl
       "method": "GET",
       "path": "/api/Label/ingredient/advanced",
       "queryParameters": {
-        "substanceNameSearch": "fentanyl",
+        "substanceNameSearch": "methadone",
         "pageNumber": 1,
-        "pageSize": 20
+        "pageSize": 50
       },
-      "description": "Search for ALL fentanyl products (use pageSize=50 for comprehensive results)",
+      "description": "Search for ALL SOURCE opioid (methadone) products",
       "outputMapping": {
-        "documentGuids": "documentGUID[]",
-        "productNames": "productName[]"
+        "sourceDocumentGuids": "documentGUID[]",
+        "sourceProductNames": "productName[]"
       }
     },
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuids}}",
-      "queryParameters": { "sectionCode": "34068-7" },
-      "dependsOn": 1,
-      "description": "Get Dosage sections from ALL fentanyl products (batch expansion)"
+      "path": "/api/Label/ingredient/advanced",
+      "queryParameters": {
+        "substanceNameSearch": "buprenorphine",
+        "pageNumber": 1,
+        "pageSize": 50
+      },
+      "description": "Search for ALL TARGET opioid (buprenorphine) products",
+      "outputMapping": {
+        "targetDocumentGuids": "documentGUID[]",
+        "targetProductNames": "productName[]"
+      }
     },
     {
       "step": 3,
       "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuids}}",
-      "queryParameters": { "sectionCode": "34067-9" },
+      "path": "/api/Label/markdown/sections/{{sourceDocumentGuids}}",
+      "queryParameters": { "sectionCode": "34068-7" },
       "dependsOn": 1,
-      "description": "Get Indications sections for opioid-tolerant definitions (batch expansion)"
+      "description": "Get Dosage and Administration (main header) from ALL SOURCE opioid products"
+    },
+    {
+      "step": 4,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{sourceDocumentGuids}}",
+      "queryParameters": { "sectionCode": "42229-5" },
+      "dependsOn": 1,
+      "description": "Get SPL Unclassified (subsections with detailed conversion tables) from ALL SOURCE opioid products - CRITICAL: 'Table 1: Conversion Factors' is HERE!"
+    },
+    {
+      "step": 5,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{targetDocumentGuids}}",
+      "queryParameters": { "sectionCode": "34068-7" },
+      "dependsOn": 2,
+      "description": "Get Dosage and Administration (main header) from ALL TARGET opioid products"
+    },
+    {
+      "step": 6,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{targetDocumentGuids}}",
+      "queryParameters": { "sectionCode": "42229-5" },
+      "dependsOn": 2,
+      "description": "Get SPL Unclassified (subsections with detailed conversion tables) from ALL TARGET opioid products"
     }
   ],
-  "explanation": "Fetching dosing data from ALL products to ensure complete equianalgesic information."
+  "explanation": "Fetching BOTH 34068-7 (main Dosage section) AND 42229-5 (subsections with detailed tables) from ALL products for BOTH opioids. Detailed conversion tables like 'Table 1: Conversion Factors to Methadone' are in section 42229-5."
 }
 ```
+
+### Why Search BOTH Opioids AND Both Sections?
+
+| Scenario | Where Conversion Data Is Found | Section |
+|----------|-------------------------------|---------|
+| Any → Methadone | Methadone label's "Table 1: Conversion Factors" | **42229-5** (subsection) |
+| Morphine → Buprenorphine | Buprenorphine transdermal label's Dosage subsections | 34068-7 or 42229-5 |
+| Morphine → Fentanyl | Fentanyl transdermal label's conversion charts | 34068-7 or 42229-5 |
+| Morphine → Hydromorphone | Hydromorphone ER label's Dosage section | 34068-7 or 42229-5 |
+
+**The detailed conversion tables (e.g., "Table 1") are often in SPL Unclassified (42229-5) subsections, NOT in the main Dosage header (34068-7).**
 
 ### CRITICAL: Array Extraction vs Single Value
 
@@ -352,12 +469,34 @@ For equianalgesic queries, **ALWAYS use multi-product workflow** to ensure compl
 
 ### Aggregating Conversion Data from Multiple Sources
 
-When multiple labels are returned:
+When multiple labels are returned from BOTH source and target opioid searches:
 
-1. **Identify labels with conversion tables** - Look for numeric dose values
-2. **Prioritize ER/transdermal labels** - These typically have the most detailed conversion data
-3. **Cross-reference threshold definitions** - "Opioid-tolerant" definitions should be consistent
-4. **Cite the most complete source** - Use the label with full conversion tables
+1. **Review ALL sections from BOTH 34068-7 AND 42229-5** - Detailed conversion tables are often in 42229-5 subsections
+2. **Prioritize 42229-5 (SPL Unclassified) for detailed tables** - "Table 1: Conversion Factors" is typically HERE
+3. **Check BOTH source AND target opioid labels** - Methadone's conversion table is in methadone's label, not in buprenorphine's
+4. **Prioritize ER/transdermal labels** - These typically have the most detailed conversion data
+   - Example: Buprenorphine transdermal system (BUTRANS) contains morphine-to-buprenorphine conversion tables
+   - Example: Fentanyl transdermal system contains morphine-to-fentanyl conversion charts
+5. **Look for specific conversion tables** - Search for phrases like "conversion", "equianalgesic", "switching from", "prior opioid", "Table 1"
+6. **Cross-reference threshold definitions** - "Opioid-tolerant" definitions should be consistent across labels
+7. **Cite the most complete source** - Use the label with full conversion tables and provide the label link
+
+### Synthesis: What to Look For in Dosage Sections
+
+When reviewing the `fullSectionText` from Dosage and Administration (34068-7) AND SPL Unclassified (42229-5) sections:
+
+| Search Term | What It Indicates | Likely Section |
+|-------------|-------------------|----------------|
+| "Table 1" or "Table 2" | Conversion factor tables | **42229-5** |
+| "Conversion Factors" | Detailed conversion ratios | **42229-5** |
+| "conversion" | Direct conversion instructions | Either |
+| "equianalgesic" | Dose equivalence tables | Either |
+| "switching" or "switch from" | Instructions for changing between opioids | Either |
+| "prior opioid" | References to previous opioid therapy | Either |
+| "morphine equivalent" or "MME" | Morphine milligram equivalent calculations | Either |
+| "mcg/hour" or "mg/day" | Dosing units indicating conversion ratios | Either |
+
+**CRITICAL**: Read the ENTIRE `fullSectionText` content from BOTH 34068-7 AND 42229-5 sections. Detailed conversion tables (e.g., "Table 1: Conversion Factors to Methadone Hydrochloride Tablets") are in 42229-5 subsections.
 
 ---
 
@@ -367,7 +506,13 @@ When multiple labels are returned:
 2. **ALWAYS cite the specific FDA label section** that contains the conversion information
 3. **ALWAYS include clinical disclaimers** about individualized dosing and cross-tolerance
 4. **ALWAYS provide label links** so users can verify the full prescribing information
-5. **Fentanyl transdermal labels** are particularly useful as they contain opioid-tolerant threshold definitions with multiple opioid equivalents
-6. **Methadone conversions** are complex and not linear - labels contain special warnings about this
-7. **Use multi-product workflow** - Some labels have truncated dosing sections; aggregate from multiple sources
-8. **Check for truncation indicators** - Dosing sections ending with ":" or having contentBlockCount < 3 may be incomplete
+5. **ALWAYS search BOTH source AND target opioids** - Conversion tables may be in EITHER opioid's label
+6. **ALWAYS fetch BOTH sections from ALL products for BOTH opioids:**
+   - **34068-7** (Dosage and Administration) - Main section header
+   - **42229-5** (SPL Unclassified) - Subsections with detailed conversion tables (e.g., "Table 1: Conversion Factors")
+7. **Methadone's "Table 1: Conversion Factors"** is in section 42229-5, NOT in 34068-7 - this is why 42229-5 is REQUIRED
+8. **Fentanyl/buprenorphine transdermal labels** are particularly useful as they contain opioid-tolerant threshold definitions
+9. **Methadone conversions** are complex and not linear - labels contain special warnings about this
+10. **Use multi-product workflow (6 steps)** - Fetch 34068-7 AND 42229-5 from ALL products for BOTH opioids
+11. **Check for truncation indicators** - Dosing sections ending with ":" or having contentBlockCount < 3 may be incomplete
+12. **Read ENTIRE fullSectionText content** - Conversion tables may appear anywhere, especially in 42229-5 subsections
