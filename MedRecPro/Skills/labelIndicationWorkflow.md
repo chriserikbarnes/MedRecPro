@@ -784,7 +784,9 @@ Evaluate returned section content for these **truncation indicators**:
 
 ### Multi-Product Fallback Workflow for Indications
 
-When the initial Indications section is truncated, **automatically search for alternative products** with the same active ingredient:
+**ALWAYS use multi-product workflow** to search ALL products with the same active ingredient. Do NOT rely on a single product.
+
+**CRITICAL - Array Extraction Syntax**: Use `[]` suffix to extract ALL values from the array, not just the first one.
 
 ```json
 {
@@ -793,63 +795,59 @@ When the initial Indications section is truncated, **automatically search for al
     {
       "step": 1,
       "method": "GET",
-      "path": "/api/Label/product/latest",
-      "queryParameters": { "unii": "R16CO5Y76E", "pageNumber": 1, "pageSize": 1 },
-      "description": "Get primary product label",
+      "path": "/api/Label/ingredient/advanced",
+      "queryParameters": {
+        "substanceNameSearch": "{ingredientName}",
+        "pageNumber": 1,
+        "pageSize": 20
+      },
+      "description": "Search for ALL products containing {ingredientName} (use pageSize=50)",
       "outputMapping": {
-        "documentGuid": "$[0].ProductLatestLabel.DocumentGUID",
-        "productName": "$[0].ProductLatestLabel.ProductName"
+        "documentGuids": "documentGUID[]",
+        "productNames": "productName[]"
       }
     },
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
       "queryParameters": { "sectionCode": "34067-9" },
       "dependsOn": 1,
-      "description": "Get Indications section from primary product"
-    },
-    {
-      "step": 3,
-      "method": "GET",
-      "path": "/api/Label/ingredient/advanced",
-      "queryParameters": { "unii": "R16CO5Y76E", "pageNumber": 1, "pageSize": 20 },
-      "description": "Search for additional products if primary is truncated",
-      "outputMapping": {
-        "additionalGuids": "documentGUID[]",
-        "additionalNames": "productName[]"
-      }
-    },
-    {
-      "step": 4,
-      "method": "GET",
-      "path": "/api/Label/markdown/sections/{{additionalGuids}}",
-      "queryParameters": { "sectionCode": "34067-9" },
-      "dependsOn": 3,
-      "description": "Get Indications from all alternative products (batch expansion)"
+      "description": "Get Indications from ALL found products (batch expansion)"
     }
   ],
-  "explanation": "Getting Indications with multi-product fallback for completeness."
+  "explanation": "Fetching Indications from ALL products to ensure complete information."
 }
 ```
+
+### CRITICAL: Array Extraction vs Single Value
+
+| Syntax | Behavior | Use Case |
+|--------|----------|----------|
+| `"documentGuid": "documentGUID"` | Extracts ONLY the first value | ❌ WRONG for multi-product |
+| `"documentGuids": "documentGUID[]"` | Extracts ALL values as array | ✅ CORRECT for multi-product |
+
+**The `[]` suffix is REQUIRED** for multi-product workflows. Without it, only the first product is queried and you'll miss products with complete data.
 
 ### Synthesis Instructions for Multi-Product Indication Results
 
 When synthesizing results from multiple product labels:
 
 1. **Identify the most complete response** - Look for highest `contentBlockCount` and longest `fullSectionText`
-2. **Cross-reference for consistency** - Compare indication text across products
-3. **Use the most detailed source** as the primary response
-4. **Cite all sources** - List all product names that contributed
-5. **Flag truncated sources** - Note which labels had incomplete data
+2. **Skip products with 404 errors** - Some products may not have the requested section
+3. **Detect truncated content** - If text ends with ":" or has < 200 chars, mark as incomplete
+4. **Cross-reference for consistency** - Compare indication text across products
+5. **Use the most detailed source** as the primary response
+6. **Cite all sources** - List all product names that contributed
+7. **Flag truncated sources** - Note which labels had incomplete data
 
 ---
 
 ## Critical Reminders
 
-1. **Use labelProductIndication.md reference file** to match conditions to UNIIs AND for product summaries - this file contains curated indication data generated from FDA labels
-2. **GetProductLatestLabels with UNII** is the first-line selector after matching
-3. **Limit to 10 products or fewer** - use `pageSize=5` per UNII query to avoid slow database performance
+1. **Use labelProductIndication.md reference file** to match conditions to UNIIs - this file provides UNII codes for API calls
+2. **Use `/api/Label/ingredient/advanced` with pageSize=50** to search for ALL products with the ingredient
+3. **ALWAYS use array extraction syntax `[]`** in outputMapping to get ALL documentGUIDs, not just the first one
 4. **GetRelatedProducts with DocumentGUID** finds alternatives and generics
 5. **ALWAYS include `dataReferences`** in your JSON response with label links for each product
 6. **Use the correct label link format**: `/api/Label/generate/{DocumentGUID}/true` (NOT `/api/Label/single/`)
@@ -860,5 +858,5 @@ When synthesizing results from multiple product labels:
    - `labelProductIndication.md` reference file (for UNII matching and supplemental summaries)
    - The API response fields (`productName`, `activeIngredient`, `unii`, `documentGUID`)
    - NOT from your training knowledge about medications
-10. **Detect truncated content** - If section content ends with ":", is < 200 chars, or has contentBlockCount = 1, use multi-product fallback
-11. **Aggregate from multiple sources** - When primary label is incomplete, use content from alternative products with same ingredient
+10. **Detect truncated content** - If section content ends with ":", is < 200 chars, or has contentBlockCount = 1, it's incomplete
+11. **Aggregate from multiple sources** - Select the most complete content from all returned products

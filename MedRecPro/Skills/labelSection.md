@@ -758,9 +758,9 @@ When section content may be truncated or when comprehensive data is needed, use 
       "queryParameters": {
         "substanceNameSearch": "metformin",
         "pageNumber": 1,
-        "pageSize": 10
+        "pageSize": 20
       },
-      "description": "Search for multiple metformin products to ensure complete data",
+      "description": "Search for ALL metformin products (use pageSize=50 for comprehensive results)",
       "outputMapping": {
         "documentGuids": "documentGUID[]",
         "productNames": "productName[]"
@@ -772,21 +772,31 @@ When section content may be truncated or when comprehensive data is needed, use 
       "path": "/api/Label/markdown/sections/{{documentGuids}}",
       "queryParameters": { "sectionCode": "34070-3" },
       "dependsOn": 1,
-      "description": "Get contraindications from all found products (batch expansion)"
+      "description": "Get contraindications from ALL found products (batch expansion)"
     }
   ],
-  "explanation": "Fetching contraindications from multiple metformin products to ensure complete information."
+  "explanation": "Fetching contraindications from ALL metformin products to ensure complete information."
 }
 ```
+
+### CRITICAL: Array Extraction vs Single Value
+
+| Syntax | Behavior | Use Case |
+|--------|----------|----------|
+| `"documentGuid": "documentGUID"` | Extracts ONLY the first value | ❌ WRONG for multi-product |
+| `"documentGuids": "documentGUID[]"` | Extracts ALL values as array | ✅ CORRECT for multi-product |
+
+**The `[]` suffix is REQUIRED** for multi-product workflows. Without it, only the first product is queried and you'll miss products with complete data.
 
 ### Array Expansion for Batch Section Retrieval
 
 The `documentGuids[]` extraction syntax collects ALL `documentGUID` values from the search results. When `{{documentGuids}}` contains multiple values, the endpoint executor automatically expands to multiple API calls.
 
 **How it works**:
-1. Step 1 returns 5 products → extracts `["guid1", "guid2", "guid3", "guid4", "guid5"]`
-2. Step 2 expands into 5 separate API calls, one per GUID
-3. Results from all 5 calls are aggregated for synthesis
+1. Step 1 returns 50 products → extracts `["guid1", "guid2", ..., "guid50"]`
+2. Step 2 expands into 50 separate API calls, one per GUID
+3. Results from all calls are aggregated for synthesis
+4. During synthesis, select the most complete content (highest `contentBlockCount`, longest `fullSectionText`)
 
 ### When to Use Multi-Product Workflow
 

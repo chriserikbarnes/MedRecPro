@@ -1537,6 +1537,8 @@ During synthesis, evaluate returned section content for these **truncation indic
 
 When querying critical safety sections or when content may be truncated, use a **multi-product workflow**:
 
+**CRITICAL - Array Extraction Syntax**: Use `[]` suffix to extract ALL values from the array, not just the first one.
+
 ```json
 {
   "suggestedEndpoints": [
@@ -1549,7 +1551,7 @@ When querying critical safety sections or when content may be truncated, use a *
         "pageNumber": 1,
         "pageSize": 20
       },
-      "description": "Search for multiple products containing {ingredient}",
+      "description": "Search for ALL products containing {ingredient} (use pageSize=50)",
       "outputMapping": {
         "documentGuids": "documentGUID[]",
         "productNames": "productName[]"
@@ -1561,11 +1563,20 @@ When querying critical safety sections or when content may be truncated, use a *
       "method": "GET",
       "queryParameters": { "sectionCode": "{loincCode}" },
       "dependsOn": 1,
-      "description": "Get section content from all products (batch expansion)"
+      "description": "Get section content from ALL products (batch expansion)"
     }
   ]
 }
 ```
+
+### CRITICAL: Array Extraction vs Single Value
+
+| Syntax | Behavior | Use Case |
+|--------|----------|----------|
+| `"documentGuid": "documentGUID"` | Extracts ONLY the first value | ❌ WRONG for multi-product |
+| `"documentGuids": "documentGUID[]"` | Extracts ALL values as array | ✅ CORRECT for multi-product |
+
+**The `[]` suffix is REQUIRED** for multi-product workflows. Without it, only the first product is queried and you'll miss products with complete data.
 
 ### When to Use Multi-Product Workflow
 
@@ -1574,6 +1585,7 @@ When querying critical safety sections or when content may be truncated, use a *
 - User asks about a generic ingredient (not a specific brand)
 - User asks "what are ALL the warnings/contraindications/interactions"
 - Previous single-product query returned truncated content
+- Querying dosing or equianalgesic conversion information
 
 **Use single-product workflow when**:
 - User specifies a particular brand/product name
@@ -1585,10 +1597,12 @@ When querying critical safety sections or when content may be truncated, use a *
 When synthesizing results from multiple product labels:
 
 1. **Identify the most complete response** - Look for highest `contentBlockCount` and longest `fullSectionText`
-2. **Cross-reference for consistency** - Compare content across products
-3. **Aggregate unique information** - Some products may have additional contraindications/warnings
-4. **Cite all sources** - List all product names that contributed to the response
-5. **Flag truncated sources** - Note which labels had incomplete data
+2. **Skip products with 404 errors** - Some products may not have the requested section
+3. **Detect truncated content** - If text ends with ":" or has < 200 chars, mark as incomplete
+4. **Cross-reference for consistency** - Compare content across products
+5. **Aggregate unique information** - Some products may have additional contraindications/warnings
+6. **Cite all sources** - List all product names that contributed to the response
+7. **Flag truncated sources** - Note which labels had incomplete data
 
 ---
 

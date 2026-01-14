@@ -388,11 +388,24 @@ When API results contain data from MULTIPLE documents (multi-document queries), 
 
 When you receive results from multiple products (batch expansion), **select and aggregate the best content**:
 
-1. **Evaluate each result for quality** using the Quality Assessment Matrix above
-2. **Identify the most complete source** - highest contentBlockCount, longest fullSectionText
-3. **Exclude unusable sources** - don't cite labels with truncated content
-4. **Cross-reference for completeness** - some products may have unique information
-5. **Aggregate unique items** - combine lists from multiple sources if different
+1. **Skip products with 404/error status** - Some products may not have the requested section
+2. **Evaluate each successful result for quality** using the Quality Assessment Matrix above
+3. **Identify the most complete source** - highest contentBlockCount, longest fullSectionText
+4. **Detect truncated content** - If text ends with ":" or has < 200 chars, mark as incomplete
+5. **Exclude unusable sources** - don't cite labels with truncated content as primary source
+6. **Cross-reference for completeness** - some products may have unique information
+7. **Aggregate unique items** - combine lists from multiple sources if different
+
+### CRITICAL: Array Extraction Workflow Must Be Used
+
+The multi-product workflow **REQUIRES** the `[]` suffix in outputMapping to extract ALL documentGUIDs:
+
+| Syntax | Behavior | Result |
+|--------|----------|--------|
+| `"documentGuid": "documentGUID"` | ❌ Extracts only FIRST value | Queries only 1 product |
+| `"documentGuids": "documentGUID[]"` | ✅ Extracts ALL values as array | Queries ALL products |
+
+**If you only see one API call in step 2**, the workflow was configured incorrectly without the `[]` suffix.
 
 ### Multi-Document Response Format
 

@@ -268,11 +268,13 @@ export const EndpointExecutor = (function () {
      *
      * @param {Object|Array} data - Data to extract from
      * @param {string} path - Path expression, optionally ending with [] for array extraction
-     * @returns {*} Extracted value, array of values, or undefined
+     * @returns {*} Extracted value, array of unique values, or undefined
      *
      * @description
      * Supports array extraction with [] suffix:
      * - "documentGUID[]" extracts ALL matching values from array elements
+     * - Automatically deduplicates extracted values (important for combination
+     *   products where the same documentGUID appears multiple times in results)
      *
      * This enables batch operations where a subsequent endpoint needs
      * to be called once per extracted value.
@@ -280,9 +282,10 @@ export const EndpointExecutor = (function () {
      * @example
      * const data = [
      *     { documentGuid: 'abc' },
-     *     { documentGuid: 'def' }
+     *     { documentGuid: 'def' },
+     *     { documentGuid: 'abc' }  // duplicate - will be removed
      * ];
-     * extractValueByPath(data, 'documentGuid[]'); // ['abc', 'def']
+     * extractValueByPath(data, 'documentGuid[]'); // ['abc', 'def'] (deduplicated)
      *
      * @see expandEndpointForArrays - Uses array values for batch calls
      */
@@ -302,15 +305,24 @@ export const EndpointExecutor = (function () {
         console.log(`[EndpointExecutor] Data type: ${Array.isArray(data) ? 'array' : typeof data}`);
 
         // Array extraction mode: extract field from EACH array element
+        // Automatically deduplicates values (important for combination products
+        // where the same documentGUID appears multiple times)
         if (isArrayExtraction && Array.isArray(data)) {
+            const seen = new Set();
             const values = [];
             for (let i = 0; i < data.length; i++) {
                 const value = extractSingleValue(data[i], cleanedPath);
                 if (value !== undefined && value !== null) {
-                    values.push(value);
+                    // Deduplicate: only add if not already seen
+                    const key = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        values.push(value);
+                    }
                 }
             }
-            console.log(`[EndpointExecutor] === ARRAY EXTRACTION RESULT: ${values.length} values ===`);
+            const duplicatesRemoved = data.length - values.length;
+            console.log(`[EndpointExecutor] === ARRAY EXTRACTION RESULT: ${values.length} unique values (${duplicatesRemoved} duplicates removed) ===`);
             console.log(`[EndpointExecutor] Values: [${values.slice(0, 5).join(', ')}${values.length > 5 ? '...' : ''}]`);
             return values.length > 0 ? values : undefined;
         }

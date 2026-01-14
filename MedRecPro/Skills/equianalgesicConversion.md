@@ -299,6 +299,8 @@ Before using dosing section content, check for these indicators:
 
 For equianalgesic queries, **ALWAYS use multi-product workflow** to ensure complete conversion data:
 
+**CRITICAL - Array Extraction Syntax**: Use `[]` suffix to extract ALL values from the array, not just the first one.
+
 ```json
 {
   "success": true,
@@ -306,34 +308,47 @@ For equianalgesic queries, **ALWAYS use multi-product workflow** to ensure compl
     {
       "step": 1,
       "method": "GET",
-      "path": "/api/Label/product/latest",
-      "queryParameters": { "unii": "UF599785JZ", "pageNumber": 1, "pageSize": 20 },
-      "description": "Search for multiple fentanyl products",
+      "path": "/api/Label/ingredient/advanced",
+      "queryParameters": {
+        "substanceNameSearch": "fentanyl",
+        "pageNumber": 1,
+        "pageSize": 20
+      },
+      "description": "Search for ALL fentanyl products (use pageSize=50 for comprehensive results)",
       "outputMapping": {
-        "fentanylGuids": "ProductLatestLabel.DocumentGUID[]",
-        "fentanylNames": "ProductLatestLabel.ProductName[]"
+        "documentGuids": "documentGUID[]",
+        "productNames": "productName[]"
       }
     },
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/markdown/sections/{{fentanylGuids}}",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
       "queryParameters": { "sectionCode": "34068-7" },
       "dependsOn": 1,
-      "description": "Get Dosage sections from all fentanyl products (batch)"
+      "description": "Get Dosage sections from ALL fentanyl products (batch expansion)"
     },
     {
       "step": 3,
       "method": "GET",
-      "path": "/api/Label/markdown/sections/{{fentanylGuids}}",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
       "queryParameters": { "sectionCode": "34067-9" },
       "dependsOn": 1,
-      "description": "Get Indications sections for opioid-tolerant definitions (batch)"
+      "description": "Get Indications sections for opioid-tolerant definitions (batch expansion)"
     }
   ],
-  "explanation": "Fetching dosing data from multiple products to ensure complete equianalgesic information."
+  "explanation": "Fetching dosing data from ALL products to ensure complete equianalgesic information."
 }
 ```
+
+### CRITICAL: Array Extraction vs Single Value
+
+| Syntax | Behavior | Use Case |
+|--------|----------|----------|
+| `"documentGuid": "documentGUID"` | Extracts ONLY the first value | ❌ WRONG for multi-product |
+| `"documentGuids": "documentGUID[]"` | Extracts ALL values as array | ✅ CORRECT for multi-product |
+
+**The `[]` suffix is REQUIRED** for multi-product workflows. Without it, only the first product is queried.
 
 ### Aggregating Conversion Data from Multiple Sources
 

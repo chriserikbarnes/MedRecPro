@@ -480,9 +480,18 @@ Query: "Show me inactive ingredients for Cephalexin"
 
 **Multi-product workflow pattern:**
 1. Search for multiple products with same active ingredient (`pageSize=50`)
-2. Extract all `documentGUID[]` values (array extraction)
-3. Fetch sections from ALL products (batch expansion)
+2. Extract all `documentGUID[]` values (array extraction - **the `[]` suffix is REQUIRED**)
+3. Fetch sections from ALL products (batch expansion creates N API calls)
 4. During synthesis, select most complete content and aggregate unique information
+
+### CRITICAL: Array Extraction Syntax
+
+| outputMapping Syntax | Behavior | Outcome |
+|---------------------|----------|---------|
+| `"documentGuid": "documentGUID"` | ❌ Extracts only FIRST value | Only 1 product queried - **WRONG** |
+| `"documentGuids": "documentGUID[]"` | ✅ Extracts ALL values | All products queried - **CORRECT** |
+
+**Common Mistake**: Using `"documentGuid": "documentGUID"` (without `[]`) causes the workflow to query only the first product, missing products with complete data.
 
 ### Multi-Skill Selection
 
