@@ -756,6 +756,95 @@ After identifying products, users may want detailed information:
 
 ---
 
+## CRITICAL: Content Adequacy Detection and Multi-Product Fallback
+
+### Problem: Truncated or Incomplete Section Content
+
+Some FDA labels have incomplete section content. For example:
+
+```json
+{
+  "fullSectionText": "## 1 INDICATIONS AND USAGE\r\n\r\nDrug X is indicated for:",
+  "contentBlockCount": 1
+}
+```
+
+This is **truncated** - the text ends with "indicated for:" but lists no actual indications.
+
+### Detecting Inadequate Content During Synthesis
+
+Evaluate returned section content for these **truncation indicators**:
+
+| Indicator | Pattern | Example |
+|-----------|---------|---------|
+| Trailing colon | Text ends with `:` followed by nothing | "indicated for:", "patients with:", "including:" |
+| Very short content | `fullSectionText` < 200 characters | Single sentence sections |
+| Low block count | `contentBlockCount` = 1 for detailed sections | Indications, Contraindications should have more |
+| Header only | Section contains only a heading, no body | "## 1 INDICATIONS AND USAGE" alone |
+
+### Multi-Product Fallback Workflow for Indications
+
+When the initial Indications section is truncated, **automatically search for alternative products** with the same active ingredient:
+
+```json
+{
+  "success": true,
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/product/latest",
+      "queryParameters": { "unii": "R16CO5Y76E", "pageNumber": 1, "pageSize": 1 },
+      "description": "Get primary product label",
+      "outputMapping": {
+        "documentGuid": "$[0].ProductLatestLabel.DocumentGUID",
+        "productName": "$[0].ProductLatestLabel.ProductName"
+      }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{documentGuid}}",
+      "queryParameters": { "sectionCode": "34067-9" },
+      "dependsOn": 1,
+      "description": "Get Indications section from primary product"
+    },
+    {
+      "step": 3,
+      "method": "GET",
+      "path": "/api/Label/ingredient/advanced",
+      "queryParameters": { "unii": "R16CO5Y76E", "pageNumber": 1, "pageSize": 20 },
+      "description": "Search for additional products if primary is truncated",
+      "outputMapping": {
+        "additionalGuids": "documentGUID[]",
+        "additionalNames": "productName[]"
+      }
+    },
+    {
+      "step": 4,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{additionalGuids}}",
+      "queryParameters": { "sectionCode": "34067-9" },
+      "dependsOn": 3,
+      "description": "Get Indications from all alternative products (batch expansion)"
+    }
+  ],
+  "explanation": "Getting Indications with multi-product fallback for completeness."
+}
+```
+
+### Synthesis Instructions for Multi-Product Indication Results
+
+When synthesizing results from multiple product labels:
+
+1. **Identify the most complete response** - Look for highest `contentBlockCount` and longest `fullSectionText`
+2. **Cross-reference for consistency** - Compare indication text across products
+3. **Use the most detailed source** as the primary response
+4. **Cite all sources** - List all product names that contributed
+5. **Flag truncated sources** - Note which labels had incomplete data
+
+---
+
 ## Critical Reminders
 
 1. **Use labelProductIndication.md reference file** to match conditions to UNIIs AND for product summaries - this file contains curated indication data generated from FDA labels
@@ -771,3 +860,5 @@ After identifying products, users may want detailed information:
    - `labelProductIndication.md` reference file (for UNII matching and supplemental summaries)
    - The API response fields (`productName`, `activeIngredient`, `unii`, `documentGUID`)
    - NOT from your training knowledge about medications
+10. **Detect truncated content** - If section content ends with ":", is < 200 chars, or has contentBlockCount = 1, use multi-product fallback
+11. **Aggregate from multiple sources** - When primary label is incomplete, use content from alternative products with same ingredient

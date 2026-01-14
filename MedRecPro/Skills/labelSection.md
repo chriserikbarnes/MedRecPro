@@ -708,3 +708,141 @@ When synthesizing a comprehensive drug summary:
 | 55106-9 | Effective Time | Document effective date |
 
 ---
+
+## CRITICAL: Content Adequacy Detection and Multi-Product Fallback
+
+### Problem: Truncated or Incomplete Section Content
+
+Some FDA labels have incomplete section content. For example, a CONTRAINDICATIONS section might return:
+
+```json
+{
+  "fullSectionText": "## 4 CONTRAINDICATIONS\r\n\r\nGLUMETZA is contraindicated in patients with:",
+  "contentBlockCount": 1
+}
+```
+
+This is **truncated** - the text ends with "patients with:" but lists no actual contraindications.
+
+### Detecting Inadequate Content
+
+During synthesis, evaluate returned section content for these **truncation indicators**:
+
+| Indicator | Pattern | Example |
+|-----------|---------|---------|
+| Trailing colon | Text ends with `:` followed by nothing | "patients with:", "including:", "such as:" |
+| Very short content | `fullSectionText` < 200 characters | Single sentence sections |
+| Low block count | `contentBlockCount` = 1 for detailed sections | Contraindications, Warnings should have more |
+| Incomplete list | Numbered/bulleted list with only 1-2 items | Expected to have many items |
+| Header only | Section contains only a heading, no body | "## 5 WARNINGS AND PRECAUTIONS" alone |
+
+**Truncation Pattern Detection Regex**:
+```
+(patients with|including|such as|characterized by|conditions|following|contraindicated in):[\s\r\n]*$
+```
+
+### Multi-Product Fallback Workflow
+
+When section content may be truncated or when comprehensive data is needed, use a **multi-product workflow** to fetch sections from multiple labels containing the same active ingredient.
+
+**User:** "What are the contraindications for metformin?"
+
+```json
+{
+  "success": true,
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/ingredient/advanced",
+      "queryParameters": {
+        "substanceNameSearch": "metformin",
+        "pageNumber": 1,
+        "pageSize": 10
+      },
+      "description": "Search for multiple metformin products to ensure complete data",
+      "outputMapping": {
+        "documentGuids": "documentGUID[]",
+        "productNames": "productName[]"
+      }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
+      "queryParameters": { "sectionCode": "34070-3" },
+      "dependsOn": 1,
+      "description": "Get contraindications from all found products (batch expansion)"
+    }
+  ],
+  "explanation": "Fetching contraindications from multiple metformin products to ensure complete information."
+}
+```
+
+### Array Expansion for Batch Section Retrieval
+
+The `documentGuids[]` extraction syntax collects ALL `documentGUID` values from the search results. When `{{documentGuids}}` contains multiple values, the endpoint executor automatically expands to multiple API calls.
+
+**How it works**:
+1. Step 1 returns 5 products → extracts `["guid1", "guid2", "guid3", "guid4", "guid5"]`
+2. Step 2 expands into 5 separate API calls, one per GUID
+3. Results from all 5 calls are aggregated for synthesis
+
+### When to Use Multi-Product Workflow
+
+**ALWAYS use multi-product workflow when**:
+- Querying critical safety sections (Contraindications, Warnings, Drug Interactions)
+- User asks about a generic ingredient (not a specific brand)
+- Previous single-product query returned truncated content
+- User explicitly asks for comprehensive information
+
+**Use single-product workflow when**:
+- User specifies a particular brand/product name
+- User asks about a specific label version
+- Query is about product-specific information (NDC, manufacturer)
+
+### Synthesis Instructions for Multi-Product Results
+
+When synthesizing results from multiple product labels:
+
+1. **Identify the most complete response** - Look for highest `contentBlockCount` and longest `fullSectionText`
+2. **Cross-reference for consistency** - Compare content across products
+3. **Aggregate unique information** - Some products may have additional contraindications
+4. **Cite all sources** - List all product names that contributed to the response
+5. **Flag truncated sources** - Note which labels had incomplete data
+
+**Example Synthesis Format for Multi-Product Results**:
+
+```markdown
+## Metformin Contraindications
+
+Based on **3 FDA product labels**, metformin is contraindicated in patients with:
+
+1. **Severe renal impairment** (eGFR below 30 mL/min/1.73 m²)
+2. **Hypersensitivity** to metformin hydrochloride or any component
+3. **Acute or chronic metabolic acidosis**, including diabetic ketoacidosis
+
+**Source Labels:**
+- GLUMETZA (metformin HCl extended-release) - Partial data*
+- GLUCOPHAGE (metformin HCl) - Complete data
+- Metformin Hydrochloride Tablets - Complete data
+
+*Note: Some labels had truncated content; complete information aggregated from multiple sources.
+
+**View Full Labels:**
+• [View Full Label (GLUCOPHAGE)](/api/Label/generate/{guid1}/true)
+• [View Full Label (Metformin Hydrochloride Tablets)](/api/Label/generate/{guid2}/true)
+```
+
+### CRITICAL: Quality Assessment During Synthesis
+
+Before presenting section content to the user, **always assess quality**:
+
+| Quality Level | Indicators | Action |
+|---------------|------------|--------|
+| **High** | > 500 chars, contentBlockCount >= 3, complete sentences | Present confidently |
+| **Medium** | 200-500 chars, contentBlockCount = 2, no truncation patterns | Present with source attribution |
+| **Low** | < 200 chars, contentBlockCount = 1, truncation patterns | Aggregate from multiple sources or note limitation |
+| **Unusable** | Header only, ends with colon, < 50 chars | Exclude from response, note data unavailable |
+
+---

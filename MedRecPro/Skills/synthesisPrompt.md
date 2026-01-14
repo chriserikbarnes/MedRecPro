@@ -314,6 +314,66 @@ Before including ANY product in your response, validate it against the user's qu
 
 ---
 
+## CRITICAL: Content Adequacy Detection
+
+### Problem: Truncated or Incomplete Section Content
+
+Some FDA labels have incomplete section content. Before synthesizing any section content, **evaluate quality**:
+
+### Truncation Indicators - ALWAYS CHECK
+
+| Indicator | Pattern | Example |
+|-----------|---------|---------|
+| **Trailing colon** | Text ends with `:` followed by nothing | "patients with:", "including:", "such as:", "indicated for:" |
+| **Very short content** | `fullSectionText` < 200 characters | Single sentence sections |
+| **Low block count** | `contentBlockCount` = 1 for detailed sections | Contraindications, Warnings should have more |
+| **Header only** | Section contains only a heading, no body | "## 5 WARNINGS AND PRECAUTIONS" alone |
+| **Incomplete list** | Numbered/bulleted list with only 1 item | Expected to have multiple items |
+
+### Truncation Detection Regex
+
+Check section content against this pattern to detect truncation:
+```
+(patients with|including|such as|characterized by|conditions|following|contraindicated in|indicated for|used for):[\s\r\n]*$
+```
+
+If the section text matches this pattern (ends with colon), it is **TRUNCATED**.
+
+### Quality Assessment Matrix
+
+| Quality Level | Indicators | Synthesis Action |
+|---------------|------------|------------------|
+| **High** | > 500 chars, contentBlockCount >= 3, complete sentences | Present confidently with single source |
+| **Medium** | 200-500 chars, contentBlockCount = 2, no truncation patterns | Present with source attribution |
+| **Low** | < 200 chars, contentBlockCount = 1, truncation patterns | **Must aggregate from multiple sources** |
+| **Unusable** | Header only, ends with colon, < 50 chars | **Exclude from response**, note data unavailable |
+
+### Example: Detecting Truncated Content
+
+**TRUNCATED (DO NOT USE AS-IS):**
+```json
+{
+  "fullSectionText": "## 4 CONTRAINDICATIONS\r\n\r\nGLUMETZA is contraindicated in patients with:",
+  "contentBlockCount": 1
+}
+```
+- ❌ Ends with "patients with:" (trailing colon pattern)
+- ❌ contentBlockCount = 1 (too few)
+- ❌ < 100 characters of actual content
+
+**COMPLETE (USE THIS):**
+```json
+{
+  "fullSectionText": "## 4 CONTRAINDICATIONS\r\n\r\nMetformin is contraindicated in patients with:\r\n\r\n- Severe renal impairment (eGFR below 30 mL/min/1.73 m²)\r\n- Hypersensitivity to metformin hydrochloride\r\n- Acute or chronic metabolic acidosis, including diabetic ketoacidosis",
+  "contentBlockCount": 4
+}
+```
+- ✅ Contains actual list items
+- ✅ contentBlockCount = 4
+- ✅ > 200 characters of content
+
+---
+
 ## Multi-Document Result Handling
 
 When API results contain data from MULTIPLE documents (multi-document queries), structure your response to:
@@ -323,6 +383,16 @@ When API results contain data from MULTIPLE documents (multi-document queries), 
 3. **Include identifiers**: Show product name AND label type for each
 4. **Find common patterns**: Note any side effects that appear across multiple products
 5. **Provide document links**: The system will automatically add "View Full Labels" links
+
+### CRITICAL: Handling Multi-Product Results for Truncated Content
+
+When you receive results from multiple products (batch expansion), **select and aggregate the best content**:
+
+1. **Evaluate each result for quality** using the Quality Assessment Matrix above
+2. **Identify the most complete source** - highest contentBlockCount, longest fullSectionText
+3. **Exclude unusable sources** - don't cite labels with truncated content
+4. **Cross-reference for completeness** - some products may have unique information
+5. **Aggregate unique items** - combine lists from multiple sources if different
 
 ### Multi-Document Response Format
 
@@ -339,6 +409,38 @@ When API results contain data from MULTIPLE documents (multi-document queries), 
   "isComplete": true
 }
 ```
+
+### Aggregated Multi-Product Response Format (For Truncated Content Fallback)
+
+When aggregating content from multiple sources because primary source was truncated:
+
+```json
+{
+  "response": "## Metformin Contraindications\n\nBased on **3 FDA product labels**, metformin is contraindicated in patients with:\n\n1. **Severe renal impairment** (eGFR below 30 mL/min/1.73 m²)\n2. **Hypersensitivity** to metformin hydrochloride\n3. **Acute or chronic metabolic acidosis**, including diabetic ketoacidosis\n\n**Source Labels:**\n- GLUCOPHAGE - Complete data ✓\n- Metformin Hydrochloride Tablets - Complete data ✓\n- GLUMETZA - Partial data (content truncated)*\n\n*Note: Some labels had incomplete section content; complete information aggregated from multiple sources.",
+  "dataHighlights": {
+    "totalProducts": 3,
+    "productsWithCompleteData": 2,
+    "productsWithTruncatedData": 1,
+    "relevantSections": ["CONTRAINDICATIONS"],
+    "aggregatedFromMultipleSources": true
+  },
+  "dataReferences": {
+    "View Full Label (GLUCOPHAGE)": "/api/Label/generate/{guid1}/true",
+    "View Full Label (Metformin Hydrochloride Tablets)": "/api/Label/generate/{guid2}/true"
+  },
+  "suggestedFollowUps": ["What are the warnings for metformin?", "How should metformin be dosed?"],
+  "warnings": ["Some source labels had truncated content; information aggregated from multiple sources"],
+  "isComplete": true
+}
+```
+
+### Key Points for Aggregated Responses
+
+1. **Transparently note aggregation** - Tell the user when content came from multiple sources
+2. **Mark truncated sources** - Use asterisk (*) or "Partial data" notation
+3. **Prioritize complete sources** - Use dataReferences only for labels with complete content
+4. **Include quality indicators** - `productsWithCompleteData` vs `productsWithTruncatedData`
+5. **Set `aggregatedFromMultipleSources: true`** - Flag in dataHighlights for tracking
 
 ### When Some Documents Have Empty Sections
 

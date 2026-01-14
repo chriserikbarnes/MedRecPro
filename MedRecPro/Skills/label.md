@@ -1507,6 +1507,91 @@ Suggested action: `GET /api/auth/login/Google`
 
 ---
 
+## CRITICAL: Content Adequacy Detection and Multi-Product Fallback
+
+### Problem: Truncated or Incomplete Section Content
+
+Some FDA labels have incomplete section content. For example:
+
+```json
+{
+  "fullSectionText": "## 4 CONTRAINDICATIONS\r\n\r\nDrug X is contraindicated in patients with:",
+  "contentBlockCount": 1
+}
+```
+
+This is **truncated** - the text ends with "patients with:" but lists no actual contraindications.
+
+### Detecting Inadequate Content
+
+During synthesis, evaluate returned section content for these **truncation indicators**:
+
+| Indicator | Pattern | Example |
+|-----------|---------|---------|
+| Trailing colon | Text ends with `:` followed by nothing | "patients with:", "including:", "such as:" |
+| Very short content | `fullSectionText` < 200 characters | Single sentence sections |
+| Low block count | `contentBlockCount` = 1 for detailed sections | Contraindications, Warnings should have more |
+| Header only | Section contains only a heading, no body | "## 5 WARNINGS AND PRECAUTIONS" alone |
+
+### Multi-Product Workflow for Comprehensive Section Content
+
+When querying critical safety sections or when content may be truncated, use a **multi-product workflow**:
+
+```json
+{
+  "suggestedEndpoints": [
+    {
+      "step": 1,
+      "path": "/api/Label/ingredient/advanced",
+      "method": "GET",
+      "queryParameters": {
+        "substanceNameSearch": "{ingredient}",
+        "pageNumber": 1,
+        "pageSize": 20
+      },
+      "description": "Search for multiple products containing {ingredient}",
+      "outputMapping": {
+        "documentGuids": "documentGUID[]",
+        "productNames": "productName[]"
+      }
+    },
+    {
+      "step": 2,
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
+      "method": "GET",
+      "queryParameters": { "sectionCode": "{loincCode}" },
+      "dependsOn": 1,
+      "description": "Get section content from all products (batch expansion)"
+    }
+  ]
+}
+```
+
+### When to Use Multi-Product Workflow
+
+**ALWAYS use multi-product workflow when**:
+- Querying critical safety sections (34070-3 Contraindications, 43685-7 Warnings, 34073-7 Drug Interactions)
+- User asks about a generic ingredient (not a specific brand)
+- User asks "what are ALL the warnings/contraindications/interactions"
+- Previous single-product query returned truncated content
+
+**Use single-product workflow when**:
+- User specifies a particular brand/product name
+- User asks about a specific label version
+- Query is about product-specific information (NDC, manufacturer)
+
+### Synthesis Instructions for Multi-Product Results
+
+When synthesizing results from multiple product labels:
+
+1. **Identify the most complete response** - Look for highest `contentBlockCount` and longest `fullSectionText`
+2. **Cross-reference for consistency** - Compare content across products
+3. **Aggregate unique information** - Some products may have additional contraindications/warnings
+4. **Cite all sources** - List all product names that contributed to the response
+5. **Flag truncated sources** - Note which labels had incomplete data
+
+---
+
 ## Interpretation Guidelines
 
 ### Priority Order
@@ -1517,6 +1602,7 @@ Suggested action: `GET /api/auth/login/Google`
 4. Use search endpoints for discovery queries
 5. Use CRUD endpoints for specific record operations
 6. Provide clarifying questions for ambiguous requests
+7. **For safety sections** - Use multi-product workflow to ensure complete data
 
 ### Common Intent Patterns
 

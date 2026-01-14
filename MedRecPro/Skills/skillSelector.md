@@ -463,6 +463,27 @@ Query: "Show me inactive ingredients for Cephalexin"
 | "Morphine milligram equivalent" | equianalgesicConversion |
 | "Switching from oxycodone to morphine" | equianalgesicConversion |
 
+---
+
+### CRITICAL: Multi-Product Workflow Triggers
+
+**Use multi-product workflow (fetch from multiple labels) when:**
+
+| Query Type | Reason | Skills |
+|------------|--------|--------|
+| "What are the contraindications for {ingredient}?" | Safety sections may be truncated | label, labelSection |
+| "What are ALL the warnings for {drug}?" | User explicitly wants comprehensive data | label, labelSection |
+| "How many {ingredient} products are available?" | User wants product count + comparison | labelIndicationWorkflow |
+| Generic ingredient queries (not brand-specific) | Different labels may have different content completeness | All section-based skills |
+| Opioid conversion queries | Dosing tables may be truncated in some labels | equianalgesicConversion |
+| "Comprehensive information about {drug}" | Multiple sections needed, some may be truncated | label, labelSection |
+
+**Multi-product workflow pattern:**
+1. Search for multiple products with same active ingredient (`pageSize=50`)
+2. Extract all `documentGUID[]` values (array extraction)
+3. Fetch sections from ALL products (batch expansion)
+4. During synthesis, select most complete content and aggregate unique information
+
 ### Multi-Skill Selection
 
 Select multiple skills when:

@@ -278,6 +278,74 @@ If equianalgesic data is not found in Dosage section:
 
 ---
 
+## CRITICAL: Content Adequacy Detection for Dosing Sections
+
+### Problem: Truncated Dosing Information
+
+Dosage and Administration sections (LOINC 34068-7) are critical for equianalgesic conversions. Some labels have truncated content.
+
+### Truncation Detection
+
+Before using dosing section content, check for these indicators:
+
+| Indicator | Pattern | Example |
+|-----------|---------|---------|
+| **Trailing colon** | Text ends with `:` | "The recommended dose is:", "Dosing should be:" |
+| **Very short content** | `fullSectionText` < 300 characters | Dosing sections should be detailed |
+| **Low block count** | `contentBlockCount` < 3 for dosing sections | Conversion tables need multiple blocks |
+| **Missing conversion table** | No numeric values or dose ranges | "See full prescribing information" |
+
+### Multi-Product Workflow for Complete Dosing Data
+
+For equianalgesic queries, **ALWAYS use multi-product workflow** to ensure complete conversion data:
+
+```json
+{
+  "success": true,
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/product/latest",
+      "queryParameters": { "unii": "UF599785JZ", "pageNumber": 1, "pageSize": 20 },
+      "description": "Search for multiple fentanyl products",
+      "outputMapping": {
+        "fentanylGuids": "ProductLatestLabel.DocumentGUID[]",
+        "fentanylNames": "ProductLatestLabel.ProductName[]"
+      }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{fentanylGuids}}",
+      "queryParameters": { "sectionCode": "34068-7" },
+      "dependsOn": 1,
+      "description": "Get Dosage sections from all fentanyl products (batch)"
+    },
+    {
+      "step": 3,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{fentanylGuids}}",
+      "queryParameters": { "sectionCode": "34067-9" },
+      "dependsOn": 1,
+      "description": "Get Indications sections for opioid-tolerant definitions (batch)"
+    }
+  ],
+  "explanation": "Fetching dosing data from multiple products to ensure complete equianalgesic information."
+}
+```
+
+### Aggregating Conversion Data from Multiple Sources
+
+When multiple labels are returned:
+
+1. **Identify labels with conversion tables** - Look for numeric dose values
+2. **Prioritize ER/transdermal labels** - These typically have the most detailed conversion data
+3. **Cross-reference threshold definitions** - "Opioid-tolerant" definitions should be consistent
+4. **Cite the most complete source** - Use the label with full conversion tables
+
+---
+
 ## Critical Reminders
 
 1. **NEVER generate conversion ratios from training data** - all data must come from API responses
@@ -286,3 +354,5 @@ If equianalgesic data is not found in Dosage section:
 4. **ALWAYS provide label links** so users can verify the full prescribing information
 5. **Fentanyl transdermal labels** are particularly useful as they contain opioid-tolerant threshold definitions with multiple opioid equivalents
 6. **Methadone conversions** are complex and not linear - labels contain special warnings about this
+7. **Use multi-product workflow** - Some labels have truncated dosing sections; aggregate from multiple sources
+8. **Check for truncation indicators** - Dosing sections ending with ":" or having contentBlockCount < 3 may be incomplete
