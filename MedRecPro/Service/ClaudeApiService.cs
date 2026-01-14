@@ -1434,20 +1434,32 @@ namespace MedRecPro.Service
             sb.AppendLine(request.OriginalQuery);
             sb.AppendLine();
 
-            // API results with smart truncation
+            // API results with smart truncation - filter to only successful results
             sb.AppendLine("=== API RESULTS ===");
 
-            foreach (var result in request.ExecutedEndpoints)
-            {
-                sb.AppendLine($"Endpoint: {result.Specification.Method} {result.Specification.Path}");
-                sb.AppendLine($"Status: {result.StatusCode}");
-                sb.AppendLine($"Execution Time: {result.ExecutionTimeMs}ms");
+            // Track aggregate prompt size to prevent Claude API context overflow
+            int currentPromptSize = sb.Length;
+            int maxTotalPromptSize = _settings.MaxSynthesisPromptLength;
+            int resultsIncluded = 0;
+            int resultsSkipped = 0;
 
-                if (!string.IsNullOrEmpty(result.Error))
-                {
-                    sb.AppendLine($"Error: {result.Error}");
-                }
-                else if (result.Result != null)
+            // Filter to only successful results (200-299 status codes) - failed results have no useful data
+            var successfulResults = request.ExecutedEndpoints
+                .Where(r => r.StatusCode >= 200 && r.StatusCode < 300)
+                .ToList();
+
+            // Count failed results for summary
+            int failedResultsCount = request.ExecutedEndpoints.Count - successfulResults.Count;
+
+            foreach (var result in successfulResults)
+            {
+                // Build result content first to check size before adding
+                var resultContent = new StringBuilder();
+                resultContent.AppendLine($"Endpoint: {result.Specification.Method} {result.Specification.Path}");
+                resultContent.AppendLine($"Status: {result.StatusCode}");
+                resultContent.AppendLine($"Execution Time: {result.ExecutionTimeMs}ms");
+
+                if (result.Result != null)
                 {
                     // Use token-efficient serialization for collections (pipe-delimited format)
                     // Falls back to JSON for single objects or when pipe serialization fails
@@ -1460,16 +1472,44 @@ namespace MedRecPro.Service
                     {
                         // Try to find and preserve important sections
                         var truncatedResult = smartTruncateLabelData(serializedResult, maxLength, request.OriginalQuery);
-                        sb.AppendLine($"Result (smart truncation applied, {serializedResult.Length} chars total):");
-                        sb.AppendLine(truncatedResult);
+                        resultContent.AppendLine($"Result (smart truncation applied, {serializedResult.Length} chars total):");
+                        resultContent.AppendLine(truncatedResult);
                     }
                     else
                     {
-                        sb.AppendLine($"Result: {serializedResult}");
+                        resultContent.AppendLine($"Result: {serializedResult}");
                     }
                 }
 
-                sb.AppendLine();
+                resultContent.AppendLine();
+
+                // Check if adding this result would exceed aggregate limit
+                if (currentPromptSize + resultContent.Length > maxTotalPromptSize)
+                {
+                    resultsSkipped++;
+                    continue;
+                }
+
+                // Add result to prompt and update size tracker
+                sb.Append(resultContent);
+                currentPromptSize += resultContent.Length;
+                resultsIncluded++;
+            }
+
+            // Add summary of truncation and failures if applicable
+            if (resultsSkipped > 0 || failedResultsCount > 0)
+            {
+                sb.AppendLine("=== RESULT SUMMARY ===");
+                sb.AppendLine($"Successful results included in prompt: {resultsIncluded}");
+                if (resultsSkipped > 0)
+                {
+                    sb.AppendLine($"Successful results skipped due to prompt size limit: {resultsSkipped}");
+                }
+                if (failedResultsCount > 0)
+                {
+                    sb.AppendLine($"Failed API calls (404/errors - no data): {failedResultsCount}");
+                    sb.AppendLine("Note: Not all FDA labels contain all section types. Failed calls are expected behavior.");
+                }
             }
 
             return sb.ToString();
@@ -1503,9 +1543,10 @@ namespace MedRecPro.Service
             {
                 relevantTerms.AddRange(new[] { "WARNING", "PRECAUTION", "43685-7", "34071-1" });
             }
-            if (queryLower.Contains("dose") || queryLower.Contains("dosage") || queryLower.Contains("how to"))
+            if (queryLower.Contains("dose") || queryLower.Contains("dosage") || queryLower.Contains("how to") ||
+                queryLower.Contains("conversion") || queryLower.Contains("equianalgesic") || queryLower.Contains("opioid"))
             {
-                relevantTerms.AddRange(new[] { "DOSAGE", "ADMINISTRATION", "34068-7" });
+                relevantTerms.AddRange(new[] { "DOSAGE", "ADMINISTRATION", "34068-7", "conversion", "equianalgesic", "Table 1", "42229-5" });
             }
             if (queryLower.Contains("interact"))
             {
@@ -1641,41 +1682,85 @@ namespace MedRecPro.Service
             sb.AppendLine("Here are the results from your query:");
             sb.AppendLine();
 
+            // Count successes and failures
+            var successResults = new List<AiEndpointResult>();
+            var failedCount = 0;
+            var failedPaths = new HashSet<string>();
+
             foreach (var result in request.ExecutedEndpoints)
             {
                 if (result.StatusCode >= 200 && result.StatusCode < 300)
+                {
+                    successResults.Add(result);
+                }
+                else
+                {
+                    failedCount++;
+                    // Track unique failed paths (not every individual failure)
+                    if (result.Specification?.Path != null)
+                    {
+                        // Extract the base path pattern (remove GUIDs)
+                        var basePath = System.Text.RegularExpressions.Regex.Replace(
+                            result.Specification.Path,
+                            @"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                            "{guid}");
+                        failedPaths.Add(basePath);
+                    }
+                }
+            }
+
+            // Report successful results
+            if (successResults.Count > 0)
+            {
+                sb.AppendLine($"**{successResults.Count} successful API calls:**");
+                var displayedCount = 0;
+                foreach (var result in successResults.Take(10))
                 {
                     if (result.Result is JsonElement element)
                     {
                         if (element.ValueKind == JsonValueKind.Array)
                         {
-                            sb.AppendLine($"Found {element.GetArrayLength()} results.");
+                            sb.AppendLine($"- {result.Specification?.Path}: Found {element.GetArrayLength()} results");
                         }
-                        else
+                        else if (element.ValueKind == JsonValueKind.Object)
                         {
-                            sb.AppendLine("Request completed successfully.");
+                            sb.AppendLine($"- {result.Specification?.Path}: Data retrieved successfully");
                         }
                     }
+                    displayedCount++;
                 }
-                else
+                if (successResults.Count > 10)
                 {
-                    sb.AppendLine($"Request to {result.Specification.Path} returned status {result.StatusCode}.");
-
-                    if (!string.IsNullOrEmpty(result.Error))
-                    {
-                        sb.AppendLine($"Error: {result.Error}");
-                    }
+                    sb.AppendLine($"- ... and {successResults.Count - 10} more successful calls");
                 }
+                sb.AppendLine();
+            }
+
+            // Summarize failures (don't list every single 404)
+            if (failedCount > 0)
+            {
+                sb.AppendLine($"**{failedCount} API calls returned errors:**");
+                foreach (var path in failedPaths.Take(5))
+                {
+                    sb.AppendLine($"- {path}: Section not found in some labels (404)");
+                }
+                if (failedPaths.Count > 5)
+                {
+                    sb.AppendLine($"- ... and {failedPaths.Count - 5} more endpoint patterns failed");
+                }
+                sb.AppendLine();
+                sb.AppendLine("*Note: Not all FDA labels contain all section types. This is expected behavior.*");
             }
 
             return new AiAgentSynthesis
             {
                 Response = sb.ToString(),
-                IsComplete = true,
+                IsComplete = successResults.Count > 0, // Mark incomplete only if NO successes
                 Warnings = new List<string>
                 {
-                    "AI synthesis unavailable - showing basic summary"
-                }
+                    "AI synthesis unavailable - showing basic summary",
+                    failedCount > 0 ? $"{failedCount} of {request?.ExecutedEndpoints.Count} API calls returned 404 (section not found)" : null
+                }.Where(w => w != null).ToList()!
             };
 
             #endregion

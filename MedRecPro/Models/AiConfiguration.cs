@@ -329,6 +329,49 @@ namespace MedRecPro.Models
         /// <seealso cref="ComparisonSettings.MaxPromptLength"/>
         public int MaxTokens { get; set; } = 4000;
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the maximum total character length allowed for synthesis prompts when
+        /// aggregating multiple API results for AI processing. This limit prevents Claude API
+        /// failures due to context length exceeded errors when synthesizing results from
+        /// multi-product queries that return dozens of successful API responses.
+        /// </summary>
+        /// <remarks>
+        /// When executing multi-step workflows (e.g., equianalgesic conversion queries), the system
+        /// may execute 40-80+ API calls, each returning up to 50KB of content. Without an aggregate
+        /// limit, the synthesis prompt can exceed Claude's context window, causing API failures
+        /// and triggering the fallback synthesis which provides only basic success/failure counts.
+        ///
+        /// This setting ensures:
+        /// - The synthesis prompt stays within Claude's processing capacity (~200K context window)
+        /// - AI synthesis completes successfully with meaningful summaries
+        /// - Users receive actual synthesized content rather than fallback summaries
+        /// - System resources are used efficiently for large multi-product queries
+        ///
+        /// Recommended values:
+        /// - 150,000 characters: Safe limit for Claude 3.5 Sonnet (~37K tokens)
+        /// - 200,000 characters: Maximum for complex queries with high-quality results
+        /// - 100,000 characters: Conservative limit for faster processing
+        ///
+        /// When the aggregate limit is reached, additional results are skipped and a note is
+        /// included in the prompt indicating how many results were truncated due to size limits.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Standard configuration for multi-product synthesis
+        /// settings.MaxSynthesisPromptLength = 150000;
+        ///
+        /// // Conservative limit for faster processing
+        /// settings.MaxSynthesisPromptLength = 100000;
+        ///
+        /// // Maximum for comprehensive analysis
+        /// settings.MaxSynthesisPromptLength = 200000;
+        /// </code>
+        /// </example>
+        /// <seealso cref="MaxTokens"/>
+        /// <seealso cref="ComparisonSettings.MaxPromptLength"/>
+        public int MaxSynthesisPromptLength { get; set; } = 150000;
+
         #endregion
     }
 

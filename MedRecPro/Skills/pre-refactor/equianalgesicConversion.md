@@ -182,10 +182,10 @@ GET /api/Label/ingredient/advanced?substanceNameSearch=buprenorphine  # Missing 
 ```
 # CORRECT - Multi-product workflow for BOTH opioids, BOTH sections
 
-Step 1: GET /api/Label/ingredient/advanced?substanceNameSearch={sourceOpioid}&pageSize=5
+Step 1: GET /api/Label/ingredient/advanced?substanceNameSearch={sourceOpioid}&pageSize=50
         outputMapping: { "sourceDocumentGuids": "documentGUID[]" }
 
-Step 2: GET /api/Label/ingredient/advanced?substanceNameSearch={targetOpioid}&pageSize=5
+Step 2: GET /api/Label/ingredient/advanced?substanceNameSearch={targetOpioid}&pageSize=50
         outputMapping: { "targetDocumentGuids": "documentGUID[]" }
 
 Step 3: GET /api/Label/markdown/sections/{{sourceDocumentGuids}}?sectionCode=34068-7

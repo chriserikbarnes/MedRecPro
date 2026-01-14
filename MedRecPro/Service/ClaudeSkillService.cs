@@ -748,9 +748,11 @@ namespace MedRecPro.Service
             // Equianalgesic conversion skill keywords - opioid dose conversions
             if (skillKeywords.TryGetValue("equianalgesicConversion", out var equianalgesicKeywords))
             {
-                if (equianalgesicKeywords.Any(k => message.Contains(k)))
+                var matchedKeyword = equianalgesicKeywords.FirstOrDefault(k => message.Contains(k));
+                if (matchedKeyword != null)
                 {
                     selectedSkills.Add("equianalgesicConversion");
+                    _logger.LogInformation("[SKILL SELECTION] equianalgesicConversion matched on keyword: '{Keyword}'", matchedKeyword);
                     // Also add labelProductIndication for UNII lookups
                     if (!selectedSkills.Contains("labelProductIndication"))
                     {
@@ -759,8 +761,12 @@ namespace MedRecPro.Service
                 }
             }
 
-            // Remove duplicates and return
-            return selectedSkills.Distinct().ToList();
+            // Remove duplicates and log final selection
+            var finalSkills = selectedSkills.Distinct().ToList();
+            _logger.LogInformation("[SKILL SELECTION] Final selected skills: [{Skills}] for query: '{QueryPreview}'",
+                string.Join(", ", finalSkills),
+                userMessage.Length > 80 ? userMessage[..80] + "..." : userMessage);
+            return finalSkills;
 
             #endregion
         }
@@ -955,11 +961,15 @@ namespace MedRecPro.Service
                 {
                     "equianalgesic", "opioid conversion", "convert morphine",
                     "convert hydromorphone", "convert fentanyl", "convert oxycodone",
+                    "convert methadone", "convert buprenorphine",
                     "morphine equivalent", "mme", "opioid tolerant", "dose conversion",
                     "switching opioids", "opioid switch", "equivalent dose",
                     "morphine to hydromorphone", "hydromorphone to morphine",
                     "fentanyl to morphine", "morphine to fentanyl",
-                    "oxycodone to morphine", "morphine to oxycodone"
+                    "oxycodone to morphine", "morphine to oxycodone",
+                    "methadone", "buprenorphine",
+                    "methadone to buprenorphine", "buprenorphine to methadone",
+                    "opioid", "conversion from", "conversion to"
                 }
             };
 
