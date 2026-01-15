@@ -226,6 +226,32 @@ namespace MedRecPro.Service
         /// </remarks>
         Task<string> GetResponseFormatDocumentAsync();
 
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the synthesis rules document containing content quality and aggregation rules.
+        /// </summary>
+        /// <returns>
+        /// A task that resolves to the synthesis rules document content as a string.
+        /// </returns>
+        /// <remarks>
+        /// Contains truncation detection, 404 handling, and multi-product aggregation rules.
+        /// Only available when using the Refactored pathway.
+        /// </remarks>
+        /// <seealso cref="GetResponseFormatDocumentAsync"/>
+        Task<string> GetSynthesisRulesDocumentAsync();
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the currently active skill pathway type.
+        /// </summary>
+        /// <returns>
+        /// A string indicating the active pathway ("Refactored" or "FirstDraft").
+        /// </returns>
+        /// <remarks>
+        /// Useful for diagnostic purposes and conditional UI rendering.
+        /// </remarks>
+        string GetActiveSkillPathway();
+
         #endregion
     }
 
@@ -334,9 +360,73 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Tracks the pathway used for the last manifest cache to detect pathway changes.
+        /// </summary>
+        private SkillPathwayType? _lastManifestPathway;
+
+        /**************************************************************/
+        /// <summary>
         /// Cache duration for skill documents (8 hours).
         /// </summary>
         private readonly TimeSpan _cacheDuration = TimeSpan.FromHours(8);
+
+        /**************************************************************/
+        /// <summary>
+        /// Defines the available skill pathway options.
+        /// </summary>
+        /// <remarks>
+        /// <list type="bullet">
+        /// <item><term>Refactored</term><description>Uses the new separated concerns architecture with skills.md, selectors.md, and interfaces/</description></item>
+        /// <item><term>FirstDraft</term><description>Uses the original monolithic skill files from Skills/FirstDraft/</description></item>
+        /// </list>
+        /// </remarks>
+        public enum SkillPathwayType
+        {
+            /// <summary>
+            /// Uses the new refactored skill architecture with separated concerns.
+            /// </summary>
+            Refactored,
+
+            /// <summary>
+            /// Uses the original FirstDraft skill files (legacy pathway).
+            /// </summary>
+            FirstDraft
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the currently active skill pathway based on the FeatureFlags.SkillPathway configuration.
+        /// </summary>
+        /// <remarks>
+        /// Reads from FeatureFlags:SkillPathway in appsettings.json.
+        /// Defaults to <see cref="SkillPathwayType.Refactored"/> if not configured or invalid.
+        /// </remarks>
+        /// <seealso cref="SkillPathwayType"/>
+        private SkillPathwayType ActivePathway
+        {
+            get
+            {
+                var pathwaySetting = _configuration.GetValue<string>("FeatureFlags:SkillPathway");
+                if (Enum.TryParse<SkillPathwayType>(pathwaySetting, ignoreCase: true, out var pathway))
+                {
+                    return pathway;
+                }
+                return SkillPathwayType.Refactored; // Default to refactored architecture
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the configuration section name for skill paths based on the active pathway.
+        /// </summary>
+        /// <remarks>
+        /// Returns "ClaudeApiSettings" for Refactored pathway,
+        /// "FirstDraftSkillSettings" for FirstDraft pathway.
+        /// </remarks>
+        /// <seealso cref="ActivePathway"/>
+        private string SkillConfigSection => ActivePathway == SkillPathwayType.FirstDraft
+            ? "FirstDraftSkillSettings"
+            : "ClaudeApiSettings";
 
         /**************************************************************/
         /// <summary>
@@ -369,7 +459,9 @@ namespace MedRecPro.Service
         /// These paths are relative to the Skills directory and map capability contracts
         /// to their implementation specifications. Interface documents contain API endpoints,
         /// workflows, and output mappings.
+        /// Only used when <see cref="ActivePathway"/> is <see cref="SkillPathwayType.Refactored"/>.
         /// </remarks>
+        /// <seealso cref="ActivePathway"/>
         private readonly Dictionary<string, string> _interfaceDocPaths = new(StringComparer.OrdinalIgnoreCase)
         {
             { "indicationDiscovery", "Skills/interfaces/api/indication-discovery.md" },
@@ -378,8 +470,20 @@ namespace MedRecPro.Service
             { "userActivity", "Skills/interfaces/api/user-activity.md" },
             { "cacheManagement", "Skills/interfaces/api/cache-management.md" },
             { "sessionManagement", "Skills/interfaces/api/session-management.md" },
-            { "dataRescue", "Skills/interfaces/api/data-rescue.md" }
+            { "dataRescue", "Skills/interfaces/api/data-rescue.md" },
+            { "retryFallback", "Skills/interfaces/api/retry-fallback.md" },
+            { "pharmacologicClass", "Skills/interfaces/api/pharmacologic-class.md" }
         };
+
+        /**************************************************************/
+        /// <summary>
+        /// Path to the synthesis rules document in the refactored architecture.
+        /// </summary>
+        /// <remarks>
+        /// Contains content quality detection, aggregation rules, and 404 handling guidelines.
+        /// Only used when <see cref="ActivePathway"/> is <see cref="SkillPathwayType.Refactored"/>.
+        /// </remarks>
+        private const string SynthesisRulesPath = "Skills/interfaces/synthesis-rules.md";
 
         /**************************************************************/
         /// <summary>
@@ -423,21 +527,46 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <inheritdoc/>
+        /// <remarks>
+        /// The manifest is loaded based on the active skill pathway.
+        /// For FirstDraft pathway, uses Skills/FirstDraft/skillSelector.md.
+        /// For Refactored pathway, uses Skills/selectors.md (new architecture).
+        /// </remarks>
+        /// <seealso cref="ActivePathway"/>
         public async Task<string> GetSkillManifestAsync()
         {
             #region implementation
 
-            // Check cache validity
+            // Include pathway in cache key to support pathway switching
+            var cacheKey = $"SkillManifest_{ActivePathway}";
+
+            // Check cache validity (include pathway in cache to prevent cross-contamination)
             if (_manifestCache != null &&
-                DateTime.UtcNow - _manifestCacheTimestamp < _cacheDuration)
+                DateTime.UtcNow - _manifestCacheTimestamp < _cacheDuration &&
+                _lastManifestPathway == ActivePathway)
             {
                 return _manifestCache;
             }
 
-            _logger.LogDebug("Building skill manifest");
+            _logger.LogDebug("Building skill manifest for pathway: {Pathway}", ActivePathway);
 
-            // Load the skill selector manifest from file
-            var manifestPath = _configuration.GetValue<string>("ClaudeApiSettings:Skill-Selector");
+            // Load the skill selector manifest from file based on pathway
+            var manifestPath = _configuration.GetValue<string>($"{SkillConfigSection}:Skill-Selector");
+
+            // For refactored pathway, prefer the new selectors.md if available
+            if (ActivePathway == SkillPathwayType.Refactored)
+            {
+                var selectorsContent = await GetSelectorsDocumentAsync();
+                if (!selectorsContent.StartsWith("Skills document not found"))
+                {
+                    _manifestCache = selectorsContent;
+                    _manifestCacheTimestamp = DateTime.UtcNow;
+                    _lastManifestPathway = ActivePathway;
+                    return _manifestCache;
+                }
+            }
+
+            // Load from configured path
             if (!string.IsNullOrEmpty(manifestPath))
             {
                 var content = readSkillFileByPath(manifestPath);
@@ -445,6 +574,7 @@ namespace MedRecPro.Service
                 {
                     _manifestCache = content;
                     _manifestCacheTimestamp = DateTime.UtcNow;
+                    _lastManifestPathway = ActivePathway;
                     return _manifestCache;
                 }
             }
@@ -452,6 +582,7 @@ namespace MedRecPro.Service
             // Fallback: build manifest from available skills
             _manifestCache = await buildSkillManifestAsync();
             _manifestCacheTimestamp = DateTime.UtcNow;
+            _lastManifestPathway = ActivePathway;
 
             return _manifestCache;
 
@@ -588,11 +719,17 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <inheritdoc/>
+        /// <remarks>
+        /// Loads skills based on the active pathway. Cache keys include the pathway
+        /// to prevent cross-contamination when switching pathways.
+        /// </remarks>
+        /// <seealso cref="ActivePathway"/>
         public async Task<string> GetFullSkillsDocumentAsync()
         {
             #region implementation
 
-            var key = "ClaudeSkillService_GetFullSkillsDocument".Base64Encode();
+            // Include pathway in cache key to support pathway switching
+            var key = $"ClaudeSkillService_GetFullSkillsDocument_{ActivePathway}".Base64Encode();
             var cached = PerformanceHelper.GetCache<string>(key);
 
             if (!string.IsNullOrEmpty(cached))
@@ -600,7 +737,7 @@ namespace MedRecPro.Service
                 return cached;
             }
 
-            _logger.LogDebug("Building full skills document (legacy mode)");
+            _logger.LogDebug("Building full skills document for pathway: {Pathway}", ActivePathway);
 
             var sb = new System.Text.StringBuilder();
 
@@ -664,13 +801,25 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <inheritdoc/>
+        /// <remarks>
+        /// The capability contracts document is only available for the Refactored pathway.
+        /// For FirstDraft pathway, this returns a message indicating the document is unavailable.
+        /// </remarks>
         /// <seealso cref="GetSelectorsDocumentAsync"/>
         /// <seealso cref="GetInterfaceDocumentAsync"/>
+        /// <seealso cref="ActivePathway"/>
         public Task<string> GetCapabilityContractsAsync()
         {
             #region implementation
 
-            var key = $"ClaudeSkillService_CapabilityContracts".Base64Encode();
+            // Only available for Refactored pathway
+            if (ActivePathway != SkillPathwayType.Refactored)
+            {
+                return Task.FromResult(
+                    "Capability contracts document is only available when using the Refactored skill pathway.");
+            }
+
+            var key = $"ClaudeSkillService_CapabilityContracts_{ActivePathway}".Base64Encode();
             var cached = PerformanceHelper.GetCache<string>(key);
 
             if (!string.IsNullOrEmpty(cached))
@@ -695,13 +844,18 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <inheritdoc/>
+        /// <remarks>
+        /// For Refactored pathway, returns Skills/selectors.md.
+        /// For FirstDraft pathway, returns Skills/FirstDraft/skillSelector.md.
+        /// </remarks>
         /// <seealso cref="GetCapabilityContractsAsync"/>
         /// <seealso cref="GetInterfaceDocumentAsync"/>
+        /// <seealso cref="ActivePathway"/>
         public Task<string> GetSelectorsDocumentAsync()
         {
             #region implementation
 
-            var key = $"ClaudeSkillService_SelectorsDoc".Base64Encode();
+            var key = $"ClaudeSkillService_SelectorsDoc_{ActivePathway}".Base64Encode();
             var cached = PerformanceHelper.GetCache<string>(key);
 
             if (!string.IsNullOrEmpty(cached))
@@ -709,9 +863,14 @@ namespace MedRecPro.Service
                 return Task.FromResult(cached);
             }
 
-            _logger.LogDebug("Loading selectors document from {Path}", SelectorsDocPath);
+            // Determine which selector document to load based on pathway
+            var docPath = ActivePathway == SkillPathwayType.Refactored
+                ? SelectorsDocPath
+                : _configuration.GetValue<string>($"{SkillConfigSection}:Skill-Selector") ?? "Skills/FirstDraft/skillSelector.md";
 
-            var content = readSkillFileByPath(SelectorsDocPath);
+            _logger.LogDebug("Loading selectors document from {Path} for pathway {Pathway}", docPath, ActivePathway);
+
+            var content = readSkillFileByPath(docPath);
 
             // Cache for 8 hours
             if (!content.StartsWith("Skills document not found"))
@@ -726,11 +885,24 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <inheritdoc/>
+        /// <remarks>
+        /// Interface documents are only available for the Refactored pathway.
+        /// For FirstDraft pathway, use <see cref="GetSkillByNameAsync"/> instead.
+        /// </remarks>
         /// <seealso cref="GetCapabilityContractsAsync"/>
         /// <seealso cref="GetSelectorsDocumentAsync"/>
+        /// <seealso cref="ActivePathway"/>
         public Task<string> GetInterfaceDocumentAsync(string skillName)
         {
             #region implementation
+
+            // Only available for Refactored pathway
+            if (ActivePathway != SkillPathwayType.Refactored)
+            {
+                return Task.FromResult(
+                    $"Interface documents are only available when using the Refactored skill pathway. " +
+                    $"For FirstDraft pathway, use GetSkillByNameAsync('{skillName}') instead.");
+            }
 
             if (string.IsNullOrWhiteSpace(skillName))
             {
@@ -742,7 +914,7 @@ namespace MedRecPro.Service
             // Try direct lookup first
             if (_interfaceDocPaths.TryGetValue(normalizedName, out var docPath))
             {
-                var key = $"ClaudeSkillService_Interface_{normalizedName}".Base64Encode();
+                var key = $"ClaudeSkillService_Interface_{normalizedName}_{ActivePathway}".Base64Encode();
                 var cached = PerformanceHelper.GetCache<string>(key);
 
                 if (!string.IsNullOrEmpty(cached))
@@ -786,7 +958,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            var key = $"ClaudeSkillService_ResponseFormat".Base64Encode();
+            var key = $"ClaudeSkillService_ResponseFormat_{ActivePathway}".Base64Encode();
             var cached = PerformanceHelper.GetCache<string>(key);
 
             if (!string.IsNullOrEmpty(cached))
@@ -807,6 +979,51 @@ namespace MedRecPro.Service
             return Task.FromResult(content);
 
             #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <seealso cref="GetResponseFormatDocumentAsync"/>
+        public Task<string> GetSynthesisRulesDocumentAsync()
+        {
+            #region implementation
+
+            // Only available for Refactored pathway
+            if (ActivePathway != SkillPathwayType.Refactored)
+            {
+                return Task.FromResult(
+                    "Synthesis rules document is only available when using the Refactored skill pathway. " +
+                    "For FirstDraft pathway, use GetSynthesisPromptSkills() instead.");
+            }
+
+            var key = $"ClaudeSkillService_SynthesisRules".Base64Encode();
+            var cached = PerformanceHelper.GetCache<string>(key);
+
+            if (!string.IsNullOrEmpty(cached))
+            {
+                return Task.FromResult(cached);
+            }
+
+            _logger.LogDebug("Loading synthesis rules document from {Path}", SynthesisRulesPath);
+
+            var content = readSkillFileByPath(SynthesisRulesPath);
+
+            // Cache for 8 hours
+            if (!content.StartsWith("Skills document not found"))
+            {
+                PerformanceHelper.SetCacheManageKey(key, content, 8);
+            }
+
+            return Task.FromResult(content);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        public string GetActiveSkillPathway()
+        {
+            return ActivePathway.ToString();
         }
 
         #endregion
@@ -1039,6 +1256,12 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
+        /// Tracks the pathway used for the last keywords cache to detect pathway changes.
+        /// </summary>
+        private SkillPathwayType? _lastKeywordsPathway;
+
+        /**************************************************************/
+        /// <summary>
         /// Loads skill keywords from the skillSelector.md manifest file.
         /// Keywords are extracted from "**Keywords**:" lines in each skill section.
         /// </summary>
@@ -1047,7 +1270,9 @@ namespace MedRecPro.Service
         /// Returns default keywords if manifest cannot be loaded.
         /// </returns>
         /// <remarks>
-        /// This method reads the skillSelector.md file and parses keyword definitions.
+        /// This method reads the skillSelector.md file based on the active pathway.
+        /// For FirstDraft pathway, uses Skills/FirstDraft/skillSelector.md.
+        /// For Refactored pathway, uses Skills/selectors.md.
         /// Results are cached for the same duration as other skill content.
         ///
         /// Expected manifest format:
@@ -1055,35 +1280,49 @@ namespace MedRecPro.Service
         /// **Keywords**: keyword1, keyword2, keyword phrase, ...
         /// </remarks>
         /// <seealso cref="GetSkillManifestAsync"/>
+        /// <seealso cref="ActivePathway"/>
         private Dictionary<string, List<string>> loadKeywordsFromManifest()
         {
             #region implementation
 
-            // Check cache validity
+            // Check cache validity (include pathway in validity check)
             if (_skillKeywordsCache != null &&
-                DateTime.UtcNow - _skillKeywordsCacheTimestamp < _cacheDuration)
+                DateTime.UtcNow - _skillKeywordsCacheTimestamp < _cacheDuration &&
+                _lastKeywordsPathway == ActivePathway)
             {
                 return _skillKeywordsCache;
             }
 
-            _logger.LogDebug("Loading skill keywords from skillSelector.md manifest");
+            _logger.LogDebug("Loading skill keywords from manifest for pathway: {Pathway}", ActivePathway);
 
             var skillKeywords = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
-                // Load the manifest file
-                var manifestPath = _configuration.GetValue<string>("ClaudeApiSettings:Skill-Selector");
+                // Load the manifest file based on active pathway
+                var manifestPath = _configuration.GetValue<string>($"{SkillConfigSection}:Skill-Selector");
+
+                // For refactored pathway, try selectors.md first
+                if (ActivePathway == SkillPathwayType.Refactored)
+                {
+                    var selectorsPath = SelectorsDocPath;
+                    var selectorsContent = readSkillFileByPath(selectorsPath);
+                    if (!selectorsContent.StartsWith("Skills document not found"))
+                    {
+                        manifestPath = selectorsPath;
+                    }
+                }
+
                 if (string.IsNullOrEmpty(manifestPath))
                 {
-                    _logger.LogWarning("Skill-Selector path not configured, using default keywords");
+                    _logger.LogWarning("Skill-Selector path not configured for {Pathway} pathway, using default keywords", ActivePathway);
                     return getDefaultSkillKeywords();
                 }
 
                 var content = readSkillFileByPath(manifestPath);
                 if (content.StartsWith("Skills document not found"))
                 {
-                    _logger.LogWarning("skillSelector.md not found at {Path}, using default keywords", manifestPath);
+                    _logger.LogWarning("Skill manifest not found at {Path}, using default keywords", manifestPath);
                     return getDefaultSkillKeywords();
                 }
 
@@ -1121,14 +1360,16 @@ namespace MedRecPro.Service
                 // Validate we got meaningful keywords
                 if (skillKeywords.Count == 0 || !skillKeywords.Any(kvp => kvp.Value.Count > 0))
                 {
-                    _logger.LogWarning("No keywords found in skillSelector.md, using default keywords");
+                    _logger.LogWarning("No keywords found in skill manifest, using default keywords");
                     return getDefaultSkillKeywords();
                 }
 
                 _skillKeywordsCache = skillKeywords;
                 _skillKeywordsCacheTimestamp = DateTime.UtcNow;
+                _lastKeywordsPathway = ActivePathway;
 
-                _logger.LogInformation("Loaded keywords for {SkillCount} skills from skillSelector.md", skillKeywords.Count);
+                _logger.LogInformation("Loaded keywords for {SkillCount} skills from {Pathway} pathway manifest",
+                    skillKeywords.Count, ActivePathway);
 
                 return skillKeywords;
             }
@@ -1233,16 +1474,24 @@ namespace MedRecPro.Service
         /**************************************************************/
         /// <summary>
         /// Reads a skill file from the configured path with caching support.
+        /// Uses the active skill pathway to determine which configuration section to read from.
         /// </summary>
-        /// <param name="configKey">The configuration key under ClaudeApiSettings.</param>
+        /// <param name="configKey">The configuration key (e.g., "Skill-Label", "Skill-Settings").</param>
         /// <param name="cacheKeyPrefix">A prefix for the cache key.</param>
         /// <returns>The skill file content as a string.</returns>
+        /// <remarks>
+        /// The method reads from either ClaudeApiSettings or FirstDraftSkillSettings
+        /// based on the <see cref="ActivePathway"/> property. Cache keys include
+        /// the pathway to prevent cross-contamination between pathways.
+        /// </remarks>
+        /// <seealso cref="ActivePathway"/>
+        /// <seealso cref="SkillConfigSection"/>
         private string readSkillFile(string configKey, string cacheKeyPrefix)
         {
             #region implementation
 
-            // Use consistent cache key naming convention
-            var key = $"{cacheKeyPrefix}_ClaudeApiSettings_{configKey}".Base64Encode();
+            // Include pathway in cache key to prevent cross-contamination
+            var key = $"{cacheKeyPrefix}_{SkillConfigSection}_{configKey}".Base64Encode();
             var cachedSkills = PerformanceHelper.GetCache<string>(key);
 
             if (!string.IsNullOrEmpty(cachedSkills))
@@ -1250,12 +1499,19 @@ namespace MedRecPro.Service
                 return cachedSkills;
             }
 
-            // Get the configured path from appsettings
-            var skillFilePath = _configuration.GetValue<string>($"ClaudeApiSettings:{configKey}");
+            // Get the configured path from the active pathway's settings section
+            var skillFilePath = _configuration.GetValue<string>($"{SkillConfigSection}:{configKey}");
+
+            // Fallback to ClaudeApiSettings if FirstDraft doesn't have the key
+            if (string.IsNullOrEmpty(skillFilePath) && ActivePathway == SkillPathwayType.FirstDraft)
+            {
+                skillFilePath = _configuration.GetValue<string>($"ClaudeApiSettings:{configKey}");
+                _logger.LogDebug("Falling back to ClaudeApiSettings for {ConfigKey}", configKey);
+            }
 
             if (string.IsNullOrEmpty(skillFilePath))
             {
-                return $"{configKey} configuration not found.";
+                return $"{configKey} configuration not found in {SkillConfigSection}.";
             }
 
             var content = readSkillFileByPath(skillFilePath);

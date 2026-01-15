@@ -41,7 +41,9 @@ GET /api/Label/product/latest?unii={UNII}&pageNumber=1&pageSize=5
 - `UNII` - Ingredient identifier
 - `DocumentGUID` - For section content retrieval
 
-### Step 3: Get Label Content (Required)
+### Step 3: Get Label Content (REQUIRED)
+
+**CRITICAL**: This step is REQUIRED, not optional.
 
 ```
 GET /api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9
@@ -54,6 +56,21 @@ GET /api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9
 **Output Fields**:
 - `fullSectionText` - Pre-formatted markdown
 - `contentBlockCount` - Quality indicator
+
+### Full Label Content Requirement
+
+**Step 3 is REQUIRED for product summarization:**
+- Always call `/api/Label/markdown/sections/{DocumentGUID}`
+- For comprehensive data, omit the `sectionCode` parameter to get ALL sections
+- Returns ALL sections including Indications, Description, Dosage, Warnings, etc.
+- Use this data for product summaries, NOT training data
+- The reference file (`labelProductIndication.md`) is for UNII matching only, not final summaries
+
+**CRITICAL - NO TRAINING DATA**:
+- Response content MUST come ONLY from API results
+- DO NOT generate drug descriptions, mechanisms, or classifications from training data
+- List ONLY products returned by the API with their exact `productName` and `activeIngredient` values
+- If the API returns 5 products, list exactly those 5 products - no more, no less
 
 ### Step 4: Find Related Products (Optional)
 
@@ -179,6 +196,41 @@ Content is truncated if:
 ```
 
 Use ACTUAL product names from API response. Never use placeholders.
+
+### CRITICAL: Label Link Construction
+
+When UNII/ingredient data is available from Step 2:
+- **ALWAYS** use the DocumentGUID returned by `/api/Label/product/latest` to build label links
+- **DO NOT** use alternative methods (regex extraction, path parsing, or other endpoints)
+- The correct label link format is: `/api/Label/generate/{DocumentGUID}/true`
+- Include the ProductName from the API response in the link display text
+
+### REQUIRED: View Full Labels Section
+
+Your response MUST include a "View Full Labels:" section with clickable links.
+
+For each product returned by `/api/Label/product/latest`:
+1. Extract the `productName` and `documentGUID` from the response
+2. Create a markdown link using the **ACTUAL product name** from the API response
+3. **DO NOT use generic placeholders** like "Prescription Drug" or "OTC Drug"
+
+**Example (CORRECT)**:
+```
+View Full Labels:
+- [View Full Label (Atorvastatin Calcium)](/api/Label/generate/48173596-6909-f52b-e063-6294a90a8f22/true)
+- [View Full Label (Rosuvastatin)](/api/Label/generate/abc12345-1234-5678-9abc-def012345678/true)
+```
+
+**Example (WRONG)**:
+```
+- [View Full Label (Prescription Drug)](/api/Label/generate/48173596.../true)
+```
+
+### CRITICAL: Relative URLs Only
+
+- Use RELATIVE URLs: `/api/Label/generate/{DocumentGUID}/true`
+- NEVER include `http://`, `https://`, `localhost`, or any domain
+- The frontend will add the correct base URL
 
 ### Data Sources
 
