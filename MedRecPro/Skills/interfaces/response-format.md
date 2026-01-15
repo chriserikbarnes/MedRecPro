@@ -4,6 +4,74 @@ Defines output requirements for all skill workflows.
 
 ---
 
+## CRITICAL: Mandatory Product Label Links - ENFORCEMENT
+
+**Every response that retrieves FDA product data MUST include clickable label links.** This is the **#1 requirement**.
+
+### Why Label Links Are Required
+
+- Source attribution for regulatory compliance
+- User verification of cited information
+- Direct access to official FDA prescribing information
+- **Without label links, the response is INCOMPLETE**
+
+### Pre-Response Checklist (MANDATORY)
+
+**Before finalizing ANY response, verify:**
+
+1. ✓ Did the API return product data? If YES → Label links are REQUIRED
+2. ✓ `dataReferences` object is present and populated with ALL products
+3. ✓ Every product mentioned has a corresponding label link
+4. ✓ Links use actual product names from API responses (NEVER placeholders)
+5. ✓ Links appear in BOTH the markdown response AND the JSON `dataReferences`
+
+### Required Link Format
+
+**In the Markdown Response:**
+```markdown
+### View Full Labels:
+- [View Full Label ({ProductName1})](/api/Label/generate/{DocumentGUID1}/true)
+- [View Full Label ({ProductName2})](/api/Label/generate/{DocumentGUID2}/true)
+```
+
+**In the JSON Output:**
+```json
+"dataReferences": {
+  "View Full Label ({ProductName1})": "/api/Label/generate/{DocumentGUID1}/true",
+  "View Full Label ({ProductName2})": "/api/Label/generate/{DocumentGUID2}/true"
+}
+```
+
+### Failure Handling
+
+**If you cannot provide label links:**
+- State explicitly why (e.g., "No products found matching criteria")
+- Ensure `dataReferences` is an empty object `{}`
+- Do NOT use placeholder product names
+
+### FORBIDDEN Placeholder Patterns
+
+**NEVER use these generic terms in label links:**
+- "Prescription Drug" ❌
+- "OTC Drug" ❌
+- "Drug" ❌
+- "Medication" ❌
+- "Document" ❌
+
+**ALWAYS use the actual `productName` from the API response.**
+
+**WRONG** (using placeholder):
+```markdown
+- [View Full Label (Prescription Drug)](/api/Label/generate/abc123/true)
+```
+
+**CORRECT** (using actual product name):
+```markdown
+- [View Full Label (Buprenorphine Transdermal System)](/api/Label/generate/abc123/true)
+```
+
+---
+
 ## JSON Response Structure
 
 ```json

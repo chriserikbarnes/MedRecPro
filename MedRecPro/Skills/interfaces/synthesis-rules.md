@@ -4,37 +4,110 @@ Defines rules for synthesizing API results into helpful, conversational response
 
 ---
 
-## Placeholder Detection and Prevention
+## CRITICAL: Label Links Are Mandatory - ENFORCEMENT
 
-Before finalizing ANY response that contains label links, scan for FORBIDDEN placeholder patterns:
+**Every synthesized response MUST include product label links.** This is the **most important requirement**.
 
-| Forbidden Pattern | Example |
-|-------------------|---------|
-| Generic drug type | "View Full Label (Prescription Drug)" |
-| Generic OTC type | "View Full Label (OTC Drug)" |
-| Generic document | "View Full Label (Document)" |
-| Generic drug term | "View Full Label (Drug)" |
-| Generic medication | "View Full Label (Medication)" |
+### Label Link Requirements
 
-### Self-Check Checklist
+1. **In the markdown response**: Include a `### View Full Labels:` section
+2. **In the JSON output**: Populate the `dataReferences` object
 
-Before sending response:
+### Pre-Synthesis Checklist (REQUIRED)
 
+Before writing your response, you MUST:
+1. ✓ Extract ALL `documentGUID` values from API results
+2. ✓ Extract ALL `productName` values from API results
+3. ✓ Create a label link for EACH product returned
+4. ✓ Include the `### View Full Labels:` section in your response
+5. ✓ Populate `dataReferences` with ALL product links
+
+### Required Response Format
+
+**In the Markdown Response (REQUIRED)**:
+```markdown
+### View Full Labels:
+- [View Full Label ({ProductName1})](/api/Label/generate/{DocumentGUID1}/true)
+- [View Full Label ({ProductName2})](/api/Label/generate/{DocumentGUID2}/true)
 ```
-[ ] Does every label link contain an ACTUAL product name (e.g., "Fentanyl Citrate", "Propofol")?
-[ ] Are there ZERO instances of "Prescription Drug", "OTC Drug", or other generic terms?
-[ ] Did every ProductName come from the API response, not from training data?
-[ ] If ProductName unavailable, is the link omitted entirely?
+
+**In the JSON Output (REQUIRED)**:
+```json
+"dataReferences": {
+  "View Full Label ({ProductName1})": "/api/Label/generate/{DocumentGUID1}/true",
+  "View Full Label ({ProductName2})": "/api/Label/generate/{DocumentGUID2}/true"
+}
 ```
 
-### Recovery Steps
+### ENFORCEMENT: No Response Without Label Links
 
-If you find yourself about to write a placeholder:
+**If your response discusses ANY product data retrieved from the API, you MUST include label links.**
 
-1. **STOP** - You are missing the ProductName from the API response
-2. Go back and check the `/api/Label/product/latest` response for `productLatestLabel.productName`
-3. If you cannot find a ProductName in the API response, **DO NOT** create a label link
-4. Never create a label link without the actual product name from the API
+- If API returned 3 products → Include 3 label links
+- If API returned 10 products → Include 10 label links
+- If API returned 0 products → State "No products found" (no links needed)
+
+**A response that mentions product data without label links is INCOMPLETE and INVALID.**
+
+---
+
+## CRITICAL: Placeholder Detection and Prevention - BLOCKING REQUIREMENT
+
+**STOP! Before writing ANY label link, you MUST have the actual product name from the API response.**
+
+### FORBIDDEN Placeholder Patterns - DO NOT USE
+
+These patterns indicate a FAILURE to extract the product name. If you are about to write any of these, STOP and find the actual product name:
+
+| FORBIDDEN Pattern | Why It's Wrong |
+|-------------------|----------------|
+| "View Full Label (Prescription Drug)" | "Prescription Drug" is a placeholder, not a product name |
+| "View Full Label (OTC Drug)" | "OTC Drug" is a placeholder, not a product name |
+| "View Full Label (Drug)" | "Drug" is a placeholder, not a product name |
+| "View Full Label (Medication)" | "Medication" is a placeholder, not a product name |
+| "View Full Label (Document)" | "Document" is a placeholder, not a product name |
+
+### WHERE TO FIND PRODUCT NAMES
+
+The `productName` field is in the API response. Look for:
+- `/api/Label/product/latest` response → `productName` or `ProductName` field
+- `/api/Label/ingredient/search` response → `productName` field
+- `/api/Label/ingredient/advanced` response → `productName` field
+
+**Example API response:**
+```json
+{
+  "documentGUID": "abc123...",
+  "productName": "Buprenorphine Transdermal System",  // <-- USE THIS
+  "activeIngredient": "buprenorphine"
+}
+```
+
+### CORRECT vs INCORRECT Examples
+
+**INCORRECT** (using placeholder):
+```markdown
+- [View Full Label (Prescription Drug)](/api/Label/generate/abc123/true)
+```
+
+**CORRECT** (using actual product name from API):
+```markdown
+- [View Full Label (Buprenorphine Transdermal System)](/api/Label/generate/abc123/true)
+```
+
+### If ProductName Is Missing
+
+If the API response does not contain a `productName` field:
+1. **DO NOT** create a label link with a placeholder
+2. **DO NOT** guess or generate a product name
+3. Either omit the link entirely, OR use the `activeIngredient` field as fallback
+
+### Self-Check Before Sending
+
+Before finalizing your response, verify:
+- [ ] Every label link contains an ACTUAL product name from the API
+- [ ] ZERO instances of "Prescription Drug", "OTC Drug", "Drug", "Medication"
+- [ ] Each product name came from `productName` field in the API response
 
 ---
 

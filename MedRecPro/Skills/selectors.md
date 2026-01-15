@@ -103,7 +103,11 @@ Query: "Show me the dosage for metformin"
 - NDC, manufacturer, labeler, application number
 - ANDA, NDA, BLA, UNII, SPL
 
-**Selection Rule**: If query mentions a SPECIFIC product AND asks about label details, select labelContent.
+**General Information Keywords**
+- tell me about, what is, information about, details about
+- know about, learn about
+
+**Selection Rule**: If query mentions a SPECIFIC product AND asks about label details, select labelContent. Also use for general "tell me about {drug}" queries.
 
 ---
 
@@ -111,11 +115,19 @@ Query: "Show me the dosage for metformin"
 
 **Keywords**
 - equianalgesic, opioid conversion, morphine equivalent, MME
-- convert morphine, convert hydromorphone, convert fentanyl
-- convert oxycodone, convert methadone, convert buprenorphine
-- switching opioids, equivalent dose, opioid switch
+- dose conversion, switching opioids, equivalent dose, opioid switch
+- convert from, convert to, conversion from, conversion to
+- convert morphine, convert hydromorphone, convert fentanyl, convert oxycodone, convert methadone, convert buprenorphine
+- morphine to hydromorphone, hydromorphone to morphine
+- fentanyl to morphine, morphine to fentanyl
+- oxycodone to morphine, morphine to oxycodone
+- oxycodone to buprenorphine, buprenorphine to oxycodone
+- methadone to buprenorphine, buprenorphine to methadone
+- (and other X to Y opioid combinations)
 
 **Selection Rule**: Any query about opioid dose conversion or equivalence.
+
+**IMPORTANT**: Do NOT match on standalone drug names (e.g., "buprenorphine", "methadone", "opioid"). These should route to labelContent for general drug information. Only match when conversion-specific context is present (e.g., "convert from X", "X to Y").
 
 ---
 
@@ -275,3 +287,26 @@ After skill selection, load the corresponding interface document:
 ## Synthesis Rules Reference
 
 After API calls complete, apply synthesis rules from [interfaces/synthesis-rules.md](./interfaces/synthesis-rules.md).
+
+### CRITICAL: Label Links Are MANDATORY - ENFORCEMENT
+
+**Every synthesized response MUST include product label links.** This is the **#1 requirement**.
+
+### Pre-Response Checklist (REQUIRED)
+
+Before finalizing ANY response that retrieved product data:
+
+1. ✓ Extract ALL `documentGUID` values from API responses
+2. ✓ Extract ALL `productName` values from API responses
+3. ✓ Include `### View Full Labels:` section in markdown response
+4. ✓ Populate `dataReferences` with ALL product links
+
+### Required Link Format
+
+```markdown
+### View Full Labels:
+- [View Full Label ({ProductName1})](/api/Label/generate/{DocumentGUID1}/true)
+- [View Full Label ({ProductName2})](/api/Label/generate/{DocumentGUID2}/true)
+```
+
+**If product data was retrieved, label links are required. A response without label links is INCOMPLETE.**

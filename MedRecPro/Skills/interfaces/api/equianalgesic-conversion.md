@@ -4,6 +4,37 @@ Maps the **Equianalgesic Dose Calculation** capability to API endpoints.
 
 ---
 
+## CRITICAL: Label Links Are MANDATORY
+
+**Every response MUST include product label links.** This is enforced at THREE levels:
+
+1. **Workflow output mapping**: Extract `documentGUID[]` and `productName[]` from search results
+2. **Synthesis phase**: Include clickable links in the markdown response
+3. **JSON output**: Populate `dataReferences` with all product links
+
+### Required Fields to Extract
+
+From Steps 1-2 (product searches), you MUST capture:
+- `documentGUID[]` - Array of document GUIDs for label links
+- `productName[]` - Array of product names for link text
+
+### Required Response Elements
+
+```markdown
+### View Full Labels:
+- [View Full Label ({ProductName})](/api/Label/generate/{DocumentGUID}/true)
+```
+
+```json
+"dataReferences": {
+  "View Full Label ({ProductName})": "/api/Label/generate/{DocumentGUID}/true"
+}
+```
+
+**No response is complete without label links when product data was retrieved.**
+
+---
+
 ## Required Section Codes
 
 | Code | Section | Content |

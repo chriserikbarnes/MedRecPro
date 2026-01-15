@@ -218,7 +218,7 @@ Use for queries about:
 - If label does not contain conversion data, say so explicitly and provide label links
 - DO NOT generate conversion tables or formulas from training data
 
-**Note**: This skill supplements the `label` skill. Load `labelProductIndication` alongside for UNII lookups.
+**NOTE**: Equianalgesic conversions do NOT use `labelProductIndication`. Use `/api/Label/ingredient/advanced?substanceNameSearch={opioidName}` to find products by opioid name instead.
 
 ---
 

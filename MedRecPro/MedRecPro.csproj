@@ -73,6 +73,9 @@
 		</Content>
 	</ItemGroup>
 	<ItemGroup>
+	  <None Remove="nul" />
+	</ItemGroup>
+	<ItemGroup>
 		<None Update="Skills\retryPrompt.md">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>

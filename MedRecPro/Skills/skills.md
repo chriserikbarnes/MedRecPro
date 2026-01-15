@@ -229,6 +229,33 @@ Skills may be combined for complex queries:
 - **Product search + Related products**: Identify a product, then find generic alternatives
 - **Label content + Rescue workflow**: Attempt structured retrieval, fall back to narrative extraction
 
+---
+
+## CRITICAL: Response Requirements
+
+### Label Links Are Mandatory
+
+**Every response that retrieves product data MUST include label links:**
+
+```markdown
+### View Full Labels:
+- [View Full Label ({ProductName})](/api/Label/generate/{DocumentGUID}/true)
+```
+
+**A response without label links is INCOMPLETE.**
+
+### Section Retrieval
+
+**Recommended approach**: Omit `sectionCode` parameter to get ALL available sections.
+
+```
+GET /api/Label/markdown/sections/{documentGuid}
+```
+
+This avoids 404 errors from non-existent section codes.
+
+---
+
 For implementation details, routing logic, and API specifications, see:
 - [Skill Selectors](./selectors.md) - Routing and selection rules
 - [Interface Mappings](./interfaces/) - API endpoint specifications

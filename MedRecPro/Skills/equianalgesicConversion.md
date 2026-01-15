@@ -4,6 +4,29 @@ Retrieves FDA-labeled equianalgesic conversion information for opioid medication
 
 ---
 
+## CRITICAL: Label Links Are REQUIRED
+
+**Every equianalgesic conversion response MUST include product label links.**
+
+### Non-Negotiable Requirements
+
+1. **Extract `documentGUID` and `productName`** from every API response
+2. **Include label links** in the markdown response under "### View Full Labels:"
+3. **Populate `dataReferences`** in the JSON output with all product links
+
+### Enforcement
+
+Before responding, verify you have included:
+```markdown
+### View Full Labels:
+- [View Full Label ({SourceOpioidProductName})](/api/Label/generate/{SourceDocumentGUID}/true)
+- [View Full Label ({TargetOpioidProductName})](/api/Label/generate/{TargetDocumentGUID}/true)
+```
+
+**If you have `documentGUID` values from the API, you MUST provide label links. No exceptions.**
+
+---
+
 ## When to Use This Skill
 
 Trigger this skill when users ask about:

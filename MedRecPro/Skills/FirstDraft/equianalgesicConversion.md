@@ -78,8 +78,10 @@ Trigger this skill when users ask about:
 ### Data Source Priority
 
 1. **PRIMARY (REQUIRED)**: Use `/api/Label/markdown/sections/{DocumentGUID}?sectionCode={loincCode}` to retrieve official FDA label content
-2. **SECONDARY**: Use `labelProductIndication.md` reference file for UNII matching only
+2. **SECONDARY**: Use `/api/Label/ingredient/advanced?substanceNameSearch={opioidName}` to find products by opioid name
 3. **NEVER**: Generate conversion ratios, formulas, or dosing from training data
+
+**NOTE**: Do NOT use `labelProductIndication.md` for equianalgesic conversions. That file is for condition-based product discovery, not opioid name searches.
 
 ### Why This Matters
 
@@ -219,6 +221,78 @@ FDA labels structure dosing information hierarchically. The main Dosage section 
 
 ---
 
+## ⚠️ CRITICAL: Building Product Links (dataReferences)
+
+**Every response MUST include product links in `dataReferences`.** These links are essential for users to access full FDA labeling.
+
+### Step-by-Step: Extracting DocumentGUIDs and Product Names
+
+When you fetch sections from the API, each successful response contains:
+
+1. **DocumentGUID** - In the API response under `documentGUID` field
+2. **ProductName** - In the API response under `productName` field
+
+### How to Build dataReferences
+
+For EVERY product that returned conversion-relevant data:
+
+```json
+"dataReferences": {
+  "{ProductName}": "/api/Label/generate/{DocumentGUID}/true"
+}
+```
+
+### Example Extraction from API Response
+
+If `/api/Label/markdown/sections/{guid}?sectionCode=34068-7` returns:
+
+```json
+{
+  "documentGUID": "abc-123-def",
+  "productName": "BUTRANS (buprenorphine) transdermal system",
+  "fullSectionText": "..."
+}
+```
+
+Then your `dataReferences` MUST include:
+
+```json
+"dataReferences": {
+  "BUTRANS (buprenorphine) transdermal system": "/api/Label/generate/abc-123-def/true"
+}
+```
+
+### dataReferences Requirements Checklist
+
+- [ ] Include ALL products that provided conversion tables or dosing data
+- [ ] Use the **exact** `productName` from the API response as the key
+- [ ] Use the **exact** `documentGUID` from the API response in the URL
+- [ ] Format: `/api/Label/generate/{documentGUID}/true`
+- [ ] Include products from BOTH source AND target opioids if both had useful data
+
+### Common Mistake: Missing dataReferences
+
+❌ **WRONG** - Response without product links:
+```json
+{
+  "response": "Based on FDA labeling for buprenorphine...",
+  "dataReferences": {}
+}
+```
+
+✅ **CORRECT** - Response with product links:
+```json
+{
+  "response": "Based on FDA labeling for buprenorphine...",
+  "dataReferences": {
+    "BUTRANS (buprenorphine) transdermal system": "/api/Label/generate/abc-123-def/true",
+    "SUBUTEX (buprenorphine) sublingual tablet": "/api/Label/generate/xyz-456-ghi/true"
+  }
+}
+```
+
+---
+
 ## Synthesis Instructions
 
 ### IMPORTANT: Handling 404 Errors in Multi-Product Queries
@@ -301,6 +375,10 @@ For authoritative equianalgesic dosing information, please consult:
 
 ## Response Format Requirements
 
+### ⚠️ MANDATORY: dataReferences Must Contain Product Label Links
+
+**The `dataReferences` object is REQUIRED and MUST contain product label links.** This is NOT optional.
+
 ### JSON Response Structure
 
 ```json
@@ -313,12 +391,11 @@ For authoritative equianalgesic dosing information, please consult:
     "sectionsSearched": ["34068-7", "42229-5"]
   },
   "dataReferences": {
-    "View Full Label ({ProductName1})": "/api/Label/generate/{DocumentGUID1}/true",
-    "View Full Label ({ProductName2})": "/api/Label/generate/{DocumentGUID2}/true"
+    "{ProductName from API response}": "/api/Label/generate/{documentGUID from API response}/true"
   },
   "dataSources": {
-    "Dosage Section - {ProductName1}": "/api/Label/markdown/sections/{guid}?sectionCode=34068-7",
-    "Unclassified Section - {ProductName1}": "/api/Label/markdown/sections/{guid}?sectionCode=42229-5"
+    "Dosage Section - {ProductName}": "/api/Label/markdown/sections/{guid}?sectionCode=34068-7",
+    "Unclassified Section - {ProductName}": "/api/Label/markdown/sections/{guid}?sectionCode=42229-5"
   },
   "suggestedFollowUps": [
     "Show warnings for {ProductName}",
@@ -332,11 +409,19 @@ For authoritative equianalgesic dosing information, please consult:
 
 ### Critical Requirements
 
-1. **ALWAYS include `dataSources`** showing which API endpoints were used
-2. **ALWAYS include `dataReferences`** with clickable label links
+1. **⚠️ dataReferences MUST contain product links** - Extract `documentGUID` and `productName` from each API response and build links in format: `/api/Label/generate/{documentGUID}/true`
+2. **ALWAYS include `dataSources`** showing which API endpoints were used
 3. **ALWAYS include a clinical disclaimer** about cross-tolerance and individualized dosing
 4. **NEVER include conversion ratios or formulas from training data**
-5. **If no conversion data found in labels**, clearly state this and provide label links for full prescribing information
+5. **If no conversion data found in labels**, still provide label links for full prescribing information
+
+### dataReferences Validation
+
+Before completing your response, verify:
+- [ ] `dataReferences` is NOT empty
+- [ ] Each key is the product name from the API response
+- [ ] Each value is `/api/Label/generate/{documentGUID}/true` using the actual documentGUID from the API response
+- [ ] At least one product link is included for each opioid that returned relevant data
 
 ---
 

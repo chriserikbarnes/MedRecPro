@@ -4,23 +4,58 @@ Maps the **Label Content Retrieval** and **Label Document Search** capabilities 
 
 ---
 
+## CRITICAL: Label Links Are MANDATORY
+
+**Every response that retrieves product data MUST include label links.**
+
+### Required Response Elements
+
+```markdown
+### View Full Labels:
+- [View Full Label ({ProductName})](/api/Label/generate/{DocumentGUID}/true)
+```
+
+```json
+"dataReferences": {
+  "View Full Label ({ProductName})": "/api/Label/generate/{DocumentGUID}/true"
+}
+```
+
+**If you retrieved product data, you MUST provide label links. No exceptions.**
+
+---
+
 ## Section Content Retrieval
 
-### Primary Endpoint (Preferred)
+### Primary Endpoint: Get ALL Sections (Recommended)
+
+```
+GET /api/Label/markdown/sections/{documentGuid}
+```
+
+**Omit the `sectionCode` parameter to retrieve ALL available sections.** This is the **recommended approach** because:
+- Not all labels have all section codes - specific section queries may return 404
+- Returns all available content in a single API call
+- Avoids the need to iterate through multiple LOINC codes
+
+**Response**: Returns an array of all available sections with their content.
+
+### Alternative: Get Specific Section
 
 ```
 GET /api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}
 ```
 
-Returns pre-formatted markdown content.
+**CAUTION**: This may return 404 if the label doesn't have that section. Use the full-section approach above for reliability.
 
-**Response Fields**:
+### Response Fields
+
 - `fullSectionText` - Aggregated markdown content
 - `sectionCode` - LOINC code
 - `sectionTitle` - Human-readable title
 - `contentBlockCount` - Quality indicator
 
-**Token Optimization**: Use `sectionCode` parameter to fetch only needed sections (~1-2KB vs ~88KB for all sections).
+**Token Optimization**: For narrow queries where you know the section exists, use `sectionCode` (~1-2KB vs ~88KB). For general queries, omit it to get all sections reliably.
 
 ### Legacy Endpoint
 
@@ -75,9 +110,44 @@ Returns most recent label for each product.
 
 ## Workflow Patterns
 
-### Single Product Query
+### Single Product Query (Recommended: Get All Sections)
+
+**Query**: "What should I know about buprenorphine?"
+
+```json
+{
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/product/latest",
+      "queryParameters": { "activeIngredientSearch": "buprenorphine", "pageSize": 10 },
+      "outputMapping": {
+        "documentGuids": "DocumentGUID[]",
+        "productNames": "ProductName[]"
+      }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
+      "description": "Get ALL sections (no sectionCode = returns everything)",
+      "dependsOn": 1
+    }
+  ]
+}
+```
+
+**Key Points**:
+- Use `DocumentGUID[]` (with `[]`) to extract ALL document GUIDs as an array
+- Omit `sectionCode` to get ALL available sections - avoids 404 errors
+- Step 2 will expand to N API calls, one per document
+
+### Single Product Query (Specific Section)
 
 **Query**: "What are the side effects of Lipitor?"
+
+Use this pattern ONLY when you need a specific section and expect it to exist.
 
 ```json
 {
@@ -87,7 +157,10 @@ Returns most recent label for each product.
       "method": "GET",
       "path": "/api/Label/product/latest",
       "queryParameters": { "productNameSearch": "Lipitor", "pageSize": 1 },
-      "outputMapping": { "documentGuid": "DocumentGUID" }
+      "outputMapping": {
+        "documentGuid": "DocumentGUID",
+        "productName": "ProductName"
+      }
     },
     {
       "step": 2,
@@ -173,9 +246,44 @@ Use `[]` suffix for array extraction.
 
 ---
 
-## Summary Query Workflow
+## Summary Query Workflow (Recommended)
 
-For "summarize usage" or "what is" queries:
+For "summarize usage", "what is", or general product queries - **use full section retrieval**:
+
+```json
+{
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/product/latest",
+      "queryParameters": { "activeIngredientSearch": "{drug}", "pageSize": 10 },
+      "description": "Search for products by ingredient",
+      "outputMapping": {
+        "documentGuids": "DocumentGUID[]",
+        "productNames": "ProductName[]"
+      }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
+      "description": "Get ALL sections - no sectionCode parameter means all sections returned",
+      "dependsOn": 1
+    }
+  ]
+}
+```
+
+**Why this is better**:
+- Omitting `sectionCode` returns ALL available sections
+- Avoids 404 errors from non-existent section codes
+- Single Step 2 expands to N calls (one per document) automatically
+- Synthesis can select relevant sections from the complete data
+
+### Alternative: Specific Sections (Use with Caution)
+
+Only use specific section codes when you're certain the label contains that section:
 
 ```json
 {
@@ -186,29 +294,16 @@ For "summarize usage" or "what is" queries:
       "path": "/api/Label/ingredient/search",
       "queryParameters": { "substanceNameSearch": "{drug}", "pageSize": 10 },
       "outputMapping": {
-        "documentGuid": "documentGUID",
-        "productName": "productName",
-        "labelerName": "labelerName"
+        "documentGuids": "documentGUID[]",
+        "productNames": "productName[]"
       }
     },
     {
       "step": 2,
       "method": "GET",
-      "path": "/api/Label/single/{{documentGuid}}",
-      "dependsOn": 1
-    },
-    {
-      "step": 3,
-      "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuid}}",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
       "queryParameters": { "sectionCode": "34067-9" },
-      "dependsOn": 1
-    },
-    {
-      "step": 4,
-      "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuid}}",
-      "queryParameters": { "sectionCode": "34089-3" },
+      "description": "Indications - may 404 if not present",
       "dependsOn": 1
     }
   ]

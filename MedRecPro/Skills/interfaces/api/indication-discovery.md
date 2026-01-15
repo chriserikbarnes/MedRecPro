@@ -45,11 +45,22 @@ GET /api/Label/product/latest?unii={UNII}&pageNumber=1&pageSize=5
 
 **CRITICAL**: This step is REQUIRED, not optional.
 
+**Recommended Approach - Get ALL Sections:**
+```
+GET /api/Label/markdown/sections/{DocumentGUID}
+```
+
+**Alternative - Specific Section (may 404):**
 ```
 GET /api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9
 ```
 
-**Section Codes**:
+**Why omit sectionCode?**
+- Not all labels have all section codes - specific queries may return 404
+- Omitting `sectionCode` returns ALL available sections
+- More reliable for synthesis - no missing data
+
+**Section Codes (if you need specific sections)**:
 - `34067-9` - Indications and Usage
 - `34089-3` - Description (drug class)
 
@@ -61,7 +72,7 @@ GET /api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9
 
 **Step 3 is REQUIRED for product summarization:**
 - Always call `/api/Label/markdown/sections/{DocumentGUID}`
-- For comprehensive data, omit the `sectionCode` parameter to get ALL sections
+- **RECOMMENDED**: Omit the `sectionCode` parameter to get ALL sections reliably
 - Returns ALL sections including Indications, Description, Dosage, Warnings, etc.
 - Use this data for product summaries, NOT training data
 - The reference file (`labelProductIndication.md`) is for UNII matching only, not final summaries
@@ -136,7 +147,9 @@ Content is truncated if:
 
 ---
 
-## Multi-Product Workflow
+## Multi-Product Workflow (Recommended)
+
+**Use full-section retrieval to avoid 404 errors:**
 
 ```json
 {
@@ -159,12 +172,17 @@ Content is truncated if:
       "step": 2,
       "method": "GET",
       "path": "/api/Label/markdown/sections/{{documentGuids}}",
-      "queryParameters": { "sectionCode": "34067-9" },
+      "description": "Get ALL sections - no sectionCode means all available sections returned",
       "dependsOn": 1
     }
   ]
 }
 ```
+
+**Key Points**:
+- Omitting `sectionCode` returns ALL available sections
+- Avoids 404 errors from non-existent section codes
+- Synthesis phase selects relevant content from complete data
 
 ---
 
@@ -252,27 +270,33 @@ View Full Labels:
       "method": "GET",
       "path": "/api/Label/product/latest",
       "queryParameters": { "unii": "YO7261ME24", "pageSize": 5 },
-      "outputMapping": { "documentGuid1": "DocumentGUID" }
+      "outputMapping": {
+        "documentGuids1": "DocumentGUID[]",
+        "productNames1": "ProductName[]"
+      }
     },
     {
       "step": 2,
       "method": "GET",
       "path": "/api/Label/product/latest",
       "queryParameters": { "unii": "E6582LOH6V", "pageSize": 5 },
-      "outputMapping": { "documentGuid2": "DocumentGUID" }
+      "outputMapping": {
+        "documentGuids2": "DocumentGUID[]",
+        "productNames2": "ProductName[]"
+      }
     },
     {
       "step": 3,
       "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuid1}}",
-      "queryParameters": { "sectionCode": "34067-9" },
+      "path": "/api/Label/markdown/sections/{{documentGuids1}}",
+      "description": "Get ALL sections for first UNII products",
       "dependsOn": 1
     },
     {
       "step": 4,
       "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuid2}}",
-      "queryParameters": { "sectionCode": "34067-9" },
+      "path": "/api/Label/markdown/sections/{{documentGuids2}}",
+      "description": "Get ALL sections for second UNII products",
       "dependsOn": 2
     }
   ]

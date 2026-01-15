@@ -1231,13 +1231,28 @@ namespace MedRecPro.Service
 
             var message = userMessage.ToLowerInvariant();
             var selectedSkills = new List<string>();
+            var isEquianalgesicQuery = false;
 
             // Load keywords from skillSelector.md (cached after first load)
             var skillKeywords = loadKeywordsFromManifest();
 
-            // Check for indication workflow skill FIRST (condition-based queries)
-            // This takes priority for finding products by condition/symptom
-            if (skillKeywords.TryGetValue("labelIndicationWorkflow", out var indicationWorkflowKeywords))
+            // Check for equianalgesic conversion FIRST - this takes priority over indication workflow
+            // Equianalgesic queries should NOT load labelProductIndication (indication reference data)
+            if (skillKeywords.TryGetValue("equianalgesicConversion", out var equianalgesicKeywords))
+            {
+                var matchedKeyword = equianalgesicKeywords.FirstOrDefault(k => message.Contains(k));
+                if (matchedKeyword != null)
+                {
+                    selectedSkills.Add("equianalgesicConversion");
+                    isEquianalgesicQuery = true;
+                    _logger.LogInformation("[SKILL SELECTION] equianalgesicConversion matched on keyword: '{Keyword}'", matchedKeyword);
+                }
+            }
+
+            // Check for indication workflow skill (condition-based queries)
+            // SKIP if equianalgesic was already selected - they have overlapping keywords like "pain", "opioid"
+            // but equianalgesic uses ingredient search, not indication-based discovery
+            if (!isEquianalgesicQuery && skillKeywords.TryGetValue("labelIndicationWorkflow", out var indicationWorkflowKeywords))
             {
                 if (indicationWorkflowKeywords.Any(k => message.Contains(k)))
                 {
@@ -1267,10 +1282,11 @@ namespace MedRecPro.Service
 
             // Label skill for detailed section content queries
             // Add it if pharmaceutical terms are present and no indication workflow was selected
-            if (skillKeywords.TryGetValue("label", out var labelKeywords))
+            // Skip for equianalgesic queries - they have their own workflow
+            if (!isEquianalgesicQuery && skillKeywords.TryGetValue("label", out var labelKeywords))
             {
                 // Define detailed label content keywords inline (these are specific to label sections)
-                var needsDetailedLabelContent = new[] { "side effect", "warning", "dosage", "section", "adverse", "contraindication" };
+                var needsDetailedLabelContent = new[] { "side effect", "warning", "section", "adverse", "contraindication" };
 
                 if (needsDetailedLabelContent.Any(k => message.Contains(k)))
                 {
@@ -1312,22 +1328,6 @@ namespace MedRecPro.Service
                 if (generalKeywords.Any(k => message.Contains(k)))
                 {
                     selectedSkills.Add("general");
-                }
-            }
-
-            // Equianalgesic conversion skill keywords - opioid dose conversions
-            if (skillKeywords.TryGetValue("equianalgesicConversion", out var equianalgesicKeywords))
-            {
-                var matchedKeyword = equianalgesicKeywords.FirstOrDefault(k => message.Contains(k));
-                if (matchedKeyword != null)
-                {
-                    selectedSkills.Add("equianalgesicConversion");
-                    _logger.LogInformation("[SKILL SELECTION] equianalgesicConversion matched on keyword: '{Keyword}'", matchedKeyword);
-                    // Also add labelProductIndication for UNII lookups
-                    if (!selectedSkills.Contains("labelProductIndication"))
-                    {
-                        selectedSkills.Add("labelProductIndication");
-                    }
                 }
             }
 
@@ -1530,12 +1530,16 @@ namespace MedRecPro.Service
                 },
                 ["label"] = new List<string>
                 {
+                    // Core label/drug terms
                     "drug", "product", "ingredient", "ndc", "manufacturer", "labeler",
                     "import", "export", "label", "section", "warning", "side effect",
                     "dosage", "dose", "interaction", "contraindication", "adverse",
                     "prescribing", "pharmaceutical", "medication", "medicine", "tablet",
                     "capsule", "injection", "anda", "nda", "bla", "pharmacologic",
-                    "therapeutic", "class", "fda", "spl", "document"
+                    "therapeutic", "class", "fda", "spl", "document",
+                    // General information query patterns
+                    "tell me about", "what is", "information about", "details about",
+                    "know about", "learn about"
                 },
                 ["rescueWorkflow"] = new List<string>
                 {
@@ -1553,17 +1557,26 @@ namespace MedRecPro.Service
                 },
                 ["equianalgesicConversion"] = new List<string>
                 {
-                    "equianalgesic", "opioid conversion", "convert morphine",
-                    "convert hydromorphone", "convert fentanyl", "convert oxycodone",
-                    "convert methadone", "convert buprenorphine",
-                    "morphine equivalent", "mme", "opioid tolerant", "dose conversion",
-                    "switching opioids", "opioid switch", "equivalent dose",
+                    // Core conversion terms
+                    "equianalgesic", "opioid conversion", "morphine equivalent", "mme",
+                    "dose conversion", "switching opioids", "opioid switch", "equivalent dose",
+                    // Conversion action phrases
+                    "convert from", "convert to", "conversion from", "conversion to",
+                    "convert morphine", "convert hydromorphone", "convert fentanyl",
+                    "convert oxycodone", "convert methadone", "convert buprenorphine",
+                    // Drug-to-drug conversion patterns (X to Y)
                     "morphine to hydromorphone", "hydromorphone to morphine",
                     "fentanyl to morphine", "morphine to fentanyl",
                     "oxycodone to morphine", "morphine to oxycodone",
-                    "methadone", "buprenorphine",
+                    "oxycodone to buprenorphine", "buprenorphine to oxycodone",
+                    "oxycodone to hydromorphone", "hydromorphone to oxycodone",
+                    "oxycodone to fentanyl", "fentanyl to oxycodone",
                     "methadone to buprenorphine", "buprenorphine to methadone",
-                    "opioid", "conversion from", "conversion to"
+                    "methadone to morphine", "morphine to methadone",
+                    "hydromorphone to buprenorphine", "buprenorphine to hydromorphone",
+                    "fentanyl to buprenorphine", "buprenorphine to fentanyl",
+                    // NOTE: Do NOT include standalone drug names like "buprenorphine", "methadone", "opioid"
+                    // as these would incorrectly route general drug info queries to the conversion path
                 }
             };
 
