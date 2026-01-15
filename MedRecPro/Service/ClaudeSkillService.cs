@@ -464,6 +464,7 @@ namespace MedRecPro.Service
         /// <seealso cref="ActivePathway"/>
         private readonly Dictionary<string, string> _interfaceDocPaths = new(StringComparer.OrdinalIgnoreCase)
         {
+            // Primary interface document mappings
             { "indicationDiscovery", "Skills/interfaces/api/indication-discovery.md" },
             { "labelContent", "Skills/interfaces/api/label-content.md" },
             { "equianalgesicConversion", "Skills/interfaces/api/equianalgesic-conversion.md" },
@@ -472,7 +473,19 @@ namespace MedRecPro.Service
             { "sessionManagement", "Skills/interfaces/api/session-management.md" },
             { "dataRescue", "Skills/interfaces/api/data-rescue.md" },
             { "retryFallback", "Skills/interfaces/api/retry-fallback.md" },
-            { "pharmacologicClass", "Skills/interfaces/api/pharmacologic-class.md" }
+            { "pharmacologicClass", "Skills/interfaces/api/pharmacologic-class.md" },
+
+            // Alias mappings for skill names used in keyword selection
+            // These map the skill names from _skillConfigKeys to their interface documents
+            { "label", "Skills/interfaces/api/label-content.md" },
+            { "settings", "Skills/interfaces/api/cache-management.md" },
+            { "rescueWorkflow", "Skills/interfaces/api/data-rescue.md" },
+            { "labelIndicationWorkflow", "Skills/interfaces/api/indication-discovery.md" },
+            { "labelProductIndication", "Skills/interfaces/api/indication-discovery.md" },
+            { "retry", "Skills/interfaces/api/retry-fallback.md" },
+            { "section", "Skills/interfaces/api/label-content.md" },
+            { "synthesis", "Skills/interfaces/api/label-content.md" },
+            { "general", "Skills/interfaces/api/session-management.md" }
         };
 
         /**************************************************************/
@@ -641,6 +654,17 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <inheritdoc/>
+        /// <remarks>
+        /// For the Refactored pathway, this method also loads:
+        /// 1. The interface document for each selected skill (contains API endpoints and workflows)
+        /// 2. The response-format.md document (contains output requirements)
+        /// 3. The synthesis-rules.md document (contains content quality rules)
+        /// This ensures Claude has complete instructions for generating proper responses with
+        /// label links and data source attribution.
+        /// </remarks>
+        /// <seealso cref="GetInterfaceDocumentAsync"/>
+        /// <seealso cref="GetResponseFormatDocumentAsync"/>
+        /// <seealso cref="GetSynthesisRulesDocumentAsync"/>
         public async Task<string> GetSkillContentAsync(SkillSelection selection)
         {
             #region implementation
@@ -653,10 +677,11 @@ namespace MedRecPro.Service
 
             var sb = new System.Text.StringBuilder();
 
+            // Load each selected skill and its corresponding interface document
             foreach (var skillName in selection.SelectedSkills)
             {
                 var content = await GetSkillByNameAsync(skillName);
-                if (!string.IsNullOrEmpty(content))
+                if (!string.IsNullOrEmpty(content) && !content.StartsWith("Skill"))
                 {
                     if (sb.Length > 0)
                     {
@@ -665,8 +690,48 @@ namespace MedRecPro.Service
                         sb.AppendLine();
                     }
                     sb.AppendLine(content);
+
+                    // For Refactored pathway, also load the interface document
+                    if (ActivePathway == SkillPathwayType.Refactored)
+                    {
+                        var interfaceContent = await GetInterfaceDocumentAsync(skillName);
+                        if (!string.IsNullOrEmpty(interfaceContent) && !interfaceContent.StartsWith("Interface document"))
+                        {
+                            sb.AppendLine();
+                            sb.AppendLine("---");
+                            sb.AppendLine();
+                            sb.AppendLine(interfaceContent);
+                        }
+                    }
                 }
             }
+
+            // For Refactored pathway, append response format and synthesis rules
+            if (ActivePathway == SkillPathwayType.Refactored)
+            {
+                // Append response format standards
+                var responseFormat = await GetResponseFormatDocumentAsync();
+                if (!string.IsNullOrEmpty(responseFormat) && !responseFormat.StartsWith("Skills document not found"))
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("---");
+                    sb.AppendLine();
+                    sb.AppendLine(responseFormat);
+                }
+
+                // Append synthesis rules
+                var synthesisRules = await GetSynthesisRulesDocumentAsync();
+                if (!string.IsNullOrEmpty(synthesisRules) && !synthesisRules.StartsWith("Synthesis rules document"))
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("---");
+                    sb.AppendLine();
+                    sb.AppendLine(synthesisRules);
+                }
+            }
+
+            _logger.LogInformation("[SKILL CONTENT] Loaded skills [{Skills}] with pathway {Pathway}",
+                string.Join(", ", selection.SelectedSkills), ActivePathway);
 
             return sb.ToString();
 
@@ -675,13 +740,20 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <inheritdoc/>
-        public Task<string> GetSkillByNameAsync(string skillName)
+        /// <remarks>
+        /// For the Refactored pathway, if the skill file is not found, attempts to return
+        /// the interface document instead. This allows the new architecture to work where
+        /// skill files may not exist in the root skills folder.
+        /// </remarks>
+        /// <seealso cref="GetInterfaceDocumentAsync"/>
+        /// <seealso cref="ActivePathway"/>
+        public async Task<string> GetSkillByNameAsync(string skillName)
         {
             #region implementation
 
             if (string.IsNullOrWhiteSpace(skillName))
             {
-                return Task.FromResult("Skill name cannot be empty.");
+                return "Skill name cannot be empty.";
             }
 
             var normalizedName = skillName.ToLowerInvariant().Trim();
@@ -689,7 +761,20 @@ namespace MedRecPro.Service
             // Try direct lookup first
             if (_skillConfigKeys.TryGetValue(normalizedName, out var configKey))
             {
-                return Task.FromResult(readSkillFile(configKey, $"GetSkillByName_{normalizedName}"));
+                var content = readSkillFile(configKey, $"GetSkillByName_{normalizedName}");
+
+                // For Refactored pathway, if skill file not found, try to use interface document
+                if (content.StartsWith("Skills document not found") && ActivePathway == SkillPathwayType.Refactored)
+                {
+                    _logger.LogDebug("Skill file not found for {SkillName}, trying interface document", skillName);
+                    var interfaceContent = await GetInterfaceDocumentAsync(normalizedName);
+                    if (!interfaceContent.StartsWith("Interface document"))
+                    {
+                        return interfaceContent;
+                    }
+                }
+
+                return content;
             }
 
             // Try fuzzy matching
@@ -698,10 +783,24 @@ namespace MedRecPro.Service
 
             if (matchedKey != null)
             {
-                return Task.FromResult(readSkillFile(_skillConfigKeys[matchedKey], $"GetSkillByName_{matchedKey}"));
+                var content = readSkillFile(_skillConfigKeys[matchedKey], $"GetSkillByName_{matchedKey}");
+
+                // For Refactored pathway, if skill file not found, try to use interface document
+                if (content.StartsWith("Skills document not found") && ActivePathway == SkillPathwayType.Refactored)
+                {
+                    _logger.LogDebug("Skill file not found for {SkillName} (matched to {MatchedKey}), trying interface document",
+                        skillName, matchedKey);
+                    var interfaceContent = await GetInterfaceDocumentAsync(matchedKey);
+                    if (!interfaceContent.StartsWith("Interface document"))
+                    {
+                        return interfaceContent;
+                    }
+                }
+
+                return content;
             }
 
-            return Task.FromResult($"Skill '{skillName}' not found. Available skills: {string.Join(", ", _skillConfigKeys.Keys)}");
+            return $"Skill '{skillName}' not found. Available skills: {string.Join(", ", _skillConfigKeys.Keys)}";
 
             #endregion
         }
