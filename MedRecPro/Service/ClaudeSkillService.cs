@@ -313,7 +313,14 @@ namespace MedRecPro.Service
         /// Claude API service for AI interpretation and result synthesis.
         /// </summary>
         /// <seealso cref="IClaudeApiService"/>
-        private readonly IClaudeApiService _claudeApiService;
+        private readonly IServiceProvider _serviceProvider;
+        private IClaudeApiService? _claudeApiService;
+
+        /// <summary>
+        /// Lazy-loaded ClaudeApiService to break circular dependency.
+        /// </summary>
+        private IClaudeApiService ClaudeApiService =>
+            _claudeApiService ??= _serviceProvider.GetRequiredService<IClaudeApiService>();
 
         /**************************************************************/
         /// <summary>
@@ -434,15 +441,15 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="configuration">Configuration provider for skill file paths.</param>
         /// <param name="logger">Logger instance for diagnostic output.</param>
-        /// <param name="claudeApiService">Claude API service instance.</param>
+        /// <param name="serviceProvider">Service provider for lazy resolution of dependencies.</param>
         public ClaudeSkillService(
             IConfiguration configuration,
             ILogger<ClaudeSkillService> logger,
-            IClaudeApiService claudeApiService)
+            IServiceProvider serviceProvider)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
+            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         }
 
         #endregion
@@ -579,7 +586,7 @@ namespace MedRecPro.Service
             }
 
             // Call the Claude API service for AI-based selection
-            var aiResult = await _claudeApiService.SelectSkillsViaAiAsync(
+            var aiResult = await ClaudeApiService.SelectSkillsViaAiAsync(
                 userMessage,
                 selectorsDocument,
                 systemContext);

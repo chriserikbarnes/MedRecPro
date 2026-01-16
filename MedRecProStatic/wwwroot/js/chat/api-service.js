@@ -132,7 +132,7 @@ export const ApiService = (function () {
         console.log('[ApiService] Calling interpret endpoint:', interpretUrl);
 
         // Create a timeout promise for better error feedback
-        const timeoutMs = 30000; // 30 second timeout
+        const timeoutMs = 90000; // 90 second timeout
         const timeoutPromise = new Promise((_, reject) => {
             setTimeout(() => reject(new Error(
                 `Request timeout after ${timeoutMs / 1000}s. ` +
