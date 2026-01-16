@@ -6,6 +6,7 @@ using System.Text.Json;
 using Newtonsoft.Json;
 using MedRecPro.Helpers;
 using Microsoft.Extensions.Logging;
+using MedRecPro.DataAccess;
 
 namespace MedRecPro.Service
 {
@@ -436,6 +437,54 @@ namespace MedRecPro.Service
             AiAgentRequest originalRequest,
             List<AiEndpointResult> failedResults,
             int attemptNumber);
+
+        /**************************************************************/
+        /// <summary>
+        /// Uses Claude AI to select appropriate skills based on the user's query and the selectors document.
+        /// This method delegates skill routing decisions to the AI rather than relying on hardcoded keyword matching.
+        /// </summary>
+        /// <param name="userMessage">The user's natural language query.</param>
+        /// <param name="selectorsDocument">
+        /// The selectors document (selectors.md) containing skill routing rules, decision trees,
+        /// and keyword mappings for AI-based skill selection.
+        /// </param>
+        /// <param name="systemContext">Optional system context for authentication state and capabilities.</param>
+        /// <returns>
+        /// A task that resolves to a <see cref="SkillSelectionResult"/> containing:
+        /// - The list of selected skill names
+        /// - An explanation of the selection decision
+        /// - Whether a direct response can be provided without loading skills
+        /// - Optional direct response content
+        /// </returns>
+        /// <remarks>
+        /// This method implements AI-driven skill selection as part of the refactored architecture:
+        ///
+        /// <list type="number">
+        /// <item>Receives the selectors document with routing rules</item>
+        /// <item>Claude analyzes the user query against the decision trees and keyword mappings</item>
+        /// <item>Returns structured JSON indicating which skills to load</item>
+        /// <item>The caller uses the result to load only the necessary skill content</item>
+        /// </list>
+        ///
+        /// This approach provides flexibility by allowing skill selection rules to be updated
+        /// in markdown documents without code changes.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var selectorsDoc = await skillService.GetSelectorsDocumentAsync();
+        /// var result = await claudeService.SelectSkillsViaAiAsync(
+        ///     "What helps with depression?",
+        ///     selectorsDoc,
+        ///     systemContext);
+        /// // Returns: { SelectedSkills: ["indicationDiscovery"], Explanation: "Query mentions medical condition..." }
+        /// </code>
+        /// </example>
+        /// <seealso cref="SkillSelectionResult"/>
+        /// <seealso cref="IClaudeSkillService.SelectSkillsAsync"/>
+        Task<SkillSelectionResult> SelectSkillsViaAiAsync(
+            string userMessage,
+            string selectorsDocument,
+            AiSystemContext? systemContext = null);
 
         #endregion
 
@@ -932,7 +981,7 @@ namespace MedRecPro.Service
             try
             {
                 // Build the synthesis prompt
-                var prompt = buildSynthesisPrompt(synthesisRequest);
+                var prompt = await buildSynthesisPromptAsync(synthesisRequest);
 
                 // Call Claude API using existing method
                 var claudeResponse = await GenerateDocumentComparisonAsync(prompt);
@@ -1008,6 +1057,88 @@ namespace MedRecPro.Service
             #endregion
         }
 
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <remarks>
+        /// This method builds a prompt containing the selectors document and asks Claude
+        /// to analyze the user query against the decision trees and keyword mappings.
+        /// The response is parsed into a structured <see cref="SkillSelectionResult"/>.
+        /// </remarks>
+        /// <seealso cref="IClaudeSkillService.SelectSkillsAsync"/>
+        /// <seealso cref="IClaudeSkillService.GetSelectorsDocumentAsync"/>
+        public async Task<SkillSelectionResult> SelectSkillsViaAiAsync(
+            string userMessage,
+            string selectorsDocument,
+            AiSystemContext? systemContext = null)
+        {
+            #region implementation
+
+            // Input validation
+            if (string.IsNullOrWhiteSpace(userMessage))
+            {
+                return new SkillSelectionResult
+                {
+                    Success = false,
+                    Error = "User message cannot be empty."
+                };
+            }
+
+            if (string.IsNullOrWhiteSpace(selectorsDocument))
+            {
+                return new SkillSelectionResult
+                {
+                    Success = false,
+                    Error = "Selectors document cannot be empty."
+                };
+            }
+
+            _logger.LogDebug("Selecting skills via AI for message: {MessagePreview}",
+                userMessage.Length > 100 ? userMessage[..100] + "..." : userMessage);
+
+            try
+            {
+                // Build the skill selection prompt
+                var prompt = buildSkillSelectionPrompt(userMessage, selectorsDocument, systemContext);
+
+                // Call Claude API
+                var claudeResponse = await GenerateDocumentComparisonAsync(prompt);
+
+                // Parse the response into SkillSelectionResult
+                var result = parseSkillSelectionResponse(claudeResponse);
+
+                _logger.LogInformation("[AI SKILL SELECTION] Selected skills: [{Skills}] for query: '{QueryPreview}'",
+                    string.Join(", ", result.SelectedSkills),
+                    userMessage.Length > 80 ? userMessage[..80] + "..." : userMessage);
+
+                return result;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "Claude API error during skill selection");
+
+                // Return fallback result using basic keyword matching
+                return new SkillSelectionResult
+                {
+                    Success = false,
+                    Error = "AI skill selection failed. Using fallback keyword matching.",
+                    SelectedSkills = new List<string> { "label" } // Default fallback
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error during AI skill selection");
+
+                return new SkillSelectionResult
+                {
+                    Success = false,
+                    Error = "An unexpected error occurred during skill selection.",
+                    SelectedSkills = new List<string> { "label" } // Default fallback
+                };
+            }
+
+            #endregion
+        }
+
         #endregion
 
         #region ai agent private methods
@@ -1047,6 +1178,157 @@ namespace MedRecPro.Service
                 "ContainedItem",
                 "Address",
                 "BusinessOperation"
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a prompt for Claude to select skills based on the selectors document.
+        /// </summary>
+        /// <param name="userMessage">The user's natural language query.</param>
+        /// <param name="selectorsDocument">The selectors.md content with routing rules.</param>
+        /// <param name="systemContext">Optional system context.</param>
+        /// <returns>A prompt string for skill selection.</returns>
+        /// <remarks>
+        /// The prompt instructs Claude to analyze the user query using the decision trees
+        /// and keyword mappings in the selectors document, then return a JSON response
+        /// indicating which skills to load.
+        /// </remarks>
+        /// <seealso cref="SelectSkillsViaAiAsync"/>
+        /// <seealso cref="parseSkillSelectionResponse"/>
+        private string buildSkillSelectionPrompt(
+            string userMessage,
+            string selectorsDocument,
+            AiSystemContext? systemContext)
+        {
+            #region implementation
+
+            var sb = new StringBuilder();
+
+            // System instructions for skill selection
+            sb.AppendLine("You are a skill router for MedRecPro, a pharmaceutical labeling management system.");
+            sb.AppendLine("Your task is to analyze the user's query and select the appropriate skill(s) to load.");
+            sb.AppendLine();
+            sb.AppendLine("=== SKILL SELECTION RULES ===");
+            sb.AppendLine(selectorsDocument);
+            sb.AppendLine();
+
+            // Include authentication context for admin skill selection
+            if (systemContext != null)
+            {
+                sb.AppendLine("=== SYSTEM CONTEXT ===");
+                sb.AppendLine($"User Authenticated: {systemContext.IsAuthenticated}");
+                if (!systemContext.IsAuthenticated)
+                {
+                    sb.AppendLine("NOTE: Admin skills (userActivity, cacheManagement) require authentication.");
+                }
+                sb.AppendLine();
+            }
+
+            // The user query to analyze
+            sb.AppendLine("=== USER QUERY ===");
+            sb.AppendLine(userMessage);
+            sb.AppendLine();
+
+            // Response format instructions
+            sb.AppendLine("=== INSTRUCTIONS ===");
+            sb.AppendLine("Analyze the user query using the decision tree and keyword mappings above.");
+            sb.AppendLine("Return your response as JSON in this exact format:");
+            sb.AppendLine();
+            sb.AppendLine("```json");
+            sb.AppendLine("{");
+            sb.AppendLine("  \"success\": true,");
+            sb.AppendLine("  \"selectedSkills\": [\"skillName1\", \"skillName2\"],");
+            sb.AppendLine("  \"explanation\": \"Brief explanation of why these skills were selected\",");
+            sb.AppendLine("  \"isDirectResponse\": false,");
+            sb.AppendLine("  \"directResponse\": null");
+            sb.AppendLine("}");
+            sb.AppendLine("```");
+            sb.AppendLine();
+            sb.AppendLine("Rules:");
+            sb.AppendLine("1. Use ONLY skill names from the selectors document (indicationDiscovery, labelContent, equianalgesicConversion, userActivity, cacheManagement, sessionManagement, dataRescue)");
+            sb.AppendLine("2. If the query is a general help question not requiring API calls, set isDirectResponse=true and provide the answer in directResponse");
+            sb.AppendLine("3. If user is not authenticated but requests admin skills, redirect to sessionManagement");
+            sb.AppendLine("4. Follow the priority rules in the selectors document");
+            sb.AppendLine("5. Return ONLY the JSON response, no additional text");
+
+            return sb.ToString();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses Claude's response from skill selection into a <see cref="SkillSelectionResult"/>.
+        /// </summary>
+        /// <param name="claudeResponse">The raw response from Claude API.</param>
+        /// <returns>A parsed <see cref="SkillSelectionResult"/>.</returns>
+        /// <remarks>
+        /// Attempts to extract JSON from the response, handling cases where Claude
+        /// includes additional text around the JSON block. Falls back to a default
+        /// result if parsing fails.
+        /// </remarks>
+        /// <seealso cref="SelectSkillsViaAiAsync"/>
+        /// <seealso cref="buildSkillSelectionPrompt"/>
+        private SkillSelectionResult parseSkillSelectionResponse(string claudeResponse)
+        {
+            #region implementation
+
+            try
+            {
+                // Try to extract JSON from the response (handle markdown code blocks)
+                var jsonContent = claudeResponse;
+
+                // Check for markdown code block
+                var jsonStartMarker = "```json";
+                var jsonEndMarker = "```";
+
+                var jsonStart = claudeResponse.IndexOf(jsonStartMarker, StringComparison.OrdinalIgnoreCase);
+                if (jsonStart >= 0)
+                {
+                    jsonStart += jsonStartMarker.Length;
+                    var jsonEnd = claudeResponse.IndexOf(jsonEndMarker, jsonStart, StringComparison.OrdinalIgnoreCase);
+                    if (jsonEnd > jsonStart)
+                    {
+                        jsonContent = claudeResponse.Substring(jsonStart, jsonEnd - jsonStart).Trim();
+                    }
+                }
+                else
+                {
+                    // Try to find raw JSON object
+                    var firstBrace = claudeResponse.IndexOf('{');
+                    var lastBrace = claudeResponse.LastIndexOf('}');
+                    if (firstBrace >= 0 && lastBrace > firstBrace)
+                    {
+                        jsonContent = claudeResponse.Substring(firstBrace, lastBrace - firstBrace + 1);
+                    }
+                }
+
+                // Parse the JSON
+                var result = JsonConvert.DeserializeObject<SkillSelectionResult>(jsonContent);
+
+                if (result != null)
+                {
+                    result.Success = true;
+                    return result;
+                }
+            }
+            catch (Newtonsoft.Json.JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse skill selection response as JSON");
+            }
+
+            // Fallback: return default skill
+            _logger.LogWarning("Could not parse skill selection response. Raw response: {Response}",
+                claudeResponse.Length > 200 ? claudeResponse[..200] + "..." : claudeResponse);
+
+            return new SkillSelectionResult
+            {
+                Success = true,
+                SelectedSkills = new List<string> { "label" }, // Default to label skill
+                Explanation = "Defaulting to label skill due to parsing error."
             };
 
             #endregion
@@ -1263,7 +1545,7 @@ namespace MedRecPro.Service
             sb.AppendLine("=== OUTPUT FORMAT ===");
 
             // Load prompt instructions from skills file
-            sb.AppendLine(buildLabelSectionPromptSkills());
+            sb.AppendLine(await buildLabelSectionPromptSkillsAsync());
 
             // User request
             sb.AppendLine("=== USER REQUEST ===");
@@ -1279,21 +1561,16 @@ namespace MedRecPro.Service
         /// Builds the label section content query prompt instructions from the skills file.
         /// </summary>
         /// <remarks>
-        /// This method delegates to the skill service for centralized skill management.
         /// Loads the AI prompt instructions for interpreting user queries about drug
-        /// label content (side effects, warnings, dosing, etc.).
+        /// label content (side effects, warnings, dosing, etc.) via the section skill.
         /// </remarks>
-        /// <example>
-        /// var promptInstructions = buildLabelSectionPromptSkills();
-        /// sb.AppendLine(promptInstructions);
-        /// </example>
         /// <returns>The label section prompt skills document as a formatted string.</returns>
-        /// <seealso cref="IClaudeSkillService.GetLabelSectionPromptSkills"/>
-        private string buildLabelSectionPromptSkills()
+        /// <seealso cref="IClaudeSkillService.GetSkillByNameAsync"/>
+        private async Task<string> buildLabelSectionPromptSkillsAsync()
         {
             #region implementation
 
-            return _skillService.GetLabelSectionPromptSkills();
+            return await _skillService.GetSkillByNameAsync("section");
 
             #endregion
         }
@@ -1303,21 +1580,16 @@ namespace MedRecPro.Service
         /// Loads the synthesis prompt skills document from the configured file path.
         /// </summary>
         /// <remarks>
-        /// This method delegates to the skill service for centralized skill management.
         /// Loads the AI prompt instructions for synthesizing API results into helpful,
         /// conversational responses.
         /// </remarks>
-        /// <example>
-        /// var synthesisSkills = buildSynthesisPromptSkills();
-        /// sb.AppendLine(synthesisSkills);
-        /// </example>
         /// <returns>The synthesis prompt skills document as a formatted string.</returns>
-        /// <seealso cref="IClaudeSkillService.GetSynthesisPromptSkills"/>
-        private string buildSynthesisPromptSkills()
+        /// <seealso cref="IClaudeSkillService.GetSkillByNameAsync"/>
+        private async Task<string> buildSynthesisPromptSkillsAsync()
         {
             #region implementation
 
-            return _skillService.GetSynthesisPromptSkills();
+            return await _skillService.GetSkillByNameAsync("synthesis");
 
             #endregion
         }
@@ -1327,21 +1599,16 @@ namespace MedRecPro.Service
         /// Loads the retry prompt skills document from the configured file path.
         /// </summary>
         /// <remarks>
-        /// This method delegates to the skill service for centralized skill management.
         /// Loads the AI prompt instructions for re-interpreting failed API endpoint
         /// calls and suggesting alternative endpoints.
         /// </remarks>
-        /// <example>
-        /// var retrySkills = buildRetryPromptSkills();
-        /// sb.AppendLine(retrySkills);
-        /// </example>
         /// <returns>The retry prompt skills document as a formatted string.</returns>
-        /// <seealso cref="IClaudeSkillService.GetRetryPromptSkills"/>
-        private string buildRetryPromptSkills()
+        /// <seealso cref="IClaudeSkillService.GetSkillByNameAsync"/>
+        private async Task<string> buildRetryPromptSkillsAsync()
         {
             #region implementation
 
-            return _skillService.GetRetryPromptSkills();
+            return await _skillService.GetSkillByNameAsync("retry");
 
             #endregion
         }
@@ -1418,15 +1685,15 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="request">The synthesis request.</param>
         /// <returns>The complete prompt string.</returns>
-        /// <seealso cref="buildSynthesisPromptSkills"/>
-        private string buildSynthesisPrompt(AiSynthesisRequest request)
+        /// <seealso cref="buildSynthesisPromptSkillsAsync"/>
+        private async Task<string> buildSynthesisPromptAsync(AiSynthesisRequest request)
         {
             #region implementation
 
             var sb = new StringBuilder();
 
             // Load synthesis prompt skills from file
-            sb.AppendLine(buildSynthesisPromptSkills());
+            sb.AppendLine(await buildSynthesisPromptSkillsAsync());
             sb.AppendLine();
 
             // Original query
@@ -2407,7 +2674,7 @@ namespace MedRecPro.Service
         /// </example>
         /// <seealso cref="TextUtil.ToPipe{T}(T, bool)"/>
         /// <seealso cref="JsonPipeHelper.TryConvertToPipe(object?)"/>
-        /// <seealso cref="buildSynthesisPrompt"/>
+        /// <seealso cref="buildSynthesisPromptAsync"/>
         private string serializeResultForPrompt(object? result, bool usePipeFormat = true)
         {
             #region implementation
@@ -2667,7 +2934,7 @@ namespace MedRecPro.Service
         /// <param name="failedResults">The endpoints that failed.</param>
         /// <param name="attemptNumber">Current retry attempt number.</param>
         /// <returns>Formatted prompt string for Claude.</returns>
-        /// <seealso cref="buildRetryPromptSkills"/>
+        /// <seealso cref="buildRetryPromptSkillsAsync"/>
         /// <seealso cref="IClaudeSkillService.GetFullSkillsDocumentAsync"/>
         private async Task<string> buildRetryPromptAsync(
             AiAgentRequest originalRequest,
@@ -2679,7 +2946,7 @@ namespace MedRecPro.Service
             var sb = new StringBuilder();
 
             // Load retry prompt skills from file (includes system role, fallback rules, and output format)
-            sb.AppendLine(buildRetryPromptSkills());
+            sb.AppendLine(await buildRetryPromptSkillsAsync());
             sb.AppendLine();
 
             // Include skills document for reference (use async result synchronously in retry context)

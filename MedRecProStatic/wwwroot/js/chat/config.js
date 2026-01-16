@@ -196,9 +196,14 @@ export const ChatConfig = (function () {
      */
     /**************************************************************/
     function getFetchOptions(options = {}) {
+        // In local development, use 'omit' to avoid CORS preflight issues
+        // caused by server middleware ordering (CORS must come before HttpsRedirection)
+        // In production (same-origin), always include credentials for authentication
+        const credentialMode = isLocalDevelopment() ? 'omit' : 'include';
+
         return {
-            credentials: 'include',  // Include cookies for authentication
-            ...options               // Merge additional options
+            credentials: credentialMode,
+            ...options
         };
     }
 

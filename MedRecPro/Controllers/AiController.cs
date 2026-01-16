@@ -502,55 +502,6 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Retrieves the skills document describing all available API endpoints
-        /// that the AI agent can interpret and suggest. This is useful for
-        /// understanding the system's capabilities.
-        /// </summary>
-        /// <returns>
-        /// The skills document as a formatted markdown string.
-        /// </returns>
-        /// <response code="200">Returns the skills document.</response>
-        /// <response code="500">If an internal server error occurs.</response>
-        /// <remarks>
-        /// GET /api/ai/skills
-        /// 
-        /// Returns a comprehensive markdown document describing:
-        /// - Navigation views (search by ingredient, NDC, labeler, etc.)
-        /// - Label CRUD operations
-        /// - Import/Export capabilities
-        /// - Authentication endpoints
-        /// - Available sections and parameters
-        /// 
-        /// This document is also used internally by Claude when interpreting requests.
-        /// </remarks>   
-        [HttpGet("skills")]
-        [AllowAnonymous]
-        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<string>> GetSkills()
-        {
-            #region implementation
-
-            try
-            {
-                _logger.LogDebug("Retrieving AI skills document");
-
-                var skills = await _claudeApiService.GetSkillsDocumentAsync();
-
-                return Ok(skills);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving skills document");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the skills document.");
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Convenience endpoint that combines interpretation and immediate execution
         /// for simple queries that don't require client-side API calls. This is useful
         /// for informational queries like "what can you do?" or "how do I import data?".

@@ -65,23 +65,27 @@ export const ApiService = (function () {
             console.log('[ApiService] Fetching context from:', contextUrl);
 
             const response = await fetch(contextUrl, ChatConfig.getFetchOptions());
+            console.log('[ApiService] Context response status:', response.status);
 
             if (response.ok) {
                 const context = await response.json();
+                console.log('[ApiService] Context loaded successfully:', context);
                 ChatState.setSystemContext(context);
                 return context;
             }
 
+            console.warn('[ApiService] Context fetch returned non-OK status:', response.status);
             return null;
 
         } catch (error) {
             console.error('[ApiService] Failed to fetch system context:', error);
+            console.error('[ApiService] Error details - name:', error.name, 'message:', error.message);
 
             // Provide helpful CORS guidance for local development
             if (ChatConfig.isLocalDevelopment()) {
                 console.warn(
                     '[ApiService] CORS may not be configured on the server. ' +
-                    'Ensure the API at medrecpro.com allows localhost origins.'
+                    `Ensure the API at ${ChatConfig.API_CONFIG.baseUrl} allows origin: ${window.location.origin}`
                 );
             }
 
@@ -127,30 +131,55 @@ export const ApiService = (function () {
         const interpretUrl = ChatConfig.buildUrl(ChatConfig.API_CONFIG.endpoints.interpret);
         console.log('[ApiService] Calling interpret endpoint:', interpretUrl);
 
-        const response = await fetch(interpretUrl, ChatConfig.getFetchOptions({
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                userMessage: userMessage,
-                conversationId: ChatState.getConversationId(),
-                conversationHistory: conversationHistory,
-                importResult: importResult
-            }),
-            signal: ChatState.getAbortController()?.signal
-        }));
+        // Create a timeout promise for better error feedback
+        const timeoutMs = 30000; // 30 second timeout
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(
+                `Request timeout after ${timeoutMs / 1000}s. ` +
+                `The API server at ${ChatConfig.API_CONFIG.baseUrl} may not be reachable. ` +
+                `Check if the server is running and CORS is configured.`
+            )), timeoutMs);
+        });
 
-        if (!response.ok) {
-            throw new Error(`API error: ${response.status}`);
+        try {
+            const fetchPromise = fetch(interpretUrl, ChatConfig.getFetchOptions({
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userMessage: userMessage,
+                    conversationId: ChatState.getConversationId(),
+                    conversationHistory: conversationHistory,
+                    importResult: importResult
+                }),
+                signal: ChatState.getAbortController()?.signal
+            }));
+
+            // Race between fetch and timeout
+            const response = await Promise.race([fetchPromise, timeoutPromise]);
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status}`);
+            }
+
+            const interpretation = await response.json();
+
+            // Normalize endpoint property name (backend may return 'endpoints' or 'suggestedEndpoints')
+            if (interpretation.endpoints && !interpretation.suggestedEndpoints) {
+                interpretation.suggestedEndpoints = interpretation.endpoints;
+            }
+
+            return interpretation;
+        } catch (error) {
+            // Enhance error message for common CORS/network issues
+            if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
+                console.error('[ApiService] Network error - likely CORS or server unreachable:', error);
+                throw new Error(
+                    `Cannot reach API server at ${ChatConfig.API_CONFIG.baseUrl}. ` +
+                    `Please verify: (1) The API server is running, (2) CORS is configured to allow ${window.location.origin}`
+                );
+            }
+            throw error;
         }
-
-        const interpretation = await response.json();
-
-        // Normalize endpoint property name (backend may return 'endpoints' or 'suggestedEndpoints')
-        if (interpretation.endpoints && !interpretation.suggestedEndpoints) {
-            interpretation.suggestedEndpoints = interpretation.endpoints;
-        }
-
-        return interpretation;
     }
 
     /**************************************************************/

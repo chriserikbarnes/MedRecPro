@@ -613,4 +613,73 @@ namespace MedRecPro.Models
 
     #endregion
 
+    #region skill selection models
+
+    /**************************************************************/
+    /// <summary>
+    /// Represents the result of AI-driven skill selection based on the selectors document.
+    /// This model is returned by <see cref="IClaudeApiService.SelectSkillsViaAiAsync"/>
+    /// and contains the skills that should be loaded for a given user query.
+    /// </summary>
+    /// <remarks>
+    /// The skill selection result enables dynamic skill routing based on the selectors.md
+    /// document, allowing routing rules to be updated without code changes. The AI interprets
+    /// the decision trees and keyword mappings to select appropriate skills.
+    /// </remarks>
+    /// <seealso cref="IClaudeApiService.SelectSkillsViaAiAsync"/>
+    /// <seealso cref="IClaudeSkillService.SelectSkillsAsync"/>
+    public class SkillSelectionResult
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets a value indicating whether the skill selection was successful.
+        /// </summary>
+        [JsonProperty("success")]
+        public bool Success { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the list of skill names that should be loaded for the user's query.
+        /// </summary>
+        /// <remarks>
+        /// Skill names correspond to the skill identifiers defined in selectors.md,
+        /// such as "indicationDiscovery", "labelContent", "equianalgesicConversion", etc.
+        /// </remarks>
+        [JsonProperty("selectedSkills")]
+        public List<string> SelectedSkills { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the explanation of why these skills were selected.
+        /// Provides insight into the AI's reasoning for skill selection.
+        /// </summary>
+        [JsonProperty("explanation")]
+        public string? Explanation { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets a value indicating whether the query can be answered directly
+        /// without loading additional skills (e.g., for general help questions).
+        /// </summary>
+        [JsonProperty("isDirectResponse")]
+        public bool IsDirectResponse { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the direct response content when <see cref="IsDirectResponse"/> is true.
+        /// Used for queries that don't require API calls or skill loading.
+        /// </summary>
+        [JsonProperty("directResponse")]
+        public string? DirectResponse { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the error message if skill selection failed.
+        /// </summary>
+        [JsonProperty("error")]
+        public string? Error { get; set; }
+    }
+
+    #endregion
+
 }

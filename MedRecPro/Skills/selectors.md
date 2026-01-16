@@ -71,14 +71,19 @@ Query: "Show me the dosage for metformin"
 ### indicationDiscovery
 
 **Primary Keywords**
-- what helps with, what can be used for, options for, treatment for, products for
-- what can I take, I have, feeling, alternatives to
+- what helps with, what can help, what can be used for, options for, treatment for, products for
+- what can I take, I have, feeling, feeling down, alternatives to
+- what treats, medicine for, drug for, what product, which medication
+- generic alternative, similar to, like lipitor, like prozac, equivalent to
+- generics, same ingredient, indicated for, what is indicated
 
 **Condition Keywords**
-- depression, anxiety, pain, hypertension, diabetes, cholesterol
+- depression, anxiety, pain, pain relief, hypertension, high blood pressure, diabetes, cholesterol
 - allergy, allergies, seasonal, rhinitis, asthma
 - cancer, carcinoma, breast cancer, prostate cancer
-- seizure, epilepsy, neuropathy, migraine
+- seizure, epilepsy, neuropathy, neuropathic, nerve pain, migraine
+- shingles, postherpetic, neuralgia
+- condition, symptom, disease, therapeutic, indication
 
 **Surgical/Anesthesia Keywords**
 - surgical, analgesic, anesthetic, anesthesia, perioperative, surgery, operative
@@ -86,7 +91,7 @@ Query: "Show me the dosage for metformin"
 - local anesthetic, general anesthesia, regional anesthesia, epidural
 - spinal anesthesia, procedural sedation, preoperative, postoperative, intraoperative
 
-**Selection Rule**: If query mentions a condition/symptom WITHOUT a specific product name, select indicationDiscovery.
+**Selection Rule**: If query mentions a condition/symptom WITHOUT a specific product name, select indicationDiscovery. This is the FIRST-LINE approach for condition-based queries.
 
 ---
 
@@ -94,14 +99,16 @@ Query: "Show me the dosage for metformin"
 
 **Primary Keywords**
 - side effects, adverse effects, warnings, precautions
-- contraindications, dosage, dosing, how to take
+- contraindications, dosage, dose, dosing, how to take
 - interactions, drug interactions, overdose
-- boxed warning, black box, pharmacology
+- boxed warning, black box, pharmacology, pharmacologic
+- prescribing, pharmaceutical, therapeutic, class
 
 **Product Keywords**
-- drug, product, medication, tablet, capsule, injection
+- drug, product, ingredient, medication, medicine, tablet, capsule, injection
 - NDC, manufacturer, labeler, application number
-- ANDA, NDA, BLA, UNII, SPL
+- ANDA, NDA, BLA, UNII, SPL, FDA, document
+- label, section, import, export
 
 **General Information Keywords**
 - tell me about, what is, information about, details about
@@ -113,17 +120,26 @@ Query: "Show me the dosage for metformin"
 
 ### equianalgesicConversion
 
-**Keywords**
+**Core Conversion Terms**
 - equianalgesic, opioid conversion, morphine equivalent, MME
 - dose conversion, switching opioids, equivalent dose, opioid switch
+
+**Conversion Action Phrases**
 - convert from, convert to, conversion from, conversion to
-- convert morphine, convert hydromorphone, convert fentanyl, convert oxycodone, convert methadone, convert buprenorphine
+- convert morphine, convert hydromorphone, convert fentanyl
+- convert oxycodone, convert methadone, convert buprenorphine
+
+**Drug-to-Drug Conversion Patterns (X to Y)**
 - morphine to hydromorphone, hydromorphone to morphine
 - fentanyl to morphine, morphine to fentanyl
 - oxycodone to morphine, morphine to oxycodone
 - oxycodone to buprenorphine, buprenorphine to oxycodone
+- oxycodone to hydromorphone, hydromorphone to oxycodone
+- oxycodone to fentanyl, fentanyl to oxycodone
 - methadone to buprenorphine, buprenorphine to methadone
-- (and other X to Y opioid combinations)
+- methadone to morphine, morphine to methadone
+- hydromorphone to buprenorphine, buprenorphine to hydromorphone
+- fentanyl to buprenorphine, buprenorphine to fentanyl
 
 **Selection Rule**: Any query about opioid dose conversion or equivalence.
 
@@ -133,11 +149,19 @@ Query: "Show me the dosage for metformin"
 
 ### userActivity
 
-**Keywords**
-- log, logs, application log, error, warning, debug
-- activity, user activity, what did user
-- endpoint, performance, response time, controller
-- statistics, how fast, monitoring, diagnostic
+**Log Keywords**
+- log, logs, error log, warning log, application log, admin log
+- debug, trace, diagnostic, log statistics, log categor, log level
+- show errors, show warnings, recent errors, what errors
+
+**Activity Keywords**
+- activity, user activity, activity log, what did user, user's activity
+- what did, how many times
+
+**Performance Keywords**
+- endpoint performance, endpoint stats, response time
+- controller performance, api performance, how fast
+- performance for, performance of, statistics, monitoring
 
 **Selection Rule**: Log viewing, user activity audit, or performance analysis. **Requires authentication.**
 
@@ -156,7 +180,9 @@ Query: "Show me the dosage for metformin"
 
 **Keywords**
 - login, logout, authenticate, sign in, sign out
-- profile, current user, who am I, oauth
+- profile, current user, who am i, context
+- oauth, google login, microsoft login
+- conversation, interpret, synthesize, chat
 
 ---
 
@@ -165,6 +191,8 @@ Query: "Show me the dosage for metformin"
 **Keywords**
 - not found, empty results, where else, alternative
 - rescue, fallback, text search, description section
+- inactive ingredient, excipient, not available
+- couldn't find, not in, extract from text
 
 **Selection Rule**: Add as supplementary skill when primary skill returns empty results.
 
