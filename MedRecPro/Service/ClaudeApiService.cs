@@ -1248,7 +1248,7 @@ namespace MedRecPro.Service
             sb.AppendLine("```");
             sb.AppendLine();
             sb.AppendLine("Rules:");
-            sb.AppendLine("1. Use ONLY skill names from the selectors document (indicationDiscovery, labelContent, equianalgesicConversion, userActivity, cacheManagement, sessionManagement, dataRescue)");
+            sb.AppendLine("1. Use ONLY skill names from the selectors document (pharmacologicClassSearch, indicationDiscovery, labelContent, equianalgesicConversion, userActivity, cacheManagement, sessionManagement, dataRescue)");
             sb.AppendLine("2. If the query is a general help question not requiring API calls, set isDirectResponse=true and provide the answer in directResponse");
             sb.AppendLine("3. If user is not authenticated but requests admin skills, redirect to sessionManagement");
             sb.AppendLine("4. Follow the priority rules in the selectors document");
@@ -1541,11 +1541,13 @@ namespace MedRecPro.Service
                 sb.AppendLine();
             }
 
-            // Output format instructions
-            sb.AppendLine("=== OUTPUT FORMAT ===");
-
-            // Load prompt instructions from skills file
-            sb.AppendLine(await buildLabelSectionPromptSkillsAsync());
+            // NOTE: Output format and endpoint specifications are already included in the skills
+            // content loaded above via GetSkillContentAsync. This includes:
+            // - Interface document for the selected skill (pharmacologic-class.md, label-content.md, etc.)
+            // - Response format standards (response-format.md)
+            // - Synthesis rules (synthesis-rules.md)
+            // We no longer append a hardcoded "section" skill here, as that would override
+            // the correct interface document when other skills are selected.
 
             // User request
             sb.AppendLine("=== USER REQUEST ===");

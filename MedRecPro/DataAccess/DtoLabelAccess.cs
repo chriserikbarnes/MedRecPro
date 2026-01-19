@@ -475,6 +475,78 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches for products by exact pharmacologic class name match.
+        /// </summary>
+        /// <param name="db">The database context.</param>
+        /// <param name="classNameSearch">The exact pharmacologic class name to search for.</param>
+        /// <param name="pkSecret">The secret key for generating secure product links.</param>
+        /// <param name="logger">The logger instance for diagnostic output.</param>
+        /// <param name="page">Optional page number for pagination (1-based).</param>
+        /// <param name="size">Optional page size for pagination.</param>
+        /// <returns>
+        /// A list of <see cref="ProductsByPharmacologicClassDto"/> matching the exact class name,
+        /// ordered by class name then product name. Returns an empty list if no matches found.
+        /// </returns>
+        /// <exception cref="ArgumentException">
+        /// Thrown when <paramref name="classNameSearch"/> or <paramref name="pkSecret"/> is null or whitespace.
+        /// </exception>
+        /// <remarks>
+        /// Results are cached for 1 hour to improve performance on repeated queries.
+        /// Uses exact string matching on PharmClassName (case-sensitive).
+        /// </remarks>
+        public static async Task<List<ProductsByPharmacologicClassDto>> SearchByPharmacologicClassExactAsync(
+            ApplicationDbContext db,
+            string classNameSearch,
+            string pkSecret,
+            ILogger logger,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+            if (string.IsNullOrWhiteSpace(classNameSearch) || string.IsNullOrWhiteSpace(pkSecret))
+            {
+                throw new ArgumentException("Class name search and PK secret must be provided.");
+            }
+
+            string key = generateCacheKey(nameof(SearchByPharmacologicClassExactAsync), classNameSearch, page, size);
+
+            var cached = Cached.GetCache<List<ProductsByPharmacologicClassDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchByPharmacologicClassAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            // Build query with class name search
+            var query = db.Set<LabelView.ProductsByPharmacologicClass>()
+                .AsNoTracking()
+                .Where(p => p.PharmClassName == classNameSearch)
+                .OrderBy(p => p.PharmClassName)
+                .ThenBy(p => p.ProductName);
+
+            query = (IOrderedQueryable<LabelView.ProductsByPharmacologicClass>)applyPagination(query, page, size);
+
+            var entities = await query.ToListAsync();
+            var ret = buildProductsByPharmacologicClassDtos(db, entities, pkSecret, logger);
+
+            if (ret != null && ret.Count > 0)
+            {
+                Cached.SetCacheManageKey(key, ret, 1.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret ?? new List<ProductsByPharmacologicClassDto>();
+
+            #endregion
+        }
+
         /**************************************************************/
         /// <summary>
         /// Gets the pharmacologic class hierarchy showing parent-child relationships.

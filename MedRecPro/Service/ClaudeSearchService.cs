@@ -1,0 +1,1053 @@
+using MedRecPro.Data;
+using MedRecPro.DataAccess;
+using MedRecPro.Helpers;
+using MedRecPro.Models;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+namespace MedRecPro.Service
+{
+    #region pharmacologic class search service interface
+
+    /**************************************************************/
+    /// <summary>
+    /// Defines the contract for intelligent pharmacologic class search operations.
+    /// This service enables context-aware matching between user queries and actual
+    /// pharmacologic class names in the database, solving the mismatch problem where
+    /// user terminology differs from database classification names.
+    /// </summary>
+    /// <remarks>
+    /// The service implements a multi-step workflow:
+    /// <list type="number">
+    /// <item>Retrieve all pharmacologic class summaries from the database</item>
+    /// <item>Use AI to match user query terms to actual class display names</item>
+    /// <item>Iteratively search for products across all matched classes</item>
+    /// <item>Produce a consolidated summary with label links to latest products</item>
+    /// </list>
+    ///
+    /// This solves the problem where users ask "what medications are beta blockers" but
+    /// the database stores the class as "Beta-Adrenergic Blockers [EPC]" or similar.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// // User asks: "what medications are beta blockers"
+    /// var result = await pharmacologicClassSearchService.SearchByUserQueryAsync(
+    ///     "beta blockers",
+    ///     systemContext);
+    ///
+    /// // Returns products from classes matching "beta blocker" terminology
+    /// </code>
+    /// </example>
+    /// <seealso cref="IClaudeApiService"/>
+    /// <seealso cref="DtoLabelAccess.GetPharmacologicClassSummariesAsync"/>
+    /// <seealso cref="DtoLabelAccess.SearchByPharmacologicClassAsync"/>
+    public interface IClaudeSearchService
+    {
+        #region search methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves all pharmacologic class summaries that have linked products.
+        /// This provides the AI with the full vocabulary of available class names
+        /// for matching against user queries.
+        /// </summary>
+        /// <returns>
+        /// A task that resolves to a list of <see cref="PharmacologicClassSummaryDto"/>
+        /// containing class names and product counts, filtered to exclude classes
+        /// with no associated products.
+        /// </returns>
+        /// <remarks>
+        /// Results are cached to optimize repeated queries. Only classes with
+        /// <c>LinkedSubstanceCount > 0</c> are included since classes without
+        /// products cannot provide useful search results.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetPharmacologicClassSummariesAsync"/>
+        Task<List<PharmacologicClassSummaryDto>> GetAllClassSummariesAsync();
+
+        /**************************************************************/
+        /// <summary>
+        /// Uses AI to match a user's query terms to actual pharmacologic class names
+        /// in the database. Returns the list of class names that best match the
+        /// user's intent.
+        /// </summary>
+        /// <param name="userQuery">
+        /// The user's natural language query containing pharmacologic class terminology.
+        /// Examples: "beta blockers", "ACE inhibitors", "SSRIs", "statins"
+        /// </param>
+        /// <param name="availableClasses">
+        /// List of class summaries from the database to match against.
+        /// </param>
+        /// <returns>
+        /// A task that resolves to a <see cref="PharmacologicClassMatchResult"/>
+        /// containing the matched class names and any explanatory notes.
+        /// </returns>
+        /// <remarks>
+        /// The AI interprets user terminology and maps it to actual database
+        /// class names. For example:
+        /// <list type="bullet">
+        /// <item>"beta blockers" matches "Beta-Adrenergic Blockers [EPC]"</item>
+        /// <item>"blood pressure meds" matches multiple antihypertensive classes</item>
+        /// <item>"SSRIs" matches "Selective Serotonin Reuptake Inhibitors [EPC]"</item>
+        /// </list>
+        /// </remarks>
+        /// <seealso cref="IClaudeApiService"/>
+        Task<PharmacologicClassMatchResult> MatchUserQueryToClassesAsync(
+            string userQuery,
+            List<PharmacologicClassSummaryDto> availableClasses);
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs a complete search workflow: matches user query to classes,
+        /// searches for products in matched classes, and returns consolidated results
+        /// with label links.
+        /// </summary>
+        /// <param name="userQuery">
+        /// The user's natural language query about pharmacologic classes.
+        /// </param>
+        /// <param name="systemContext">
+        /// Optional system context for authentication state and capabilities.
+        /// </param>
+        /// <param name="maxProductsPerClass">
+        /// Maximum number of products to return per matched class. Default is 25.
+        /// </param>
+        /// <returns>
+        /// A task that resolves to a <see cref="PharmacologicClassSearchResult"/>
+        /// containing all matched products organized by class with label links.
+        /// </returns>
+        /// <remarks>
+        /// This is the primary method for answering user queries like
+        /// "what medications are beta blockers". It orchestrates the full workflow:
+        /// <list type="number">
+        /// <item>Get all available classes from database</item>
+        /// <item>Use AI to match user terms to class names</item>
+        /// <item>Search each matched class for products</item>
+        /// <item>Consolidate results with document GUIDs for label links</item>
+        /// </list>
+        /// </remarks>
+        /// <seealso cref="GetAllClassSummariesAsync"/>
+        /// <seealso cref="MatchUserQueryToClassesAsync"/>
+        Task<PharmacologicClassSearchResult> SearchByUserQueryAsync(
+            string userQuery,
+            AiSystemContext? systemContext = null,
+            int maxProductsPerClass = 25);
+
+        #endregion
+    }
+
+    #endregion
+
+    #region pharmacologic class search models
+
+    /**************************************************************/
+    /// <summary>
+    /// Represents the result of matching user query terms to database class names.
+    /// </summary>
+    /// <seealso cref="IClaudeSearchService.MatchUserQueryToClassesAsync"/>
+    public class PharmacologicClassMatchResult
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether the matching operation was successful.
+        /// </summary>
+        public bool Success { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the list of matched class names from the database.
+        /// These are the exact class names that can be used for product searches.
+        /// </summary>
+        public List<string> MatchedClassNames { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the explanation of how matches were determined.
+        /// Useful for transparency and debugging.
+        /// </summary>
+        public string? Explanation { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets any error message if matching failed.
+        /// </summary>
+        public string? Error { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets alternative suggestions if no exact matches were found.
+        /// </summary>
+        public List<string>? Suggestions { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Represents the complete result of a pharmacologic class search operation.
+    /// Contains all matched products organized by class with label links.
+    /// </summary>
+    /// <seealso cref="IClaudeSearchService.SearchByUserQueryAsync"/>
+    public class PharmacologicClassSearchResult
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether the search operation was successful.
+        /// </summary>
+        public bool Success { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the original user query that initiated the search.
+        /// </summary>
+        public string OriginalQuery { get; set; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the list of pharmacologic classes that matched the user query.
+        /// </summary>
+        public List<string> MatchedClasses { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the products found, organized by their pharmacologic class.
+        /// Key is the class name, value is the list of products in that class.
+        /// </summary>
+        public Dictionary<string, List<PharmacologicClassProductInfo>> ProductsByClass { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the total number of products found across all classes.
+        /// </summary>
+        public int TotalProductCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets label links for all found products.
+        /// Key is display name, value is the API URL.
+        /// </summary>
+        /// <example>
+        /// {
+        ///   "View Full Label (METOPROLOL TARTRATE)": "/api/Label/generate/{guid}/true"
+        /// }
+        /// </example>
+        public Dictionary<string, string> LabelLinks { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets any error message if the search failed.
+        /// </summary>
+        public string? Error { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the AI's explanation of the search results.
+        /// </summary>
+        public string? Explanation { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets suggested follow-up queries.
+        /// </summary>
+        public List<string>? SuggestedFollowUps { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Represents product information for pharmacologic class search results.
+    /// Contains the essential fields needed for display and label link generation.
+    /// </summary>
+    public class PharmacologicClassProductInfo
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the product name.
+        /// </summary>
+        public string ProductName { get; set; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the document GUID for generating label links.
+        /// </summary>
+        public string? DocumentGuid { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the pharmacologic class name this product belongs to.
+        /// </summary>
+        public string? PharmClassName { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the active ingredient(s) in the product.
+        /// </summary>
+        public string? ActiveIngredient { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the labeler/manufacturer name.
+        /// </summary>
+        public string? LabelerName { get; set; }
+    }
+
+    #endregion
+
+    #region pharmacologic class search service implementation
+
+    /**************************************************************/
+    /// <summary>
+    /// Implementation of the pharmacologic class search service that enables
+    /// intelligent matching between user queries and database class names.
+    /// </summary>
+    /// <remarks>
+    /// This service solves the context matching problem where users ask about
+    /// drug classes using common terminology that differs from how classes are
+    /// stored in the database. It uses AI to bridge the vocabulary gap.
+    /// </remarks>
+    /// <seealso cref="IClaudeSearchService"/>
+    public class ClaudeSearchService : IClaudeSearchService
+    {
+        #region private fields
+
+        /**************************************************************/
+        /// <summary>
+        /// Database context for querying pharmacologic class data.
+        /// </summary>
+        private readonly ApplicationDbContext _dbContext;
+
+        /**************************************************************/
+        /// <summary>
+        /// Configuration provider for settings access.
+        /// </summary>
+        private readonly IConfiguration _configuration;
+
+        /**************************************************************/
+        /// <summary>
+        /// Logger instance for diagnostic output.
+        /// </summary>
+        private readonly ILogger<ClaudeSearchService> _logger;
+
+        /**************************************************************/
+        /// <summary>
+        /// Service scope factory for resolving scoped dependencies.
+        /// </summary>
+        /// <remarks>
+        /// Used to create isolated scopes for resolving <see cref="IClaudeApiService"/>
+        /// to avoid circular dependency issues.
+        /// </remarks>
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+
+        /**************************************************************/
+        /// <summary>
+        /// Encryption secret for ID encryption in DTOs.
+        /// </summary>
+        private readonly string _pkEncryptionSecret;
+
+        /**************************************************************/
+        /// <summary>
+        /// Cache key for class summaries.
+        /// </summary>
+        private const string ClassSummariesCacheKey = "PharmacologicClassSearchService_AllSummaries";
+
+        /**************************************************************/
+        /// <summary>
+        /// Cache duration for class summaries (4 hours).
+        /// </summary>
+        private const double CacheHours = 4.0;
+
+        #endregion
+
+        #region constructor
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a new instance of the PharmacologicClassSearchService.
+        /// </summary>
+        /// <param name="dbContext">Database context for data access.</param>
+        /// <param name="configuration">Configuration provider.</param>
+        /// <param name="logger">Logger instance.</param>
+        /// <param name="serviceScopeFactory">Scope factory for dependency resolution.</param>
+        /// <seealso cref="IClaudeApiService"/>
+        public ClaudeSearchService(
+            ApplicationDbContext dbContext,
+            IConfiguration configuration,
+            ILogger<ClaudeSearchService> logger,
+            IServiceScopeFactory serviceScopeFactory)
+        {
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
+
+            // Get encryption secret from configuration
+            _pkEncryptionSecret = _configuration.GetValue<string>("Security:DB:PKSecret")
+                ?? throw new InvalidOperationException("PrimaryKeySecret not configured");
+        }
+
+        #endregion
+
+        #region search methods
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Retrieves all classes with no pagination to get complete vocabulary.
+        /// Results are cached to minimize database load on repeated queries.
+        /// Classes without linked products are filtered out.
+        /// </remarks>
+        public async Task<List<PharmacologicClassSummaryDto>> GetAllClassSummariesAsync()
+        {
+            #region implementation
+
+            // Check cache first
+            var cached = PerformanceHelper.GetCache<List<PharmacologicClassSummaryDto>>(ClassSummariesCacheKey);
+            if (cached != null && cached.Count > 0)
+            {
+                _logger.LogDebug("Returning {Count} cached pharmacologic class summaries", cached.Count);
+                return cached;
+            }
+
+            _logger.LogDebug("Retrieving all pharmacologic class summaries from database");
+
+            // Get all summaries without pagination
+            var allSummaries = await DtoLabelAccess.GetPharmacologicClassSummariesAsync(
+                _dbContext,
+                _pkEncryptionSecret,
+                _logger,
+                page: null,
+                size: null);
+
+            // Filter to only classes with products (ProductCount > 0)
+            var filteredSummaries = allSummaries
+                .Where(s => s.ProductCount.HasValue && s.ProductCount.Value > 0)
+                .ToList();
+
+            _logger.LogInformation("Retrieved {Total} class summaries, {Filtered} with products",
+                allSummaries.Count, filteredSummaries.Count);
+
+            // Cache for configured duration
+            if (filteredSummaries.Count > 0)
+            {
+                PerformanceHelper.SetCacheManageKey(ClassSummariesCacheKey, filteredSummaries, CacheHours);
+            }
+
+            return filteredSummaries;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Uses Claude AI to interpret user terminology and map it to actual
+        /// database class names. The AI is provided with the full list of
+        /// available classes to ensure accurate matching.
+        /// </remarks>
+        public async Task<PharmacologicClassMatchResult> MatchUserQueryToClassesAsync(
+            string userQuery,
+            List<PharmacologicClassSummaryDto> availableClasses)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(userQuery))
+            {
+                return new PharmacologicClassMatchResult
+                {
+                    Success = false,
+                    Error = "User query cannot be empty."
+                };
+            }
+
+            if (availableClasses == null || availableClasses.Count == 0)
+            {
+                return new PharmacologicClassMatchResult
+                {
+                    Success = false,
+                    Error = "No pharmacologic classes available in the database."
+                };
+            }
+
+            _logger.LogDebug("Matching user query '{Query}' against {Count} available classes",
+                userQuery, availableClasses.Count);
+
+            try
+            {
+                // Build the class name list for AI matching
+                var classNames = availableClasses
+                    .Where(c => !string.IsNullOrWhiteSpace(c.PharmClassName))
+                    .Select(c => c.PharmClassName!)
+                    .Distinct()
+                    .OrderBy(n => n)
+                    .ToList();
+
+                // Create prompt for AI matching
+                var matchPrompt = buildClassMatchingPrompt(userQuery, classNames);
+
+                // Create scope to resolve IClaudeApiService
+                using var scope = _serviceScopeFactory.CreateScope();
+                var claudeApiService = scope.ServiceProvider.GetRequiredService<IClaudeApiService>();
+
+                // Call Claude for matching (using GenerateDocumentComparisonAsync which accepts a prompt)
+                var matchResponse = await claudeApiService.GenerateDocumentComparisonAsync(matchPrompt);
+
+                // Parse the AI response
+                return parseClassMatchResponse(matchResponse, classNames);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error matching user query to pharmacologic classes: {Query}", userQuery);
+
+                // Attempt simple string matching as fallback
+                return performSimpleMatching(userQuery, availableClasses);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Orchestrates the complete search workflow:
+        /// 1. Gets all available classes from database
+        /// 2. Uses AI to match user query to class names
+        /// 3. Searches each matched class for products
+        /// 4. Consolidates results with label links
+        /// </remarks>
+        public async Task<PharmacologicClassSearchResult> SearchByUserQueryAsync(
+            string userQuery,
+            AiSystemContext? systemContext = null,
+            int maxProductsPerClass = 100)
+        {
+            #region implementation
+
+            var result = new PharmacologicClassSearchResult
+            {
+                OriginalQuery = userQuery
+            };
+
+            if (string.IsNullOrWhiteSpace(userQuery))
+            {
+                result.Success = false;
+                result.Error = "Search query cannot be empty.";
+                return result;
+            }
+
+            _logger.LogInformation("[PHARM CLASS SEARCH] Starting search for user query: {Query}", userQuery);
+
+            try
+            {
+                // Step 1: Get all available class summaries
+                var allClasses = await GetAllClassSummariesAsync();
+                if (allClasses.Count == 0)
+                {
+                    result.Success = false;
+                    result.Error = "No pharmacologic classes found in the database.";
+                    return result;
+                }
+
+                _logger.LogDebug("Retrieved {Count} pharmacologic classes for matching", allClasses.Count);
+
+                // Step 2: Match user query to class names using AI
+                var matchResult = await MatchUserQueryToClassesAsync(userQuery, allClasses);
+                if (!matchResult.Success || matchResult.MatchedClassNames.Count == 0)
+                {
+                    result.Success = false;
+                    result.Error = matchResult.Error ?? "No pharmacologic classes matched your query.";
+                    result.Explanation = matchResult.Explanation;
+                    result.SuggestedFollowUps = matchResult.Suggestions;
+                    return result;
+                }
+
+                result.MatchedClasses = matchResult.MatchedClassNames;
+                _logger.LogInformation("[PHARM CLASS SEARCH] Matched {Count} classes: [{Classes}]",
+                    matchResult.MatchedClassNames.Count,
+                    string.Join(", ", matchResult.MatchedClassNames));
+
+                // Step 3: Search each matched class for products
+                var allProducts = new List<PharmacologicClassProductInfo>();
+                foreach (var className in matchResult.MatchedClassNames)
+                {
+                    var classProducts = await searchProductsInClassAsync(className, maxProductsPerClass);
+                    if (classProducts.Count > 0)
+                    {
+                        result.ProductsByClass[className] = classProducts;
+                        allProducts.AddRange(classProducts);
+                    }
+                }
+
+                result.TotalProductCount = allProducts.Count;
+
+                // Step 4: Build label links for all products
+                foreach (var product in allProducts.Where(p => !string.IsNullOrEmpty(p.DocumentGuid)))
+                {
+                    var linkKey = $"View Full Label ({product.ProductName})";
+                    var linkValue = $"/api/Label/generate/{product.DocumentGuid}/true";
+
+                    // Avoid duplicate keys
+                    if (!result.LabelLinks.ContainsKey(linkKey))
+                    {
+                        result.LabelLinks[linkKey] = linkValue;
+                    }
+                }
+
+                result.Success = true;
+                result.Explanation = matchResult.Explanation;
+                result.SuggestedFollowUps = generateFollowUpSuggestions(result);
+
+                _logger.LogInformation("[PHARM CLASS SEARCH] Found {Count} products across {ClassCount} classes",
+                    result.TotalProductCount, result.MatchedClasses.Count);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during pharmacologic class search for query: {Query}", userQuery);
+                result.Success = false;
+                result.Error = $"Search failed: {ex.Message}";
+                return result;
+            }
+
+            #endregion
+        }
+
+        #endregion
+
+        #region private methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the AI prompt for matching user query to class names.
+        /// </summary>
+        /// <param name="userQuery">The user's query text.</param>
+        /// <param name="classNames">List of available class names from database.</param>
+        /// <returns>Formatted prompt for Claude AI.</returns>
+        private string buildClassMatchingPrompt(string userQuery, List<string> classNames)
+        {
+            #region implementation
+
+            var classListFormatted = string.Join("\n", classNames.Select(c => $"- {c}"));
+
+            return $@"You are matching a user's pharmacologic class query to actual database class names.
+
+USER QUERY: ""{userQuery}""
+
+AVAILABLE PHARMACOLOGIC CLASSES IN DATABASE:
+{classListFormatted}
+
+TASK: Identify which class name(s) from the list above best match what the user is asking about.
+
+MATCHING RULES:
+1. Match common drug class terminology to formal classification names
+   - ""beta blockers"" matches ""Beta-Adrenergic Blockers"" or similar
+   - ""ACE inhibitors"" matches ""Angiotensin Converting Enzyme Inhibitors""
+   - ""SSRIs"" matches ""Selective Serotonin Reuptake Inhibitors""
+   - ""statins"" matches ""HMG-CoA Reductase Inhibitors""
+2. Return EXACT class names from the list (copy-paste accuracy required)
+3. Include multiple classes if the user query could match several
+4. If no reasonable match exists, return empty matches array
+
+RESPOND IN JSON FORMAT:
+{{
+  ""success"": true,
+  ""matchedClassNames"": [""Exact Class Name 1"", ""Exact Class Name 2""],
+  ""explanation"": ""Brief explanation of matching logic"",
+  ""confidence"": ""high|medium|low""
+}}
+
+If no matches found:
+{{
+  ""success"": false,
+  ""matchedClassNames"": [],
+  ""explanation"": ""Why no match was found"",
+  ""suggestions"": [""Alternative query 1"", ""Alternative query 2""]
+}}";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the AI response for class matching.
+        /// </summary>
+        /// <param name="aiResponse">Raw AI response string.</param>
+        /// <param name="availableClassNames">List of valid class names for validation.</param>
+        /// <returns>Parsed match result.</returns>
+        private PharmacologicClassMatchResult parseClassMatchResponse(
+            string aiResponse,
+            List<string> availableClassNames)
+        {
+            #region implementation
+
+            try
+            {
+                // Extract JSON from response (handle markdown code blocks)
+                var jsonContent = extractJsonFromResponse(aiResponse);
+
+                if (string.IsNullOrWhiteSpace(jsonContent))
+                {
+                    _logger.LogWarning("Could not extract JSON from AI response for class matching");
+                    return new PharmacologicClassMatchResult
+                    {
+                        Success = false,
+                        Error = "Failed to parse AI response for class matching."
+                    };
+                }
+
+                // Parse the JSON response
+                var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(jsonContent);
+
+                if (parsed == null)
+                {
+                    return new PharmacologicClassMatchResult
+                    {
+                        Success = false,
+                        Error = "Invalid AI response format."
+                    };
+                }
+
+                var result = new PharmacologicClassMatchResult
+                {
+                    Success = parsed.success ?? false,
+                    Explanation = parsed.explanation?.ToString()
+                };
+
+                // Extract matched class names
+                if (parsed.matchedClassNames != null)
+                {
+                    foreach (var className in parsed.matchedClassNames)
+                    {
+                        string name = className.ToString();
+                        // Validate that the class name exists in our list (case-insensitive)
+                        var matchedName = availableClassNames
+                            .FirstOrDefault(c => c.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+                        if (matchedName != null)
+                        {
+                            result.MatchedClassNames.Add(matchedName);
+                        }
+                        else
+                        {
+                            // Try partial matching as fallback
+                            var partialMatch = availableClassNames
+                                .FirstOrDefault(c => c.Contains(name, StringComparison.OrdinalIgnoreCase)
+                                    || name.Contains(c, StringComparison.OrdinalIgnoreCase));
+                            if (partialMatch != null && !result.MatchedClassNames.Contains(partialMatch))
+                            {
+                                result.MatchedClassNames.Add(partialMatch);
+                            }
+                        }
+                    }
+                }
+
+                // Extract suggestions if present
+                if (parsed.suggestions != null)
+                {
+                    result.Suggestions = new List<string>();
+                    foreach (var suggestion in parsed.suggestions)
+                    {
+                        result.Suggestions.Add(suggestion.ToString());
+                    }
+                }
+
+                result.Success = result.MatchedClassNames.Count > 0;
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error parsing class match response");
+                return new PharmacologicClassMatchResult
+                {
+                    Success = false,
+                    Error = $"Failed to parse AI response: {ex.Message}"
+                };
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts JSON content from AI response, handling markdown code blocks.
+        /// </summary>
+        /// <param name="response">Raw AI response.</param>
+        /// <returns>Extracted JSON string or null.</returns>
+        private string? extractJsonFromResponse(string response)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(response))
+            {
+                return null;
+            }
+
+            // Try to find JSON in markdown code blocks
+            var jsonMatch = System.Text.RegularExpressions.Regex.Match(
+                response,
+                @"```(?:json)?\s*\n?([\s\S]*?)\n?```",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (jsonMatch.Success)
+            {
+                return jsonMatch.Groups[1].Value.Trim();
+            }
+
+            // Try to find raw JSON object
+            var jsonObjectMatch = System.Text.RegularExpressions.Regex.Match(
+                response,
+                @"\{[\s\S]*\}");
+
+            if (jsonObjectMatch.Success)
+            {
+                return jsonObjectMatch.Value;
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs simple string matching as fallback when AI matching fails.
+        /// </summary>
+        /// <param name="userQuery">User query text.</param>
+        /// <param name="availableClasses">Available class summaries.</param>
+        /// <returns>Match result from simple matching.</returns>
+        private PharmacologicClassMatchResult performSimpleMatching(
+            string userQuery,
+            List<PharmacologicClassSummaryDto> availableClasses)
+        {
+            #region implementation
+
+            _logger.LogDebug("Falling back to simple string matching for query: {Query}", userQuery);
+
+            var queryLower = userQuery.ToLowerInvariant();
+            var matchedClasses = new List<string>();
+
+            // Common term mappings for fallback
+            var termMappings = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "beta blocker", new[] { "beta", "blocker", "adrenergic" } },
+                { "ace inhibitor", new[] { "ace", "angiotensin", "converting", "enzyme" } },
+                { "ssri", new[] { "ssri", "serotonin", "reuptake" } },
+                { "statin", new[] { "statin", "hmg-coa", "reductase" } },
+                { "calcium channel", new[] { "calcium", "channel" } },
+                { "opioid", new[] { "opioid", "narcotic", "analgesic" } },
+                { "benzodiazepine", new[] { "benzodiazepine", "benzo" } },
+                { "antibiotic", new[] { "antibiotic", "antibacterial", "antimicrobial" } },
+                { "antidepressant", new[] { "antidepressant", "depression" } },
+                { "antipsychotic", new[] { "antipsychotic", "psychotic" } }
+            };
+
+            foreach (var cls in availableClasses)
+            {
+                if (string.IsNullOrWhiteSpace(cls.PharmClassName))
+                    continue;
+
+                var classNameLower = cls.PharmClassName.ToLowerInvariant();
+
+                // Direct substring match
+                if (classNameLower.Contains(queryLower) || queryLower.Contains(classNameLower))
+                {
+                    matchedClasses.Add(cls.PharmClassName);
+                    continue;
+                }
+
+                // Check term mappings
+                foreach (var mapping in termMappings)
+                {
+                    if (queryLower.Contains(mapping.Key))
+                    {
+                        // Check if any of the mapped terms appear in the class name
+                        if (mapping.Value.Any(term => classNameLower.Contains(term)))
+                        {
+                            matchedClasses.Add(cls.PharmClassName);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return new PharmacologicClassMatchResult
+            {
+                Success = matchedClasses.Count > 0,
+                MatchedClassNames = matchedClasses.Distinct().ToList(),
+                Explanation = matchedClasses.Count > 0
+                    ? $"Found {matchedClasses.Count} class(es) through simple string matching."
+                    : "No classes matched using simple string matching.",
+                Suggestions = matchedClasses.Count == 0
+                    ? new List<string>
+                    {
+                        "Try using more specific class names",
+                        "Browse available classes with 'show pharmacologic classes'"
+                    }
+                    : null
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches for products within a specific pharmacologic class.
+        /// </summary>
+        /// <param name="className">The exact class name to search.</param>
+        /// <param name="maxProducts">Maximum products to return.</param>
+        /// <returns>List of product information.</returns>
+        private async Task<List<PharmacologicClassProductInfo>> searchProductsInClassAsync(
+            string className,
+            int maxProducts)
+        {
+            #region implementation
+
+            try
+            {
+                _logger.LogDebug("Searching products in class: {ClassName}", className);
+
+                var products = await DtoLabelAccess.SearchByPharmacologicClassExactAsync(
+                    _dbContext,
+                    className,
+                    _pkEncryptionSecret,
+                    _logger,
+                    page: 1,
+                    size: maxProducts);
+
+                return products.Select(p => new PharmacologicClassProductInfo
+                {
+                    ProductName = p.ProductName ?? "Unknown Product",
+                    DocumentGuid = extractDocumentGuid(p),
+                    PharmClassName = p.PharmClassName,
+                    ActiveIngredient = extractActiveIngredient(p),
+                    LabelerName = extractLabelerName(p)
+                }).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching products in class: {ClassName}", className);
+                return new List<PharmacologicClassProductInfo>();
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the document GUID from a product DTO.
+        /// </summary>
+        /// <param name="product">The product DTO.</param>
+        /// <returns>Document GUID string or null.</returns>
+        private string? extractDocumentGuid(ProductsByPharmacologicClassDto product)
+        {
+            #region implementation
+
+            if (product.ProductsByPharmacologicClass == null)
+                return null;
+
+            // Try DocumentGUID field
+            if (product.ProductsByPharmacologicClass.TryGetValue("DocumentGUID", out var guidValue))
+            {
+                return guidValue?.ToString();
+            }
+
+            // Try documentGuid field (camelCase)
+            if (product.ProductsByPharmacologicClass.TryGetValue("documentGuid", out var guidValue2))
+            {
+                return guidValue2?.ToString();
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the active ingredient from a product DTO.
+        /// </summary>
+        /// <param name="product">The product DTO.</param>
+        /// <returns>Active ingredient string or null.</returns>
+        private string? extractActiveIngredient(ProductsByPharmacologicClassDto product)
+        {
+            #region implementation
+
+            if (product.ProductsByPharmacologicClass == null)
+                return null;
+
+            if (product.ProductsByPharmacologicClass.TryGetValue("ActiveIngredient", out var value) ||
+                product.ProductsByPharmacologicClass.TryGetValue("activeIngredient", out value) ||
+                product.ProductsByPharmacologicClass.TryGetValue("SubstanceName", out value))
+            {
+                return value?.ToString();
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the labeler name from a product DTO.
+        /// </summary>
+        /// <param name="product">The product DTO.</param>
+        /// <returns>Labeler name string or null.</returns>
+        private string? extractLabelerName(ProductsByPharmacologicClassDto product)
+        {
+            #region implementation
+
+            if (product.ProductsByPharmacologicClass == null)
+                return null;
+
+            if (product.ProductsByPharmacologicClass.TryGetValue("LabelerName", out var value) ||
+                product.ProductsByPharmacologicClass.TryGetValue("labelerName", out value))
+            {
+                return value?.ToString();
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Generates suggested follow-up queries based on search results.
+        /// </summary>
+        /// <param name="result">The search result.</param>
+        /// <returns>List of follow-up suggestions.</returns>
+        private List<string> generateFollowUpSuggestions(PharmacologicClassSearchResult result)
+        {
+            #region implementation
+
+            var suggestions = new List<string>();
+
+            if (result.MatchedClasses.Count > 0)
+            {
+                var firstClass = result.MatchedClasses.First();
+
+                // Suggest viewing specific product details
+                if (result.ProductsByClass.TryGetValue(firstClass, out var products) && products.Count > 0)
+                {
+                    var firstProduct = products.First();
+                    suggestions.Add($"Tell me about the side effects of {firstProduct.ProductName}");
+                }
+
+                // Suggest related queries
+                suggestions.Add("What are the contraindications for these medications?");
+                suggestions.Add("Show me the dosing information");
+            }
+
+            if (suggestions.Count == 0)
+            {
+                suggestions.Add("Show me all pharmacologic classes");
+                suggestions.Add("Search for products by ingredient");
+            }
+
+            return suggestions;
+
+            #endregion
+        }
+
+        #endregion
+    }
+
+    #endregion
+}

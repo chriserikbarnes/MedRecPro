@@ -9,6 +9,9 @@ This document defines routing rules for skill selection. Use these rules to dete
 ```
 Query Analysis
     |
+    +-- Contains drug class terminology WITHOUT specific product name?
+    |       YES --> pharmacologicClassSearch
+    |
     +-- Contains medical condition/symptom WITHOUT specific product name?
     |       YES --> indicationDiscovery
     |
@@ -67,6 +70,38 @@ Query: "Show me the dosage for metformin"
 ---
 
 ## Keyword Mappings
+
+### pharmacologicClassSearch
+
+**Primary Keywords**
+- what medications are, what drugs are, which medications are, which drugs are
+- list of, show me, find all, what are the
+- drugs in class, medications in class, products in class
+- drug class, medication class, therapeutic class, pharmacologic class
+
+**Drug Class Keywords**
+- beta blocker, beta-blocker, adrenergic blocker, beta adrenergic
+- ACE inhibitor, angiotensin, converting enzyme
+- SSRI, serotonin reuptake, antidepressant class
+- statin, HMG-CoA, cholesterol lowering
+- calcium channel blocker, CCB
+- PPI, proton pump inhibitor
+- opioid class, narcotic class, opioid agonist
+- benzodiazepine, benzo, anxiolytic class
+- antibiotic class, antibacterial, antimicrobial class
+- antipsychotic, neuroleptic
+- anticoagulant, blood thinner class
+- diuretic, water pill class
+- NSAID, anti-inflammatory class
+
+**Selection Rule**: If query asks about a DRUG CLASS (e.g., "what medications are beta blockers", "list ACE inhibitors") WITHOUT a specific product name, select pharmacologicClassSearch. This is the FIRST-LINE approach for drug class queries.
+
+**IMPORTANT**: Distinguish from indicationDiscovery:
+- "What helps with high blood pressure?" --> indicationDiscovery (condition-based)
+- "What are the beta blockers?" --> pharmacologicClassSearch (class-based)
+- "Show me ACE inhibitors" --> pharmacologicClassSearch (class-based)
+
+---
 
 ### indicationDiscovery
 
@@ -200,11 +235,16 @@ Query: "Show me the dosage for metformin"
 
 ## Priority Rules
 
-1. **Condition queries always use indicationDiscovery** - Never use labelContent for "what helps with X" queries
-2. **Specific product + detail = labelContent** - Only after product is identified
-3. **Opioid conversion takes precedence** - Over general indication queries for opioid medications
-4. **Admin skills require authentication** - Check auth state before selecting userActivity or cacheManagement
-5. **dataRescue supplements, doesn't replace** - Always used alongside another skill
+1. **Drug class queries use pharmacologicClassSearch** - "What medications are beta blockers" routes to class search
+2. **Condition queries use indicationDiscovery** - "What helps with high blood pressure" routes to indication search
+3. **Specific product + detail = labelContent** - Only after product is identified
+4. **Opioid conversion takes precedence** - Over general indication queries for opioid medications
+5. **Admin skills require authentication** - Check auth state before selecting userActivity or cacheManagement
+6. **dataRescue supplements, doesn't replace** - Always used alongside another skill
+
+**Key Distinction - Class vs Condition:**
+- "beta blockers" = drug CLASS --> pharmacologicClassSearch
+- "high blood pressure" = medical CONDITION --> indicationDiscovery
 
 ---
 
@@ -212,10 +252,13 @@ Query: "Show me the dosage for metformin"
 
 | Query Pattern | Skills |
 |--------------|--------|
+| "What medications are beta blockers?" | pharmacologicClassSearch |
+| "List ACE inhibitors" | pharmacologicClassSearch |
 | "What helps with depression?" | indicationDiscovery |
 | "What are the side effects of Lipitor?" | labelContent |
 | "Convert morphine to hydromorphone" | equianalgesicConversion |
 | "What helps with depression and what are the side effects?" | indicationDiscovery + labelContent |
+| "Show me beta blockers and their warnings" | pharmacologicClassSearch + labelContent |
 | "Show me application logs" | userActivity |
 | "Inactive ingredients not found" (retry) | labelContent + dataRescue |
 
@@ -300,6 +343,7 @@ After skill selection, load the corresponding interface document:
 
 | Skill | Interface Document |
 |-------|-------------------|
+| pharmacologicClassSearch | [interfaces/api/pharmacologic-class.md](./interfaces/api/pharmacologic-class.md) |
 | indicationDiscovery | [interfaces/api/indication-discovery.md](./interfaces/api/indication-discovery.md) |
 | labelContent | [interfaces/api/label-content.md](./interfaces/api/label-content.md) |
 | equianalgesicConversion | [interfaces/api/equianalgesic-conversion.md](./interfaces/api/equianalgesic-conversion.md) |
@@ -307,7 +351,6 @@ After skill selection, load the corresponding interface document:
 | cacheManagement | [interfaces/api/cache-management.md](./interfaces/api/cache-management.md) |
 | sessionManagement | [interfaces/api/session-management.md](./interfaces/api/session-management.md) |
 | dataRescue | [interfaces/api/data-rescue.md](./interfaces/api/data-rescue.md) |
-| pharmacologicClass | [interfaces/api/pharmacologic-class.md](./interfaces/api/pharmacologic-class.md) |
 | retryFallback | [interfaces/api/retry-fallback.md](./interfaces/api/retry-fallback.md) |
 
 ---

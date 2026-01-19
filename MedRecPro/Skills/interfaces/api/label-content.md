@@ -103,7 +103,7 @@ Returns most recent label for each product.
 | Ingredient name | `/api/Label/ingredient/search?substanceNameSearch=` |
 | Product name | `/api/Label/document/search?productNameSearch=` |
 | Manufacturer | `/api/Label/labeler/search?labelerNameSearch=` |
-| Drug class | `/api/Label/pharmacologic-class/search?classNameSearch=` |
+| Drug class | **Use `/api/ai/pharmacologic-class/search?query=` instead** (handles terminology matching) |
 | Application number | `/api/Label/application-number/search?applicationNumber=` |
 
 ---

@@ -67,6 +67,50 @@ Identifies generic equivalents, alternative formulations, and products sharing r
 
 ---
 
+## Pharmacologic Class Discovery
+
+### Pharmacologic Class Search
+
+Find pharmaceutical products by therapeutic or pharmacologic class using intelligent terminology matching.
+
+Matches user queries about drug classes to actual database classification names, then retrieves all products in matched classes. Solves the vocabulary mismatch between common drug class terms and formal FDA classification names.
+
+**Inputs**
+- Drug class name (common or formal terminology)
+
+**Outputs**
+- Matched pharmacologic class names from database
+- Products in each matched class with label links
+- Product counts and class summaries
+
+**Scenarios**
+- Finding all beta blockers ("what medications are beta blockers")
+- Locating ACE inhibitors for hypertension
+- Identifying all SSRIs or statins
+- Browsing products by therapeutic category
+
+---
+
+### Pharmacologic Class Browse
+
+List all available pharmacologic classes with product counts for browsing and discovery.
+
+Provides an overview of therapeutic classifications in the database. Enables faceted navigation and class-based product exploration.
+
+**Inputs**
+- None required (lists all classes)
+
+**Outputs**
+- Class names with product counts
+- Class hierarchy relationships
+
+**Scenarios**
+- Exploring available drug categories
+- Understanding classification structure
+- Starting point for class-based searches
+
+---
+
 ## Indication Discovery
 
 ### Condition-Based Product Search
@@ -228,6 +272,8 @@ Skills may be combined for complex queries:
 - **Condition search + Label content**: Find products for a condition, then retrieve detailed safety information
 - **Product search + Related products**: Identify a product, then find generic alternatives
 - **Label content + Rescue workflow**: Attempt structured retrieval, fall back to narrative extraction
+- **Pharmacologic class search + Label content**: Find products by drug class, then retrieve detailed prescribing information
+- **Pharmacologic class browse + Class search**: Browse available classes, then search for products in selected class
 
 ---
 

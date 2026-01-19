@@ -209,7 +209,7 @@ AS
 -- Links products to their pharmacologic classes via active moieties
 -- Enables therapeutic category-based drug discovery
 /**************************************************************/
-SELECT 
+SELECT  
     -- Pharmacologic class identification
     pc.PharmacologicClassID,
     pc.ClassCode AS PharmClassCode,
@@ -248,12 +248,19 @@ FROM dbo.PharmacologicClass pc
     -- Get the parent ingredient substance
     INNER JOIN dbo.IngredientSubstance ins ON am.IngredientSubstanceID = ins.IngredientSubstanceID
     -- Link to products via ingredients
-    INNER JOIN dbo.Ingredient i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
-    INNER JOIN dbo.Product p ON i.ProductID = p.ProductID
+    INNER JOIN dbo.Ingredient i 
+        ON ins.IngredientSubstanceID = i.IngredientSubstanceID
+    INNER JOIN dbo.Product p 
+        ON i.ProductID = p.ProductID
     -- Navigate to document
-    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
-    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
-    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+    INNER JOIN dbo.Section s 
+        ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb 
+        ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d 
+        ON sb.DocumentID = d.DocumentID
+
+WHERE ins.UNII IS NOT NULL
 GO
 
 IF NOT EXISTS (

@@ -57,6 +57,7 @@
 
 		<!-- Include for IntelliSense in design-time, exclude during build -->
 		<Compile Include="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' == 'true'" />
+		<Compile Remove="Skills\FirstDraft\**" />
 		<Compile Remove="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' != 'true'" />
 
 		<!-- Always include as embedded resources for RazorLight -->
@@ -71,6 +72,11 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
+	</ItemGroup>
+	<ItemGroup>
+	  <Content Remove="Skills\FirstDraft\**" />
+	  <EmbeddedResource Remove="Skills\FirstDraft\**" />
+	  <None Remove="Skills\FirstDraft\**" />
 	</ItemGroup>
 	<ItemGroup>
 	  <None Remove="nul" />
@@ -127,45 +133,6 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<!-- FirstDraft (legacy) skill files -->
-		<None Update="Skills\FirstDraft\label.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\labelSection.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\labelPharmClass.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\retryPrompt.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\settings.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\synthesisPrompt.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\skillSelector.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\userActivity.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\rescueWorkflow.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\labelIndicationWorkflow.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\labelProductIndication.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\general.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Skills\FirstDraft\equianalgesicConversion.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
 	</ItemGroup>
 	<ItemGroup>
 	  <Folder Include="Exceptions\" />

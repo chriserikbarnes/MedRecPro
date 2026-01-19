@@ -1,6 +1,7 @@
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace MedRecPro.Service
@@ -310,17 +311,16 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Claude API service for AI interpretation and result synthesis.
+        /// Service scope factory for creating isolated scopes to resolve dependencies.
         /// </summary>
+        /// <remarks>
+        /// Used to break the circular dependency between <see cref="ClaudeSkillService"/> and
+        /// <see cref="IClaudeApiService"/>. By creating a new scope, we avoid the DI container
+        /// failing during resolution when both services depend on each other.
+        /// </remarks>
         /// <seealso cref="IClaudeApiService"/>
-        private readonly IServiceProvider _serviceProvider;
-        private IClaudeApiService? _claudeApiService;
-
-        /// <summary>
-        /// Lazy-loaded ClaudeApiService to break circular dependency.
-        /// </summary>
-        private IClaudeApiService ClaudeApiService =>
-            _claudeApiService ??= _serviceProvider.GetRequiredService<IClaudeApiService>();
+        /// <seealso cref="selectSkillsViaAiAsync"/>
+        private readonly IServiceScopeFactory _serviceScopeFactory;
 
         /**************************************************************/
         /// <summary>
@@ -366,7 +366,8 @@ namespace MedRecPro.Service
             { "labelIndicationWorkflow", "Skill-LabelIndicationWorkflow" },
             { "labelProductIndication", "Skill-LabelProductIndication" },
             { "general", "Skill-General" },
-            { "equianalgesicConversion", "Skill-EquianalgesicConversion" }
+            { "equianalgesicConversion", "Skill-EquianalgesicConversion" },
+            { "pharmacologicClassSearch", "Skill-PharmacologicClassSearch" }
         };
 
         /**************************************************************/
@@ -390,6 +391,7 @@ namespace MedRecPro.Service
             { "dataRescue", "Skills/interfaces/api/data-rescue.md" },
             { "retryFallback", "Skills/interfaces/api/retry-fallback.md" },
             { "pharmacologicClass", "Skills/interfaces/api/pharmacologic-class.md" },
+            { "pharmacologicClassSearch", "Skills/interfaces/api/pharmacologic-class.md" },
 
             // Alias mappings for skill names used in AI selection
             // These map the skill names from _skillConfigKeys to their interface documents
@@ -441,15 +443,20 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="configuration">Configuration provider for skill file paths.</param>
         /// <param name="logger">Logger instance for diagnostic output.</param>
-        /// <param name="serviceProvider">Service provider for lazy resolution of dependencies.</param>
+        /// <param name="serviceScopeFactory">
+        /// Service scope factory for creating isolated scopes to resolve <see cref="IClaudeApiService"/>.
+        /// This breaks the circular dependency between skill and API services.
+        /// </param>
+        /// <seealso cref="IClaudeApiService"/>
+        /// <seealso cref="selectSkillsViaAiAsync"/>
         public ClaudeSkillService(
             IConfiguration configuration,
             ILogger<ClaudeSkillService> logger,
-            IServiceProvider serviceProvider)
+            IServiceScopeFactory serviceScopeFactory)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+            _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
         }
 
         #endregion
@@ -537,14 +544,17 @@ namespace MedRecPro.Service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during skill selection");
+                // Log the full exception details for debugging
+                _logger.LogError(ex, "Error during skill selection for message: {MessagePreview}",
+                    userMessage.Length > 100 ? userMessage[..100] + "..." : userMessage);
 
-                // Fallback to loading default skill on error
+                // Fallback to loading default skill on error, but report the failure
                 return new SkillSelection
                 {
-                    Success = true,
+                    Success = false,
+                    Error = $"Skill selection failed: {ex.Message}",
                     SelectedSkills = new List<string> { "label" },
-                    Explanation = "Defaulting to label skill due to selection error."
+                    Explanation = $"Defaulting to label skill due to selection error: {ex.Message}"
                 };
             }
 
@@ -559,12 +569,16 @@ namespace MedRecPro.Service
         /// <param name="systemContext">Optional system context for authentication state.</param>
         /// <returns>A <see cref="SkillSelection"/> with AI-selected skills.</returns>
         /// <remarks>
-        /// This method loads the selectors.md document and delegates to
-        /// <see cref="IClaudeApiService.SelectSkillsViaAiAsync"/> for AI interpretation.
-        /// Falls back to default "label" skill if AI selection fails.
+        /// This method creates an isolated service scope to resolve <see cref="IClaudeApiService"/>,
+        /// breaking the circular dependency between <see cref="ClaudeSkillService"/> and
+        /// <see cref="IClaudeApiService"/>. The scoped resolution ensures the DI container
+        /// can properly instantiate the service without encountering resolution failures.
+        ///
+        /// Falls back to default "label" skill if AI selection fails, with detailed error logging.
         /// </remarks>
         /// <seealso cref="SelectSkillsAsync"/>
         /// <seealso cref="IClaudeApiService.SelectSkillsViaAiAsync"/>
+        /// <seealso cref="_serviceScopeFactory"/>
         private async Task<SkillSelection> selectSkillsViaAiAsync(string userMessage, AiSystemContext? systemContext)
         {
             #region implementation
@@ -579,14 +593,20 @@ namespace MedRecPro.Service
                 _logger.LogWarning("Selectors document not found, using default label skill");
                 return new SkillSelection
                 {
-                    Success = true,
+                    Success = false,
+                    Error = "Selectors document not found.",
                     SelectedSkills = new List<string> { "label" },
                     Explanation = "Selectors document not found - using default skill."
                 };
             }
 
+            // Create a new scope to resolve IClaudeApiService, breaking circular dependency
+            // between ClaudeSkillService and ClaudeApiService
+            using var scope = _serviceScopeFactory.CreateScope();
+            var claudeApiService = scope.ServiceProvider.GetRequiredService<IClaudeApiService>();
+
             // Call the Claude API service for AI-based selection
-            var aiResult = await ClaudeApiService.SelectSkillsViaAiAsync(
+            SkillSelectionResult aiResult = await claudeApiService.SelectSkillsViaAiAsync(
                 userMessage,
                 selectorsDocument,
                 systemContext);
@@ -597,14 +617,15 @@ namespace MedRecPro.Service
                     aiResult.Error);
                 return new SkillSelection
                 {
-                    Success = true,
+                    Success = false,
+                    Error = aiResult.Error ?? "AI selection returned empty results.",
                     SelectedSkills = new List<string> { "label" },
                     Explanation = $"AI selection error: {aiResult.Error} - using default skill."
                 };
             }
 
             // Map AI skill names to internal skill names
-            var mappedSkills = mapAiSkillNamesToInternal(aiResult.SelectedSkills);
+            List<string>? mappedSkills = mapAiSkillNamesToInternal(aiResult.SelectedSkills);
 
             _logger.LogInformation("[AI SKILL SELECTION] Selected skills: [{Skills}]",
                 string.Join(", ", mappedSkills));
@@ -647,7 +668,8 @@ namespace MedRecPro.Service
                 { "sessionManagement", "general" },
                 { "dataRescue", "rescueWorkflow" },
                 { "retryFallback", "retry" },
-                { "pharmacologicClass", "label" } // Falls back to label skill
+                { "pharmacologicClass", "pharmacologicClassSearch" },
+                { "pharmacologicClassSearch", "pharmacologicClassSearch" }
             };
 
             var mappedSkills = new List<string>();
@@ -805,8 +827,10 @@ namespace MedRecPro.Service
             {
                 var content = readSkillFile(configKey, $"GetSkillByName_{normalizedName}");
 
-                // If skill file not found, try to use interface document
-                if (content.StartsWith("Skills document not found"))
+                // If skill file not found or config not found, try to use interface document
+                // readSkillFile returns either "Skills document not found" or "{configKey} configuration not found"
+                if (content.StartsWith("Skills document not found") ||
+                    content.Contains("configuration not found"))
                 {
                     _logger.LogDebug("Skill file not found for {SkillName}, trying interface document", skillName);
                     var interfaceContent = await GetInterfaceDocumentAsync(normalizedName);
@@ -827,8 +851,10 @@ namespace MedRecPro.Service
             {
                 var content = readSkillFile(_skillConfigKeys[matchedKey], $"GetSkillByName_{matchedKey}");
 
-                // If skill file not found, try to use interface document
-                if (content.StartsWith("Skills document not found"))
+                // If skill file not found or config not found, try to use interface document
+                // readSkillFile returns either "Skills document not found" or "{configKey} configuration not found"
+                if (content.StartsWith("Skills document not found") ||
+                    content.Contains("configuration not found"))
                 {
                     _logger.LogDebug("Skill file not found for {SkillName} (matched to {MatchedKey}), trying interface document",
                         skillName, matchedKey);

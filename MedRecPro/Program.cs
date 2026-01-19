@@ -148,6 +148,9 @@ builder.Services.AddSingleton<ConversationStore>();
 // Register ClaudeConversationService for conversation management
 builder.Services.AddScoped<IClaudeConversationService, ClaudeConversationService>();
 
+// Register PharmacologicClassSearchService for intelligent drug class search
+builder.Services.AddScoped<IClaudeSearchService, ClaudeSearchService>();
+
 builder.Services.AddUserLogger(); // custom service
 
 builder.Services.AddScoped<IActivityLogService, ActivityLogService>();
