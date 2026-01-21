@@ -19,8 +19,8 @@ Retrieves FDA-labeled equianalgesic conversion information for opioid medication
 Before responding, verify you have included:
 ```markdown
 ### View Full Labels:
-- [View Full Label ({SourceOpioidProductName})](/api/Label/generate/{SourceDocumentGUID}/true)
-- [View Full Label ({TargetOpioidProductName})](/api/Label/generate/{TargetDocumentGUID}/true)
+- [View Full Label ({SourceOpioidProductName})](/api/Label/original/{SourceDocumentGUID}/true)
+- [View Full Label ({TargetOpioidProductName})](/api/Label/original/{TargetDocumentGUID}/true)
 ```
 
 **If you have `documentGUID` values from the API, you MUST provide label links. No exceptions.**
@@ -136,8 +136,8 @@ Based on the FDA-approved labeling for {ProductName}:
 ---
 
 ### View Full Labels:
-- [View Full Label ({ProductName1})](/api/Label/generate/{DocumentGUID1}/true)
-- [View Full Label ({ProductName2})](/api/Label/generate/{DocumentGUID2}/true)
+- [View Full Label ({ProductName1})](/api/Label/original/{DocumentGUID1}/true)
+- [View Full Label ({ProductName2})](/api/Label/original/{DocumentGUID2}/true)
 
 **Important Clinical Note**: Equianalgesic dose tables are approximations. Individual patient response varies. Consider reducing the calculated equianalgesic dose by 25-50% when switching between opioids to account for incomplete cross-tolerance. Always consult current prescribing information and clinical guidelines.
 ```
@@ -159,8 +159,8 @@ For authoritative equianalgesic dosing information, please consult:
 2. Clinical guidelines from AMDG, CDC, or institution-specific protocols
 
 ### View Full Labels:
-- [View Full Label ({ProductName1})](/api/Label/generate/{DocumentGUID1}/true)
-- [View Full Label ({ProductName2})](/api/Label/generate/{DocumentGUID2}/true)
+- [View Full Label ({ProductName1})](/api/Label/original/{DocumentGUID1}/true)
+- [View Full Label ({ProductName2})](/api/Label/original/{DocumentGUID2}/true)
 
 **Note**: This response is based solely on the API results. I cannot provide conversion ratios from training data as they may not reflect current FDA labeling.
 ```
@@ -181,8 +181,8 @@ For authoritative equianalgesic dosing information, please consult:
     "sectionsSearched": ["34068-7", "42229-5"]
   },
   "dataReferences": {
-    "View Full Label ({ProductName1})": "/api/Label/generate/{DocumentGUID1}/true",
-    "View Full Label ({ProductName2})": "/api/Label/generate/{DocumentGUID2}/true"
+    "View Full Label ({ProductName1})": "/api/Label/original/{DocumentGUID1}/true",
+    "View Full Label ({ProductName2})": "/api/Label/original/{DocumentGUID2}/true"
   },
   "suggestedFollowUps": [
     "Show warnings for {ProductName}",

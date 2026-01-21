@@ -56,7 +56,7 @@ GET /api/Label/pharmacologic-class/search?query={userQuery}
   },
   "totalProductCount": 47,
   "labelLinks": {
-    "View Full Label (METOPROLOL TARTRATE)": "/api/Label/generate/abc-123-def/true"
+    "View Full Label (METOPROLOL TARTRATE)": "/api/Label/original/abc-123-def/true"
   },
   "explanation": "Matched 'beta blockers' to Beta-Adrenergic Blockers [EPC]",
   "suggestedFollowUps": [
@@ -164,8 +164,8 @@ Where {class} is a drug class name (not a medical condition).
 
 ```markdown
 ### View Full Labels:
-- [View Full Label (METOPROLOL TARTRATE)](/api/Label/generate/{GUID1}/true)
-- [View Full Label (ATENOLOL)](/api/Label/generate/{GUID2}/true)
+- [View Full Label (METOPROLOL TARTRATE)](/api/Label/original/{GUID1}/true)
+- [View Full Label (ATENOLOL)](/api/Label/original/{GUID2}/true)
 ```
 
 The endpoint returns pre-built label links in the `labelLinks` field.

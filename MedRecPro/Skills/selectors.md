@@ -408,8 +408,8 @@ Before finalizing ANY response that retrieved product data:
 
 ```markdown
 ### View Full Labels:
-- [View Full Label ({ProductName1})](/api/Label/generate/{DocumentGUID1}/true)
-- [View Full Label ({ProductName2})](/api/Label/generate/{DocumentGUID2}/true)
+- [View Full Label ({ProductName1})](/api/Label/original/{DocumentGUID1}/true)
+- [View Full Label ({ProductName2})](/api/Label/original/{DocumentGUID2}/true)
 ```
 
 **If product data was retrieved, label links are required. A response without label links is INCOMPLETE.**

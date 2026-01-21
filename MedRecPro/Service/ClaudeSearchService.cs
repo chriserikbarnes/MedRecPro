@@ -225,7 +225,7 @@ namespace MedRecPro.Service
         /// </summary>
         /// <example>
         /// {
-        ///   "View Full Label (METOPROLOL TARTRATE)": "/api/Label/generate/{guid}/true"
+        ///   "View Full Label (METOPROLOL TARTRATE)": "/api/Label/original/{guid}/true"
         /// }
         /// </example>
         public Dictionary<string, string> LabelLinks { get; set; } = new();
@@ -578,7 +578,7 @@ namespace MedRecPro.Service
                 foreach (var product in allProducts.Where(p => !string.IsNullOrEmpty(p.DocumentGuid)))
                 {
                     var linkKey = $"View Full Label ({product.ProductName})";
-                    var linkValue = $"/api/Label/generate/{product.DocumentGuid}/true";
+                    var linkValue = $"/api/Label/original/{product.DocumentGuid}/true";
 
                     // Avoid duplicate keys
                     if (!result.LabelLinks.ContainsKey(linkKey))

@@ -89,6 +89,15 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="IClaudeSearchService"/>
         private readonly Service.IClaudeSearchService? _claudeSearchService;
 
+        /**************************************************************/
+        /// <summary>
+        /// Service for retrieving original SPL XML data from the SplData table.
+        /// Provides fast access to imported XML without requiring expensive regeneration.
+        /// </summary>
+        /// <seealso cref="SplDataService"/>
+        /// <seealso cref="OriginalXmlDocument"/>
+        private readonly SplDataService _splDataService;
+
         #endregion
 
         /**************************************************************/
@@ -107,6 +116,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="splExportService"></param>
         /// <param name="claudeApiService">Service for Claude AI API calls for markdown cleanup</param>
         /// <param name="claudeSearchService">Optional service for intelligent pharmacologic class search with AI</param>
+        /// <param name="splDataService">Service for retrieving original SPL XML data</param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null</exception>
         /// <exception cref="InvalidOperationException">Thrown when PKSecret configuration is missing</exception>
         public LabelController(
@@ -121,6 +131,7 @@ namespace MedRecPro.Api.Controllers
             ApplicationDbContext applicationDbContext,
             ISplExportService splExportService,
             Service.IClaudeApiService claudeApiService,
+            SplDataService splDataService,
             Service.IClaudeSearchService? claudeSearchService = null)
         {
             #region Implementation
@@ -142,6 +153,7 @@ namespace MedRecPro.Api.Controllers
 
             _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService));
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
+            _splDataService = splDataService ?? throw new ArgumentNullException(nameof(splDataService));
 
             // Optional dependency - may be null if AI service is unavailable
             _claudeSearchService = claudeSearchService;
@@ -5876,6 +5888,123 @@ namespace MedRecPro.Api.Controllers
             {
                 _logger.LogError(ex, "Error generating XML document for GUID: {DocumentGuid}", documentGuid);
                 return StatusCode(500, "An error occurred while generating the XML document");
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Retrieves the original imported XML document for the specified Label document GUID.
+        /// Provides a faster alternative to <see cref="GenerateXmlDocument"/> by returning the original
+        /// XML stored during import rather than regenerating from database entities.
+        /// </summary>
+        /// <param name="documentGuid">The unique identifier for the document to retrieve.</param>
+        /// <param name="minify">
+        /// (OPTIONAL default:false) When true, compacts the XML output by removing unnecessary whitespace,
+        /// reducing file size for transmission and storage. Recommended for API/programmatic access.
+        /// </param>
+        /// <returns>
+        /// HTTP response containing the original imported XML document with proper encoding
+        /// and stylesheet references for the request context (browser vs. download).
+        /// </returns>
+        /// <example>
+        /// GET /api/Label/original/12345678-1234-1234-1234-123456789012/true
+        /// GET /api/Label/original/12345678-1234-1234-1234-123456789012/false
+        /// </example>
+        /// <remarks>
+        /// **Performance Advantage:** This endpoint retrieves the original XML from the SplData table
+        /// (a single database read) rather than regenerating the XML from parsed entities, which is
+        /// significantly faster and reduces database vCore consumption.
+        ///
+        /// **Use Cases:**
+        /// - AI assistants retrieving label content for analysis
+        /// - Quick label preview without full regeneration overhead
+        /// - Scenarios where the exact imported XML is preferred over regenerated output
+        ///
+        /// **Behavior:**
+        /// - Returns XML with UTF-8 encoding as required by FDA specification
+        /// - When `minify=true`, compacts XML by removing unnecessary whitespace
+        /// - Automatically detects browser vs. API requests via Accept headers
+        /// - Modifies stylesheet URLs to local resources for browser viewing
+        /// - Preserves FDA-compliant URLs for API/download requests
+        ///
+        /// **Limitation:** Only returns XML for documents that have SplData records. Documents
+        /// imported before the SplData feature was implemented may not have original XML available.
+        /// </remarks>
+        /// <seealso cref="GenerateXmlDocument"/>
+        /// <seealso cref="SplDataService.GetSplDataByGuidAsync"/>
+        /// <seealso cref="SplData.SplXML"/>
+        [HttpGet("original/{documentGuid:guid}/{minify:bool}")]
+        [ProducesResponseType(typeof(string), 200, "text/xml")]
+        [ProducesResponseType(404)]
+        [ProducesResponseType(500)]
+        [ProducesResponseType(503)]
+        public async Task<IActionResult> OriginalXmlDocument(Guid documentGuid, bool minify = false)
+        {
+            #region implementation
+            try
+            {
+                // Check if export functionality is enabled
+                var exportEnabled = _configuration.GetValue<bool>("FeatureFlags:SplExportEnabled", true);
+
+                if (!exportEnabled)
+                {
+                    return StatusCode(503, new
+                    {
+                        error = "Export functionality is currently disabled"
+                    });
+                }
+
+                _logger.LogInformation("Retrieving original XML document for GUID: {DocumentGuid}", documentGuid);
+                var startTime = DateTime.UtcNow;
+
+                // Retrieve the original XML from SplData table
+                var splData = await _splDataService.GetSplDataByGuidAsync(documentGuid);
+
+                if (splData == null || string.IsNullOrEmpty(splData.SplXML))
+                {
+                    _logger.LogWarning("Original XML not found for GUID: {DocumentGuid}", documentGuid);
+                    return NotFound($"Original XML document not found for GUID: {documentGuid}");
+                }
+
+                var xmlContent = splData.SplXML;
+
+                // Fix encoding to UTF-8 as required by FDA specification
+                xmlContent = ensureUtf8Encoding(xmlContent);
+
+                // Optional: Minify the XML output if requested to reduce size for transmission/storage
+                if (minify)
+                {
+                    xmlContent = xmlContent.MinifyXml() ?? string.Empty;
+                }
+
+                // Detect if request is from browser for direct viewing
+                var isBrowserView = isBrowserViewRequest(Request);
+
+                if (isBrowserView)
+                {
+                    // Modify URLs to local resources for browser rendering
+                    xmlContent = convertToLocalResources(xmlContent);
+                    _logger.LogInformation("Converted to browser-friendly format for GUID: {DocumentGuid}", documentGuid);
+                }
+
+                var processingTime = DateTime.UtcNow - startTime;
+                _logger.LogInformation(
+                    "Successfully retrieved original XML document for GUID: {DocumentGuid} in {ProcessingTime}ms (Browser: {IsBrowserView}, Minified: {Minify})",
+                    documentGuid, processingTime.TotalMilliseconds, isBrowserView, minify);
+
+                // Set proper content type with UTF-8 charset
+                return Content(xmlContent, "application/xml; charset=utf-8");
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid argument for original XML retrieval: {DocumentGuid}", documentGuid);
+                return BadRequest($"Invalid document GUID: {documentGuid}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving original XML document for GUID: {DocumentGuid}", documentGuid);
+                return StatusCode(500, "An error occurred while retrieving the original XML document");
             }
             #endregion
         }

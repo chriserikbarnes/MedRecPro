@@ -160,12 +160,12 @@ When presenting inventory summary results:
 
 ```markdown
 ### View Full Labels:
-- [View Full Label ({ProductName})](/api/Label/generate/{DocumentGUID}/true)
+- [View Full Label ({ProductName})](/api/Label/original/{DocumentGUID}/true)
 ```
 
 ```json
 "dataReferences": {
-  "View Full Label ({ProductName})": "/api/Label/generate/{DocumentGUID}/true"
+  "View Full Label ({ProductName})": "/api/Label/original/{DocumentGUID}/true"
 }
 ```
 
@@ -463,7 +463,7 @@ Only use specific section codes when you're certain the label contains that sect
 ## Label Link Format
 
 ```
-/api/Label/generate/{DocumentGUID}/true
+/api/Label/original/{DocumentGUID}/true
 ```
 
 Use RELATIVE URLs only. The `/true` suffix enables minified XML.

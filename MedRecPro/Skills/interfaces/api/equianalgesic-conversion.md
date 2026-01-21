@@ -22,12 +22,12 @@ From Steps 1-2 (product searches), you MUST capture:
 
 ```markdown
 ### View Full Labels:
-- [View Full Label ({ProductName})](/api/Label/generate/{DocumentGUID}/true)
+- [View Full Label ({ProductName})](/api/Label/original/{DocumentGUID}/true)
 ```
 
 ```json
 "dataReferences": {
-  "View Full Label ({ProductName})": "/api/Label/generate/{DocumentGUID}/true"
+  "View Full Label ({ProductName})": "/api/Label/original/{DocumentGUID}/true"
 }
 ```
 
@@ -309,7 +309,7 @@ Step 6: GET /api/Label/markdown/sections/{{targetDocumentGuids}}?sectionCode=422
 ## Label Link Format
 
 ```
-/api/Label/generate/{DocumentGUID}/true
+/api/Label/original/{DocumentGUID}/true
 ```
 
 Use **RELATIVE URLs only**. The `/true` suffix enables minified XML.

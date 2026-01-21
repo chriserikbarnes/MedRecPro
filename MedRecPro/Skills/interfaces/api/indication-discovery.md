@@ -95,7 +95,7 @@ GET /api/Label/product/related?sourceDocumentGuid={DocumentGUID}
 
 ### Step 5: Build Label Links
 
-**Format**: `/api/Label/generate/{DocumentGUID}/true`
+**Format**: `/api/Label/original/{DocumentGUID}/true`
 
 Use RELATIVE URLs only. Never include protocol or domain.
 
@@ -208,7 +208,7 @@ Content is truncated if:
 ```json
 {
   "dataReferences": {
-    "View Full Label (ProductName)": "/api/Label/generate/{DocumentGUID}/true"
+    "View Full Label (ProductName)": "/api/Label/original/{DocumentGUID}/true"
   }
 }
 ```
@@ -220,7 +220,7 @@ Use ACTUAL product names from API response. Never use placeholders.
 When UNII/ingredient data is available from Step 2:
 - **ALWAYS** use the DocumentGUID returned by `/api/Label/product/latest` to build label links
 - **DO NOT** use alternative methods (regex extraction, path parsing, or other endpoints)
-- The correct label link format is: `/api/Label/generate/{DocumentGUID}/true`
+- The correct label link format is: `/api/Label/original/{DocumentGUID}/true`
 - Include the ProductName from the API response in the link display text
 
 ### REQUIRED: View Full Labels Section
@@ -235,18 +235,18 @@ For each product returned by `/api/Label/product/latest`:
 **Example (CORRECT)**:
 ```
 View Full Labels:
-- [View Full Label (Atorvastatin Calcium)](/api/Label/generate/48173596-6909-f52b-e063-6294a90a8f22/true)
-- [View Full Label (Rosuvastatin)](/api/Label/generate/abc12345-1234-5678-9abc-def012345678/true)
+- [View Full Label (Atorvastatin Calcium)](/api/Label/original/48173596-6909-f52b-e063-6294a90a8f22/true)
+- [View Full Label (Rosuvastatin)](/api/Label/original/abc12345-1234-5678-9abc-def012345678/true)
 ```
 
 **Example (WRONG)**:
 ```
-- [View Full Label (Prescription Drug)](/api/Label/generate/48173596.../true)
+- [View Full Label (Prescription Drug)](/api/Label/original/48173596.../true)
 ```
 
 ### CRITICAL: Relative URLs Only
 
-- Use RELATIVE URLs: `/api/Label/generate/{DocumentGUID}/true`
+- Use RELATIVE URLs: `/api/Label/original/{DocumentGUID}/true`
 - NEVER include `http://`, `https://`, `localhost`, or any domain
 - The frontend will add the correct base URL
 

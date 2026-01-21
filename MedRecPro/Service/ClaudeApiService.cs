@@ -1466,7 +1466,7 @@ namespace MedRecPro.Service
                             sb.AppendLine("=== DOCUMENT VIEW LINKS (include in dataReferences) ===");
                             foreach (var docGuid in request.ImportResult.DocumentIds)
                             {
-                                sb.AppendLine($"  - View Label XML: /api/Label/generate/{docGuid}/true");
+                                sb.AppendLine($"  - View Label XML: /api/Label/original/{docGuid}/true");
                                 sb.AppendLine($"  - View Full Document: /api/Label/single/{docGuid}");
                             }
                         }
@@ -1476,7 +1476,7 @@ namespace MedRecPro.Service
                         sb.AppendLine("1. Acknowledge the successful import to the user with specific details.");
                         sb.AppendLine("2. Mention the number of documents, sections, and other entities created.");
                         sb.AppendLine("3. In your JSON response, include 'dataReferences' with clickable links to view each imported label.");
-                        sb.AppendLine("   Format: { \"View Label - {documentGuid}\": \"/api/Label/generate/{documentGuid}/true\" }");
+                        sb.AppendLine("   Format: { \"View Label - {documentGuid}\": \"/api/Label/original/{documentGuid}/true\" }");
 
                         if (!string.IsNullOrEmpty(request.ImportResult.OperationId))
                         {
@@ -2057,7 +2057,7 @@ namespace MedRecPro.Service
         /// <example>
         /// <code>
         /// var references = extractDocumentReferences(synthesisRequest);
-        /// // Returns: { "View Full Label": "/api/Label/generate/abc123-def456/true" }
+        /// // Returns: { "View Full Label": "/api/Label/original/abc123-def456/true" }
         /// </code>
         /// </example>
         /// <seealso cref="SynthesizeResultsAsync"/>
@@ -2101,7 +2101,7 @@ namespace MedRecPro.Service
                         // Only add reference if we have a valid product name (skip generic "Document #" links)
                         if (!string.IsNullOrEmpty(displayName))
                         {
-                            references[$"View Full Label ({displayName})"] = $"/api/Label/generate/{guid}/true";
+                            references[$"View Full Label ({displayName})"] = $"/api/Label/original/{guid}/true";
                         }
                     }
                 }
@@ -2138,7 +2138,7 @@ namespace MedRecPro.Service
                                 // Only add reference if we have a valid product name (skip generic links)
                                 if (!string.IsNullOrEmpty(displayName))
                                 {
-                                    references[$"View Full Label ({displayName})"] = $"/api/Label/generate/{guid}/true";
+                                    references[$"View Full Label ({displayName})"] = $"/api/Label/original/{guid}/true";
                                 }
                             }
                         }
@@ -2163,7 +2163,7 @@ namespace MedRecPro.Service
                     {
                         seenGuids.Add(guid);
                         importGuids.Add(guid);
-                        references[$"View Imported Label ({guid.Substring(0, 8)}...)"] = $"/api/Label/generate/{guid}/true";
+                        references[$"View Imported Label ({guid.Substring(0, 8)}...)"] = $"/api/Label/original/{guid}/true";
                     }
                 }
 

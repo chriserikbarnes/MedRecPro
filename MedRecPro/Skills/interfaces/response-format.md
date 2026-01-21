@@ -30,15 +30,15 @@ Defines output requirements for all skill workflows.
 **In the Markdown Response:**
 ```markdown
 ### View Full Labels:
-- [View Full Label ({ProductName1})](/api/Label/generate/{DocumentGUID1}/true)
-- [View Full Label ({ProductName2})](/api/Label/generate/{DocumentGUID2}/true)
+- [View Full Label ({ProductName1})](/api/Label/original/{DocumentGUID1}/true)
+- [View Full Label ({ProductName2})](/api/Label/original/{DocumentGUID2}/true)
 ```
 
 **In the JSON Output:**
 ```json
 "dataReferences": {
-  "View Full Label ({ProductName1})": "/api/Label/generate/{DocumentGUID1}/true",
-  "View Full Label ({ProductName2})": "/api/Label/generate/{DocumentGUID2}/true"
+  "View Full Label ({ProductName1})": "/api/Label/original/{DocumentGUID1}/true",
+  "View Full Label ({ProductName2})": "/api/Label/original/{DocumentGUID2}/true"
 }
 ```
 
@@ -62,12 +62,12 @@ Defines output requirements for all skill workflows.
 
 **WRONG** (using placeholder):
 ```markdown
-- [View Full Label (Prescription Drug)](/api/Label/generate/abc123/true)
+- [View Full Label (Prescription Drug)](/api/Label/original/abc123/true)
 ```
 
 **CORRECT** (using actual product name):
 ```markdown
-- [View Full Label (Buprenorphine Transdermal System)](/api/Label/generate/abc123/true)
+- [View Full Label (Buprenorphine Transdermal System)](/api/Label/original/abc123/true)
 ```
 
 ---
@@ -81,7 +81,7 @@ Defines output requirements for all skill workflows.
     "key": "value"
   },
   "dataReferences": {
-    "View Full Label (ProductName)": "/api/Label/generate/{GUID}/true"
+    "View Full Label (ProductName)": "/api/Label/original/{GUID}/true"
   },
   "suggestedFollowUps": [
     "Follow-up question 1",
@@ -101,7 +101,7 @@ Defines output requirements for all skill workflows.
 ### Format
 
 ```
-/api/Label/generate/{DocumentGUID}/true
+/api/Label/original/{DocumentGUID}/true
 ```
 
 ### Rules
@@ -160,7 +160,7 @@ When API returns multiple items:
 
 | Correct | Incorrect |
 |---------|-----------|
-| `/api/Label/generate/{GUID}/true` | `http://localhost:5001/api/...` |
+| `/api/Label/original/{GUID}/true` | `http://localhost:5001/api/...` |
 | `/api/Label/product/latest?unii=...` | `https://medrecpro.com/api/...` |
 
 Never include: `http://`, `https://`, `localhost`, domain names
@@ -246,8 +246,8 @@ When an import completes successfully:
     "operationId": "b8896a58-35fb-47be-a03d-7e50aeced8d1"
   },
   "dataReferences": {
-    "View Label - 348acd7e-41b4-4686-ac49-00c3d85ae5c6": "/api/Label/generate/348acd7e-41b4-4686-ac49-00c3d85ae5c6/true",
-    "View Label - fcac2d10-44da-4beb-a588-3612698c4495": "/api/Label/generate/fcac2d10-44da-4beb-a588-3612698c4495/true",
+    "View Label - 348acd7e-41b4-4686-ac49-00c3d85ae5c6": "/api/Label/original/348acd7e-41b4-4686-ac49-00c3d85ae5c6/true",
+    "View Label - fcac2d10-44da-4beb-a588-3612698c4495": "/api/Label/original/fcac2d10-44da-4beb-a588-3612698c4495/true",
     "Check Import Progress": "/api/Label/import/progress/b8896a58-35fb-47be-a03d-7e50aeced8d1"
   },
   "suggestedFollowUps": ["What products were imported?", "Show me the adverse reactions"],
@@ -260,7 +260,7 @@ When an import completes successfully:
 
 1. **View Label Links**: For each imported document GUID:
    - Key: `"View Label - {documentGuid}"`
-   - Value: `"/api/Label/generate/{documentGuid}/true"`
+   - Value: `"/api/Label/original/{documentGuid}/true"`
 
 2. **Import Progress Link**: When operationId is available:
    - Key: `"Check Import Progress"`

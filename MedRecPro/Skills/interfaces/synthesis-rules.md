@@ -27,15 +27,15 @@ Before writing your response, you MUST:
 **In the Markdown Response (REQUIRED)**:
 ```markdown
 ### View Full Labels:
-- [View Full Label ({ProductName1})](/api/Label/generate/{DocumentGUID1}/true)
-- [View Full Label ({ProductName2})](/api/Label/generate/{DocumentGUID2}/true)
+- [View Full Label ({ProductName1})](/api/Label/original/{DocumentGUID1}/true)
+- [View Full Label ({ProductName2})](/api/Label/original/{DocumentGUID2}/true)
 ```
 
 **In the JSON Output (REQUIRED)**:
 ```json
 "dataReferences": {
-  "View Full Label ({ProductName1})": "/api/Label/generate/{DocumentGUID1}/true",
-  "View Full Label ({ProductName2})": "/api/Label/generate/{DocumentGUID2}/true"
+  "View Full Label ({ProductName1})": "/api/Label/original/{DocumentGUID1}/true",
+  "View Full Label ({ProductName2})": "/api/Label/original/{DocumentGUID2}/true"
 }
 ```
 
@@ -87,12 +87,12 @@ The `productName` field is in the API response. Look for:
 
 **INCORRECT** (using placeholder):
 ```markdown
-- [View Full Label (Prescription Drug)](/api/Label/generate/abc123/true)
+- [View Full Label (Prescription Drug)](/api/Label/original/abc123/true)
 ```
 
 **CORRECT** (using actual product name from API):
 ```markdown
-- [View Full Label (Buprenorphine Transdermal System)](/api/Label/generate/abc123/true)
+- [View Full Label (Buprenorphine Transdermal System)](/api/Label/original/abc123/true)
 ```
 
 ### If ProductName Is Missing
@@ -254,8 +254,8 @@ When aggregating content from multiple sources because primary source was trunca
     "aggregatedFromMultipleSources": true
   },
   "dataReferences": {
-    "View Full Label (GLUCOPHAGE)": "/api/Label/generate/{guid1}/true",
-    "View Full Label (Metformin Hydrochloride Tablets)": "/api/Label/generate/{guid2}/true"
+    "View Full Label (GLUCOPHAGE)": "/api/Label/original/{guid1}/true",
+    "View Full Label (Metformin Hydrochloride Tablets)": "/api/Label/original/{guid2}/true"
   },
   "suggestedFollowUps": ["What are the warnings for metformin?", "How should metformin be dosed?"],
   "warnings": ["Some source labels had truncated content; information aggregated from multiple sources"],
