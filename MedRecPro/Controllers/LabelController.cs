@@ -164,7 +164,7 @@ namespace MedRecPro.Api.Controllers
         /// - If pageSize is provided, it must be greater than 0
         /// - If one paging parameter is provided, both must be provided
         /// </remarks>
-        private BadRequestObjectResult? validatePagingParameters(int? pageNumber, int? pageSize)
+        private BadRequestObjectResult? validatePagingParameters(ref int? pageNumber, ref int? pageSize)
         {
             #region implementation
 
@@ -180,10 +180,16 @@ namespace MedRecPro.Api.Controllers
                 return BadRequest($"Invalid page size: {pageSize.Value}. Page size must be greater than 0 if provided.");
             }
 
-            // Enforce both or neither for paging
-            if (pageNumber.HasValue != pageSize.HasValue)
+            // Default pageNumber to 1 when pageSize is provided but pageNumber is not
+            if (pageSize.HasValue && !pageNumber.HasValue)
             {
-                return BadRequest("If providing paging, both pageNumber and pageSize must be specified.");
+                pageNumber = 1;
+            }
+
+            // Default pageSize to 10 when pageNumber is provided but pageSize is not
+            if (pageNumber.HasValue && !pageSize.HasValue)
+            {
+                pageSize = 10;
             }
 
             return null;
@@ -867,7 +873,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -967,7 +973,7 @@ namespace MedRecPro.Api.Controllers
             #region Input Validation
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -1026,7 +1032,7 @@ namespace MedRecPro.Api.Controllers
         /// or when direct class name matching is preferred.
         /// </param>
         /// <param name="maxProductsPerClass">
-        /// Maximum number of products to return per matched class when using AI search. Default is 500.
+        /// Maximum number of products to return per matched class when using AI search. Default is 1000.
         /// </param>
         /// <param name="pageNumber">
         /// Optional. The 1-based page number to retrieve (used with classNameSearch).
@@ -1105,7 +1111,7 @@ namespace MedRecPro.Api.Controllers
         public async Task<ActionResult> SearchByPharmacologicClass(
             [FromQuery] string? query,
             [FromQuery] string? classNameSearch,
-            [FromQuery] int maxProductsPerClass = 500,
+            [FromQuery] int maxProductsPerClass = 1000,
             [FromQuery] int? pageNumber = null,
             [FromQuery] int? pageSize = null)
         {
@@ -1120,7 +1126,7 @@ namespace MedRecPro.Api.Controllers
             // Validate paging parameters when using classNameSearch
             if (!string.IsNullOrWhiteSpace(classNameSearch))
             {
-                var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+                var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
                 if (pagingValidation != null)
                 {
                     return pagingValidation;
@@ -1253,7 +1259,7 @@ namespace MedRecPro.Api.Controllers
             #region Input Validation
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -1355,7 +1361,7 @@ namespace MedRecPro.Api.Controllers
             #region Input Validation
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -1502,7 +1508,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -1606,7 +1612,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -1713,7 +1719,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -1821,7 +1827,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -1965,7 +1971,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -2090,7 +2096,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -2306,7 +2312,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -2403,7 +2409,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -2513,7 +2519,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -2597,7 +2603,7 @@ namespace MedRecPro.Api.Controllers
             #region Input Validation
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -2707,7 +2713,7 @@ namespace MedRecPro.Api.Controllers
             #region Input Validation
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -2913,7 +2919,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -2997,7 +3003,7 @@ namespace MedRecPro.Api.Controllers
             #region Input Validation
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -3144,7 +3150,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -3704,7 +3710,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -3802,7 +3808,7 @@ namespace MedRecPro.Api.Controllers
             #region Input Validation
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -3913,7 +3919,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -4047,7 +4053,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null)
             {
                 return pagingValidation;
@@ -4155,6 +4161,130 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets comprehensive inventory summary for answering "what products do you have" questions.
+        /// Provides aggregated counts across multiple dimensions instead of paginated product lists.
+        /// </summary>
+        /// <param name="category">
+        /// Optional filter by category. Valid values:
+        /// - **TOTALS**: High-level entity counts (Documents, Products, Labelers, Active Ingredients, etc.)
+        /// - **BY_MARKETING_CATEGORY**: Products by marketing category (NDA, ANDA, BLA, OTC, etc.)
+        /// - **BY_DOSAGE_FORM**: Products by dosage form (top 15)
+        /// - **TOP_LABELERS**: Top 10 labelers by product count
+        /// - **TOP_PHARM_CLASSES**: Top 10 pharmacologic classes by product count
+        /// - **TOP_INGREDIENTS**: Top 10 active ingredients by product count
+        ///
+        /// If not provided, returns all categories (~50 rows).
+        /// </param>
+        /// <returns>List of inventory summary items with aggregated counts.</returns>
+        /// <response code="200">Returns the inventory summary.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ## Purpose
+        ///
+        /// Use this endpoint to answer questions like:
+        /// - "What products do you have?"
+        /// - "How many products are in the database?"
+        /// - "What drug classes are available?"
+        /// - "Who are the top manufacturers?"
+        ///
+        /// This endpoint provides accurate totals instead of paginated results that may give
+        /// an incomplete impression of database size (e.g., "50 products" when there are actually thousands).
+        ///
+        /// ## Usage Examples
+        ///
+        /// Get full inventory summary:
+        /// ```
+        /// GET /api/Label/inventory/summary
+        /// ```
+        ///
+        /// Get totals only:
+        /// ```
+        /// GET /api/Label/inventory/summary?category=TOTALS
+        /// ```
+        ///
+        /// Get top labelers:
+        /// ```
+        /// GET /api/Label/inventory/summary?category=TOP_LABELERS
+        /// ```
+        ///
+        /// ## Response Format (200)
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "InventorySummary": {
+        ///       "Category": "TOTALS",
+        ///       "Dimension": "Documents",
+        ///       "DimensionValue": null,
+        ///       "ItemCount": 1234,
+        ///       "SortOrder": 1
+        ///     }
+        ///   },
+        ///   {
+        ///     "InventorySummary": {
+        ///       "Category": "TOTALS",
+        ///       "Dimension": "Products",
+        ///       "DimensionValue": null,
+        ///       "ItemCount": 5678,
+        ///       "SortOrder": 2
+        ///     }
+        ///   },
+        ///   {
+        ///     "InventorySummary": {
+        ///       "Category": "TOP_LABELERS",
+        ///       "Dimension": "Labeler",
+        ///       "DimensionValue": "PFIZER INC",
+        ///       "ItemCount": 150,
+        ///       "SortOrder": 301
+        ///     }
+        ///   }
+        /// ]
+        /// ```
+        ///
+        /// Results are sorted by SortOrder for logical grouping.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Get full inventory summary
+        /// GET /api/Label/inventory/summary
+        ///
+        /// // Get totals only
+        /// GET /api/Label/inventory/summary?category=TOTALS
+        /// </code>
+        /// </example>
+        /// <seealso cref="DtoLabelAccess.GetInventorySummaryAsync"/>
+        /// <seealso cref="LabelView.InventorySummary"/>
+        [HttpGet("inventory/summary")]
+        [ProducesResponseType(typeof(IEnumerable<InventorySummaryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<InventorySummaryDto>>> GetInventorySummary(
+            [FromQuery] string? category)
+        {
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("Getting inventory summary. Category: {Category}", category ?? "all");
+
+                var results = await DtoLabelAccess.GetInventorySummaryAsync(
+                    _dbContext,
+                    category,
+                    _logger);
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving inventory summary");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving inventory summary.");
+            }
+
+            #endregion
+        }
+
         #endregion Product Summary and Cross-Reference
 
         #region Latest Label Navigation
@@ -4250,7 +4380,7 @@ namespace MedRecPro.Api.Controllers
             #region Input Validation
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null) return pagingValidation;
 
             #endregion
@@ -4402,7 +4532,7 @@ namespace MedRecPro.Api.Controllers
             #region Input Validation
 
             // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
             if (pagingValidation != null) return pagingValidation;
 
             #endregion

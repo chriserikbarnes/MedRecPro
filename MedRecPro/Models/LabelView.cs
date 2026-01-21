@@ -2960,5 +2960,91 @@ namespace MedRecPro.Models
         }
 
         #endregion Section Markdown Views
+
+        #region Inventory Summary Views
+
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_InventorySummary.
+        /// Comprehensive inventory summary providing aggregated counts across multiple dimensions
+        /// for answering questions about what products are available in the database.
+        /// </summary>
+        /// <remarks>
+        /// Provides counts across dimensions: Documents, Products, Labelers, Active Ingredients,
+        /// Pharmacologic Classes, NDCs, Marketing Categories, Dosage Forms, Top Labelers,
+        /// Top Pharmacologic Classes, and Top Ingredients.
+        ///
+        /// Categories include:
+        /// - TOTALS: High-level entity counts
+        /// - BY_MARKETING_CATEGORY: Products by marketing category (NDA, ANDA, BLA, etc.)
+        /// - BY_DOSAGE_FORM: Products by dosage form (top 15)
+        /// - TOP_LABELERS: Top 10 labelers by product count
+        /// - TOP_PHARM_CLASSES: Top 10 pharmacologic classes by product count
+        /// - TOP_INGREDIENTS: Top 10 active ingredients by product count
+        ///
+        /// Target: ~50 rows covering all major database dimensions.
+        /// Use this view to provide accurate, comprehensive inventory answers.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Get all inventory summaries
+        /// var summary = await db.Set&lt;LabelView.InventorySummary&gt;()
+        ///     .AsNoTracking()
+        ///     .OrderBy(s => s.SortOrder)
+        ///     .ToListAsync();
+        ///
+        /// // Get totals only
+        /// var totals = await db.Set&lt;LabelView.InventorySummary&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(s => s.Category == "TOTALS")
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="Label.Product"/>
+        /// <seealso cref="Label.Organization"/>
+        /// <seealso cref="Label.PharmacologicClass"/>
+        [Table("vw_InventorySummary")]
+        public class InventorySummary
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Grouping category for the summary row (e.g., TOTALS, BY_MARKETING_CATEGORY, TOP_LABELERS).
+            /// </summary>
+            public string? Category { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Dimension being measured (e.g., Documents, Products, Marketing Category, Labeler).
+            /// </summary>
+            public string? Dimension { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Specific value within the dimension (e.g., "NDA" for marketing category, labeler name).
+            /// Null for TOTALS category where dimension itself is the entity type.
+            /// </summary>
+            public string? DimensionValue { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Count of items in this dimension/value combination.
+            /// </summary>
+            public int? ItemCount { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Sort order for display purposes. Lower numbers appear first.
+            /// Grouped by category: TOTALS (1-10), BY_MARKETING_CATEGORY (100+),
+            /// BY_DOSAGE_FORM (200+), TOP_LABELERS (300+), TOP_PHARM_CLASSES (400+), TOP_INGREDIENTS (500+).
+            /// </summary>
+            public long? SortOrder { get; set; }
+
+            #endregion properties
+        }
+
+        #endregion Inventory Summary Views
     }
 }

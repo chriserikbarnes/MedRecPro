@@ -2308,4 +2308,79 @@ namespace MedRecPro.Models
     }
 
     #endregion Section Markdown DTOs
+
+    #region Inventory Summary DTOs
+
+    /**************************************************************/
+    /// <summary>
+    /// DTO for InventorySummary view results.
+    /// Provides comprehensive inventory summary data for answering "what products do you have" questions.
+    /// </summary>
+    /// <remarks>
+    /// Returns aggregated counts across multiple dimensions: Documents, Products, Labelers,
+    /// Active Ingredients, Pharmacologic Classes, NDCs, Marketing Categories, Dosage Forms, etc.
+    ///
+    /// This DTO does NOT encrypt IDs because the view contains only aggregate counts, not navigation IDs.
+    /// </remarks>
+    /// <seealso cref="LabelView.InventorySummary"/>
+    public class InventorySummaryDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all view columns.
+        /// </summary>
+        public required Dictionary<string, object?> InventorySummary { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Grouping category for the summary row (TOTALS, BY_MARKETING_CATEGORY, TOP_LABELERS, etc.).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? Category =>
+            InventorySummary.TryGetValue(nameof(Category), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Dimension being measured (Documents, Products, Marketing Category, Labeler, etc.).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? Dimension =>
+            InventorySummary.TryGetValue(nameof(Dimension), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Specific value within the dimension (e.g., "NDA", labeler name, dosage form).
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? DimensionValue =>
+            InventorySummary.TryGetValue(nameof(DimensionValue), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Count of items in this dimension/value combination.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ItemCount =>
+            InventorySummary.TryGetValue(nameof(ItemCount), out var value)
+                ? value as int?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Sort order for display purposes.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public long? SortOrder =>
+            InventorySummary.TryGetValue(nameof(SortOrder), out var value)
+                ? value as long?
+                : null;
+    }
+
+    #endregion Inventory Summary DTOs
 }

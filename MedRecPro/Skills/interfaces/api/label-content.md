@@ -4,6 +4,154 @@ Maps the **Label Content Retrieval** and **Label Document Search** capabilities 
 
 ---
 
+## CRITICAL: Inventory Summary for "What products do you have?" Questions
+
+**When users ask about available products, database contents, or inventory - use the Inventory Summary endpoint FIRST.**
+
+### IMPORTANT: Execute Immediately - Do NOT Ask for Confirmation
+
+**This skill requires IMMEDIATE execution.** When the user asks inventory questions:
+1. **DO** call the endpoint and return the summarized results directly
+2. **DO NOT** describe the process and ask "Would you like me to retrieve..."
+3. **DO NOT** explain what endpoint you plan to use - just use it
+
+### Inventory Summary Endpoint
+
+```
+GET /api/Label/inventory/summary
+GET /api/Label/inventory/summary?category=TOTALS
+GET /api/Label/inventory/summary?category=TOP_LABELERS
+GET /api/Label/inventory/summary?category=TOP_PHARM_CLASSES
+```
+
+**Categories:**
+- `TOTALS` - High-level counts (Documents, Products, Labelers, Active Ingredients, Pharmacologic Classes, NDCs)
+- `BY_MARKETING_CATEGORY` - Products by NDA, ANDA, BLA, OTC, etc.
+- `BY_DOSAGE_FORM` - Top 15 dosage forms by product count
+- `TOP_LABELERS` - Top 10 manufacturers by product count
+- `TOP_PHARM_CLASSES` - Top 10 drug classes by product count
+- `TOP_INGREDIENTS` - Top 10 active ingredients by product count
+
+**Why use this endpoint?**
+- Provides accurate totals (~50 rows covering all dimensions)
+- Prevents misleading impressions (e.g., "50 products available" when there are thousands)
+- Single API call for comprehensive database overview
+
+**Response Format:**
+```json
+[
+  {
+    "InventorySummary": {
+      "Category": "TOTALS",
+      "Dimension": "Products",
+      "DimensionValue": null,
+      "ItemCount": 5678,
+      "SortOrder": 2
+    }
+  }
+]
+```
+
+### Inventory Summary Workflow Patterns
+
+**Query**: "What products do you have?" / "What's in the database?"
+
+```json
+{
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/inventory/summary",
+      "description": "Get complete inventory overview"
+    }
+  ]
+}
+```
+
+**Query**: "Who are the top drug manufacturers?" / "Top labelers"
+
+```json
+{
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/inventory/summary",
+      "queryParameters": { "category": "TOP_LABELERS" },
+      "description": "Get top 10 manufacturers by product count"
+    }
+  ]
+}
+```
+
+**Query**: "What drug classes do you have?"
+
+```json
+{
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/inventory/summary",
+      "queryParameters": { "category": "TOP_PHARM_CLASSES" },
+      "description": "Get top 10 pharmacologic classes by product count"
+    }
+  ]
+}
+```
+
+**Query**: "How many products total?"
+
+```json
+{
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/inventory/summary",
+      "queryParameters": { "category": "TOTALS" },
+      "description": "Get high-level counts only"
+    }
+  ]
+}
+```
+
+### Synthesis Guidelines for Inventory Responses
+
+When presenting inventory summary results:
+
+1. **Lead with key totals** - Start with Document/Product/Labeler counts
+2. **Format as readable summary** - Don't just dump JSON, format as markdown
+3. **Group by category** - Present TOP_LABELERS, TOP_PHARM_CLASSES, etc. as separate sections
+4. **Include specific numbers** - Users want to know exact counts
+
+**Example synthesis output:**
+
+```markdown
+## MedRecPro Database Inventory
+
+### Totals
+- **Documents**: 12,345
+- **Products**: 8,765
+- **Labelers (Manufacturers)**: 432
+- **Active Ingredients**: 1,234
+- **Pharmacologic Classes**: 567
+
+### Top Manufacturers
+1. Pfizer Inc - 523 products
+2. Novartis - 412 products
+3. Teva Pharmaceuticals - 389 products
+...
+
+### Top Drug Classes
+1. Beta-Adrenergic Blockers - 234 products
+2. ACE Inhibitors - 198 products
+...
+```
+
+---
+
 ## CRITICAL: Label Links Are MANDATORY
 
 **Every response that retrieves product data MUST include label links.**

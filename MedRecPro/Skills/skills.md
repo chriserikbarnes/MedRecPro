@@ -4,6 +4,29 @@ This document defines the system's capabilities as stable contracts. Each skill 
 
 ---
 
+## Database Inventory
+
+### Inventory Summary
+
+Provide comprehensive database inventory statistics showing what products, documents, and classifications are available.
+
+Returns aggregated counts across multiple dimensions including total documents, products, labelers, active ingredients, pharmacologic classes, NDCs, marketing categories, and dosage forms. Use this for "what do you have" type questions.
+
+**Inputs**
+- Category filter (optional): TOTALS, TOP_LABELERS, TOP_PHARM_CLASSES, TOP_INGREDIENTS, BY_MARKETING_CATEGORY, BY_DOSAGE_FORM
+
+**Outputs**
+- Aggregated counts by dimension
+- Category groupings with sort order
+
+**Scenarios**
+- "What products do you have?"
+- "Who are the top manufacturers?"
+- "What drug classes do you have?"
+- "How many products are in the database?"
+
+---
+
 ## Label Operations
 
 ### Label Content Retrieval
@@ -281,24 +304,13 @@ Skills may be combined for complex queries:
 
 ### Label Links Are Mandatory
 
-**Every response that retrieves product data MUST include label links:**
-
-```markdown
-### View Full Labels:
-- [View Full Label ({ProductName})](/api/Label/generate/{DocumentGUID}/true)
-```
+**Every response that retrieves product data MUST include label links.**
 
 **A response without label links is INCOMPLETE.**
 
 ### Section Retrieval
 
-**Recommended approach**: Omit `sectionCode` parameter to get ALL available sections.
-
-```
-GET /api/Label/markdown/sections/{documentGuid}
-```
-
-This avoids 404 errors from non-existent section codes.
+**Recommended approach**: Omit `sectionCode` parameter to get ALL available sections. This avoids errors from non-existent section codes.
 
 ---
 

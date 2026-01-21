@@ -9,6 +9,9 @@ This document defines routing rules for skill selection. Use these rules to dete
 ```
 Query Analysis
     |
+    +-- Asks about database contents, inventory, or "what products do you have"?
+    |       YES --> inventorySummary (FIRST-LINE for these questions)
+    |
     +-- Contains drug class terminology WITHOUT specific product name?
     |       YES --> pharmacologicClassSearch
     |
@@ -70,6 +73,31 @@ Query: "Show me the dosage for metformin"
 ---
 
 ## Keyword Mappings
+
+### inventorySummary
+
+**Primary Keywords**
+- what products do you have, what drugs do you have, what medications do you have
+- what is available, what is in the database, what do you have
+- how many products, how many drugs, how many medications, how many labels
+- database contents, database inventory, database summary
+- available products, available drugs, available medications
+- summarize available, summarize products, summarize inventory
+- list available, total products, total drugs
+- top labelers, top manufacturers, top producers, who makes the most
+- top drug classes, top pharmacologic classes
+
+**Context Keywords**
+- inventory, summary, overview, statistics, totals, counts
+- database, available, have, contents
+
+**Selection Rule**: If query asks about what products/drugs/medications are in the database or available, use inventorySummary. This is the FIRST-LINE approach for inventory questions. **Do NOT use paginated product search endpoints** - they give incomplete impressions of database size.
+
+**CRITICAL: Execute Immediately**: When this skill is selected, call the `/api/Label/inventory/summary` endpoint IMMEDIATELY and return the formatted results. **DO NOT** describe the process or ask for confirmation. **DO NOT** say "Would you like me to retrieve..." - just retrieve it and present the results.
+
+**IMPORTANT**: This skill takes precedence over labelContent for general "what do you have" questions. Only use labelContent when a SPECIFIC product name is mentioned.
+
+---
 
 ### pharmacologicClassSearch
 
@@ -252,6 +280,9 @@ Query: "Show me the dosage for metformin"
 
 | Query Pattern | Skills |
 |--------------|--------|
+| "What products do you have?" | inventorySummary |
+| "How many drugs are in the database?" | inventorySummary |
+| "Summarize the available labels" | inventorySummary |
 | "What medications are beta blockers?" | pharmacologicClassSearch |
 | "List ACE inhibitors" | pharmacologicClassSearch |
 | "What helps with depression?" | indicationDiscovery |
@@ -343,6 +374,7 @@ After skill selection, load the corresponding interface document:
 
 | Skill | Interface Document |
 |-------|-------------------|
+| inventorySummary | [interfaces/api/label-content.md](./interfaces/api/label-content.md) (Inventory Summary section) |
 | pharmacologicClassSearch | [interfaces/api/pharmacologic-class.md](./interfaces/api/pharmacologic-class.md) |
 | indicationDiscovery | [interfaces/api/indication-discovery.md](./interfaces/api/indication-discovery.md) |
 | labelContent | [interfaces/api/label-content.md](./interfaces/api/label-content.md) |

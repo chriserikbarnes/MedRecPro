@@ -2547,6 +2547,243 @@ GO
 
 
 
+/*******************************************************************************/
+/*                                                                             */
+/*  SECTION: INVENTORY SUMMARY VIEW                                            */
+/*  Comprehensive inventory summary for AI-driven discovery                    */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region vw_InventorySummary
+
+/**************************************************************/
+-- View: vw_InventorySummary
+-- Purpose: Comprehensive inventory summary for answering "what products do you have"
+--          Provides counts across multiple dimensions in a compact format
+-- Usage: Quick discovery of database scope and top entities
+-- Returns: ~50 rows covering documents, products, labelers, ingredients, etc.
+-- Indexes Used: Various primary key and foreign key indexes
+-- See also: vw_ProductSummary, vw_LabelerSummary, vw_IngredientSummary
+
+IF OBJECT_ID('dbo.vw_InventorySummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_InventorySummary;
+GO
+
+CREATE VIEW dbo.vw_InventorySummary
+AS
+/**************************************************************/
+-- Comprehensive inventory summary for answering "what products do you have"
+-- Provides counts across multiple dimensions in a compact format
+-- Target: ~50 rows covering documents, products, labelers, ingredients, etc.
+/**************************************************************/
+
+-- Section 1: Top-level entity counts
+SELECT
+    'TOTALS' AS Category,
+    'Documents' AS Dimension,
+    NULL AS DimensionValue,
+    COUNT(*) AS ItemCount,
+    1 AS SortOrder
+FROM dbo.Document
+
+UNION ALL
+
+SELECT
+    'TOTALS' AS Category,
+    'Products' AS Dimension,
+    NULL AS DimensionValue,
+    COUNT(*) AS ItemCount,
+    2 AS SortOrder
+FROM dbo.Product
+
+UNION ALL
+
+SELECT
+    'TOTALS' AS Category,
+    'Labelers' AS Dimension,
+    NULL AS DimensionValue,
+    COUNT(DISTINCT o.OrganizationID) AS ItemCount,
+    3 AS SortOrder
+FROM dbo.Organization o
+INNER JOIN dbo.DocumentAuthor da ON o.OrganizationID = da.OrganizationID
+WHERE da.AuthorType = 'Labeler'
+
+UNION ALL
+
+SELECT
+    'TOTALS' AS Category,
+    'Active Ingredients (UNII)' AS Dimension,
+    NULL AS DimensionValue,
+    COUNT(DISTINCT ins.UNII) AS ItemCount,
+    4 AS SortOrder
+FROM dbo.IngredientSubstance ins
+INNER JOIN dbo.Ingredient i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
+WHERE i.ClassCode <> 'IACT'
+
+UNION ALL
+
+SELECT
+    'TOTALS' AS Category,
+    'Pharmacologic Classes' AS Dimension,
+    NULL AS DimensionValue,
+    COUNT(DISTINCT PharmacologicClassID) AS ItemCount,
+    5 AS SortOrder
+FROM dbo.PharmacologicClass
+
+UNION ALL
+
+SELECT
+    'TOTALS' AS Category,
+    'NDCs' AS Dimension,
+    NULL AS DimensionValue,
+    COUNT(*) AS ItemCount,
+    6 AS SortOrder
+FROM dbo.ProductIdentifier
+WHERE IdentifierType = 'NDC'
+
+UNION ALL
+
+-- Section 2: Products by Marketing Category (typically 5-10 rows)
+SELECT
+    'BY_MARKETING_CATEGORY' AS Category,
+    'Marketing Category' AS Dimension,
+    COALESCE(mc.CategoryDisplayName, '(No Category)') AS DimensionValue,
+    COUNT(DISTINCT p.ProductID) AS ItemCount,
+    100 + ROW_NUMBER() OVER (ORDER BY COUNT(DISTINCT p.ProductID) DESC) AS SortOrder
+FROM dbo.Product p
+LEFT JOIN dbo.MarketingCategory mc ON p.ProductID = mc.ProductID
+GROUP BY mc.CategoryDisplayName
+
+UNION ALL
+
+-- Section 3: Products by Dosage Form (top 15)
+SELECT
+    'BY_DOSAGE_FORM' AS Category,
+    'Dosage Form' AS Dimension,
+    COALESCE(p.FormDisplayName, '(Unknown)') AS DimensionValue,
+    COUNT(*) AS ItemCount,
+    200 + ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC) AS SortOrder
+FROM dbo.Product p
+GROUP BY p.FormDisplayName
+HAVING COUNT(*) >= (
+    SELECT MIN(cnt) FROM (
+        SELECT TOP 15 COUNT(*) as cnt
+        FROM dbo.Product
+        GROUP BY FormDisplayName
+        ORDER BY COUNT(*) DESC
+    ) t
+)
+
+UNION ALL
+
+-- Section 4: Top 10 Labelers by product count
+SELECT
+    'TOP_LABELERS' AS Category,
+    'Labeler' AS Dimension,
+    o.OrganizationName AS DimensionValue,
+    COUNT(DISTINCT p.ProductID) AS ItemCount,
+    300 + ROW_NUMBER() OVER (ORDER BY COUNT(DISTINCT p.ProductID) DESC) AS SortOrder
+FROM dbo.Organization o
+INNER JOIN dbo.DocumentAuthor da ON o.OrganizationID = da.OrganizationID
+INNER JOIN dbo.Document d ON da.DocumentID = d.DocumentID
+INNER JOIN dbo.StructuredBody sb ON d.DocumentID = sb.DocumentID
+INNER JOIN dbo.Section s ON sb.StructuredBodyID = s.StructuredBodyID
+INNER JOIN dbo.Product p ON s.SectionID = p.SectionID
+WHERE da.AuthorType = 'Labeler'
+GROUP BY o.OrganizationID, o.OrganizationName
+HAVING COUNT(DISTINCT p.ProductID) >= (
+    SELECT MIN(cnt) FROM (
+        SELECT TOP 10 COUNT(DISTINCT p2.ProductID) as cnt
+        FROM dbo.Organization o2
+        INNER JOIN dbo.DocumentAuthor da2 ON o2.OrganizationID = da2.OrganizationID
+        INNER JOIN dbo.Document d2 ON da2.DocumentID = d2.DocumentID
+        INNER JOIN dbo.StructuredBody sb2 ON d2.DocumentID = sb2.DocumentID
+        INNER JOIN dbo.Section s2 ON sb2.StructuredBodyID = s2.StructuredBodyID
+        INNER JOIN dbo.Product p2 ON s2.SectionID = p2.SectionID
+        WHERE da2.AuthorType = 'Labeler'
+        GROUP BY o2.OrganizationID
+        ORDER BY COUNT(DISTINCT p2.ProductID) DESC
+    ) t
+)
+
+UNION ALL
+
+-- Section 5: Top 10 Pharmacologic Classes by product count
+SELECT
+    'TOP_PHARM_CLASSES' AS Category,
+    'Pharmacologic Class' AS Dimension,
+    pc.ClassDisplayName AS DimensionValue,
+    COUNT(DISTINCT p.ProductID) AS ItemCount,
+    400 + ROW_NUMBER() OVER (ORDER BY COUNT(DISTINCT p.ProductID) DESC) AS SortOrder
+FROM dbo.PharmacologicClass pc
+INNER JOIN dbo.PharmacologicClassLink pcl ON pc.PharmacologicClassID = pcl.PharmacologicClassID
+INNER JOIN dbo.IngredientSubstance ams ON pcl.ActiveMoietySubstanceID = ams.IngredientSubstanceID
+INNER JOIN dbo.ActiveMoiety am ON ams.IngredientSubstanceID = am.IngredientSubstanceID
+INNER JOIN dbo.Ingredient i ON am.IngredientSubstanceID = i.IngredientSubstanceID
+INNER JOIN dbo.Product p ON i.ProductID = p.ProductID
+GROUP BY pc.PharmacologicClassID, pc.ClassDisplayName
+HAVING COUNT(DISTINCT p.ProductID) >= (
+    SELECT MIN(cnt) FROM (
+        SELECT TOP 10 COUNT(DISTINCT p2.ProductID) as cnt
+        FROM dbo.PharmacologicClass pc2
+        INNER JOIN dbo.PharmacologicClassLink pcl2 ON pc2.PharmacologicClassID = pcl2.PharmacologicClassID
+        INNER JOIN dbo.IngredientSubstance ams2 ON pcl2.ActiveMoietySubstanceID = ams2.IngredientSubstanceID
+        INNER JOIN dbo.ActiveMoiety am2 ON ams2.IngredientSubstanceID = am2.IngredientSubstanceID
+        INNER JOIN dbo.Ingredient i2 ON am2.IngredientSubstanceID = i2.IngredientSubstanceID
+        INNER JOIN dbo.Product p2 ON i2.ProductID = p2.ProductID
+        GROUP BY pc2.PharmacologicClassID
+        ORDER BY COUNT(DISTINCT p2.ProductID) DESC
+    ) t
+)
+
+UNION ALL
+
+-- Section 6: Top 10 Active Ingredients by product count
+SELECT
+    'TOP_INGREDIENTS' AS Category,
+    'Active Ingredient' AS Dimension,
+    ins.SubstanceName AS DimensionValue,
+    COUNT(DISTINCT p.ProductID) AS ItemCount,
+    500 + ROW_NUMBER() OVER (ORDER BY COUNT(DISTINCT p.ProductID) DESC) AS SortOrder
+FROM dbo.IngredientSubstance ins
+INNER JOIN dbo.Ingredient i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
+INNER JOIN dbo.Product p ON i.ProductID = p.ProductID
+WHERE i.ClassCode <> 'IACT'
+GROUP BY ins.IngredientSubstanceID, ins.SubstanceName
+HAVING COUNT(DISTINCT p.ProductID) >= (
+    SELECT MIN(cnt) FROM (
+        SELECT TOP 10 COUNT(DISTINCT p2.ProductID) as cnt
+        FROM dbo.IngredientSubstance ins2
+        INNER JOIN dbo.Ingredient i2 ON ins2.IngredientSubstanceID = i2.IngredientSubstanceID
+        INNER JOIN dbo.Product p2 ON i2.ProductID = p2.ProductID
+        WHERE i2.ClassCode <> 'IACT'
+        GROUP BY ins2.IngredientSubstanceID
+        ORDER BY COUNT(DISTINCT p2.ProductID) DESC
+    ) t
+)
+
+GO
+
+-- Add extended property for documentation
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_InventorySummary')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Comprehensive inventory summary for answering "what products do you have". Provides counts across multiple dimensions (totals, marketing categories, dosage forms, top labelers, pharmacologic classes, active ingredients) in a compact ~50 row format.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_InventorySummary';
+END
+GO
+
+PRINT 'Created view: vw_InventorySummary';
+GO
+
+--#endregion
+
 PRINT '';
 PRINT '=================================================================';
 PRINT 'Additional Views and Indexes Creation Complete';
@@ -2560,6 +2797,7 @@ PRINT '  - vw_Ingredients: All ingredients with normalized application numbers';
 PRINT '  - vw_InactiveIngredients: Inactive ingredients (IACT) with normalized app numbers';
 PRINT '  - vw_ActiveIngredients: Active ingredients (non-IACT) with normalized app numbers';
 PRINT '  - vw_ProductLatestLabel: Latest label per UNII/ProductName combination';
+PRINT '  - vw_InventorySummary: Comprehensive inventory summary for AI discovery';
 PRINT '';
 
 GO

@@ -964,6 +964,46 @@ namespace MedRecPro.DataAccess
 
         #endregion Section Markdown Views
 
+        #region Inventory Summary Views
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a list of InventorySummary DTOs from the navigation view.
+        /// Provides aggregated inventory counts across multiple dimensions.
+        /// </summary>
+        /// <param name="entities">Collection of view entities to transform.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="InventorySummaryDto"/> with inventory counts.</returns>
+        /// <remarks>
+        /// This view does NOT encrypt IDs because it contains only aggregate counts,
+        /// not navigation IDs. The ToEntityDictionary extension is used instead of
+        /// ToEntityWithEncryptedId.
+        /// </remarks>
+        /// <seealso cref="LabelView.InventorySummary"/>
+        /// <seealso cref="InventorySummaryDto"/>
+        private static List<InventorySummaryDto> buildInventorySummaryDtos(
+            List<LabelView.InventorySummary> entities,
+            ILogger logger)
+        {
+            #region implementation
+
+            return entities.Select(entity => new InventorySummaryDto
+            {
+                InventorySummary = new Dictionary<string, object?>
+                {
+                    { nameof(entity.Category), entity.Category },
+                    { nameof(entity.Dimension), entity.Dimension },
+                    { nameof(entity.DimensionValue), entity.DimensionValue },
+                    { nameof(entity.ItemCount), entity.ItemCount },
+                    { nameof(entity.SortOrder), entity.SortOrder }
+                }
+            }).ToList();
+
+            #endregion
+        }
+
+        #endregion Inventory Summary Views
+
         #region Generic Query Helpers
 
         /**************************************************************/

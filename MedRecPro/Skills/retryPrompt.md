@@ -21,6 +21,15 @@ The previous API call(s) FAILED. You must suggest ALTERNATIVE endpoints to try.
 
 ---
 
+## IMPORTANT: Inventory Questions
+
+**For "what products do you have" or database inventory questions:**
+- **DO NOT** use paginated product search endpoints - they give misleading impressions of database size
+- **USE** `/api/Label/inventory/summary` instead - returns accurate totals (~50 rows covering all dimensions)
+- The inventory summary endpoint provides counts for Documents, Products, Labelers, Active Ingredients, Pharmacologic Classes, NDCs, Marketing Categories, Dosage Forms, etc.
+
+---
+
 ## Common Alternatives
 
 | Failed Endpoint | Try Instead |

@@ -2487,6 +2487,93 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets comprehensive inventory summary data for answering "what products do you have" questions.
+        /// Provides aggregated counts across multiple dimensions: Documents, Products, Labelers,
+        /// Active Ingredients, Pharmacologic Classes, NDCs, Marketing Categories, Dosage Forms, etc.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="category">
+        /// Optional filter by category. Valid values:
+        /// - TOTALS: High-level entity counts (Documents, Products, Labelers, etc.)
+        /// - BY_MARKETING_CATEGORY: Products by marketing category (NDA, ANDA, BLA, etc.)
+        /// - BY_DOSAGE_FORM: Products by dosage form (top 15)
+        /// - TOP_LABELERS: Top 10 labelers by product count
+        /// - TOP_PHARM_CLASSES: Top 10 pharmacologic classes by product count
+        /// - TOP_INGREDIENTS: Top 10 active ingredients by product count
+        /// </param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>List of <see cref="InventorySummaryDto"/> with aggregated inventory counts.</returns>
+        /// <example>
+        /// <code>
+        /// // Get full inventory summary
+        /// var summary = await DtoLabelAccess.GetInventorySummaryAsync(db, null, logger);
+        ///
+        /// // Get totals only
+        /// var totals = await DtoLabelAccess.GetInventorySummaryAsync(db, "TOTALS", logger);
+        ///
+        /// // Get top labelers
+        /// var labelers = await DtoLabelAccess.GetInventorySummaryAsync(db, "TOP_LABELERS", logger);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// Returns ~50 rows covering all major database dimensions when no category filter is applied.
+        /// Use this endpoint to provide accurate, comprehensive inventory answers instead of
+        /// paginated product lists which may give incomplete impressions of database size.
+        ///
+        /// Results are sorted by SortOrder for logical display grouping.
+        /// </remarks>
+        /// <seealso cref="LabelView.InventorySummary"/>
+        /// <seealso cref="InventorySummaryDto"/>
+        public static async Task<List<InventorySummaryDto>> GetInventorySummaryAsync(
+            ApplicationDbContext db,
+            string? category,
+            ILogger logger)
+        {
+            #region implementation
+
+            string key = generateCacheKey(nameof(GetInventorySummaryAsync), category, null, null);
+
+            var cached = Cached.GetCache<List<InventorySummaryDto>>(key);
+
+            if (cached != null)
+            {
+                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
+#if DEBUG
+                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetInventorySummaryAsync)} Cache Hit for {key} ===");
+#endif
+                return cached;
+            }
+
+            var query = db.Set<LabelView.InventorySummary>()
+                .AsNoTracking()
+                .AsQueryable();
+
+            // Apply optional category filter
+            if (!string.IsNullOrWhiteSpace(category))
+            {
+                query = query.Where(s => s.Category == category);
+            }
+
+            // Sort by SortOrder for logical display grouping
+            query = query.OrderBy(s => s.SortOrder);
+
+            var entities = await query.ToListAsync();
+            var ret = buildInventorySummaryDtos(entities, logger);
+
+            if (ret != null && ret.Count > 0)
+            {
+                // Cache longer since inventory counts change slowly
+                Cached.SetCacheManageKey(key, ret, 10.0);
+                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+            }
+
+            return ret ?? new List<InventorySummaryDto>();
+
+            #endregion
+        }
+
         #endregion Product Summary and Cross-Reference
 
         #region Latest Label Navigation

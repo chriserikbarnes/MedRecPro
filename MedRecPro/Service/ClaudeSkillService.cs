@@ -384,6 +384,7 @@ namespace MedRecPro.Service
             // Primary interface document mappings
             { "indicationDiscovery", "Skills/interfaces/api/indication-discovery.md" },
             { "labelContent", "Skills/interfaces/api/label-content.md" },
+            { "inventorySummary", "Skills/interfaces/api/label-content.md" },  // Inventory is in label-content.md
             { "equianalgesicConversion", "Skills/interfaces/api/equianalgesic-conversion.md" },
             { "userActivity", "Skills/interfaces/api/user-activity.md" },
             { "cacheManagement", "Skills/interfaces/api/cache-management.md" },
@@ -662,6 +663,7 @@ namespace MedRecPro.Service
             {
                 { "indicationDiscovery", "labelIndicationWorkflow" },
                 { "labelContent", "label" },
+                { "inventorySummary", "label" },  // Maps to label interface which contains inventory summary section
                 { "equianalgesicConversion", "equianalgesicConversion" },
                 { "userActivity", "userActivity" },
                 { "cacheManagement", "settings" },

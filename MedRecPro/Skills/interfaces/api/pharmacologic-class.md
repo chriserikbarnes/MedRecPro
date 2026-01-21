@@ -23,7 +23,7 @@ This endpoint handles vocabulary matching automatically when the `query` paramet
 **This is the ONLY endpoint you should use for pharmacologic class queries.**
 
 ```
-GET /api/Label/pharmacologic-class/search?query={userQuery}&maxProductsPerClass={n}
+GET /api/Label/pharmacologic-class/search?query={userQuery}
 ```
 
 | Parameter | Type | Required | Description |
@@ -81,8 +81,7 @@ When the AI selects `pharmacologicClassSearch` skill, return this endpoint speci
       "method": "GET",
       "path": "/api/Label/pharmacologic-class/search",
       "queryParameters": {
-        "query": "{user's drug class term}",
-        "maxProductsPerClass": "25"
+        "query": "{user's drug class term}"
       },
       "description": "Search for products by pharmacologic class with intelligent terminology matching"
     }
