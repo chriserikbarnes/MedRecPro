@@ -4,15 +4,15 @@ Intelligent search for products by therapeutic or pharmacologic class with conte
 
 ---
 
-## CRITICAL: Use AI Endpoint for All Class Queries
+## CRITICAL: Use Label Endpoint for All Class Queries
 
-**ALWAYS use `/api/ai/pharmacologic-class/search` for pharmacologic class queries.**
+**ALWAYS use `/api/Label/pharmacologic-class/search` for pharmacologic class queries.**
 
-This endpoint handles vocabulary matching automatically. User queries like "beta blockers", "ACE inhibitors", or "aminoglycosides" do NOT match database class names directly.
+This endpoint handles vocabulary matching automatically when the `query` parameter is used. User queries like "beta blockers", "ACE inhibitors", or "aminoglycosides" do NOT match database class names directly.
 
 **WRONG:** `/api/Label/pharmacologic-class/search?classNameSearch=beta blockers` (will fail - requires exact database class names)
 
-**CORRECT:** `/api/ai/pharmacologic-class/search?query=beta blockers` (handles terminology matching)
+**CORRECT:** `/api/Label/pharmacologic-class/search?query=beta blockers` (handles terminology matching)
 
 ---
 
@@ -23,13 +23,13 @@ This endpoint handles vocabulary matching automatically. User queries like "beta
 **This is the ONLY endpoint you should use for pharmacologic class queries.**
 
 ```
-GET /api/ai/pharmacologic-class/search?query={userQuery}&maxProductsPerClass={n}
+GET /api/Label/pharmacologic-class/search?query={userQuery}&maxProductsPerClass={n}
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | Yes | User's natural language query (e.g., "beta blockers", "aminoglycosides", "ACE inhibitors") |
-| `maxProductsPerClass` | int | No | Max products per matched class (default: 25) |
+| `maxProductsPerClass` | int | No | Max products per matched class (default: 500) |
 
 **What it does:**
 1. Gets all pharmacologic classes from database (cached)
@@ -79,7 +79,7 @@ When the AI selects `pharmacologicClassSearch` skill, return this endpoint speci
     {
       "step": 1,
       "method": "GET",
-      "path": "/api/ai/pharmacologic-class/search",
+      "path": "/api/Label/pharmacologic-class/search",
       "queryParameters": {
         "query": "{user's drug class term}",
         "maxProductsPerClass": "25"
@@ -104,10 +104,14 @@ When the AI selects `pharmacologicClassSearch` skill, return this endpoint speci
 Lists all available pharmacologic classes with product counts.
 
 ```
-GET /api/ai/pharmacologic-class/summaries
+GET /api/Label/pharmacologic-class/summaries
 ```
 
-No parameters required.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `useAiCache` | bool | No | Use AI service's cached summaries (default: false) |
+| `pageNumber` | int | No | 1-based page number |
+| `pageSize` | int | No | Records per page |
 
 **Use case:** Browse available drug categories before searching, or provide suggestions when no match is found.
 
@@ -115,7 +119,7 @@ No parameters required.
 
 ## Common Class Terminology Mappings
 
-The AI endpoint handles these mappings automatically:
+The endpoint handles these mappings automatically when using the `query` parameter:
 
 | User Query | Database Class Name |
 |------------|---------------------|
@@ -133,7 +137,7 @@ The AI endpoint handles these mappings automatically:
 | "aminoglycosides" | Aminoglycosides [Chemical/Ingredient] |
 | "antibiotics" | Various antibiotic classes |
 
-**Note:** You do NOT need to translate these yourself. The `/api/ai/pharmacologic-class/search` endpoint handles all terminology matching.
+**Note:** You do NOT need to translate these yourself. The `/api/Label/pharmacologic-class/search?query=` endpoint handles all terminology matching.
 
 ---
 
@@ -150,7 +154,7 @@ Routes to this skill when user asks:
 Where {class} is a drug class name (not a medical condition).
 
 **Key Distinction:**
-- "What are the beta blockers?" → `pharmacologicClassSearch` → `/api/ai/pharmacologic-class/search`
+- "What are the beta blockers?" → `pharmacologicClassSearch` → `/api/Label/pharmacologic-class/search?query=`
 - "What helps with high blood pressure?" → `indicationDiscovery`
 
 ---
@@ -165,7 +169,7 @@ Where {class} is a drug class name (not a medical condition).
 - [View Full Label (ATENOLOL)](/api/Label/generate/{GUID2}/true)
 ```
 
-The AI endpoint returns pre-built label links in the `labelLinks` field.
+The endpoint returns pre-built label links in the `labelLinks` field.
 
 ---
 
@@ -188,16 +192,21 @@ The AI endpoint returns pre-built label links in the `labelLinks` field.
 
 ---
 
-## DO NOT USE: Raw Label Endpoints
+## Legacy Direct Database Search
 
-**⚠️ WARNING: These endpoints require EXACT database class names and will fail with user terminology.**
+For cases requiring exact class name matching without AI terminology translation:
 
-The following endpoints are for internal use only and should NOT be returned for user queries:
+```
+GET /api/Label/pharmacologic-class/search?classNameSearch={exactClassName}&pageNumber={n}&pageSize={n}
+```
 
-- `/api/Label/pharmacologic-class/search` - Requires exact class name like "Beta-Adrenergic Blockers [EPC]"
-- `/api/Label/pharmacologic-class/summaries` - Returns raw class list without search capability
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `classNameSearch` | string | Yes | Exact pharmacologic class name from database |
+| `pageNumber` | int | No | 1-based page number |
+| `pageSize` | int | No | Records per page |
 
-**Always use `/api/ai/pharmacologic-class/search` instead.**
+**Note:** This requires exact database class names like "Beta-Adrenergic Blockers [EPC]" and is typically only used for internal operations or when you already know the exact class name.
 
 ---
 

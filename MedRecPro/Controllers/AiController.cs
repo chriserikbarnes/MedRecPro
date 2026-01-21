@@ -96,12 +96,6 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="IClaudeConversationService"/>
         private readonly IClaudeConversationService _claudeConversationService;
 
-        /**************************************************************/
-        /// <summary>
-        /// Claude search service for intelligent pharmacologic class search.
-        /// </summary>
-        /// <seealso cref="IClaudeSearchService"/>
-        private readonly IClaudeSearchService _claudeSearchService;
 
         /**************************************************************/
         /// <summary>
@@ -137,7 +131,6 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         /// <param name="claudeApiService">Claude API service for interpretation and synthesis.</param>
         /// <param name="claudeConversationService">Claude conversation service for managing conversation sessions.</param>
-        /// <param name="claudeSearchService">Claude search service for intelligent pharmacologic class search.</param>
         /// <param name="stringCipher">String cipher utility for encryption.</param>
         /// <param name="configuration">Configuration provider.</param>
         /// <param name="logger">Logger instance.</param>
@@ -145,11 +138,9 @@ namespace MedRecPro.Api.Controllers
         /// <exception cref="InvalidOperationException">Thrown when encryption secret is not configured.</exception>
         /// <seealso cref="IClaudeApiService"/>
         /// <seealso cref="IClaudeConversationService"/>
-        /// <seealso cref="IClaudeSearchService"/>
         public AiController(
             IClaudeApiService claudeApiService,
             IClaudeConversationService claudeConversationService,
-            IClaudeSearchService claudeSearchService,
             StringCipher stringCipher,
             IConfiguration configuration,
             ILogger<AiController> logger)
@@ -158,7 +149,6 @@ namespace MedRecPro.Api.Controllers
 
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
             _claudeConversationService = claudeConversationService ?? throw new ArgumentNullException(nameof(claudeConversationService));
-            _claudeSearchService = claudeSearchService ?? throw new ArgumentNullException(nameof(claudeSearchService));
             _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -550,183 +540,6 @@ namespace MedRecPro.Api.Controllers
             };
 
             return await Interpret(request);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Searches for pharmaceutical products by pharmacologic class using intelligent
-        /// terminology matching. This endpoint solves the vocabulary mismatch problem where
-        /// user queries (e.g., "beta blockers") differ from database class names
-        /// (e.g., "Beta-Adrenergic Blockers [EPC]").
-        /// </summary>
-        /// <param name="query">
-        /// The user's natural language query about a pharmacologic class.
-        /// Examples: "beta blockers", "ACE inhibitors", "SSRIs", "statins"
-        /// </param>
-        /// <param name="maxProductsPerClass">
-        /// Maximum number of products to return per matched class. Default is 25.
-        /// </param>
-        /// <returns>
-        /// A <see cref="PharmacologicClassSearchResult"/> containing matched classes,
-        /// products organized by class, and label links for each product.
-        /// </returns>
-        /// <response code="200">Returns the search results with products and label links.</response>
-        /// <response code="400">If the query is empty.</response>
-        /// <response code="500">If an internal server error occurs.</response>
-        /// <remarks>
-        /// GET /api/ai/pharmacologic-class/search?query=beta blockers
-        ///
-        /// **Workflow:**
-        /// 1. Retrieves all pharmacologic classes from the database
-        /// 2. Uses AI to match user terminology to actual database class names
-        /// 3. Searches for products in each matched class
-        /// 4. Returns consolidated results with label links
-        ///
-        /// **Example Response:**
-        /// ```json
-        /// {
-        ///   "success": true,
-        ///   "originalQuery": "beta blockers",
-        ///   "matchedClasses": ["Beta-Adrenergic Blockers [EPC]"],
-        ///   "productsByClass": {
-        ///     "Beta-Adrenergic Blockers [EPC]": [
-        ///       {
-        ///         "productName": "METOPROLOL TARTRATE",
-        ///         "documentGuid": "abc-123-def",
-        ///         "activeIngredient": "Metoprolol Tartrate"
-        ///       }
-        ///     ]
-        ///   },
-        ///   "totalProductCount": 47,
-        ///   "labelLinks": {
-        ///     "View Full Label (METOPROLOL TARTRATE)": "/api/Label/generate/abc-123-def/true"
-        ///   }
-        /// }
-        /// ```
-        ///
-        /// **Supported Class Queries:**
-        /// - "beta blockers" → Beta-Adrenergic Blockers [EPC]
-        /// - "ACE inhibitors" → Angiotensin Converting Enzyme Inhibitors [EPC]
-        /// - "SSRIs" → Selective Serotonin Reuptake Inhibitors [EPC]
-        /// - "statins" → HMG-CoA Reductase Inhibitors [EPC]
-        /// - "calcium channel blockers" → Calcium Channel Blockers [EPC]
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// // Search for beta blockers
-        /// GET /api/ai/pharmacologic-class/search?query=beta%20blockers
-        ///
-        /// // Search for ACE inhibitors with limited results
-        /// GET /api/ai/pharmacologic-class/search?query=ACE%20inhibitors&amp;maxProductsPerClass=10
-        /// </code>
-        /// </example>
-        /// <seealso cref="IClaudeSearchService"/>
-        /// <seealso cref="PharmacologicClassSearchResult"/>
-        [HttpGet("pharmacologic-class/search")]
-        [AllowAnonymous]
-        [ProducesResponseType(typeof(PharmacologicClassSearchResult), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<PharmacologicClassSearchResult>> SearchByPharmacologicClass(
-            [FromQuery] string query,
-            [FromQuery] int maxProductsPerClass = 500)
-        {
-            #region input validation
-
-            if (string.IsNullOrWhiteSpace(query))
-            {
-                return BadRequest("Query parameter is required.");
-            }
-
-            #endregion
-
-            #region implementation
-
-            try
-            {
-                _logger.LogInformation("[AI] Pharmacologic class search for: {Query}", query);
-
-                // Build system context
-                var isAuthenticated = User.Identity?.IsAuthenticated ?? false;
-                var userId = isAuthenticated ? getEncryptedUserId() : null;
-                var systemContext = await _claudeApiService.GetSystemContextAsync(isAuthenticated, userId);
-
-                // Execute the intelligent search
-                var result = await _claudeSearchService.SearchByUserQueryAsync(
-                    query,
-                    systemContext,
-                    maxProductsPerClass);
-
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during pharmacologic class search for: {Query}", query);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching by pharmacologic class.");
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Lists all available pharmacologic classes with product counts.
-        /// This endpoint is useful for browsing available drug categories and
-        /// understanding the classification structure in the database.
-        /// </summary>
-        /// <returns>
-        /// A list of <see cref="PharmacologicClassSummaryDto"/> containing class names
-        /// and product counts for classes that have associated products.
-        /// </returns>
-        /// <response code="200">Returns the list of pharmacologic classes.</response>
-        /// <response code="500">If an internal server error occurs.</response>
-        /// <remarks>
-        /// GET /api/ai/pharmacologic-class/summaries
-        ///
-        /// Returns all pharmacologic classes that have at least one associated product.
-        /// Results are cached to optimize performance on repeated queries.
-        ///
-        /// **Example Response:**
-        /// ```json
-        /// [
-        ///   {
-        ///     "pharmClassName": "Beta-Adrenergic Blockers [EPC]",
-        ///     "productCount": 47
-        ///   },
-        ///   {
-        ///     "pharmClassName": "Angiotensin Converting Enzyme Inhibitors [EPC]",
-        ///     "productCount": 32
-        ///   }
-        /// ]
-        /// ```
-        /// </remarks>
-        /// <seealso cref="IClaudeSearchService"/>
-        /// <seealso cref="PharmacologicClassSummaryDto"/>
-        [HttpGet("pharmacologic-class/summaries")]
-        [AllowAnonymous]
-        [ProducesResponseType(typeof(List<PharmacologicClassSummaryDto>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<List<PharmacologicClassSummaryDto>>> GetPharmacologicClassSummaries()
-        {
-            #region implementation
-
-            try
-            {
-                _logger.LogDebug("[AI] Retrieving pharmacologic class summaries");
-
-                var summaries = await _claudeSearchService.GetAllClassSummariesAsync();
-
-                return Ok(summaries);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving pharmacologic class summaries");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving pharmacologic class summaries.");
-            }
 
             #endregion
         }

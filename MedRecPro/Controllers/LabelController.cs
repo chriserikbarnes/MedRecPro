@@ -81,6 +81,14 @@ namespace MedRecPro.Api.Controllers
 
         private readonly Service.IClaudeApiService _claudeApiService;
 
+        /**************************************************************/
+        /// <summary>
+        /// Claude search service for intelligent pharmacologic class search with AI-powered
+        /// terminology matching. Falls back to standard database search if unavailable.
+        /// </summary>
+        /// <seealso cref="IClaudeSearchService"/>
+        private readonly Service.IClaudeSearchService? _claudeSearchService;
+
         #endregion
 
         /**************************************************************/
@@ -98,6 +106,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="applicationDbContext"></param>
         /// <param name="splExportService"></param>
         /// <param name="claudeApiService">Service for Claude AI API calls for markdown cleanup</param>
+        /// <param name="claudeSearchService">Optional service for intelligent pharmacologic class search with AI</param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null</exception>
         /// <exception cref="InvalidOperationException">Thrown when PKSecret configuration is missing</exception>
         public LabelController(
@@ -111,7 +120,8 @@ namespace MedRecPro.Api.Controllers
             IServiceScopeFactory scopeFactory,
             ApplicationDbContext applicationDbContext,
             ISplExportService splExportService,
-            Service.IClaudeApiService claudeApiService)
+            Service.IClaudeApiService claudeApiService,
+            Service.IClaudeSearchService? claudeSearchService = null)
         {
             #region Implementation
 
@@ -132,6 +142,9 @@ namespace MedRecPro.Api.Controllers
 
             _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService));
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
+
+            // Optional dependency - may be null if AI service is unavailable
+            _claudeSearchService = claudeSearchService;
 
             #endregion
         }
@@ -752,6 +765,30 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets the encrypted user ID for the current authenticated user.
+        /// Used for building system context for AI-powered operations.
+        /// </summary>
+        /// <returns>Encrypted user ID string, or null if not authenticated.</returns>
+        /// <seealso cref="StringCipher.Encrypt"/>
+        private string? getEncryptedUserId()
+        {
+            #region implementation
+
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+            if (string.IsNullOrEmpty(userIdClaim))
+            {
+                return null;
+            }
+
+            // Encrypt the user ID for external use
+            return StringCipher.Encrypt(userIdClaim, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast);
+
+            #endregion
+        }
+
         #endregion Private Methods
 
         #region Application Number Navigation
@@ -974,81 +1011,167 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Searches products by pharmacologic/therapeutic class.
-        /// Enables drug discovery by therapeutic category (e.g., "Beta-Adrenergic Blockers", "ACE Inhibitors").
+        /// Searches products by pharmacologic/therapeutic class using intelligent terminology matching.
+        /// This endpoint solves the vocabulary mismatch problem where user queries (e.g., "beta blockers")
+        /// differ from database class names (e.g., "Beta-Adrenergic Blockers [EPC]").
         /// </summary>
+        /// <param name="query">
+        /// Natural language query for AI-powered intelligent search.
+        /// Examples: "beta blockers", "ACE inhibitors", "SSRIs", "statins"
+        /// When provided, AI matches user terminology to actual database class names.
+        /// </param>
         /// <param name="classNameSearch">
-        /// Search term to match against pharmacologic class names. 
-        /// Supports partial matching for flexible searches.
+        /// Direct search term to match against pharmacologic class names.
+        /// Supports partial matching for flexible searches. Used as fallback when AI is unavailable
+        /// or when direct class name matching is preferred.
+        /// </param>
+        /// <param name="maxProductsPerClass">
+        /// Maximum number of products to return per matched class when using AI search. Default is 500.
         /// </param>
         /// <param name="pageNumber">
-        /// Optional. The 1-based page number to retrieve.
+        /// Optional. The 1-based page number to retrieve (used with classNameSearch).
         /// </param>
         /// <param name="pageSize">
-        /// Optional. The number of records per page.
+        /// Optional. The number of records per page (used with classNameSearch).
         /// </param>
-        /// <returns>List of products matching the therapeutic class criteria.</returns>
-        /// <response code="200">Returns the list of products matching the pharmacologic class.</response>
-        /// <response code="400">If classNameSearch is null/empty or paging parameters are invalid.</response>
+        /// <returns>
+        /// When using `query`: Returns a <see cref="PharmacologicClassSearchResult"/> with matched classes,
+        /// products organized by class, and label links.
+        /// When using `classNameSearch`: Returns list of products matching the therapeutic class criteria.
+        /// </returns>
+        /// <response code="200">Returns the search results with products and label links.</response>
+        /// <response code="400">If neither query nor classNameSearch is provided, or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
-        /// GET /api/Label/pharmacologic-class/search?classNameSearch=Beta-Blocker
-        /// 
-        /// Response (200):
+        /// **AI-Powered Search (Recommended):**
+        ///
+        /// GET /api/Label/pharmacologic-class/search?query=beta blockers
+        ///
+        /// **Workflow:**
+        /// 1. Retrieves all pharmacologic classes from the database
+        /// 2. Uses AI to match user terminology to actual database class names
+        /// 3. Searches for products in each matched class
+        /// 4. Returns consolidated results with label links
+        ///
+        /// **Example Response (AI Search):**
         /// ```json
-        /// [
-        ///   {
-        ///     "EncryptedProductID": "encrypted_string",
-        ///     "ProductName": "ATENOLOL",
-        ///     "PharmClassName": "Beta-Adrenergic Blockers",
-        ///     "PharmClassType": "EPC"
+        /// {
+        ///   "success": true,
+        ///   "originalQuery": "beta blockers",
+        ///   "matchedClasses": ["Beta-Adrenergic Blockers [EPC]"],
+        ///   "productsByClass": {
+        ///     "Beta-Adrenergic Blockers [EPC]": [
+        ///       {
+        ///         "productName": "METOPROLOL TARTRATE",
+        ///         "documentGuid": "abc-123-def",
+        ///         "activeIngredient": "Metoprolol Tartrate"
+        ///       }
+        ///     ]
+        ///   },
+        ///   "totalProductCount": 47,
+        ///   "labelLinks": {
+        ///     "View Full Label (METOPROLOL TARTRATE)": "/api/Label/generate/abc-123-def/true"
         ///   }
-        /// ]
+        /// }
         /// ```
-        /// 
-        /// Results are ordered by PharmClassName, then ProductName.
+        ///
+        /// **Direct Database Search (Legacy):**
+        ///
+        /// GET /api/Label/pharmacologic-class/search?classNameSearch=Beta-Blocker
+        ///
+        /// Response returns raw product DTOs ordered by PharmClassName, then ProductName.
         /// </remarks>
         /// <example>
         /// <code>
-        /// // Search for beta blocker products
+        /// // AI-powered search (recommended)
+        /// GET /api/Label/pharmacologic-class/search?query=beta%20blockers
+        /// GET /api/Label/pharmacologic-class/search?query=ACE%20inhibitors&amp;maxProductsPerClass=10
+        ///
+        /// // Direct database search (legacy)
         /// GET /api/Label/pharmacologic-class/search?classNameSearch=Beta-Blocker
-        /// 
-        /// // Search with pagination
         /// GET /api/Label/pharmacologic-class/search?classNameSearch=ACE&amp;pageNumber=1&amp;pageSize=25
         /// </code>
         /// </example>
+        /// <seealso cref="IClaudeSearchService"/>
+        /// <seealso cref="PharmacologicClassSearchResult"/>
         /// <seealso cref="DtoLabelAccess.SearchByPharmacologicClassAsync"/>
-        /// <seealso cref="LabelView.ProductsByPharmacologicClass"/>
-        /// <seealso cref="Label.PharmacologicClass"/>
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("pharmacologic-class/search")]
+        [ProducesResponseType(typeof(PharmacologicClassSearchResult), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(IEnumerable<ProductsByPharmacologicClassDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<IEnumerable<ProductsByPharmacologicClassDto>>> SearchByPharmacologicClass(
-            [FromQuery] string classNameSearch,
-            [FromQuery] int? pageNumber,
-            [FromQuery] int? pageSize)
+        public async Task<ActionResult> SearchByPharmacologicClass(
+            [FromQuery] string? query,
+            [FromQuery] string? classNameSearch,
+            [FromQuery] int maxProductsPerClass = 500,
+            [FromQuery] int? pageNumber = null,
+            [FromQuery] int? pageSize = null)
         {
             #region Input Validation
 
-            // Validate class name search term is provided
-            if (string.IsNullOrWhiteSpace(classNameSearch))
+            // Validate that at least one search parameter is provided
+            if (string.IsNullOrWhiteSpace(query) && string.IsNullOrWhiteSpace(classNameSearch))
             {
-                return BadRequest("Pharmacologic class name search term is required.");
+                return BadRequest("Either 'query' (for AI search) or 'classNameSearch' (for direct search) is required.");
             }
 
-            // Validate paging parameters
-            var pagingValidation = validatePagingParameters(pageNumber, pageSize);
-            if (pagingValidation != null)
+            // Validate paging parameters when using classNameSearch
+            if (!string.IsNullOrWhiteSpace(classNameSearch))
             {
-                return pagingValidation;
+                var pagingValidation = validatePagingParameters(pageNumber, pageSize);
+                if (pagingValidation != null)
+                {
+                    return pagingValidation;
+                }
             }
 
             #endregion
 
-            #region Implementation
+            #region AI-Powered Search
+
+            // If query parameter is provided, attempt AI-powered search first
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                // Try AI-powered search if service is available
+                if (_claudeSearchService != null)
+                {
+                    try
+                    {
+                        _logger.LogInformation("[Label] AI pharmacologic class search for: {Query}", query);
+
+                        // Build system context
+                        var isAuthenticated = User.Identity?.IsAuthenticated ?? false;
+                        var userId = isAuthenticated ? getEncryptedUserId() : null;
+                        var systemContext = await _claudeApiService.GetSystemContextAsync(isAuthenticated, userId);
+
+                        // Execute the intelligent search
+                        var result = await _claudeSearchService.SearchByUserQueryAsync(
+                            query,
+                            systemContext,
+                            maxProductsPerClass);
+
+                        return Ok(result);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log and fall through to legacy search
+                        _logger.LogWarning(ex, "AI pharmacologic class search failed, falling back to database search: {Query}", query);
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug("AI search service unavailable, using database search for: {Query}", query);
+                }
+
+                // Fall back to using query as classNameSearch
+                classNameSearch = query;
+            }
+
+            #endregion
+
+            #region Database Search (Fallback/Legacy)
 
             try
             {
@@ -1057,7 +1180,7 @@ namespace MedRecPro.Api.Controllers
 
                 var results = await DtoLabelAccess.SearchByPharmacologicClassAsync(
                     _dbContext,
-                    classNameSearch,
+                    classNameSearch!,
                     _pkEncryptionSecret,
                     _logger,
                     pageNumber,
@@ -1169,46 +1292,65 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Gets pharmacologic class summaries with product counts.
-        /// Discover which therapeutic classes have the most products in the database.
+        /// Lists all available pharmacologic classes with product counts.
+        /// This endpoint is useful for browsing available drug categories and
+        /// understanding the classification structure in the database.
         /// </summary>
+        /// <param name="useAiCache">
+        /// Optional. When true, uses AI service's cached summaries which are optimized
+        /// for intelligent search operations. Default is false for backwards compatibility.
+        /// </param>
         /// <param name="pageNumber">
         /// Optional. The 1-based page number to retrieve.
         /// </param>
         /// <param name="pageSize">
         /// Optional. The number of records per page.
         /// </param>
-        /// <returns>List of pharmacologic class summaries with aggregated product counts.</returns>
-        /// <response code="200">Returns the pharmacologic class summaries.</response>
+        /// <returns>
+        /// A list of <see cref="PharmacologicClassSummaryDto"/> containing class names
+        /// and product counts for classes that have associated products.
+        /// </returns>
+        /// <response code="200">Returns the list of pharmacologic classes.</response>
         /// <response code="400">If paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
         /// GET /api/Label/pharmacologic-class/summaries
-        /// 
-        /// Response (200):
+        ///
+        /// Returns all pharmacologic classes that have at least one associated product.
+        /// Results are cached to optimize performance on repeated queries.
+        ///
+        /// **Example Response:**
         /// ```json
         /// [
         ///   {
-        ///     "PharmClassName": "Beta-Adrenergic Blockers",
-        ///     "PharmClassType": "EPC",
-        ///     "ProductCount": 150
+        ///     "pharmClassName": "Beta-Adrenergic Blockers [EPC]",
+        ///     "productCount": 47
+        ///   },
+        ///   {
+        ///     "pharmClassName": "Angiotensin Converting Enzyme Inhibitors [EPC]",
+        ///     "productCount": 32
         ///   }
         /// ]
         /// ```
-        /// 
-        /// Results are ordered by ProductCount in descending order.
+        ///
+        /// **Use Cases:**
+        /// - Browse available drug categories before searching
+        /// - Provide suggestions when no match is found in class search
+        /// - Display classification hierarchy to users
         /// </remarks>
+        /// <seealso cref="IClaudeSearchService"/>
         /// <seealso cref="DtoLabelAccess.GetPharmacologicClassSummariesAsync"/>
         /// <seealso cref="LabelView.PharmacologicClassSummary"/>
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("pharmacologic-class/summaries")]
-        [ProducesResponseType(typeof(IEnumerable<PharmacologicClassSummaryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(List<PharmacologicClassSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<IEnumerable<PharmacologicClassSummaryDto>>> GetPharmacologicClassSummaries(
-            [FromQuery] int? pageNumber,
-            [FromQuery] int? pageSize)
+        public async Task<ActionResult<List<PharmacologicClassSummaryDto>>> GetPharmacologicClassSummaries(
+            [FromQuery] bool useAiCache = false,
+            [FromQuery] int? pageNumber = null,
+            [FromQuery] int? pageSize = null)
         {
             #region Input Validation
 
@@ -1221,7 +1363,38 @@ namespace MedRecPro.Api.Controllers
 
             #endregion
 
-            #region Implementation
+            #region AI Service (Cached Summaries)
+
+            // Try AI service's cached summaries first if requested and available
+            if (useAiCache && _claudeSearchService != null)
+            {
+                try
+                {
+                    _logger.LogDebug("[Label] Retrieving pharmacologic class summaries from AI cache");
+
+                    var summaries = await _claudeSearchService.GetAllClassSummariesAsync();
+
+                    // Apply pagination if requested
+                    if (pageNumber.HasValue && pageSize.HasValue)
+                    {
+                        var skip = (pageNumber.Value - 1) * pageSize.Value;
+                        var paged = summaries.Skip(skip).Take(pageSize.Value).ToList();
+                        addPaginationHeaders(pageNumber, pageSize, paged.Count);
+                        return Ok(paged);
+                    }
+
+                    return Ok(summaries);
+                }
+                catch (Exception ex)
+                {
+                    // Log and fall through to database query
+                    _logger.LogWarning(ex, "AI cache retrieval failed, falling back to database query");
+                }
+            }
+
+            #endregion
+
+            #region Database Query (Default/Fallback)
 
             try
             {
@@ -4268,6 +4441,7 @@ namespace MedRecPro.Api.Controllers
 
         #endregion Latest Label Navigation
 
+        #region Basic Navigation and CRUD
         /**************************************************************/
         /// <summary>
         /// Provides a list of available label sections (data tables) that can be interacted with.
@@ -5878,5 +6052,6 @@ namespace MedRecPro.Api.Controllers
 
             #endregion
         }
-    }
+    } 
+    #endregion
 }
