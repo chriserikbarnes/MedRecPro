@@ -366,6 +366,7 @@ namespace MedRecPro.Service
             { "labelIndicationWorkflow", "Skill-LabelIndicationWorkflow" },
             { "labelProductIndication", "Skill-LabelProductIndication" },
             { "general", "Skill-General" },
+            { "sessionManagement", "Skill-SessionManagement" },
             { "equianalgesicConversion", "Skill-EquianalgesicConversion" },
             { "pharmacologicClassSearch", "Skill-PharmacologicClassSearch" }
         };
@@ -667,7 +668,7 @@ namespace MedRecPro.Service
                 { "equianalgesicConversion", "equianalgesicConversion" },
                 { "userActivity", "userActivity" },
                 { "cacheManagement", "settings" },
-                { "sessionManagement", "general" },
+                { "sessionManagement", "sessionManagement" },
                 { "dataRescue", "rescueWorkflow" },
                 { "retryFallback", "retry" },
                 { "pharmacologicClass", "pharmacologicClassSearch" },

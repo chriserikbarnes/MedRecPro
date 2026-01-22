@@ -242,8 +242,9 @@ Query: "Show me the dosage for metformin"
 ### sessionManagement
 
 **Keywords**
-- login, logout, authenticate, sign in, sign out
-- profile, current user, who am i, context
+- login, logout, authenticate, authenticated, sign in, sign out
+- profile, current user, who am i, am i logged in, context
+- authentication status, my account, my session
 - oauth, google login, microsoft login
 - conversation, interpret, synthesize, chat
 

@@ -197,23 +197,56 @@ Accesses official dosing guidance and conversion tables from FDA-approved labeli
 
 ## System Administration
 
-### User Activity Monitoring
+### Application Log Viewing
 
-View application logs, user actions, and system events with filtering capabilities.
+View in-memory application logs with comprehensive filtering capabilities.
 
-Provides audit trail access for compliance and troubleshooting. Supports filtering by severity level, user, time range, and event category.
+Provides real-time access to application logs stored in memory. Supports filtering by severity level (Trace, Debug, Information, Warning, Error, Critical), log category, user, and date range. Logs are retained for a configurable period (default 60 minutes).
 
 **Inputs**
-- Filter criteria (level, user, date range, category)
+- Severity level filter (optional): Trace, Debug, Information, Warning, Error, Critical
+- Category filter (optional): Logger category name (e.g., "ClaudeApiService", "Controller")
+- User filter (optional): Filter by specific user ID
+- Date range filter (optional): Start and end timestamps
+- Pagination: Page number and page size
 
 **Outputs**
-- Log entries matching criteria
-- Statistical summaries
+- Log entries with message, level, timestamp, category, user context
+- Exception details when applicable
+- Pagination metadata
 
 **Scenarios**
-- Reviewing error logs for troubleshooting
-- Auditing specific user activity
-- Monitoring system health
+- "Show me the logs" - View recent application logs
+- "Show me error logs" - Filter by Error level
+- "Show logs from ClaudeApiService" - Filter by category
+- "What errors happened in the last hour" - Filter by date and level
+- "How many logs do we have" - Get log statistics
+- "What log categories are available" - List categories
+
+---
+
+### User Activity Monitoring
+
+View activity audit logs for specific users showing their actions in the system.
+
+Provides detailed audit trail for compliance and troubleshooting. Tracks API calls, login events, and data modifications. Requires user lookup first to obtain encrypted user ID.
+
+**Inputs**
+- User identifier (email or encrypted user ID)
+- Date range filter (optional): Up to 365 days
+- Pagination: Page number and page size
+
+**Outputs**
+- Activity entries with type (Read, Create, Update, Delete, Login)
+- Request details (path, method, controller, action)
+- Performance data (execution time, response status)
+- Client context (IP address, user agent)
+
+**Scenarios**
+- "What did chris.erik.barnes@gmail.com do today" - User activity audit
+- "Show activity for [user] between dates" - Date-filtered audit
+- "What actions has [user] performed" - General activity review
+- "Show login history for [user]" - Authentication audit
 
 ---
 
@@ -221,15 +254,23 @@ Provides audit trail access for compliance and troubleshooting. Supports filteri
 
 View API response time statistics and performance metrics by controller and endpoint.
 
-Enables performance monitoring and capacity planning. Identifies slow endpoints and usage patterns.
+Enables performance monitoring and capacity planning. Analyzes activity logs to compute response time statistics. Identifies slow endpoints and usage patterns.
 
 **Inputs**
-- Controller or endpoint filter (optional)
-- Time range (optional)
+- Controller name (required): e.g., "Settings", "Label", "Users", "Ai"
+- Action name (optional): Specific method name for detailed analysis
+- Analysis limit (optional): Number of recent activities to analyze
 
 **Outputs**
-- Response time statistics
+- Response time statistics (average, min, max)
 - Request volume metrics
+- Date range of analyzed data
+
+**Scenarios**
+- "How is the Settings controller performing" - Controller-level stats
+- "What is the response time for GetLogs" - Specific endpoint stats
+- "Which endpoints are slowest" - Performance comparison
+- "API performance report" - Overall system performance
 
 ---
 
