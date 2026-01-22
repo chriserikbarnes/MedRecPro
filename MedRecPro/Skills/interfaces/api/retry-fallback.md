@@ -59,6 +59,57 @@ If a specific LOINC section code returns 404:
 
 ---
 
+## CRITICAL: Section 404 Fallback - Immediate Retry Pattern
+
+**When `/api/Label/markdown/sections/{guid}?sectionCode={code}` returns HTTP 404:**
+
+### Immediate Action Required
+
+1. **DO NOT** return empty results or use training data
+2. **IMMEDIATELY** retry WITHOUT the `sectionCode` parameter
+3. **Fetch ALL sections** from the same document
+
+### Example
+
+**Failed Request:**
+```
+GET /api/Label/markdown/sections/1d2535a1-12a3-480e-9250-4a4da2cf113a?sectionCode=43685-7
+Response: HTTP 404
+```
+
+**Fallback Request (USE THIS):**
+```
+GET /api/Label/markdown/sections/1d2535a1-12a3-480e-9250-4a4da2cf113a
+Response: HTTP 200 (returns ALL available sections)
+```
+
+### Why This Is Critical
+
+- **Ensures database-only responses**: The AI must use actual label data, not training data
+- **Section codes vary by label**: Not all labels have all LOINC sections
+- **Content may exist elsewhere**: Warning information may be in a different section than expected
+
+### Fallback JSON Response
+
+When this fallback is triggered, respond with:
+
+```json
+{
+  "success": true,
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{documentGuid}",
+      "description": "Fetch ALL sections - specific section returned 404"
+    }
+  ],
+  "explanation": "Specific section code not found, fetching all sections to extract relevant content",
+  "isDirectResponse": false
+}
+```
+
+---
+
 ## Output Format
 
 Respond with JSON containing DIFFERENT endpoints than the failed ones:

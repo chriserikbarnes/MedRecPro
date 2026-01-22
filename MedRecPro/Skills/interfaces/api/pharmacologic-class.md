@@ -209,6 +209,162 @@ GET /api/Label/pharmacologic-class/search?classNameSearch={exactClassName}&pageN
 
 ---
 
+## Multi-Step Workflows: Class Search + Section Retrieval
+
+When a user asks about a specific label section (warnings, side effects, etc.) for a drug class, use a multi-step workflow that:
+1. Searches for all products in the class
+2. Iterates over EACH product to retrieve the requested section
+3. Synthesizes a generalized summary from ALL product labels
+
+### CRITICAL: Array Extraction for Multi-Product Workflows
+
+The pharmacologic class search returns products in a **nested structure**:
+
+```json
+{
+  "productsByClass": {
+    "ClassName [EPC]": [
+      { "documentGuid": "abc", "productName": "Product1" },
+      { "documentGuid": "def", "productName": "Product2" }
+    ]
+  }
+}
+```
+
+**Use the `[]` suffix** in `outputMapping` to extract ALL values from this nested structure:
+
+```json
+"outputMapping": {
+  "documentGuids": "documentGuid[]",
+  "productNames": "productName[]"
+}
+```
+
+The `[]` suffix tells the executor to:
+1. Find all arrays in the nested response (regardless of nesting level)
+2. Extract the specified field from EACH array element
+3. Deduplicate the results
+
+### Class Warnings/Precautions Workflow
+
+**Query:** "What are the warnings for GLP-1 products?" or "Tell me about beta blocker side effects"
+
+```json
+{
+  "success": true,
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/pharmacologic-class/search",
+      "queryParameters": {
+        "query": "{drug class term}"
+      },
+      "outputMapping": {
+        "documentGuids": "documentGuid[]",
+        "productNames": "productName[]"
+      },
+      "description": "Search for all products in this drug class"
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
+      "queryParameters": {
+        "sectionCode": "43685-7"
+      },
+      "dependsOn": 1,
+      "description": "Get Warnings and Precautions for EACH product",
+      "fallbackOnError": {
+        "httpStatus": [404],
+        "action": "retry_without_param",
+        "removeParams": ["sectionCode"],
+        "description": "If section not found, get ALL sections"
+      }
+    }
+  ],
+  "explanation": "I'll search for all products in this class and retrieve warnings from each label."
+}
+```
+
+### Section Codes for Class-Level Queries
+
+| Query Type | sectionCode | Section Name |
+|------------|-------------|--------------|
+| warnings, precautions | 43685-7 | Warnings and Precautions |
+| side effects, adverse | 34084-4 | Adverse Reactions |
+| interactions | 34073-7 | Drug Interactions |
+| contraindications | 34069-5 | Contraindications |
+| black box, boxed warning | 34066-1 | Boxed Warning |
+| dosing, administration | 34068-7 | Dosage and Administration |
+| indications, used for | 34067-9 | Indications and Usage |
+
+### Fallback Pattern (CRITICAL)
+
+If the specific section returns 404, **ALWAYS fall back to retrieving ALL sections**:
+
+```json
+"fallbackOnError": {
+  "httpStatus": [404],
+  "action": "retry_without_param",
+  "removeParams": ["sectionCode"],
+  "description": "If section not found, get ALL sections and extract relevant content"
+}
+```
+
+**Why this matters:**
+- Not all labels have all LOINC section codes
+- Some labels may have the information under different sections
+- By getting ALL sections, the synthesis phase can find and extract relevant content
+
+### Synthesis Guidelines for Class-Level Queries
+
+When synthesizing results from multiple product labels:
+
+1. **Identify common warnings** across ALL products in the class
+2. **Note product-specific differences** where they exist
+3. **Include label links** for EVERY product in the dataReferences
+4. **Group warnings by severity/category** (Critical, Additional, etc.)
+5. **List all products in the class** with their active ingredients
+
+**Example synthesis structure:**
+
+```markdown
+## Warnings for {Class Name} Products
+
+Based on FDA-approved labeling for {N} products in this class...
+
+### Critical Warnings
+1. **Warning Topic** - Description common to ALL products in class
+   - Product-specific note if any differ
+
+### Additional Warnings
+...
+
+### Products in Database
+| Product | Active Ingredient |
+|---------|-------------------|
+| Product1 | ingredient1 |
+| Product2 | ingredient2 |
+
+### View Full Labels:
+- [View Full Label (Product1)](/api/Label/original/{guid1}/true)
+- [View Full Label (Product2)](/api/Label/original/{guid2}/true)
+
+### Data Sources:
+- [Search for {class} products](/api/Label/pharmacologic-class/search?query={class})
+- [Get Warnings sections for {class} products](/api/Label/markdown/sections/{guid}?sectionCode=43685-7)
+```
+
+### Key Points for Multi-Product Synthesis
+
+1. **Never generalize from a single product** - iterate over ALL products in the class
+2. **Preserve product attribution** - note which products have which warnings
+3. **Use database data only** - never use training data for medical information
+4. **Always include label links** - mandatory for every product retrieved
+
+---
+
 ## Related Documents
 
 - [Label Content](./label-content.md) - Section retrieval after class search

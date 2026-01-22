@@ -196,6 +196,71 @@ GET /api/Label/markdown/sections/{documentGuid}?sectionCode={loincCode}
 
 **CAUTION**: This may return 404 if the label doesn't have that section. Use the full-section approach above for reliability.
 
+---
+
+## CRITICAL: Section 404 Fallback Pattern
+
+**When a specific section request returns HTTP 404, you MUST fall back to fetching ALL sections.**
+
+### Fallback Rule
+
+If this fails (HTTP 404):
+```
+GET /api/Label/markdown/sections/{documentGuid}?sectionCode=43685-7
+```
+
+Then use this instead:
+```
+GET /api/Label/markdown/sections/{documentGuid}
+```
+
+### Why This Matters
+
+- **Training data avoidance**: The AI should ONLY use information from the database
+- **Not all labels have all sections**: A label may lack a specific LOINC section code but contain the information elsewhere
+- **Accurate responses**: By fetching all sections, the AI can find and extract relevant content from available sections
+
+### Implementation Pattern
+
+```json
+{
+  "endpoints": [
+    {
+      "step": 1,
+      "method": "GET",
+      "path": "/api/Label/product/latest",
+      "queryParameters": { "productNameSearch": "{drug}", "pageSize": 10 },
+      "outputMapping": {
+        "documentGuids": "DocumentGUID[]",
+        "productNames": "ProductName[]"
+      }
+    },
+    {
+      "step": 2,
+      "method": "GET",
+      "path": "/api/Label/markdown/sections/{{documentGuids}}",
+      "queryParameters": { "sectionCode": "43685-7" },
+      "description": "Try specific section first",
+      "dependsOn": 1,
+      "fallbackOnError": {
+        "httpStatus": [404],
+        "action": "retry_without_param",
+        "removeParams": ["sectionCode"],
+        "description": "If 404, fetch ALL sections and extract relevant content"
+      }
+    }
+  ]
+}
+```
+
+### Synthesis After Fallback
+
+When the fallback retrieves all sections:
+1. **Search for relevant content** in the full section data
+2. **Extract warnings/precautions** even if they appear under a different section code
+3. **Never use training data** - only synthesize from the actual API response
+4. **Clearly indicate** if the specific section was not found but related content was extracted from other sections
+
 ### Response Fields
 
 - `fullSectionText` - Aggregated markdown content
@@ -363,6 +428,28 @@ Use this pattern ONLY when you need a specific section and expect it to exist.
 | `dependsOn` | Step number this depends on |
 | `skipIfPreviousHasResults` | Only run if specified step was empty |
 | `{{variableName}}` | Template variable from previous step |
+
+---
+
+## Array Extraction Syntax
+
+The `[]` suffix in `outputMapping` extracts ALL matching values from the response:
+
+```json
+"outputMapping": {
+  "documentGuids": "DocumentGUID[]",   // Extracts ALL DocumentGUID values
+  "productNames": "ProductName[]"      // Extracts ALL ProductName values
+}
+```
+
+**CRITICAL:** The `[]` suffix handles BOTH:
+1. **Top-level arrays:** `[{documentGuid: 'a'}, {documentGuid: 'b'}]`
+2. **Nested arrays:** `{ productsByClass: { "ClassName": [{documentGuid: 'a'}, {documentGuid: 'b'}] } }`
+
+This is important for pharmacologic class searches where products are nested under dynamic class name keys.
+
+**Without `[]`:** Only extracts the FIRST value found (single-product workflow)
+**With `[]`:** Extracts ALL values for batch operations (multi-product workflow)
 
 ---
 
