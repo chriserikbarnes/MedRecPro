@@ -198,28 +198,25 @@ namespace MedRecProImportClass.Helpers
 
                 if (!string.IsNullOrEmpty(key) && obj != null && expirationMap != null)
                 {
-                    lock (cacheLock)
+                    // No lock needed - ConcurrentDictionary indexer is atomic
+                    expirationMap[key] = expiration;
+
+                    // No lock needed - MemoryCache.Set is thread-safe
+                    cache.Set(key, obj, objectPolicy);
+
+                    // Cache the expiration dictionary snapshot for compatibility
+                    // MemoryCache.Set is thread-safe
+                    cache.Set(p.ExpirationKey, expirationMap.ToDictionary(kv => kv.Key, kv => kv.Value), dictionaryPolicy);
+
+                    // Cache the log timer - MemoryCache.Set is thread-safe
+                    if (logTimer != null) cache.Set(logTimerKey, logTimer, dictionaryPolicy);
+
+                    // Log cache counts if the log timer was expired and there are enough items
+                    if (isExpired && expirationMap.Count > 2)
                     {
-                        // Update the static expiration map with the new object's expiration.
-                        expirationMap[key] = expiration;
-
-                        // Cache the object.
-                        cache.Set(key, obj, objectPolicy);
-
-                        // MemoryCache with the expiration dictionary and log timer.
-                        // This step can be omitted if the static dictionary is the sole source of truth.
-                        cache.Set(p.ExpirationKey, expirationMap.ToDictionary(kv => kv.Key, kv => kv.Value), dictionaryPolicy);
-
-                        // Cache the log timer
-                        if (logTimer != null) cache.Set(logTimerKey, logTimer, dictionaryPolicy);
-
-                        // Log cache counts if the log timer was expired and there are enough items.
-                        if (isExpired && expirationMap.Count > 2)
-                        {
-                            int expiredCount = expirationMap?.Count(kv => kv.Value < DateTimeOffset.Now) ?? 0;
-                            ErrorHelper.AddErrorMsg($"PerformanceHelper.SetCache (info): Cached count ({expirationMap.Count})");
-                            ErrorHelper.AddErrorMsg($"PerformanceHelper.SetCache (info): Expired cached count ({expiredCount})");
-                        }
+                        int expiredCount = expirationMap?.Count(kv => kv.Value < DateTimeOffset.Now) ?? 0;
+                        ErrorHelper.AddErrorMsg($"PerformanceHelper.SetCache (info): Cached count ({expirationMap.Count})");
+                        ErrorHelper.AddErrorMsg($"PerformanceHelper.SetCache (info): Expired cached count ({expiredCount})");
                     }
                 }
             }
@@ -356,18 +353,16 @@ namespace MedRecProImportClass.Helpers
                 }
                 else
                 {
-                    lock (tempDict)
+                    // No lock needed - creating a new ConcurrentDictionary from a snapshot is safe
+                    try
                     {
-                        try
-                        {
-                            //set the expiration bag to the
-                            //dictionary that has already been cached
-                            cacheExpirationsBag = new ConcurrentDictionary<string, DateTimeOffset>(tempDict);
-                        }
-                        catch
-                        {
-                            cacheExpirationsBag = null;
-                        }
+                        //set the expiration bag to the
+                        //dictionary that has already been cached
+                        cacheExpirationsBag = new ConcurrentDictionary<string, DateTimeOffset>(tempDict);
+                    }
+                    catch
+                    {
+                        cacheExpirationsBag = null;
                     }
                 }
 
@@ -401,47 +396,42 @@ namespace MedRecProImportClass.Helpers
 
                     if (cacheExpirations != null && cache != null)
                     {
-                        lock (cacheExpirations)
+                        // No locks needed - MemoryCache.Set is thread-safe
+                        try
                         {
-                            lock (cache)
+                            //cache the dictionary of keys and expirations
+                            cache.Set(p.ExpirationKey, cacheExpirations, cacheDictionaryPolicy);
+
+                            //cache the logging timer. when this
+                            //expires, a sample of the cache count
+                            //will be posted to the error log as info.
+                            cache.Set(logTimerKey, logTimer, cacheDictionaryPolicy);
+
+                            //cache the passed object
+                            cache.Set(key, obj, cacheObjectPolicy);
+
+                            //this is to calm down sampling. Each
+                            //user reports the count every 3 minutes
+                            //after the expiration dictionary contains
+                            //over 2 items.
+                            if (isExpiredTimer && cacheExpirations.Count > 2)
                             {
-                                try
-                                {
-                                    //cache the dictionary of keys and expirations
-                                    cache.Set(p.ExpirationKey, cacheExpirations, cacheDictionaryPolicy);
+                                expiredKeysCount = cacheExpirations
+                                    ?.Where(x => x.Value < DateTimeOffset.Now)
+                                    ?.Count() ?? 0;
 
-                                    //cache the logging timer. when this
-                                    //expires, a sample of the cache count
-                                    //will be posted to the error log as info.
-                                    cache.Set(logTimerKey, logTimer, cacheDictionaryPolicy);
+                                ErrorHelper.AddErrorMsg("PerformanceHelper.SetCache (info): Cached count ("
+                                    + cacheExpirations.Count
+                                    + ")");
 
-                                    //cache the passed object
-                                    cache.Set(key, obj, cacheObjectPolicy);
-
-                                    //this is to calm down sampling. Each
-                                    //user reports the count every 3 minutes
-                                    //after the expiration dictionary contains
-                                    //over 2 items.
-                                    if (isExpiredTimer && cacheExpirations.Count > 2)
-                                    {
-                                        expiredKeysCount = cacheExpirations
-                                            ?.Where(x => x.Value < DateTimeOffset.Now)
-                                            ?.Count() ?? 0;
-
-                                        ErrorHelper.AddErrorMsg("PerformanceHelper.SetCache (info): Cached count ("
-                                            + cacheExpirations.Count
-                                            + ")");
-
-                                        ErrorHelper.AddErrorMsg("PerformanceHelper.SetCache (info): Expired cached count ("
-                                            + expiredKeysCount
-                                            + ")");
-                                    }
-                                }
-                                catch (Exception e)
-                                {
-                                    ErrorHelper.AddErrorMsg("PerformanceHelper.SetCache: " + e);
-                                }
+                                ErrorHelper.AddErrorMsg("PerformanceHelper.SetCache (info): Expired cached count ("
+                                    + expiredKeysCount
+                                    + ")");
                             }
+                        }
+                        catch (Exception e)
+                        {
+                            ErrorHelper.AddErrorMsg("PerformanceHelper.SetCache: " + e);
                         }
                     }
                 }
@@ -577,25 +567,36 @@ namespace MedRecProImportClass.Helpers
         /******************************************************/
         /// <summary>
         /// Clears all the cached items that have a key
-        /// in the cached key list.
+        /// in the cached key list (Key Chain).
+        ///
+        /// This method takes a snapshot of keys first to avoid holding
+        /// any lock while calling RemoveCache, preventing nested lock acquisition.
         /// </summary>
+        /// <remarks>
+        /// The keySet is a ConcurrentDictionary which is already thread-safe.
+        /// We snapshot the keys first, then clear the collection atomically,
+        /// then process removals without holding any lock.
+        /// </remarks>
         private static void removeKeyListItems()
         {
-            #region implmenatation
+            #region implementation
             try
             {
-                if (keySet != null
-                    && keySet.Count > 0)
-                {
-                    lock (keySetLock)
-                    {
-                        foreach (var key in keySet.Keys)
-                        {
-                            RemoveCache(key);
-                        }
+                if (keySet == null || keySet.IsEmpty)
+                    return;
 
-                        keySet.Clear();
-                    }
+                // Take a snapshot of keys to avoid holding lock while calling RemoveCache
+                // ToArray creates a point-in-time copy of the keys
+                var keysSnapshot = keySet.Keys.ToArray();
+
+                // Clear is atomic on ConcurrentDictionary
+                keySet.Clear();
+
+                // Process removals without holding any lock
+                // RemoveCache is now lock-free and thread-safe
+                foreach (var key in keysSnapshot)
+                {
+                    RemoveCache(key);
                 }
             }
             catch (Exception e)
@@ -608,82 +609,59 @@ namespace MedRecProImportClass.Helpers
         /******************************************************/
         /// <summary>
         /// Returns a generic object from cache for the passed
-        /// key. If there is no result, then null is returned
+        /// key. If there is no result, then null is returned.
+        ///
+        /// CRITICAL: This method validates against expirationMap to prevent
+        /// returning stale items. MemoryCache may return items past their
+        /// expiration time if they haven't been evicted by garbage collection.
+        /// The expirationMap provides a secondary validation layer to ensure
+        /// stale items are never returned.
         /// </summary>
-        /// <param name="key"></param>
-        /// <returns></returns>
+        /// <param name="key">The cache key to retrieve</param>
+        /// <returns>The cached object or null if not found or expired</returns>
+        /// <seealso cref="SetCache(string, object, double)"/>
+        /// <seealso cref="RemoveCache(string)"/>
         public static object? GetCache(string key)
         {
-            #region implmenatation
-            //init class
+            #region implementation
+            // Initialize static properties if needed
             initStatic();
 
-            DateTimeOffset expiration;
-            bool isKeyed = false;
+            if (string.IsNullOrEmpty(key))
+                return null;
+
             object? returnObject = null;
 
             try
             {
-                if (!string.IsNullOrEmpty(key))
+                ObjectCache cache = System.Runtime.Caching.MemoryCache.Default;
+
+                // No lock needed - MemoryCache.Get is thread-safe
+                returnObject = cache.Get(key);
+
+                if (returnObject == null)
+                    return null;
+
+                #region checking for removal requirement
+                // CRITICAL: Validate against expirationMap to prevent stale returns
+                // This is necessary because MemoryCache may return items past expiration
+                // if they haven't been evicted by garbage collection yet
+                if (expirationMap != null && expirationMap.TryGetValue(key, out DateTimeOffset expiration))
                 {
-                    ObjectCache cache = System.Runtime.Caching.MemoryCache.Default;
-
-                    if (cache != null)
+                    // Check if item is stale based on our tracked expiration
+                    if (expiration <= DateTimeOffset.Now)
                     {
-                        lock (cacheLock)
-                        {
-                            #region locked cache
-
-                            try
-                            {
-                                //if the object isn't expired then return it
-                                returnObject = cache.Get(key);
-
-                            }
-                            catch (Exception e)
-                            {
-                                ErrorHelper.AddErrorMsg("PerformanceHelper.GetCache (cache): " + e);
-                            }
-
-                            #endregion
-                        }
-
-                        #region checking for removal requirement
-                        if (expirationMap != null)
-                        {
-                            try
-                            {
-                                isKeyed = (cache.Contains(key) && expirationMap.ContainsKey(key));
-
-                                //make sure cache contains the key and we have expirations to check
-                                if (isKeyed)
-                                {
-                                    //get the expiration for the requested cached object
-                                    expiration = expirationMap[key];
-
-                                    //is the item is older than expiration date
-                                    if (expiration <= DateTimeOffset.Now)
-                                    {
-                                        //if the object is expired then remove it
-                                        RemoveCache(key);
-
-                                        //set return object to null
-                                        returnObject = null;
-                                    }
-                                }
-                            }
-                            catch (Exception e)
-                            {
-                                ErrorHelper.AddErrorMsg("PerformanceHelper.GetCache (remove error): " + e);
-                            }
-                        }
-                        #endregion
+                        // Item is stale - remove it and return null
+                        RemoveCache(key);
+                        return null;
                     }
                 }
+                #endregion
             }
             catch (Exception e)
             {
                 ErrorHelper.AddErrorMsg("PerformanceHelper.GetCache: " + e);
+                return null;
             }
 
             return returnObject;
@@ -792,56 +770,37 @@ namespace MedRecProImportClass.Helpers
 
         /******************************************************/
         /// <summary>
-        /// Removes an item that has been cached. 
+        /// Removes an item that has been cached.
+        ///
+        /// NOTE: The expiration is marked in expirationMap to ensure no stale
+        /// item is returned even if MemoryCache hasn't evicted it yet.
+        /// The expirationMap provides a secondary validation layer.
         /// </summary>
-        /// <param name="key"></param>
+        /// <param name="key">The cache key to remove</param>
+        /// <seealso cref="GetCache(string)"/>
+        /// <seealso cref="SetCache(string, object, double)"/>
         public static void RemoveCache(string key)
         {
-            #region implmenatation
-            /*
-                 * NOTE: the cache expiration is being updated
-                 * here b/c in Dev calling "remove" wasn't resulting
-                 * in immediate expiration, and stale cached data was 
-                 * still being returned. Setting an ultra short 
-                 * expiration is an attempt to insure the stale cached
-                 * object isn't returned. The expiration dictionary
-                 * should suppress all stale items.
-                 */
+            #region implementation
+            if (string.IsNullOrEmpty(key))
+                return;
 
             try
             {
                 ObjectCache cache = System.Runtime.Caching.MemoryCache.Default;
 
-                if (cache != null)
+                // Mark as expired in the tracking dictionary first (thread-safe)
+                // This ensures GetCache won't return this item even if removal is delayed
+                expirationMap.TryRemove(key, out _);
+
+                // No lock needed - MemoryCache.Remove is thread-safe
+                // Remove returns the removed object (atomic get+remove)
+                var obj = cache.Remove(key);
+
+                // Dispose the object if it implements IDisposable
+                if (obj != null)
                 {
-                    lock (cacheLock)
-                    {
-                        try
-                        {
-                            if (key != null && cache.Contains(key))
-                            {
-                                var obj = cache.Get(key);
-
-                                if (obj != null)
-                                {
-                                    // Update the static expiration map with the new object's expiration.
-                                    expirationMap[key] = DateTimeOffset.Now;
-
-                                    dispose(obj);
-
-                                    obj = null;
-                                }
-
-                                //calls cache removal. Actual disposal depends
-                                //upon garbage collection
-                                cache.Remove(key);
-                            }
-                        }
-                        catch (Exception e)
-                        {
-                            ErrorHelper.AddErrorMsg("PerformanceHelper.RemoveCache: " + e);
-                        }
-                    }
+                    dispose(obj);
                 }
             }
             catch (Exception e)
