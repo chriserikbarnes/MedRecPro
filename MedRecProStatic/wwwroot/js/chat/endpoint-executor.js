@@ -264,6 +264,56 @@ export const EndpointExecutor = (function () {
 
     /**************************************************************/
     /**
+     * Finds all arrays nested within an object structure.
+     *
+     * @param {Object|Array} obj - Object to search
+     * @param {number} [maxDepth=5] - Maximum recursion depth
+     * @param {number} [currentDepth=0] - Current recursion depth
+     * @returns {Array<Array>} All found arrays (flattened for extraction)
+     *
+     * @description
+     * Recursively searches through nested objects to find arrays.
+     * Used when the data structure contains nested arrays (like productsByClass).
+     *
+     * @example
+     * const data = { productsByClass: { "GLP-1 [EPC]": [{...}, {...}] } };
+     * findNestedArrays(data); // Returns [{...}, {...}]
+     *
+     * @see extractValueByPath - Uses this for nested array extraction
+     */
+    /**************************************************************/
+    function findNestedArrays(obj, maxDepth = 5, currentDepth = 0) {
+        if (currentDepth > maxDepth || !obj || typeof obj !== 'object') {
+            return [];
+        }
+
+        // If obj itself is an array, return it
+        if (Array.isArray(obj)) {
+            return obj;
+        }
+
+        // Search through object properties
+        let foundArrays = [];
+        for (const key of Object.keys(obj)) {
+            const value = obj[key];
+            if (Array.isArray(value) && value.length > 0) {
+                // Found an array - add its contents
+                console.log(`[EndpointExecutor] Found nested array at key '${key}' with ${value.length} elements`);
+                foundArrays = foundArrays.concat(value);
+            } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+                // Recurse into nested objects
+                const nestedArrays = findNestedArrays(value, maxDepth, currentDepth + 1);
+                if (nestedArrays.length > 0) {
+                    foundArrays = foundArrays.concat(nestedArrays);
+                }
+            }
+        }
+
+        return foundArrays;
+    }
+
+    /**************************************************************/
+    /**
      * Extracts a value (or array of values) from data using a path.
      *
      * @param {Object|Array} data - Data to extract from
@@ -275,11 +325,14 @@ export const EndpointExecutor = (function () {
      * - "documentGUID[]" extracts ALL matching values from array elements
      * - Automatically deduplicates extracted values (important for combination
      *   products where the same documentGUID appears multiple times in results)
+     * - Handles nested arrays (e.g., productsByClass structure from pharmacologic
+     *   class search where arrays are nested under dynamic keys)
      *
      * This enables batch operations where a subsequent endpoint needs
      * to be called once per extracted value.
      *
      * @example
+     * // Simple top-level array
      * const data = [
      *     { documentGuid: 'abc' },
      *     { documentGuid: 'def' },
@@ -287,7 +340,20 @@ export const EndpointExecutor = (function () {
      * ];
      * extractValueByPath(data, 'documentGuid[]'); // ['abc', 'def'] (deduplicated)
      *
+     * @example
+     * // Nested array structure (pharmacologic class search)
+     * const data = {
+     *     productsByClass: {
+     *         "GLP-1 Receptor Agonist [EPC]": [
+     *             { documentGuid: 'abc', productName: 'Byetta' },
+     *             { documentGuid: 'def', productName: 'Trulicity' }
+     *         ]
+     *     }
+     * };
+     * extractValueByPath(data, 'documentGuid[]'); // ['abc', 'def']
+     *
      * @see expandEndpointForArrays - Uses array values for batch calls
+     * @see findNestedArrays - Finds arrays in nested structures
      */
     /**************************************************************/
     function extractValueByPath(data, path) {
@@ -307,11 +373,25 @@ export const EndpointExecutor = (function () {
         // Array extraction mode: extract field from EACH array element
         // Automatically deduplicates values (important for combination products
         // where the same documentGUID appears multiple times)
-        if (isArrayExtraction && Array.isArray(data)) {
+        if (isArrayExtraction) {
+            let arrayData = data;
+
+            // If data is not a top-level array, search for nested arrays
+            // This handles structures like { productsByClass: { "ClassName": [...] } }
+            if (!Array.isArray(data)) {
+                console.log(`[EndpointExecutor] Data is not a top-level array, searching for nested arrays...`);
+                arrayData = findNestedArrays(data);
+                if (arrayData.length === 0) {
+                    console.log(`[EndpointExecutor] No nested arrays found`);
+                    return undefined;
+                }
+                console.log(`[EndpointExecutor] Found ${arrayData.length} total elements in nested arrays`);
+            }
+
             const seen = new Set();
             const values = [];
-            for (let i = 0; i < data.length; i++) {
-                const value = extractSingleValue(data[i], cleanedPath);
+            for (let i = 0; i < arrayData.length; i++) {
+                const value = extractSingleValue(arrayData[i], cleanedPath);
                 if (value !== undefined && value !== null) {
                     // Deduplicate: only add if not already seen
                     const key = typeof value === 'object' ? JSON.stringify(value) : String(value);
@@ -321,7 +401,7 @@ export const EndpointExecutor = (function () {
                     }
                 }
             }
-            const duplicatesRemoved = data.length - values.length;
+            const duplicatesRemoved = arrayData.length - values.length;
             console.log(`[EndpointExecutor] === ARRAY EXTRACTION RESULT: ${values.length} unique values (${duplicatesRemoved} duplicates removed) ===`);
             console.log(`[EndpointExecutor] Values: [${values.slice(0, 5).join(', ')}${values.length > 5 ? '...' : ''}]`);
             return values.length > 0 ? values : undefined;
