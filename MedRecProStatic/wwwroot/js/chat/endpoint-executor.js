@@ -952,15 +952,80 @@ export const EndpointExecutor = (function () {
                             });
                         } else {
                             console.log(`[EndpointExecutor] Step ${step}${expandInfo} failed: ${processedEndpoint.path} - HTTP ${apiResponse.status}`);
-                            results.push({
-                                specification: processedEndpoint,
-                                statusCode: apiResponse.status,
-                                result: null,
-                                error: `HTTP ${apiResponse.status}`,
-                                executionTimeMs: Date.now() - startTime,
-                                step: step,
-                                hasData: false
-                            });
+
+                            // Check for fallbackOnError configuration
+                            const fallback = endpoint.fallbackOnError || currentEndpoint.fallbackOnError;
+                            const shouldRetry = fallback &&
+                                fallback.httpStatus &&
+                                fallback.httpStatus.includes(apiResponse.status) &&
+                                fallback.action === 'retry_without_param' &&
+                                fallback.removeParams;
+
+                            if (shouldRetry) {
+                                console.log(`[EndpointExecutor] === FALLBACK RETRY: Removing params [${fallback.removeParams.join(', ')}] ===`);
+
+                                // Create a new endpoint without the specified params
+                                const fallbackEndpoint = { ...processedEndpoint };
+                                if (fallbackEndpoint.queryParameters) {
+                                    fallbackEndpoint.queryParameters = { ...fallbackEndpoint.queryParameters };
+                                    for (const param of fallback.removeParams) {
+                                        delete fallbackEndpoint.queryParameters[param];
+                                    }
+                                }
+
+                                // Build and execute the fallback URL
+                                const fallbackApiUrl = ApiService.buildApiUrl(fallbackEndpoint);
+                                const fallbackFullUrl = ChatConfig.buildUrl(fallbackApiUrl);
+                                console.log(`[EndpointExecutor] Step ${step}${expandInfo} FALLBACK: ${fallbackFullUrl}`);
+
+                                const fallbackResponse = await fetch(fallbackFullUrl, ChatConfig.getFetchOptions({
+                                    method: fallbackEndpoint.method || 'GET',
+                                    headers: fallbackEndpoint.method === 'POST' ? { 'Content-Type': 'application/json' } : {},
+                                    body: fallbackEndpoint.method === 'POST' ? JSON.stringify(fallbackEndpoint.body) : undefined,
+                                    signal: abortController.signal
+                                }));
+
+                                if (fallbackResponse.ok) {
+                                    const fallbackData = await fallbackResponse.json();
+                                    const fallbackHasData = resultHasData({ result: fallbackData, statusCode: fallbackResponse.status });
+                                    console.log(`[EndpointExecutor] Step ${step}${expandInfo} FALLBACK succeeded (hasData: ${fallbackHasData})`);
+
+                                    results.push({
+                                        specification: fallbackEndpoint,
+                                        statusCode: fallbackResponse.status,
+                                        result: fallbackData,
+                                        executionTimeMs: Date.now() - startTime,
+                                        step: step,
+                                        hasData: fallbackHasData,
+                                        _expandedIndex: currentEndpoint._expandedIndex,
+                                        _expandedTotal: currentEndpoint._expandedTotal,
+                                        _fallbackUsed: true
+                                    });
+                                } else {
+                                    console.log(`[EndpointExecutor] Step ${step}${expandInfo} FALLBACK also failed: HTTP ${fallbackResponse.status}`);
+                                    results.push({
+                                        specification: fallbackEndpoint,
+                                        statusCode: fallbackResponse.status,
+                                        result: null,
+                                        error: `HTTP ${fallbackResponse.status} (fallback also failed)`,
+                                        executionTimeMs: Date.now() - startTime,
+                                        step: step,
+                                        hasData: false,
+                                        _fallbackUsed: true
+                                    });
+                                }
+                            } else {
+                                // No fallback configured or conditions not met
+                                results.push({
+                                    specification: processedEndpoint,
+                                    statusCode: apiResponse.status,
+                                    result: null,
+                                    error: `HTTP ${apiResponse.status}`,
+                                    executionTimeMs: Date.now() - startTime,
+                                    step: step,
+                                    hasData: false
+                                });
+                            }
                         }
                     } catch (endpointError) {
                         console.log(`[EndpointExecutor] Step ${step}${expandInfo} exception: ${endpointError.message}`);
