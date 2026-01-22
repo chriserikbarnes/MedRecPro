@@ -878,11 +878,46 @@ namespace MedRecPro.Service
                 // Build the interpretation prompt
                 var prompt = await buildInterpretationPromptAsync(request);
 
+                _logger.LogDebug("[INTERPRET DEBUG] Prompt built successfully, length: {Length}", prompt?.Length ?? 0);
+
                 // Call Claude API using existing method
                 var claudeResponse = await GenerateDocumentComparisonAsync(prompt);
 
+                _logger.LogInformation("[INTERPRET DEBUG] Claude response received, length: {Length}",
+                    claudeResponse?.Length ?? 0);
+
+                // Log first 500 chars of response for debugging
+                _logger.LogDebug("[INTERPRET DEBUG] Claude response preview: {Preview}",
+                    claudeResponse?.Length > 500 ? claudeResponse[..500] + "..." : claudeResponse);
+
+                // Check if response looks like JSON
+                var trimmedResponse = claudeResponse?.Trim() ?? "";
+                if (!trimmedResponse.StartsWith("{"))
+                {
+                    _logger.LogError("[INTERPRET DEBUG] Claude response does NOT start with '{{'. " +
+                        "Response starts with: {Start}",
+                        trimmedResponse.Length > 100 ? trimmedResponse[..100] : trimmedResponse);
+                }
+                else
+                {
+                    _logger.LogInformation("[INTERPRET DEBUG] Claude response appears to be JSON (starts with '{{')");
+                }
+
                 // Parse Claude's response into structured interpretation
                 var interpretation = parseInterpretationResponse(claudeResponse, request.SystemContext);
+
+                _logger.LogInformation("[INTERPRET DEBUG] Parse result - Success: {Success}, Endpoints: {Count}, IsDirectResponse: {IsDirect}",
+                    interpretation.Success,
+                    interpretation.Endpoints?.Count ?? 0,
+                    interpretation.IsDirectResponse);
+
+                if (!interpretation.Success || (interpretation.Endpoints?.Count ?? 0) == 0)
+                {
+                    _logger.LogWarning("[INTERPRET DEBUG] Interpretation failed or returned 0 endpoints. " +
+                        "Error: {Error}, DirectResponse length: {Length}",
+                        interpretation.Error,
+                        interpretation.DirectResponse?.Length ?? 0);
+                }
 
                 // Include conversation ID in response for client reference
                 interpretation.ConversationId = conversation.ConversationId;
@@ -1353,13 +1388,37 @@ namespace MedRecPro.Service
         {
             #region implementation
 
+            _logger.LogInformation("[INTERPRET DEBUG] Building interpretation prompt for: {Message}",
+                request.UserMessage.Length > 100 ? request.UserMessage[..100] + "..." : request.UserMessage);
+
             // Stage 1: Select relevant skills based on user message
             var skillSelection = await _skillService.SelectSkillsAsync(
                 request.UserMessage,
                 request.SystemContext);
 
+            _logger.LogInformation("[INTERPRET DEBUG] Skills selected: [{Skills}]",
+                string.Join(", ", skillSelection.SelectedSkills));
+
             // Stage 2: Load only the selected skills
             var skills = await _skillService.GetSkillContentAsync(skillSelection);
+
+            _logger.LogInformation("[INTERPRET DEBUG] Skill content loaded: {Length} chars",
+                skills?.Length ?? 0);
+
+            // Check if skills content appears valid
+            if (string.IsNullOrEmpty(skills) || skills.Length < 500)
+            {
+                _logger.LogError("[INTERPRET DEBUG] CRITICAL: Skill content is too short or empty! " +
+                    "Expected >500 chars, got {Length}. This will cause JSON parsing failures.",
+                    skills?.Length ?? 0);
+            }
+
+            // Check if response format instructions are included
+            if (skills != null && !skills.Contains("JSON") && !skills.Contains("json"))
+            {
+                _logger.LogError("[INTERPRET DEBUG] CRITICAL: Skill content does not contain JSON format instructions! " +
+                    "Claude will respond conversationally instead of with structured JSON.");
+            }
 
             _logger.LogDebug("Two-stage routing: Selected skills [{Skills}] for query",
                 string.Join(", ", skillSelection.SelectedSkills));
@@ -1369,6 +1428,12 @@ namespace MedRecPro.Service
             // System instructions
             sb.AppendLine("You are an AI assistant for MedRecPro, a pharmaceutical labeling management system.");
             sb.AppendLine("Your task is to interpret user requests and return structured API endpoint specifications.");
+            sb.AppendLine();
+
+            // FALLBACK: Add explicit JSON format instruction in case response-format.md is missing
+            sb.AppendLine("=== CRITICAL RESPONSE FORMAT ===");
+            sb.AppendLine("You MUST respond with ONLY valid JSON. No markdown, no explanations, no preamble, no code blocks.");
+            sb.AppendLine("Return a single JSON object. Do not wrap it in ```json``` or any other formatting.");
             sb.AppendLine();
 
             // Include selected skills document (not all skills)
@@ -1626,20 +1691,31 @@ namespace MedRecPro.Service
         {
             #region implementation
 
+            _logger.LogDebug("[PARSE DEBUG] Starting to parse response, length: {Length}", response?.Length ?? 0);
+
             try
             {
                 // Find JSON in response (may be wrapped in markdown code blocks)
                 var jsonStart = response.IndexOf('{');
                 var jsonEnd = response.LastIndexOf('}');
 
+                _logger.LogDebug("[PARSE DEBUG] JSON markers - Start: {Start}, End: {End}", jsonStart, jsonEnd);
+
                 if (jsonStart >= 0 && jsonEnd > jsonStart)
                 {
                     var jsonContent = response.Substring(jsonStart, jsonEnd - jsonStart + 1);
+
+                    _logger.LogDebug("[PARSE DEBUG] Extracted JSON length: {Length}", jsonContent.Length);
+                    _logger.LogDebug("[PARSE DEBUG] JSON preview: {Preview}",
+                        jsonContent.Length > 300 ? jsonContent[..300] + "..." : jsonContent);
 
                     var interpretation = JsonConvert.DeserializeObject<AiAgentInterpretation>(jsonContent);
 
                     if (interpretation != null)
                     {
+                        _logger.LogInformation("[PARSE DEBUG] Successfully parsed JSON. Endpoints: {Count}",
+                            interpretation.Endpoints?.Count ?? 0);
+
                         // Validate authentication requirements
                         if (interpretation.RequiresAuthentication && context?.IsAuthenticated == false)
                         {
@@ -1650,9 +1726,20 @@ namespace MedRecPro.Service
 
                         return interpretation;
                     }
+                    else
+                    {
+                        _logger.LogError("[PARSE DEBUG] Deserialization returned null");
+                    }
+                }
+                else
+                {
+                    _logger.LogError("[PARSE DEBUG] Could not find valid JSON markers in response. " +
+                        "Response preview: {Preview}",
+                        response?.Length > 200 ? response[..200] : response);
                 }
 
                 // Fallback if parsing fails
+                _logger.LogWarning("[PARSE DEBUG] Falling back to direct response mode");
                 _logger.LogWarning("Failed to parse Claude response as JSON. Response: {Response}",
                     response.Length > 500 ? response[..500] : response);
 
@@ -1666,6 +1753,7 @@ namespace MedRecPro.Service
             }
             catch (Newtonsoft.Json.JsonException ex)
             {
+                _logger.LogError(ex, "[PARSE DEBUG] JSON parsing exception: {Message}", ex.Message);
                 _logger.LogWarning(ex, "JSON parsing error in interpretation response");
 
                 return new AiAgentInterpretation

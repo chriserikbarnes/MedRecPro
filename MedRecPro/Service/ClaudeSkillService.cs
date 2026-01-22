@@ -729,9 +729,12 @@ namespace MedRecPro.Service
         {
             #region implementation
 
+            _logger.LogInformation("[SKILL CONTENT DEBUG] Starting GetSkillContentAsync for skills: [{Skills}]",
+                string.Join(", ", selection?.SelectedSkills ?? new List<string>()));
+
             if (selection == null || !selection.SelectedSkills.Any())
             {
-                _logger.LogWarning("No skills selected, returning label skill as default");
+                _logger.LogWarning("[SKILL CONTENT DEBUG] No skills selected, returning label skill as default");
                 return await GetSkillByNameAsync("label");
             }
 
@@ -744,19 +747,31 @@ namespace MedRecPro.Service
                 !capabilityContracts.StartsWith("Skills document not found") &&
                 !capabilityContracts.StartsWith("Capability contracts document"))
             {
+                _logger.LogInformation("[SKILL CONTENT DEBUG] Capability contracts loaded: {Length} chars",
+                    capabilityContracts.Length);
                 sb.AppendLine("=== CAPABILITY CONTRACTS (skills.md) ===");
                 sb.AppendLine(capabilityContracts);
                 sb.AppendLine();
                 sb.AppendLine("---");
                 sb.AppendLine();
             }
+            else
+            {
+                _logger.LogError("[SKILL CONTENT DEBUG] FAILED to load capability contracts: {Content}",
+                    capabilityContracts?.Substring(0, Math.Min(100, capabilityContracts?.Length ?? 0)));
+            }
 
             // Load each selected skill and its corresponding interface document
             foreach (var skillName in selection.SelectedSkills)
             {
+                _logger.LogDebug("[SKILL CONTENT DEBUG] Loading skill: {SkillName}", skillName);
+
                 var content = await GetSkillByNameAsync(skillName);
                 if (!string.IsNullOrEmpty(content) && !content.StartsWith("Skill"))
                 {
+                    _logger.LogInformation("[SKILL CONTENT DEBUG] Skill '{SkillName}' loaded: {Length} chars",
+                        skillName, content.Length);
+
                     if (sb.Length > 0)
                     {
                         sb.AppendLine();
@@ -769,38 +784,69 @@ namespace MedRecPro.Service
                     var interfaceContent = await GetInterfaceDocumentAsync(skillName);
                     if (!string.IsNullOrEmpty(interfaceContent) && !interfaceContent.StartsWith("Interface document"))
                     {
+                        _logger.LogInformation("[SKILL CONTENT DEBUG] Interface for '{SkillName}' loaded: {Length} chars",
+                            skillName, interfaceContent.Length);
                         sb.AppendLine();
                         sb.AppendLine("---");
                         sb.AppendLine();
                         sb.AppendLine(interfaceContent);
                     }
+                    else
+                    {
+                        _logger.LogWarning("[SKILL CONTENT DEBUG] Interface for '{SkillName}' NOT loaded: {Content}",
+                            skillName, interfaceContent?.Substring(0, Math.Min(100, interfaceContent?.Length ?? 0)));
+                    }
+                }
+                else
+                {
+                    _logger.LogError("[SKILL CONTENT DEBUG] Skill '{SkillName}' FAILED to load: {Content}",
+                        skillName, content?.Substring(0, Math.Min(100, content?.Length ?? 0)));
                 }
             }
 
-            // Append response format standards
+            // Append response format standards - THIS IS CRITICAL FOR JSON OUTPUT
             var responseFormat = await GetResponseFormatDocumentAsync();
             if (!string.IsNullOrEmpty(responseFormat) && !responseFormat.StartsWith("Skills document not found"))
             {
+                _logger.LogInformation("[SKILL CONTENT DEBUG] Response format document loaded: {Length} chars",
+                    responseFormat.Length);
                 sb.AppendLine();
                 sb.AppendLine("---");
                 sb.AppendLine();
                 sb.AppendLine(responseFormat);
+            }
+            else
+            {
+                _logger.LogError("[SKILL CONTENT DEBUG] CRITICAL: Response format document NOT loaded! " +
+                    "Claude will NOT return JSON. Content: {Content}",
+                    responseFormat?.Substring(0, Math.Min(100, responseFormat?.Length ?? 0)));
             }
 
             // Append synthesis rules
             var synthesisRules = await GetSynthesisRulesDocumentAsync();
             if (!string.IsNullOrEmpty(synthesisRules) && !synthesisRules.StartsWith("Synthesis rules document"))
             {
+                _logger.LogInformation("[SKILL CONTENT DEBUG] Synthesis rules loaded: {Length} chars",
+                    synthesisRules.Length);
                 sb.AppendLine();
                 sb.AppendLine("---");
                 sb.AppendLine();
                 sb.AppendLine(synthesisRules);
             }
+            else
+            {
+                _logger.LogWarning("[SKILL CONTENT DEBUG] Synthesis rules NOT loaded: {Content}",
+                    synthesisRules?.Substring(0, Math.Min(100, synthesisRules?.Length ?? 0)));
+            }
+
+            var totalContent = sb.ToString();
+            _logger.LogInformation("[SKILL CONTENT DEBUG] Total skill content assembled: {Length} chars for skills [{Skills}]",
+                totalContent.Length, string.Join(", ", selection.SelectedSkills));
 
             _logger.LogInformation("[SKILL CONTENT] Loaded skills [{Skills}]",
                 string.Join(", ", selection.SelectedSkills));
 
-            return sb.ToString();
+            return totalContent;
 
             #endregion
         }
@@ -1072,17 +1118,24 @@ namespace MedRecPro.Service
 
             if (!string.IsNullOrEmpty(cached))
             {
+                _logger.LogDebug("[RESPONSE FORMAT DEBUG] Returning cached response format ({Length} chars)", cached.Length);
                 return Task.FromResult(cached);
             }
 
-            _logger.LogDebug("Loading response format document from {Path}", ResponseFormatPath);
+            _logger.LogInformation("[RESPONSE FORMAT DEBUG] Loading response format document from {Path}", ResponseFormatPath);
 
             var content = readSkillFileByPath(ResponseFormatPath);
 
             // Cache for 8 hours
             if (!content.StartsWith("Skills document not found"))
             {
+                _logger.LogInformation("[RESPONSE FORMAT DEBUG] Successfully loaded response format: {Length} chars", content.Length);
                 PerformanceHelper.SetCacheManageKey(key, content, 8);
+            }
+            else
+            {
+                _logger.LogError("[RESPONSE FORMAT DEBUG] CRITICAL: Response format file NOT FOUND at {Path}! " +
+                    "This will cause Claude to respond with markdown instead of JSON.", ResponseFormatPath);
             }
 
             return Task.FromResult(content);
@@ -1174,21 +1227,56 @@ namespace MedRecPro.Service
         {
             #region implementation
 
+            // Log the requested path for diagnostics
+            _logger.LogDebug("[SKILL FILE DEBUG] Requested path: {SkillFilePath}", skillFilePath);
+
             // Resolve the path relative to the application's content root
             var fullPath = Path.Combine(AppContext.BaseDirectory, skillFilePath);
+            _logger.LogDebug("[SKILL FILE DEBUG] Trying BaseDirectory path: {FullPath}", fullPath);
+            _logger.LogDebug("[SKILL FILE DEBUG] BaseDirectory value: {BaseDir}", AppContext.BaseDirectory);
 
             if (!File.Exists(fullPath))
             {
+                _logger.LogWarning("[SKILL FILE DEBUG] NOT FOUND at BaseDirectory: {Path}", fullPath);
+
                 // Try relative to current directory as fallback
                 fullPath = Path.Combine(Directory.GetCurrentDirectory(), skillFilePath);
+                _logger.LogDebug("[SKILL FILE DEBUG] Trying CurrentDirectory path: {FullPath}", fullPath);
+                _logger.LogDebug("[SKILL FILE DEBUG] CurrentDirectory value: {CurrDir}", Directory.GetCurrentDirectory());
             }
 
             if (!File.Exists(fullPath))
             {
+                _logger.LogError("[SKILL FILE DEBUG] FILE NOT FOUND - Neither path exists for: {SkillFilePath}", skillFilePath);
+
+                // List what files DO exist in the Skills directory for diagnostics
+                try
+                {
+                    var skillsDir = Path.Combine(AppContext.BaseDirectory, "Skills");
+                    if (Directory.Exists(skillsDir))
+                    {
+                        var existingFiles = Directory.GetFiles(skillsDir, "*", SearchOption.AllDirectories);
+                        _logger.LogWarning("[SKILL FILE DEBUG] Files that DO exist in Skills directory: {Files}",
+                            string.Join(", ", existingFiles.Take(20)));
+                    }
+                    else
+                    {
+                        _logger.LogError("[SKILL FILE DEBUG] Skills directory does not exist at: {SkillsDir}", skillsDir);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[SKILL FILE DEBUG] Error listing Skills directory contents");
+                }
+
                 return $"Skills document not found at: {skillFilePath}";
             }
 
-            return File.ReadAllText(fullPath);
+            var content = File.ReadAllText(fullPath);
+            _logger.LogInformation("[SKILL FILE DEBUG] Successfully loaded: {FullPath} ({Length} chars)",
+                fullPath, content.Length);
+
+            return content;
 
             #endregion
         }
