@@ -320,7 +320,7 @@ const MedRecProChat = (function () {
                     responseContent += '\n\n**View Full Labels:**\n';
                     importResult.documentIds.forEach(docGuid => {
                         const shortGuid = docGuid.substring(0, 8);
-                        responseContent += `- [View Imported Label (${shortGuid}...)](${ChatConfig.buildUrl(`/api/Label/generate/${docGuid}/true`)})\n`;
+                        responseContent += `- [View Imported Label (${shortGuid}...)](${ChatConfig.buildUrl(`/api/Label/original/${docGuid}/true`)})\n`;
                     });
 
                     // Add import progress link if operationId is available
@@ -448,8 +448,8 @@ const MedRecProChat = (function () {
      * frontend can add the correct base URL via ChatConfig.buildUrl().
      *
      * @example
-     * sanitizeApiUrls('View [label](http://localhost:5001/api/Label/generate/abc/true)')
-     * // Returns: 'View [label](/api/Label/generate/abc/true)'
+     * sanitizeApiUrls('View [label](http://localhost:5001/api/Label/original/abc/true)')
+     * // Returns: 'View [label](/api/Label/original/abc/true)'
      *
      * @see executeAndSynthesizeEndpoints - Uses this to clean synthesis responses
      */

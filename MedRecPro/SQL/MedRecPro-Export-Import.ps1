@@ -797,6 +797,7 @@ function Invoke-ImportPhase {
             [void]$bcpArgs.Add($params.BatchSize.ToString())
             [void]$bcpArgs.Add("-h")
             [void]$bcpArgs.Add("TABLOCK")
+            [void]$bcpArgs.Add("-E")  
             [void]$bcpArgs.Add("-e")
             [void]$bcpArgs.Add($errFile)
 
@@ -864,6 +865,7 @@ function Invoke-ImportPhase {
             [void]$bcpArgs.Add($BatchSize.ToString())
             [void]$bcpArgs.Add("-h")
             [void]$bcpArgs.Add("TABLOCK")
+            [void]$bcpArgs.Add("-E")  
             [void]$bcpArgs.Add("-e")
             [void]$bcpArgs.Add($errFile)
 

@@ -57,7 +57,6 @@
 
 		<!-- Include for IntelliSense in design-time, exclude during build -->
 		<Compile Include="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' == 'true'" />
-		<Compile Remove="Skills\FirstDraft\**" />
 		<Compile Remove="Views\SplTemplates\**\*.cshtml" Condition="'$(DesignTimeBuild)' != 'true'" />
 
 		<!-- Always include as embedded resources for RazorLight -->
@@ -72,11 +71,6 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
-	</ItemGroup>
-	<ItemGroup>
-	  <Content Remove="Skills\FirstDraft\**" />
-	  <EmbeddedResource Remove="Skills\FirstDraft\**" />
-	  <None Remove="Skills\FirstDraft\**" />
 	</ItemGroup>
 	<ItemGroup>
 	  <None Remove="nul" />
@@ -132,7 +126,6 @@
 		<None Update="Skills\interfaces\api\pharmacologic-class.md">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
-		<!-- FirstDraft (legacy) skill files -->
 	</ItemGroup>
 	<ItemGroup>
 	  <Folder Include="Exceptions\" />

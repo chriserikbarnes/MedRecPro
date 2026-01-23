@@ -158,7 +158,7 @@
         },
         {
           "method": "GET",
-          "path": "/api/label/generate/{guid}",
+          "path": "/api/Label/original/{guid}",
           "description": "Generate valid SPL XML from database records"
         }
       ]

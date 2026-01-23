@@ -1053,6 +1053,225 @@ export const EndpointExecutor = (function () {
 
     /**************************************************************/
     /**
+     * Extracts a product/ingredient name from an endpoint description.
+     *
+     * @param {string} description - Endpoint description containing product info
+     * @returns {string|null} Extracted product name or null if not found
+     *
+     * @description
+     * Parses endpoint descriptions like:
+     * - "Search for sevelamer - phosphate binder for CKD"
+     * - "Search for finerenone (Kerendia) - non-steroidal MRA"
+     * - "Get metformin products"
+     *
+     * Extraction patterns:
+     * 1. "Search for X - description" → extracts X
+     * 2. "Search for X (brand) - description" → extracts X
+     * 3. "Get X products" → extracts X
+     *
+     * @example
+     * extractProductNameFromDescription("Search for sevelamer - phosphate binder for CKD");
+     * // Returns: "sevelamer"
+     *
+     * @see executeUniiResolutionFallback - Uses this to find product names
+     */
+    /**************************************************************/
+    function extractProductNameFromDescription(description) {
+        if (!description || typeof description !== 'string') {
+            return null;
+        }
+
+        // Pattern 1: "Search for X - description" or "Search for X (brand) - description"
+        // Captures the ingredient name before any parenthetical brand name or dash
+        const searchForPattern = /search\s+for\s+([a-zA-Z][a-zA-Z0-9\-]*)/i;
+        const match1 = description.match(searchForPattern);
+        if (match1) {
+            console.log(`[EndpointExecutor] Extracted product name from description: '${match1[1]}'`);
+            return match1[1].trim();
+        }
+
+        // Pattern 2: "Get X products" or "Retrieve X"
+        const getPattern = /(?:get|retrieve|find|lookup)\s+([a-zA-Z][a-zA-Z0-9\-]*)/i;
+        const match2 = description.match(getPattern);
+        if (match2) {
+            console.log(`[EndpointExecutor] Extracted product name from description: '${match2[1]}'`);
+            return match2[1].trim();
+        }
+
+        // Pattern 3: First capitalized word that looks like a drug name (fallback)
+        // Skip common words like "Search", "Get", "Find", etc.
+        const skipWords = ['search', 'get', 'find', 'retrieve', 'lookup', 'for', 'the', 'a', 'an'];
+        const words = description.split(/[\s\-\(\),]+/);
+        for (const word of words) {
+            const lowerWord = word.toLowerCase();
+            if (word.length >= 4 && !skipWords.includes(lowerWord) && /^[a-zA-Z]/.test(word)) {
+                console.log(`[EndpointExecutor] Extracted product name (fallback): '${word}'`);
+                return word;
+            }
+        }
+
+        return null;
+    }
+
+    /**************************************************************/
+    /**
+     * Executes UNII resolution fallback when product/latest returns empty.
+     *
+     * @param {Object} processedEndpoint - Original endpoint that returned empty
+     * @param {Object} endpoint - Original endpoint specification with description
+     * @param {AbortController} abortController - For request cancellation
+     * @param {number} step - Current step number for logging
+     * @param {string} expandInfo - Expansion info string for logging
+     * @param {number} startTime - Start timestamp for timing
+     * @param {Object} currentEndpoint - Current endpoint for metadata
+     * @param {Object} extractedVariables - Variables to update with corrected data
+     * @returns {Promise<Object|null>} Result object if fallback succeeds, null otherwise
+     *
+     * @description
+     * When /api/Label/product/latest?unii=X returns 200 but empty results:
+     * 1. Extracts product name from endpoint description
+     * 2. Calls /api/Label/ingredient/advanced?substanceNameSearch={productName}
+     * 3. Gets correct UNII from the response
+     * 4. Retries /api/Label/product/latest?unii={correctUNII}
+     *
+     * This handles cases where the interpret phase used incorrect/hallucinated
+     * UNIIs from reference data but the product name is correct.
+     *
+     * @example
+     * // Endpoint description: "Search for sevelamer - phosphate binder"
+     * // Original UNII UF86BE3WDJ returns empty
+     * // Fallback: ingredient/advanced?substanceNameSearch=sevelamer
+     * // Gets correct UNII: 9YCX42I8IU
+     * // Retries: product/latest?unii=9YCX42I8IU
+     *
+     * @see processExpandedEndpoint - Calls this when product/latest is empty
+     */
+    /**************************************************************/
+    async function executeUniiResolutionFallback(processedEndpoint, endpoint, abortController, step, expandInfo, startTime, currentEndpoint, extractedVariables) {
+        // Only apply to /api/Label/product/latest with unii parameter
+        const path = processedEndpoint.path || '';
+        const queryParams = processedEndpoint.queryParameters || {};
+
+        if (!path.includes('/api/Label/product/latest') || !queryParams.unii) {
+            return null;
+        }
+
+        // Get the product name from the description
+        const description = processedEndpoint.description || endpoint.description || currentEndpoint.description || '';
+        const productName = extractProductNameFromDescription(description);
+
+        if (!productName) {
+            console.log(`[EndpointExecutor] UNII fallback: Could not extract product name from description: '${description}'`);
+            return null;
+        }
+
+        console.log(`[EndpointExecutor] === UNII RESOLUTION FALLBACK ===`);
+        console.log(`[EndpointExecutor] Original UNII '${queryParams.unii}' returned empty`);
+        console.log(`[EndpointExecutor] Extracted product name: '${productName}'`);
+        console.log(`[EndpointExecutor] Step 1: Searching ingredient/advanced for correct UNII...`);
+
+        // Step 1: Call ingredient/advanced to find the correct UNII
+        const ingredientSearchEndpoint = {
+            method: 'GET',
+            path: '/api/Label/ingredient/advanced',
+            queryParameters: {
+                substanceNameSearch: productName,
+                pageNumber: '1',
+                pageSize: '5'
+            }
+        };
+
+        const ingredientApiUrl = ApiService.buildApiUrl(ingredientSearchEndpoint);
+        const ingredientFullUrl = ChatConfig.buildUrl(ingredientApiUrl);
+        console.log(`[EndpointExecutor] Ingredient search: ${ingredientFullUrl}`);
+
+        try {
+            const ingredientResponse = await fetch(ingredientFullUrl, ChatConfig.getFetchOptions({
+                method: 'GET',
+                signal: abortController.signal
+            }));
+
+            if (!ingredientResponse.ok) {
+                console.log(`[EndpointExecutor] UNII fallback: ingredient search failed HTTP ${ingredientResponse.status}`);
+                return null;
+            }
+
+            const ingredientData = await ingredientResponse.json();
+
+            // Extract UNII from the ingredient search results
+            // Response format: [{ ingredientView: { unii: "...", productName: "...", ... } }]
+            let correctUnii = null;
+            if (Array.isArray(ingredientData) && ingredientData.length > 0) {
+                // Look for unii in the response
+                correctUnii = findPropertyDeep(ingredientData[0], 'unii');
+            }
+
+            if (!correctUnii) {
+                console.log(`[EndpointExecutor] UNII fallback: No UNII found in ingredient search results`);
+                return null;
+            }
+
+            console.log(`[EndpointExecutor] Step 2: Found correct UNII: '${correctUnii}'`);
+            console.log(`[EndpointExecutor] Step 3: Retrying product/latest with correct UNII...`);
+
+            // Step 2: Retry product/latest with the correct UNII
+            const correctedEndpoint = {
+                ...processedEndpoint,
+                queryParameters: {
+                    ...processedEndpoint.queryParameters,
+                    unii: correctUnii
+                }
+            };
+
+            const correctedApiUrl = ApiService.buildApiUrl(correctedEndpoint);
+            const correctedFullUrl = ChatConfig.buildUrl(correctedApiUrl);
+            console.log(`[EndpointExecutor] Corrected product search: ${correctedFullUrl}`);
+
+            const correctedResponse = await fetch(correctedFullUrl, ChatConfig.getFetchOptions({
+                method: 'GET',
+                signal: abortController.signal
+            }));
+
+            if (correctedResponse.ok) {
+                const correctedData = await correctedResponse.json();
+                const hasData = resultHasData({ result: correctedData, statusCode: correctedResponse.status });
+
+                if (hasData) {
+                    console.log(`[EndpointExecutor] === UNII RESOLUTION SUCCESS ===`);
+                    console.log(`[EndpointExecutor] Corrected UNII '${correctUnii}' returned ${Array.isArray(correctedData) ? correctedData.length : 1} result(s)`);
+
+                    // Update extracted variables with the corrected UNII for downstream steps
+                    extractedVariables._correctedUnii = correctUnii;
+                    extractedVariables._originalUnii = queryParams.unii;
+
+                    return {
+                        specification: correctedEndpoint,
+                        statusCode: correctedResponse.status,
+                        result: correctedData,
+                        executionTimeMs: Date.now() - startTime,
+                        step: step,
+                        hasData: true,
+                        _expandedIndex: currentEndpoint._expandedIndex,
+                        _expandedTotal: currentEndpoint._expandedTotal,
+                        _uniiFallbackUsed: true,
+                        _originalUnii: queryParams.unii,
+                        _correctedUnii: correctUnii,
+                        _apiUrl: correctedFullUrl
+                    };
+                }
+            }
+
+            console.log(`[EndpointExecutor] UNII fallback: Corrected UNII also returned empty/failed`);
+            return null;
+
+        } catch (error) {
+            console.log(`[EndpointExecutor] UNII fallback exception: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**************************************************************/
+    /**
      * Determines if a fallback retry should be attempted.
      *
      * @param {Object} endpoint - Original endpoint specification
@@ -1173,6 +1392,31 @@ export const EndpointExecutor = (function () {
             if (response.ok) {
                 const hasData = resultHasData({ result: data, statusCode: response.status });
                 console.log(`[EndpointExecutor] Step ${step}${expandInfo} succeeded: ${processedEndpoint.path} (hasData: ${hasData})`);
+
+                // UNII Resolution Fallback: If product/latest returned 200 but empty, try to resolve via ingredient search
+                if (!hasData) {
+                    const uniiFallbackResult = await executeUniiResolutionFallback(
+                        processedEndpoint,
+                        endpoint,
+                        abortController,
+                        step,
+                        expandInfo,
+                        startTime,
+                        currentEndpoint,
+                        extractedVariables
+                    );
+
+                    if (uniiFallbackResult) {
+                        // UNII fallback succeeded - process output mappings on the corrected result
+                        if (!isArrayExpansion && endpoint.outputMapping) {
+                            processOutputMappings(uniiFallbackResult.result, endpoint.outputMapping, extractedVariables);
+                        } else if (!isArrayExpansion) {
+                            autoExtractCommonFields(uniiFallbackResult.result, extractedVariables);
+                        }
+                        return uniiFallbackResult;
+                    }
+                    // If UNII fallback fails, continue with original empty result
+                }
 
                 // Extract output mappings (only on non-expanded or first expansion)
                 if (!isArrayExpansion && endpoint.outputMapping) {
