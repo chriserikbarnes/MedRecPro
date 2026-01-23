@@ -1226,6 +1226,147 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Extracts drug/ingredient names from a natural language description using AI.
+        /// Used for UNII resolution fallback when the interpret phase uses incorrect UNIIs
+        /// but includes the correct product name in the endpoint description.
+        /// </summary>
+        /// <param name="description">
+        /// The endpoint description containing product/ingredient information.
+        /// Examples:
+        /// - "Search for sevelamer - phosphate binder for CKD"
+        /// - "Search for finerenone (Kerendia) - non-steroidal MRA"
+        /// - "Get metformin products for type 2 diabetes"
+        /// </param>
+        /// <returns>
+        /// A <see cref="ProductExtractionResult"/> containing the extracted product name(s),
+        /// confidence level, and any brand-to-generic mappings applied.
+        /// </returns>
+        /// <response code="200">Returns the extraction result with product name(s).</response>
+        /// <response code="400">If the description parameter is missing.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ## Purpose
+        ///
+        /// This endpoint bridges the gap between the AI interpret phase (which may use
+        /// incorrect UNIIs from reference data) and the database. When a UNII-based
+        /// product search returns empty, the frontend can:
+        ///
+        /// 1. Call this endpoint with the original description
+        /// 2. Get the correct product name
+        /// 3. Search by ingredient name to find the correct UNII
+        /// 4. Retry the product search with the corrected UNII
+        ///
+        /// ## Request
+        ///
+        /// ```
+        /// GET /api/Label/extract-product?description=Search+for+sevelamer+-+phosphate+binder+for+CKD
+        /// ```
+        ///
+        /// ## Response (200)
+        ///
+        /// ```json
+        /// {
+        ///   "success": true,
+        ///   "productNames": ["sevelamer"],
+        ///   "primaryProductName": "sevelamer",
+        ///   "confidence": "high",
+        ///   "explanation": "Extracted 'sevelamer' from 'Search for sevelamer'",
+        ///   "brandMappingApplied": false,
+        ///   "originalBrandName": null
+        /// }
+        /// ```
+        ///
+        /// ## Response with Brand Mapping
+        ///
+        /// ```json
+        /// {
+        ///   "success": true,
+        ///   "productNames": ["finerenone"],
+        ///   "primaryProductName": "finerenone",
+        ///   "confidence": "high",
+        ///   "explanation": "Converted brand name Kerendia to generic finerenone",
+        ///   "brandMappingApplied": true,
+        ///   "originalBrandName": "Kerendia"
+        /// }
+        /// ```
+        ///
+        /// ## Error Response
+        ///
+        /// ```json
+        /// {
+        ///   "success": false,
+        ///   "productNames": [],
+        ///   "confidence": "low",
+        ///   "error": "Could not extract product name from description"
+        /// }
+        /// ```
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Extract product from a description
+        /// GET /api/Label/extract-product?description=Search+for+finerenone+(Kerendia)+-+MRA
+        ///
+        /// // Use in UNII fallback workflow
+        /// // 1. Original query: /api/Label/product/latest?unii=WRONG_UNII → empty
+        /// // 2. Extract product: /api/Label/extract-product?description=...
+        /// // 3. Search ingredient: /api/Label/ingredient/advanced?substanceNameSearch=finerenone
+        /// // 4. Get correct UNII: WPE1M7X0GA
+        /// // 5. Retry: /api/Label/product/latest?unii=WPE1M7X0GA → success!
+        /// </code>
+        /// </example>
+        /// <seealso cref="IClaudeSearchService.ExtractProductFromDescriptionAsync"/>
+        /// <seealso cref="ProductExtractionResult"/>
+        [HttpGet("extract-product")]
+        [ProducesResponseType(typeof(ProductExtractionResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ProductExtractionResult>> ExtractProductFromDescription(
+            [FromQuery] string description)
+        {
+            #region Input Validation
+
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                return BadRequest("The 'description' parameter is required.");
+            }
+
+            #endregion
+
+            #region Implementation
+
+            try
+            {
+                _logger.LogInformation("[EXTRACT PRODUCT] Extracting product from description: {Description}",
+                    description.Length > 100 ? description.Substring(0, 100) + "..." : description);
+
+                // Check if the search service is available
+                if (_claudeSearchService == null)
+                {
+                    _logger.LogWarning("[EXTRACT PRODUCT] ClaudeSearchService not available, returning error");
+                    return Ok(new ProductExtractionResult
+                    {
+                        Success = false,
+                        Error = "Product extraction service not available"
+                    });
+                }
+
+                // Call the service to extract the product name
+                var result = await _claudeSearchService.ExtractProductFromDescriptionAsync(description);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[EXTRACT PRODUCT] Error extracting product from description: {Description}", description);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while extracting product from description.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets the pharmacologic class hierarchy showing parent-child relationships.
         /// Enables navigation through therapeutic classification levels.
         /// </summary>

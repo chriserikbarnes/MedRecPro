@@ -126,6 +126,23 @@
 		<None Update="Skills\interfaces\api\pharmacologic-class.md">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
+		<!-- AI service skill files (ClaudeSearchService) -->
+		<None Update="Skills\product-extraction.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Skills\pharmacologic-class-matching.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Skills\interfaces\api\product-extraction-api.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<!-- AI prompt templates (ClaudeSearchService) -->
+		<None Update="Skills\prompts\product-extraction-prompt.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Skills\prompts\pharmacologic-class-matching-prompt.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 	</ItemGroup>
 	<ItemGroup>
 	  <Folder Include="Exceptions\" />

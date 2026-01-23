@@ -14,6 +14,8 @@
  * - Conditional execution (skipIfPreviousHasResults)
  * - Case-insensitive and deep property searching
  * - Fallback retry logic for 404 responses
+ * - UNII resolution fallback for incorrect/hallucinated UNIIs
+ * - Dynamic label content fetching for UNII fallback discoveries
  *
  * This module implements the core workflow orchestration for complex queries
  * that require multiple API calls with data flowing between steps.
@@ -1053,27 +1055,30 @@ export const EndpointExecutor = (function () {
 
     /**************************************************************/
     /**
-     * Extracts a product/ingredient name from an endpoint description.
+     * Simple local fallback for extracting product names from descriptions.
      *
      * @param {string} description - Endpoint description containing product info
      * @returns {string|null} Extracted product name or null if not found
      *
      * @description
-     * Parses endpoint descriptions like:
-     * - "Search for sevelamer - phosphate binder for CKD"
-     * - "Search for finerenone (Kerendia) - non-steroidal MRA"
-     * - "Get metformin products"
+     * This is a simplified fallback used when the server-side AI extraction
+     * API (/api/Label/extract-product) is unavailable. The server-side API
+     * handles the complex extraction logic including:
+     * - Brand to generic name resolution
+     * - Multi-word ingredient names
+     * - Drug class vs drug name disambiguation
      *
-     * Extraction patterns:
-     * 1. "Search for X - description" → extracts X
-     * 2. "Search for X (brand) - description" → extracts X
-     * 3. "Get X products" → extracts X
+     * This local fallback only handles simple patterns:
+     * - "Search for X - description" → extracts X
+     * - "Get X products" → extracts X
+     * - First word that looks like a drug name (4+ letters, starts with letter)
      *
      * @example
-     * extractProductNameFromDescription("Search for sevelamer - phosphate binder for CKD");
+     * extractProductNameFromDescription("Search for sevelamer - phosphate binder");
      * // Returns: "sevelamer"
      *
-     * @see executeUniiResolutionFallback - Uses this to find product names
+     * @see extractProductNameFromDescriptionAsync - Primary extraction using server API
+     * @see executeUniiResolutionFallback - Uses this as last resort fallback
      */
     /**************************************************************/
     function extractProductNameFromDescription(description) {
@@ -1081,36 +1086,291 @@ export const EndpointExecutor = (function () {
             return null;
         }
 
-        // Pattern 1: "Search for X - description" or "Search for X (brand) - description"
-        // Captures the ingredient name before any parenthetical brand name or dash
+        // Pattern 1: "Search for X - description"
         const searchForPattern = /search\s+for\s+([a-zA-Z][a-zA-Z0-9\-]*)/i;
         const match1 = description.match(searchForPattern);
         if (match1) {
-            console.log(`[EndpointExecutor] Extracted product name from description: '${match1[1]}'`);
-            return match1[1].trim();
+            const extracted = match1[1].trim().toLowerCase();
+            console.log(`[EndpointExecutor] Local fallback extracted: '${extracted}'`);
+            return extracted;
         }
 
         // Pattern 2: "Get X products" or "Retrieve X"
         const getPattern = /(?:get|retrieve|find|lookup)\s+([a-zA-Z][a-zA-Z0-9\-]*)/i;
         const match2 = description.match(getPattern);
         if (match2) {
-            console.log(`[EndpointExecutor] Extracted product name from description: '${match2[1]}'`);
-            return match2[1].trim();
+            const extracted = match2[1].trim().toLowerCase();
+            console.log(`[EndpointExecutor] Local fallback extracted: '${extracted}'`);
+            return extracted;
         }
 
-        // Pattern 3: First capitalized word that looks like a drug name (fallback)
-        // Skip common words like "Search", "Get", "Find", etc.
-        const skipWords = ['search', 'get', 'find', 'retrieve', 'lookup', 'for', 'the', 'a', 'an'];
-        const words = description.split(/[\s\-\(\),]+/);
+        // Pattern 3: First word that looks like a drug name (simple fallback)
+        const skipWords = new Set([
+            'search', 'get', 'find', 'retrieve', 'lookup', 'fetch', 'query',
+            'for', 'the', 'a', 'an', 'to', 'of', 'in', 'on', 'with', 'from', 'by',
+            'products', 'product', 'medications', 'medication', 'drugs', 'drug',
+            'label', 'labels', 'information', 'details', 'data'
+        ]);
+
+        const words = description.split(/[\s\-\(\),;:]+/);
         for (const word of words) {
             const lowerWord = word.toLowerCase();
-            if (word.length >= 4 && !skipWords.includes(lowerWord) && /^[a-zA-Z]/.test(word)) {
-                console.log(`[EndpointExecutor] Extracted product name (fallback): '${word}'`);
-                return word;
+            if (word.length >= 4 && !skipWords.has(lowerWord) && /^[a-zA-Z]/.test(word)) {
+                console.log(`[EndpointExecutor] Local fallback extracted (first word): '${lowerWord}'`);
+                return lowerWord;
             }
         }
 
         return null;
+    }
+
+    /**************************************************************/
+    /**
+     * Checks if an endpoint is a product/latest query with UNII parameter.
+     *
+     * @param {Object} processedEndpoint - Endpoint to check
+     * @returns {boolean} True if endpoint is a product/latest UNII query
+     *
+     * @description
+     * Determines if the endpoint matches the pattern that can benefit
+     * from UNII resolution fallback when results are empty.
+     *
+     * @see executeUniiResolutionFallback - Uses this for validation
+     */
+    /**************************************************************/
+    function isProductLatestUniiQuery(processedEndpoint) {
+        const path = processedEndpoint.path || '';
+        const queryParams = processedEndpoint.queryParameters || {};
+        return path.includes('/api/Label/product/latest') && queryParams.unii;
+    }
+
+    /**************************************************************/
+    /**
+     * Extracts a product name from a description using the server-side AI API.
+     *
+     * @param {string} description - Endpoint description containing product info
+     * @param {AbortController} abortController - For request cancellation
+     * @returns {Promise<string|null>} Extracted product name or null if not found
+     *
+     * @description
+     * Calls the /api/Label/extract-product endpoint which uses Claude AI to
+     * intelligently extract drug/ingredient names from natural language descriptions.
+     * This handles edge cases that pattern matching cannot, such as:
+     * - Varied description formats
+     * - Brand to generic name resolution
+     * - Multi-word ingredient names
+     * - Drug class vs drug name disambiguation
+     *
+     * Falls back to local extractProductNameFromDescription() if the API fails.
+     *
+     * @example
+     * const productName = await extractProductNameFromDescriptionAsync(
+     *     "Search for finerenone (Kerendia) - non-steroidal MRA for CKD",
+     *     abortController
+     * );
+     * // Returns: "finerenone"
+     *
+     * @see extractProductNameFromDescription - Local fallback function
+     * @see executeUniiResolutionFallback - Primary consumer of this function
+     */
+    /**************************************************************/
+    async function extractProductNameFromDescriptionAsync(description, abortController) {
+        if (!description || typeof description !== 'string') {
+            return null;
+        }
+
+        console.log(`[EndpointExecutor] Calling AI extraction for description: '${description.substring(0, 80)}...'`);
+
+        try {
+            // Build the API endpoint
+            const extractEndpoint = {
+                method: 'GET',
+                path: '/api/Label/extract-product',
+                queryParameters: {
+                    description: description
+                }
+            };
+
+            const apiUrl = ApiService.buildApiUrl(extractEndpoint);
+            const fullUrl = ChatConfig.buildUrl(apiUrl);
+            console.log(`[EndpointExecutor] Extract product API: ${fullUrl}`);
+
+            const response = await fetch(fullUrl, ChatConfig.getFetchOptions({
+                method: 'GET',
+                signal: abortController.signal
+            }));
+
+            if (!response.ok) {
+                console.log(`[EndpointExecutor] Extract product API failed HTTP ${response.status}, using local fallback`);
+                return extractProductNameFromDescription(description);
+            }
+
+            const result = await response.json();
+
+            // Check if extraction was successful
+            if (result.success && result.primaryProductName) {
+                console.log(`[EndpointExecutor] AI extracted product: '${result.primaryProductName}' (confidence: ${result.confidence})`);
+
+                // Log brand mapping if applied
+                if (result.brandMappingApplied) {
+                    console.log(`[EndpointExecutor] Brand mapping: '${result.originalBrandName}' -> '${result.primaryProductName}'`);
+                }
+
+                return result.primaryProductName;
+            }
+
+            // AI extraction didn't find a product, try local fallback
+            console.log(`[EndpointExecutor] AI extraction returned no product: ${result.error || result.explanation}`);
+            return extractProductNameFromDescription(description);
+
+        } catch (error) {
+            // Network error or other issue, use local fallback
+            console.log(`[EndpointExecutor] Extract product API error: ${error.message}, using local fallback`);
+            return extractProductNameFromDescription(description);
+        }
+    }
+
+    /**************************************************************/
+    /**
+     * Searches for the correct UNII using ingredient advanced search.
+     *
+     * @param {string} productName - Product name to search for
+     * @param {AbortController} abortController - For request cancellation
+     * @returns {Promise<string|null>} Correct UNII or null if not found
+     *
+     * @description
+     * Calls /api/Label/ingredient/advanced to find the correct UNII
+     * for a given product name. Extracts UNII from the first result.
+     *
+     * @see executeUniiResolutionFallback - Uses this function
+     */
+    /**************************************************************/
+    async function searchForCorrectUnii(productName, abortController) {
+        const ingredientSearchEndpoint = {
+            method: 'GET',
+            path: '/api/Label/ingredient/advanced',
+            queryParameters: {
+                substanceNameSearch: productName,
+                pageNumber: '1',
+                pageSize: '5'
+            }
+        };
+
+        const ingredientApiUrl = ApiService.buildApiUrl(ingredientSearchEndpoint);
+        const ingredientFullUrl = ChatConfig.buildUrl(ingredientApiUrl);
+        console.log(`[EndpointExecutor] Ingredient search: ${ingredientFullUrl}`);
+
+        const ingredientResponse = await fetch(ingredientFullUrl, ChatConfig.getFetchOptions({
+            method: 'GET',
+            signal: abortController.signal
+        }));
+
+        if (!ingredientResponse.ok) {
+            console.log(`[EndpointExecutor] UNII search: ingredient search failed HTTP ${ingredientResponse.status}`);
+            return null;
+        }
+
+        const ingredientData = await ingredientResponse.json();
+
+        // Extract UNII from the ingredient search results
+        // Response format: [{ ingredientView: { unii: "...", productName: "...", ... } }]
+        if (Array.isArray(ingredientData) && ingredientData.length > 0) {
+            const unii = findPropertyDeep(ingredientData[0], 'unii');
+            if (unii) {
+                console.log(`[EndpointExecutor] UNII search: Found UNII '${unii}' for '${productName}'`);
+                return unii;
+            }
+        }
+
+        console.log(`[EndpointExecutor] UNII search: No UNII found in ingredient search results for '${productName}'`);
+        return null;
+    }
+
+    /**************************************************************/
+    /**
+     * Retries product/latest endpoint with a corrected UNII.
+     *
+     * @param {Object} originalEndpoint - Original endpoint specification
+     * @param {string} correctUnii - Corrected UNII to use
+     * @param {AbortController} abortController - For request cancellation
+     * @returns {Promise<Object|null>} Response data if successful, null otherwise
+     *
+     * @description
+     * Creates a new endpoint with the corrected UNII and executes the request.
+     * Returns an object with { response, data, fullUrl } on success.
+     *
+     * @see executeUniiResolutionFallback - Uses this function
+     */
+    /**************************************************************/
+    async function retryProductLatestWithUnii(originalEndpoint, correctUnii, abortController) {
+        const correctedEndpoint = {
+            ...originalEndpoint,
+            queryParameters: {
+                ...originalEndpoint.queryParameters,
+                unii: correctUnii
+            }
+        };
+
+        const correctedApiUrl = ApiService.buildApiUrl(correctedEndpoint);
+        const correctedFullUrl = ChatConfig.buildUrl(correctedApiUrl);
+        console.log(`[EndpointExecutor] Corrected product search: ${correctedFullUrl}`);
+
+        const correctedResponse = await fetch(correctedFullUrl, ChatConfig.getFetchOptions({
+            method: 'GET',
+            signal: abortController.signal
+        }));
+
+        if (correctedResponse.ok) {
+            const correctedData = await correctedResponse.json();
+            return {
+                response: correctedResponse,
+                data: correctedData,
+                fullUrl: correctedFullUrl,
+                endpoint: correctedEndpoint
+            };
+        }
+
+        return null;
+    }
+
+    /**************************************************************/
+    /**
+     * Builds a successful UNII fallback result object.
+     *
+     * @param {Object} params - Result parameters
+     * @param {Object} params.correctedEndpoint - Endpoint with corrected UNII
+     * @param {number} params.statusCode - HTTP status code
+     * @param {Object} params.data - Response data
+     * @param {number} params.startTime - Start timestamp for timing
+     * @param {number} params.step - Current step number
+     * @param {Object} params.currentEndpoint - Current endpoint for metadata
+     * @param {string} params.originalUnii - Original (incorrect) UNII
+     * @param {string} params.correctedUnii - Corrected UNII
+     * @param {string} params.fullUrl - Full API URL used
+     * @returns {Object} Formatted result object
+     *
+     * @description
+     * Creates a standardized result object for successful UNII fallback.
+     * Includes metadata about the fallback for debugging and tracing.
+     *
+     * @see executeUniiResolutionFallback - Uses this function
+     */
+    /**************************************************************/
+    function buildUniiFallbackResult(params) {
+        return {
+            specification: params.correctedEndpoint,
+            statusCode: params.statusCode,
+            result: params.data,
+            executionTimeMs: Date.now() - params.startTime,
+            step: params.step,
+            hasData: true,
+            _expandedIndex: params.currentEndpoint._expandedIndex,
+            _expandedTotal: params.currentEndpoint._expandedTotal,
+            _uniiFallbackUsed: true,
+            _originalUnii: params.originalUnii,
+            _correctedUnii: params.correctedUnii,
+            _apiUrl: params.fullUrl
+        };
     }
 
     /**************************************************************/
@@ -1128,14 +1388,17 @@ export const EndpointExecutor = (function () {
      * @returns {Promise<Object|null>} Result object if fallback succeeds, null otherwise
      *
      * @description
-     * When /api/Label/product/latest?unii=X returns 200 but empty results:
-     * 1. Extracts product name from endpoint description
-     * 2. Calls /api/Label/ingredient/advanced?substanceNameSearch={productName}
-     * 3. Gets correct UNII from the response
-     * 4. Retries /api/Label/product/latest?unii={correctUNII}
+     * When /api/Label/product/latest?unii=X returns 200 but empty results,
+     * this function attempts to resolve the correct UNII:
+     *
+     * 1. **Validate**: Checks if endpoint is a product/latest UNII query
+     * 2. **Extract**: Gets product name from endpoint description
+     * 3. **Search**: Calls ingredient/advanced to find correct UNII
+     * 4. **Retry**: Re-executes product/latest with corrected UNII
+     * 5. **Return**: Returns result if successful, null otherwise
      *
      * This handles cases where the interpret phase used incorrect/hallucinated
-     * UNIIs from reference data but the product name is correct.
+     * UNIIs from reference data but the product name in the description is correct.
      *
      * @example
      * // Endpoint description: "Search for sevelamer - phosphate binder"
@@ -1145,20 +1408,26 @@ export const EndpointExecutor = (function () {
      * // Retries: product/latest?unii=9YCX42I8IU
      *
      * @see processExpandedEndpoint - Calls this when product/latest is empty
+     * @see extractProductNameFromDescriptionAsync - AI-powered product extraction (primary)
+     * @see extractProductNameFromDescription - Local pattern matching (fallback)
+     * @see searchForCorrectUnii - Finds correct UNII
+     * @see retryProductLatestWithUnii - Retries with corrected UNII
      */
     /**************************************************************/
     async function executeUniiResolutionFallback(processedEndpoint, endpoint, abortController, step, expandInfo, startTime, currentEndpoint, extractedVariables) {
-        // Only apply to /api/Label/product/latest with unii parameter
-        const path = processedEndpoint.path || '';
-        const queryParams = processedEndpoint.queryParameters || {};
-
-        if (!path.includes('/api/Label/product/latest') || !queryParams.unii) {
+        // Step 1: Validate this is a product/latest UNII query
+        if (!isProductLatestUniiQuery(processedEndpoint)) {
             return null;
         }
 
-        // Get the product name from the description
+        const queryParams = processedEndpoint.queryParameters || {};
+        const originalUnii = queryParams.unii;
+
+        // Step 2: Extract product name from description using AI API (with local fallback)
         const description = processedEndpoint.description || endpoint.description || currentEndpoint.description || '';
-        const productName = extractProductNameFromDescription(description);
+
+        // Use async AI extraction with local pattern matching as fallback
+        const productName = await extractProductNameFromDescriptionAsync(description, abortController);
 
         if (!productName) {
             console.log(`[EndpointExecutor] UNII fallback: Could not extract product name from description: '${description}'`);
@@ -1166,99 +1435,51 @@ export const EndpointExecutor = (function () {
         }
 
         console.log(`[EndpointExecutor] === UNII RESOLUTION FALLBACK ===`);
-        console.log(`[EndpointExecutor] Original UNII '${queryParams.unii}' returned empty`);
+        console.log(`[EndpointExecutor] Original UNII '${originalUnii}' returned empty`);
         console.log(`[EndpointExecutor] Extracted product name: '${productName}'`);
-        console.log(`[EndpointExecutor] Step 1: Searching ingredient/advanced for correct UNII...`);
-
-        // Step 1: Call ingredient/advanced to find the correct UNII
-        const ingredientSearchEndpoint = {
-            method: 'GET',
-            path: '/api/Label/ingredient/advanced',
-            queryParameters: {
-                substanceNameSearch: productName,
-                pageNumber: '1',
-                pageSize: '5'
-            }
-        };
-
-        const ingredientApiUrl = ApiService.buildApiUrl(ingredientSearchEndpoint);
-        const ingredientFullUrl = ChatConfig.buildUrl(ingredientApiUrl);
-        console.log(`[EndpointExecutor] Ingredient search: ${ingredientFullUrl}`);
 
         try {
-            const ingredientResponse = await fetch(ingredientFullUrl, ChatConfig.getFetchOptions({
-                method: 'GET',
-                signal: abortController.signal
-            }));
-
-            if (!ingredientResponse.ok) {
-                console.log(`[EndpointExecutor] UNII fallback: ingredient search failed HTTP ${ingredientResponse.status}`);
-                return null;
-            }
-
-            const ingredientData = await ingredientResponse.json();
-
-            // Extract UNII from the ingredient search results
-            // Response format: [{ ingredientView: { unii: "...", productName: "...", ... } }]
-            let correctUnii = null;
-            if (Array.isArray(ingredientData) && ingredientData.length > 0) {
-                // Look for unii in the response
-                correctUnii = findPropertyDeep(ingredientData[0], 'unii');
-            }
+            // Step 3: Search for correct UNII
+            console.log(`[EndpointExecutor] Step 1: Searching ingredient/advanced for correct UNII...`);
+            const correctUnii = await searchForCorrectUnii(productName, abortController);
 
             if (!correctUnii) {
-                console.log(`[EndpointExecutor] UNII fallback: No UNII found in ingredient search results`);
+                console.log(`[EndpointExecutor] UNII fallback: No UNII found for product '${productName}'`);
                 return null;
             }
 
             console.log(`[EndpointExecutor] Step 2: Found correct UNII: '${correctUnii}'`);
+
+            // Step 4: Retry product/latest with corrected UNII
             console.log(`[EndpointExecutor] Step 3: Retrying product/latest with correct UNII...`);
+            const retryResult = await retryProductLatestWithUnii(processedEndpoint, correctUnii, abortController);
 
-            // Step 2: Retry product/latest with the correct UNII
-            const correctedEndpoint = {
-                ...processedEndpoint,
-                queryParameters: {
-                    ...processedEndpoint.queryParameters,
-                    unii: correctUnii
-                }
-            };
+            if (!retryResult) {
+                console.log(`[EndpointExecutor] UNII fallback: Retry request failed`);
+                return null;
+            }
 
-            const correctedApiUrl = ApiService.buildApiUrl(correctedEndpoint);
-            const correctedFullUrl = ChatConfig.buildUrl(correctedApiUrl);
-            console.log(`[EndpointExecutor] Corrected product search: ${correctedFullUrl}`);
+            const hasData = resultHasData({ result: retryResult.data, statusCode: retryResult.response.status });
 
-            const correctedResponse = await fetch(correctedFullUrl, ChatConfig.getFetchOptions({
-                method: 'GET',
-                signal: abortController.signal
-            }));
+            if (hasData) {
+                console.log(`[EndpointExecutor] === UNII RESOLUTION SUCCESS ===`);
+                console.log(`[EndpointExecutor] Corrected UNII '${correctUnii}' returned ${Array.isArray(retryResult.data) ? retryResult.data.length : 1} result(s)`);
 
-            if (correctedResponse.ok) {
-                const correctedData = await correctedResponse.json();
-                const hasData = resultHasData({ result: correctedData, statusCode: correctedResponse.status });
+                // Update extracted variables with the corrected UNII for downstream steps
+                extractedVariables._correctedUnii = correctUnii;
+                extractedVariables._originalUnii = originalUnii;
 
-                if (hasData) {
-                    console.log(`[EndpointExecutor] === UNII RESOLUTION SUCCESS ===`);
-                    console.log(`[EndpointExecutor] Corrected UNII '${correctUnii}' returned ${Array.isArray(correctedData) ? correctedData.length : 1} result(s)`);
-
-                    // Update extracted variables with the corrected UNII for downstream steps
-                    extractedVariables._correctedUnii = correctUnii;
-                    extractedVariables._originalUnii = queryParams.unii;
-
-                    return {
-                        specification: correctedEndpoint,
-                        statusCode: correctedResponse.status,
-                        result: correctedData,
-                        executionTimeMs: Date.now() - startTime,
-                        step: step,
-                        hasData: true,
-                        _expandedIndex: currentEndpoint._expandedIndex,
-                        _expandedTotal: currentEndpoint._expandedTotal,
-                        _uniiFallbackUsed: true,
-                        _originalUnii: queryParams.unii,
-                        _correctedUnii: correctUnii,
-                        _apiUrl: correctedFullUrl
-                    };
-                }
+                return buildUniiFallbackResult({
+                    correctedEndpoint: retryResult.endpoint,
+                    statusCode: retryResult.response.status,
+                    data: retryResult.data,
+                    startTime,
+                    step,
+                    currentEndpoint,
+                    originalUnii,
+                    correctedUnii: correctUnii,
+                    fullUrl: retryResult.fullUrl
+                });
             }
 
             console.log(`[EndpointExecutor] UNII fallback: Corrected UNII also returned empty/failed`);
@@ -1479,6 +1700,175 @@ export const EndpointExecutor = (function () {
 
     /**************************************************************/
     /**
+     * Identifies documentGuids from UNII fallback that weren't fetched.
+     *
+     * @param {Array} results - Current execution results
+     * @param {Object} extractedVariables - Variables including documentGuids from fallback
+     * @returns {Object} { unfetchedGuids: Array, fetchedGuids: Set }
+     *
+     * @description
+     * When UNII fallback succeeds, it populates documentGuidsN variables.
+     * However, the original interpretation may not have included steps
+     * to fetch their label content. This function identifies which
+     * documentGuids have data but haven't had their labels fetched.
+     *
+     * @see fetchUnfetchedLabelContent - Uses this to determine what to fetch
+     */
+    /**************************************************************/
+    function identifyUnfetchedDocumentGuids(results, extractedVariables) {
+        // Find all documentGuids that were actually fetched (label content retrieved)
+        const fetchedGuids = new Set();
+        for (const result of results) {
+            if (result.hasData && result.specification && result.specification.path) {
+                const path = result.specification.path;
+                // Match /api/Label/markdown/sections/{guid} pattern
+                const match = path.match(/\/api\/Label\/markdown\/sections\/([a-f0-9-]+)/i);
+                if (match) {
+                    fetchedGuids.add(match[1].toLowerCase());
+                }
+            }
+        }
+
+        console.log(`[EndpointExecutor] DYNAMIC FETCH CHECK: Already fetched ${fetchedGuids.size} document GUIDs`);
+
+        // Find all documentGuidsN variables that have data but weren't fetched
+        const unfetchedGuids = [];
+        for (const [varName, value] of Object.entries(extractedVariables)) {
+            // Match documentGuidsN pattern (e.g., documentGuids1, documentGuids2, etc.)
+            if (/^documentGuids\d+$/i.test(varName)) {
+                const guids = Array.isArray(value) ? value : [value];
+                for (const guid of guids) {
+                    if (guid && typeof guid === 'string' && !fetchedGuids.has(guid.toLowerCase())) {
+                        unfetchedGuids.push({
+                            guid: guid,
+                            sourceVariable: varName
+                        });
+                        console.log(`[EndpointExecutor] DYNAMIC FETCH: Found unfetched GUID '${guid}' from '${varName}'`);
+                    }
+                }
+            }
+        }
+
+        return { unfetchedGuids, fetchedGuids };
+    }
+
+    /**************************************************************/
+    /**
+     * Fetches label content for documentGuids discovered via UNII fallback.
+     *
+     * @param {Array} results - Current execution results
+     * @param {Object} extractedVariables - Variables including documentGuids from fallback
+     * @param {Object} assistantMessage - Message object for progress updates
+     * @param {AbortController} abortController - For request cancellation
+     * @returns {Promise<Array>} Array of additional results from dynamic fetches
+     *
+     * @description
+     * This function addresses the case where UNII fallback successfully
+     * finds products (and their documentGuids), but the original AI
+     * interpretation didn't include steps to fetch those specific labels.
+     *
+     * For example:
+     * - Original plan: search UNII X (wrong), fetch labels for documentGuids1
+     * - Fallback: search ingredient name, find correct UNII Y, store in documentGuids2
+     * - Problem: No step exists to fetch labels for documentGuids2
+     * - Solution: This function dynamically fetches those labels
+     *
+     * @example
+     * // extractedVariables contains:
+     * // { documentGuids1: ['abc'], documentGuids2: ['def', 'ghi'] }
+     * // results contains label fetches for 'abc' but not 'def' or 'ghi'
+     * // This function fetches labels for 'def' and 'ghi'
+     *
+     * @see identifyUnfetchedDocumentGuids - Identifies what needs fetching
+     * @see executeEndpointsWithDependencies - Calls this post-execution
+     */
+    /**************************************************************/
+    async function fetchUnfetchedLabelContent(results, extractedVariables, assistantMessage, abortController) {
+        const { unfetchedGuids, fetchedGuids } = identifyUnfetchedDocumentGuids(results, extractedVariables);
+
+        if (unfetchedGuids.length === 0) {
+            console.log('[EndpointExecutor] DYNAMIC FETCH: No unfetched document GUIDs found');
+            return [];
+        }
+
+        console.log(`[EndpointExecutor] === DYNAMIC LABEL FETCH: ${unfetchedGuids.length} unfetched GUIDs ===`);
+
+        const dynamicResults = [];
+        const maxStep = Math.max(...results.map(r => r.step || 0), 0);
+
+        for (let i = 0; i < unfetchedGuids.length; i++) {
+            const { guid, sourceVariable } = unfetchedGuids[i];
+            const dynamicStep = maxStep + 1 + i;
+
+            // Update progress
+            assistantMessage.progressStatus = `Fetching additional label data (${i + 1}/${unfetchedGuids.length})...`;
+            MessageRenderer.updateMessage(assistantMessage.id);
+
+            console.log(`[EndpointExecutor] DYNAMIC FETCH [${i + 1}/${unfetchedGuids.length}]: Fetching label for '${guid}' (from ${sourceVariable})`);
+
+            const endpoint = {
+                method: 'GET',
+                path: `/api/Label/markdown/sections/${guid}`,
+                description: `Dynamic fetch: Label content for ${sourceVariable}`,
+                _dynamicFetch: true,
+                _sourceVariable: sourceVariable
+            };
+
+            const startTime = Date.now();
+
+            try {
+                const { response, data, fullApiUrl } = await executeApiCall(endpoint, abortController);
+
+                if (response.ok) {
+                    const hasData = resultHasData({ result: data, statusCode: response.status });
+                    console.log(`[EndpointExecutor] DYNAMIC FETCH [${i + 1}/${unfetchedGuids.length}] succeeded: ${endpoint.path} (hasData: ${hasData})`);
+
+                    dynamicResults.push({
+                        specification: endpoint,
+                        statusCode: response.status,
+                        result: data,
+                        executionTimeMs: Date.now() - startTime,
+                        step: dynamicStep,
+                        hasData: hasData,
+                        _dynamicFetch: true,
+                        _sourceVariable: sourceVariable,
+                        _apiUrl: fullApiUrl
+                    });
+                } else {
+                    console.log(`[EndpointExecutor] DYNAMIC FETCH [${i + 1}/${unfetchedGuids.length}] failed: HTTP ${response.status}`);
+                    dynamicResults.push({
+                        specification: endpoint,
+                        statusCode: response.status,
+                        result: null,
+                        error: `HTTP ${response.status}`,
+                        executionTimeMs: Date.now() - startTime,
+                        step: dynamicStep,
+                        hasData: false,
+                        _dynamicFetch: true,
+                        _sourceVariable: sourceVariable
+                    });
+                }
+            } catch (error) {
+                console.log(`[EndpointExecutor] DYNAMIC FETCH [${i + 1}/${unfetchedGuids.length}] exception: ${error.message}`);
+                dynamicResults.push({
+                    specification: endpoint,
+                    statusCode: 500,
+                    error: error.message,
+                    step: dynamicStep,
+                    hasData: false,
+                    _dynamicFetch: true,
+                    _sourceVariable: sourceVariable
+                });
+            }
+        }
+
+        console.log(`[EndpointExecutor] === DYNAMIC LABEL FETCH COMPLETE: ${dynamicResults.filter(r => r.hasData).length}/${unfetchedGuids.length} successful ===`);
+
+        return dynamicResults;
+    }
+
+    /**************************************************************/
+    /**
      * Creates a skipped result for an endpoint that was not executed.
      *
      * @param {Object} endpoint - Endpoint specification
@@ -1639,6 +2029,24 @@ export const EndpointExecutor = (function () {
 
                 completedCount++;
             }
+        }
+
+        // ================================================================
+        // DYNAMIC LABEL FETCH: Check for unfetched documentGuids from UNII fallback
+        // When UNII fallback discovers correct products, the documentGuids are stored
+        // in extractedVariables, but the original plan may not have included steps
+        // to fetch their label content. This section identifies and fetches them.
+        // ================================================================
+        const unfetchedResults = await fetchUnfetchedLabelContent(
+            results,
+            extractedVariables,
+            assistantMessage,
+            abortController
+        );
+
+        if (unfetchedResults.length > 0) {
+            console.log(`[EndpointExecutor] Added ${unfetchedResults.length} dynamically fetched label results`);
+            results.push(...unfetchedResults);
         }
 
         // Log execution complete

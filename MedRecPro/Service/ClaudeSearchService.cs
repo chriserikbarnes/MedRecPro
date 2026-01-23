@@ -132,6 +132,42 @@ namespace MedRecPro.Service
             AiSystemContext? systemContext = null,
             int maxProductsPerClass = 25);
 
+        /**************************************************************/
+        /// <summary>
+        /// Uses AI to extract a drug/ingredient name from a natural language description.
+        /// This is used for UNII resolution fallback when the interpret phase provides
+        /// an incorrect UNII but includes the product name in the description.
+        /// </summary>
+        /// <param name="description">
+        /// The endpoint description containing the product/ingredient name.
+        /// Examples:
+        /// - "Search for sevelamer - phosphate binder for CKD"
+        /// - "Search for finerenone (Kerendia) - non-steroidal MRA"
+        /// - "Get metformin products for type 2 diabetes"
+        /// </param>
+        /// <returns>
+        /// A task that resolves to a <see cref="ProductExtractionResult"/>
+        /// containing the extracted product name(s) and confidence score.
+        /// </returns>
+        /// <remarks>
+        /// The AI is instructed to:
+        /// <list type="bullet">
+        /// <item>Identify drug/ingredient names in the description</item>
+        /// <item>Distinguish brand names from generic names</item>
+        /// <item>Return the generic name preferred for database lookups</item>
+        /// <item>Handle multi-word ingredient names (e.g., sevelamer carbonate)</item>
+        /// </list>
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var result = await searchService.ExtractProductFromDescriptionAsync(
+        ///     "Search for finerenone (Kerendia) - non-steroidal MRA for CKD");
+        /// // Returns: { Success: true, ProductNames: ["finerenone"], ... }
+        /// </code>
+        /// </example>
+        /// <seealso cref="IClaudeApiService"/>
+        Task<ProductExtractionResult> ExtractProductFromDescriptionAsync(string description);
+
         #endregion
     }
 
@@ -287,6 +323,69 @@ namespace MedRecPro.Service
         public string? LabelerName { get; set; }
     }
 
+    /**************************************************************/
+    /// <summary>
+    /// Represents the result of extracting a product/ingredient name from a description.
+    /// Used for UNII resolution fallback when the interpret phase uses incorrect UNIIs.
+    /// </summary>
+    /// <seealso cref="IClaudeSearchService.ExtractProductFromDescriptionAsync"/>
+    public class ProductExtractionResult
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether the extraction operation was successful.
+        /// </summary>
+        public bool Success { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the extracted product/ingredient names.
+        /// The first name is the primary (most likely) extraction.
+        /// Multiple names may be returned for combination products or
+        /// when both brand and generic names are identified.
+        /// </summary>
+        public List<string> ProductNames { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the primary extracted product name (convenience property).
+        /// Returns the first product name or null if none extracted.
+        /// </summary>
+        public string? PrimaryProductName => ProductNames.FirstOrDefault();
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the confidence level of the extraction.
+        /// Values: "high", "medium", "low"
+        /// </summary>
+        public string Confidence { get; set; } = "low";
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the AI's explanation of the extraction logic.
+        /// Useful for debugging and transparency.
+        /// </summary>
+        public string? Explanation { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets any error message if extraction failed.
+        /// </summary>
+        public string? Error { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether a brand-to-generic mapping was applied.
+        /// </summary>
+        public bool BrandMappingApplied { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the original brand name if a mapping was applied.
+        /// </summary>
+        public string? OriginalBrandName { get; set; }
+    }
+
     #endregion
 
     #region pharmacologic class search service implementation
@@ -351,6 +450,18 @@ namespace MedRecPro.Service
         /// Cache duration for class summaries (4 hours).
         /// </summary>
         private const double CacheHours = 4.0;
+
+        /**************************************************************/
+        /// <summary>
+        /// Configuration section key for Claude API settings.
+        /// </summary>
+        private const string SkillConfigSection = "ClaudeApiSettings";
+
+        /**************************************************************/
+        /// <summary>
+        /// Cache duration for prompt templates (8 hours).
+        /// </summary>
+        private const double PromptCacheHours = 8.0;
 
         #endregion
 
@@ -607,57 +718,406 @@ namespace MedRecPro.Service
             #endregion
         }
 
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Uses Claude AI to intelligently extract drug/ingredient names from
+        /// natural language descriptions. This is critical for UNII resolution
+        /// fallback where the description contains the correct product name
+        /// but the UNII from reference data was incorrect.
+        ///
+        /// The AI handles:
+        /// - Brand to generic name resolution
+        /// - Multi-word ingredient names (e.g., "sevelamer carbonate")
+        /// - Drug class mentions vs specific drug names
+        /// - Abbreviations (e.g., MRA, SGLT2, GLP-1)
+        /// </remarks>
+        public async Task<ProductExtractionResult> ExtractProductFromDescriptionAsync(string description)
+        {
+            #region implementation
+
+            var result = new ProductExtractionResult();
+
+            // Validate input
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                result.Success = false;
+                result.Error = "Description cannot be empty.";
+                return result;
+            }
+
+            _logger.LogDebug("[PRODUCT EXTRACTION] Extracting product from description: {Description}", description);
+
+            try
+            {
+                // Build the AI prompt for product extraction
+                var extractionPrompt = buildProductExtractionPrompt(description);
+
+                // Create scope to resolve IClaudeApiService
+                using var scope = _serviceScopeFactory.CreateScope();
+                var claudeApiService = scope.ServiceProvider.GetRequiredService<IClaudeApiService>();
+
+                // Call Claude for extraction
+                var aiResponse = await claudeApiService.GenerateDocumentComparisonAsync(extractionPrompt);
+
+                // Parse the AI response
+                result = parseProductExtractionResponse(aiResponse, description);
+
+                _logger.LogInformation("[PRODUCT EXTRACTION] Extracted products: [{Products}] from: {Description}",
+                    string.Join(", ", result.ProductNames),
+                    description.Length > 100 ? description.Substring(0, 100) + "..." : description);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[PRODUCT EXTRACTION] Error extracting product from description: {Description}", description);
+
+                // Attempt simple fallback extraction
+                return performSimpleProductExtraction(description);
+            }
+
+            #endregion
+        }
+
         #endregion
 
         #region private methods
 
         /**************************************************************/
         /// <summary>
+        /// Loads a prompt template from the configured file path with caching.
+        /// </summary>
+        /// <param name="configKey">The configuration key (e.g., "Prompt-ProductExtraction").</param>
+        /// <param name="cacheKeyPrefix">A prefix for the cache key.</param>
+        /// <returns>The prompt template content or an error message.</returns>
+        private string loadPromptTemplate(string configKey, string cacheKeyPrefix)
+        {
+            #region implementation
+
+            // Check cache first
+            var key = $"{cacheKeyPrefix}_{configKey}";
+            var cachedPrompt = PerformanceHelper.GetCache<string>(key);
+            if (!string.IsNullOrEmpty(cachedPrompt))
+            {
+                return cachedPrompt;
+            }
+
+            // Get the configured path from ClaudeApiSettings
+            var promptFilePath = _configuration.GetValue<string>($"{SkillConfigSection}:{configKey}");
+
+            if (string.IsNullOrEmpty(promptFilePath))
+            {
+                _logger.LogWarning("[PROMPT LOAD] Configuration key '{ConfigKey}' not found in {Section}",
+                    configKey, SkillConfigSection);
+                return $"{configKey} configuration not found in {SkillConfigSection}.";
+            }
+
+            var content = readPromptFileByPath(promptFilePath);
+
+            // Cache for configured duration to reduce file I/O
+            PerformanceHelper.SetCacheManageKey(key, content, PromptCacheHours);
+
+            return content;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Reads a prompt file from the specified path.
+        /// </summary>
+        /// <param name="promptFilePath">The relative or absolute path to the prompt file.</param>
+        /// <returns>The file content or an error message.</returns>
+        private string readPromptFileByPath(string promptFilePath)
+        {
+            #region implementation
+
+            // Resolve the path relative to the application's content root
+            var fullPath = Path.Combine(AppContext.BaseDirectory, promptFilePath);
+
+            if (!File.Exists(fullPath))
+            {
+                // Try relative to current directory as fallback
+                fullPath = Path.Combine(Directory.GetCurrentDirectory(), promptFilePath);
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                _logger.LogError("[PROMPT LOAD] File not found at: {PromptFilePath}", promptFilePath);
+                return $"Prompt file not found at: {promptFilePath}";
+            }
+
+            var content = File.ReadAllText(fullPath);
+            _logger.LogDebug("[PROMPT LOAD] Successfully loaded: {FullPath} ({Length} chars)",
+                fullPath, content.Length);
+
+            return content;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the AI prompt for extracting product names from a description.
+        /// Loads the prompt template from file and substitutes the description placeholder.
+        /// </summary>
+        /// <param name="description">The description to extract from.</param>
+        /// <returns>Formatted prompt for Claude AI.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the prompt template cannot be loaded.</exception>
+        /// <seealso cref="ExtractProductFromDescriptionAsync"/>
+        private string buildProductExtractionPrompt(string description)
+        {
+            #region implementation
+
+            // Load the prompt template from file
+            var template = loadPromptTemplate("Prompt-ProductExtraction", "ClaudeSearchService_ProductExtraction");
+
+            // If template loading failed, throw an error - prompts should be in files
+            if (template.Contains("not found") || template.Contains("configuration not found"))
+            {
+                _logger.LogError("[PRODUCT EXTRACTION] Prompt template file not found. Ensure Prompt-ProductExtraction is configured in appsettings.json");
+                throw new InvalidOperationException(
+                    "Product extraction prompt template not found. Ensure 'Prompt-ProductExtraction' is configured in ClaudeApiSettings.");
+            }
+
+            // Substitute the placeholder with the actual description
+            return template.Replace("{{DESCRIPTION}}", description);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the AI response for product extraction.
+        /// </summary>
+        /// <param name="aiResponse">Raw AI response string.</param>
+        /// <param name="originalDescription">Original description for fallback.</param>
+        /// <returns>Parsed extraction result.</returns>
+        /// <seealso cref="ExtractProductFromDescriptionAsync"/>
+        private ProductExtractionResult parseProductExtractionResponse(string aiResponse, string originalDescription)
+        {
+            #region implementation
+
+            try
+            {
+                // Extract JSON from response (handle markdown code blocks)
+                var jsonContent = extractJsonFromResponse(aiResponse);
+
+                if (string.IsNullOrWhiteSpace(jsonContent))
+                {
+                    _logger.LogWarning("[PRODUCT EXTRACTION] Could not extract JSON from AI response");
+                    return performSimpleProductExtraction(originalDescription);
+                }
+
+                // Parse the JSON response
+                var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(jsonContent);
+
+                if (parsed == null)
+                {
+                    return performSimpleProductExtraction(originalDescription);
+                }
+
+                var result = new ProductExtractionResult
+                {
+                    Success = parsed.success ?? false,
+                    Confidence = parsed.confidence?.ToString() ?? "low",
+                    Explanation = parsed.explanation?.ToString(),
+                    BrandMappingApplied = parsed.brandMappingApplied ?? false,
+                    OriginalBrandName = parsed.originalBrandName?.ToString()
+                };
+
+                // Extract product names
+                if (parsed.productNames != null)
+                {
+                    foreach (var productName in parsed.productNames)
+                    {
+                        string name = productName.ToString()?.Trim();
+                        if (!string.IsNullOrWhiteSpace(name))
+                        {
+                            result.ProductNames.Add(name);
+                        }
+                    }
+                }
+
+                // Ensure success is true if we have products
+                result.Success = result.ProductNames.Count > 0;
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[PRODUCT EXTRACTION] Error parsing AI response");
+                return performSimpleProductExtraction(originalDescription);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Performs simple regex-based product extraction as a fallback.
+        /// </summary>
+        /// <param name="description">Description to extract from.</param>
+        /// <returns>Extraction result from simple matching.</returns>
+        /// <remarks>
+        /// This is a fallback when AI extraction fails. Uses patterns similar
+        /// to the JavaScript extractProductNameFromDescription function.
+        /// </remarks>
+        /// <seealso cref="ExtractProductFromDescriptionAsync"/>
+        private ProductExtractionResult performSimpleProductExtraction(string description)
+        {
+            #region implementation
+
+            _logger.LogDebug("[PRODUCT EXTRACTION] Falling back to simple extraction for: {Description}", description);
+
+            var result = new ProductExtractionResult
+            {
+                Confidence = "low",
+                Explanation = "Extracted using pattern matching fallback"
+            };
+
+            // Brand to generic mappings for fallback
+            var brandMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "kerendia", "finerenone" },
+                { "jardiance", "empagliflozin" },
+                { "farxiga", "dapagliflozin" },
+                { "invokana", "canagliflozin" },
+                { "ozempic", "semaglutide" },
+                { "wegovy", "semaglutide" },
+                { "mounjaro", "tirzepatide" },
+                { "trulicity", "dulaglutide" },
+                { "victoza", "liraglutide" },
+                { "renvela", "sevelamer" },
+                { "renagel", "sevelamer" },
+                { "lipitor", "atorvastatin" },
+                { "crestor", "rosuvastatin" },
+                { "zocor", "simvastatin" },
+                { "plavix", "clopidogrel" },
+                { "eliquis", "apixaban" },
+                { "xarelto", "rivaroxaban" },
+                { "pradaxa", "dabigatran" },
+                { "entresto", "sacubitril" },
+                { "januvia", "sitagliptin" },
+                { "tradjenta", "linagliptin" }
+            };
+
+            // Words to skip
+            var skipWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "search", "get", "find", "retrieve", "lookup", "fetch", "query",
+                "show", "list", "display", "view", "check", "verify",
+                "for", "the", "a", "an", "to", "of", "in", "on", "with", "from", "by",
+                "products", "product", "medications", "medication", "drugs", "drug",
+                "label", "labels", "information", "info", "details", "data",
+                "treatment", "therapy", "indication", "indications", "used",
+                "patients", "patient", "adults", "children", "pediatric",
+                "chronic", "acute", "severe", "mild", "moderate",
+                "kidney", "renal", "hepatic", "liver", "cardiac", "heart",
+                "disease", "disorder", "syndrome", "condition", "type",
+                "phosphate", "binder", "inhibitor", "blocker", "agonist", "antagonist",
+                "receptor", "enzyme", "channel", "transporter"
+            };
+
+            // Pattern 1: "Search for X" or "search for X (Brand)"
+            var searchForMatch = System.Text.RegularExpressions.Regex.Match(
+                description,
+                @"search\s+for\s+([a-zA-Z][a-zA-Z0-9\-]*)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (searchForMatch.Success)
+            {
+                var extracted = searchForMatch.Groups[1].Value.Trim().ToLowerInvariant();
+
+                // Check if it's a brand name
+                if (brandMappings.TryGetValue(extracted, out var generic))
+                {
+                    result.ProductNames.Add(generic);
+                    result.BrandMappingApplied = true;
+                    result.OriginalBrandName = extracted;
+                }
+                else if (!skipWords.Contains(extracted) && extracted.Length >= 4)
+                {
+                    result.ProductNames.Add(extracted);
+                }
+            }
+
+            // Pattern 2: Look for known brand names anywhere in the description
+            if (result.ProductNames.Count == 0)
+            {
+                foreach (var mapping in brandMappings)
+                {
+                    if (description.Contains(mapping.Key, StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.ProductNames.Add(mapping.Value);
+                        result.BrandMappingApplied = true;
+                        result.OriginalBrandName = mapping.Key;
+                        break;
+                    }
+                }
+            }
+
+            // Pattern 3: Find first drug-like word
+            if (result.ProductNames.Count == 0)
+            {
+                var words = description.Split(new[] { ' ', '-', '(', ')', ',', ';', ':' },
+                    StringSplitOptions.RemoveEmptyEntries);
+
+                foreach (var word in words)
+                {
+                    var cleanWord = word.Trim().ToLowerInvariant();
+                    if (cleanWord.Length >= 4 &&
+                        !skipWords.Contains(cleanWord) &&
+                        System.Text.RegularExpressions.Regex.IsMatch(cleanWord, @"^[a-z]"))
+                    {
+                        result.ProductNames.Add(cleanWord);
+                        break;
+                    }
+                }
+            }
+
+            result.Success = result.ProductNames.Count > 0;
+            if (!result.Success)
+            {
+                result.Error = "Could not extract product name from description";
+            }
+
+            return result;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Builds the AI prompt for matching user query to class names.
+        /// Loads the prompt template from file and substitutes placeholders.
         /// </summary>
         /// <param name="userQuery">The user's query text.</param>
         /// <param name="classNames">List of available class names from database.</param>
         /// <returns>Formatted prompt for Claude AI.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the prompt template cannot be loaded.</exception>
         private string buildClassMatchingPrompt(string userQuery, List<string> classNames)
         {
             #region implementation
 
             var classListFormatted = string.Join("\n", classNames.Select(c => $"- {c}"));
 
-            return $@"You are matching a user's pharmacologic class query to actual database class names.
+            // Load the prompt template from file
+            var template = loadPromptTemplate("Prompt-PharmacologicClassMatching", "ClaudeSearchService_ClassMatching");
 
-USER QUERY: ""{userQuery}""
+            // If template loading failed, throw an error - prompts should be in files
+            if (template.Contains("not found") || template.Contains("configuration not found"))
+            {
+                _logger.LogError("[CLASS MATCHING] Prompt template file not found. Ensure Prompt-PharmacologicClassMatching is configured in appsettings.json");
+                throw new InvalidOperationException(
+                    "Pharmacologic class matching prompt template not found. Ensure 'Prompt-PharmacologicClassMatching' is configured in ClaudeApiSettings.");
+            }
 
-AVAILABLE PHARMACOLOGIC CLASSES IN DATABASE:
-{classListFormatted}
-
-TASK: Identify which class name(s) from the list above best match what the user is asking about.
-
-MATCHING RULES:
-1. Match common drug class terminology to formal classification names
-   - ""beta blockers"" matches ""Beta-Adrenergic Blockers"" or similar
-   - ""ACE inhibitors"" matches ""Angiotensin Converting Enzyme Inhibitors""
-   - ""SSRIs"" matches ""Selective Serotonin Reuptake Inhibitors""
-   - ""statins"" matches ""HMG-CoA Reductase Inhibitors""
-2. Return EXACT class names from the list (copy-paste accuracy required)
-3. Include multiple classes if the user query could match several
-4. If no reasonable match exists, return empty matches array
-
-RESPOND IN JSON FORMAT:
-{{
-  ""success"": true,
-  ""matchedClassNames"": [""Exact Class Name 1"", ""Exact Class Name 2""],
-  ""explanation"": ""Brief explanation of matching logic"",
-  ""confidence"": ""high|medium|low""
-}}
-
-If no matches found:
-{{
-  ""success"": false,
-  ""matchedClassNames"": [],
-  ""explanation"": ""Why no match was found"",
-  ""suggestions"": [""Alternative query 1"", ""Alternative query 2""]
-}}";
+            // Substitute the placeholders with actual values
+            return template
+                .Replace("{{USER_QUERY}}", userQuery)
+                .Replace("{{CLASS_LIST}}", classListFormatted);
 
             #endregion
         }
