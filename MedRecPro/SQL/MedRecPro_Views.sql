@@ -209,7 +209,7 @@ AS
 -- Links products to their pharmacologic classes via active moieties
 -- Enables therapeutic category-based drug discovery
 /**************************************************************/
-SELECT  
+SELECT 
     -- Pharmacologic class identification
     pc.PharmacologicClassID,
     pc.ClassCode AS PharmClassCode,
@@ -238,29 +238,26 @@ SELECT
     d.VersionNumber,
     d.Title AS DocumentTitle,
     d.EffectiveTime AS LabelEffectiveDate
-
 FROM dbo.PharmacologicClass pc
-    -- Link pharm class to active moiety substance
     INNER JOIN dbo.PharmacologicClassLink pcl ON pc.PharmacologicClassID = pcl.PharmacologicClassID
     INNER JOIN dbo.IngredientSubstance ams ON pcl.ActiveMoietySubstanceID = ams.IngredientSubstanceID
-    -- Link via active moiety
     INNER JOIN dbo.ActiveMoiety am ON ams.IngredientSubstanceID = am.IngredientSubstanceID
-    -- Get the parent ingredient substance
     INNER JOIN dbo.IngredientSubstance ins ON am.IngredientSubstanceID = ins.IngredientSubstanceID
-    -- Link to products via ingredients
-    INNER JOIN dbo.Ingredient i 
-        ON ins.IngredientSubstanceID = i.IngredientSubstanceID
-    INNER JOIN dbo.Product p 
-        ON i.ProductID = p.ProductID
-    -- Navigate to document
-    INNER JOIN dbo.Section s 
-        ON p.SectionID = s.SectionID
-    INNER JOIN dbo.StructuredBody sb 
-        ON s.StructuredBodyID = sb.StructuredBodyID
-    INNER JOIN dbo.Document d 
-        ON sb.DocumentID = d.DocumentID
+    INNER JOIN dbo.Ingredient i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
+        AND i.ClassCode <> 'IACT'
+    INNER JOIN dbo.[Product] p ON i.ProductID = p.ProductID
+    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
+    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
+    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+WHERE 
+    -- Exclude pharm classes where the defining substance EVER appears as inactive in ANY product
+    NOT EXISTS (
+        SELECT 1 
+        FROM [dbo].[vw_InactiveIngredients] inact
+        WHERE inact.UNII = ins.UNII
+    )
 
-WHERE ins.UNII IS NOT NULL
+AND ins.UNII IS NOT NULL
 GO
 
 IF NOT EXISTS (
@@ -362,17 +359,21 @@ SELECT
     COUNT(DISTINCT pcl.ActiveMoietySubstanceID) AS LinkedSubstanceCount,
     COUNT(DISTINCT i.ProductID) AS ProductCount,
     COUNT(DISTINCT d.DocumentID) AS DocumentCount
-
 FROM dbo.PharmacologicClass pc
     LEFT JOIN dbo.PharmacologicClassLink pcl ON pc.PharmacologicClassID = pcl.PharmacologicClassID
     LEFT JOIN dbo.IngredientSubstance ins ON pcl.ActiveMoietySubstanceID = ins.IngredientSubstanceID
+        AND NOT EXISTS (
+            SELECT 1 
+            FROM [dbo].[vw_InactiveIngredients] inact
+            WHERE inact.UNII = ins.UNII
+        )
     LEFT JOIN dbo.ActiveMoiety am ON ins.IngredientSubstanceID = am.IngredientSubstanceID
     LEFT JOIN dbo.Ingredient i ON am.IngredientSubstanceID = i.IngredientSubstanceID
+        AND i.ClassCode <> 'IACT'
     LEFT JOIN dbo.Product p ON i.ProductID = p.ProductID
     LEFT JOIN dbo.Section s ON p.SectionID = s.SectionID
     LEFT JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
     LEFT JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
-
 GROUP BY 
     pc.PharmacologicClassID,
     pc.ClassCode,
@@ -2709,7 +2710,7 @@ HAVING COUNT(DISTINCT p.ProductID) >= (
 UNION ALL
 
 -- Section 5: Top 10 Pharmacologic Classes by product count
-SELECT
+SELECT 
     'TOP_PHARM_CLASSES' AS Category,
     'Pharmacologic Class' AS Dimension,
     pc.ClassDisplayName AS DimensionValue,
@@ -2719,18 +2720,32 @@ FROM dbo.PharmacologicClass pc
 INNER JOIN dbo.PharmacologicClassLink pcl ON pc.PharmacologicClassID = pcl.PharmacologicClassID
 INNER JOIN dbo.IngredientSubstance ams ON pcl.ActiveMoietySubstanceID = ams.IngredientSubstanceID
 INNER JOIN dbo.ActiveMoiety am ON ams.IngredientSubstanceID = am.IngredientSubstanceID
+INNER JOIN dbo.IngredientSubstance ins ON am.IngredientSubstanceID = ins.IngredientSubstanceID
 INNER JOIN dbo.Ingredient i ON am.IngredientSubstanceID = i.IngredientSubstanceID
+    AND i.ClassCode <> 'IACT'
 INNER JOIN dbo.Product p ON i.ProductID = p.ProductID
+WHERE NOT EXISTS (
+    SELECT 1 
+    FROM [dbo].[vw_InactiveIngredients] inact
+    WHERE inact.UNII = ins.UNII
+)
 GROUP BY pc.PharmacologicClassID, pc.ClassDisplayName
 HAVING COUNT(DISTINCT p.ProductID) >= (
     SELECT MIN(cnt) FROM (
-        SELECT TOP 10 COUNT(DISTINCT p2.ProductID) as cnt
+        SELECT TOP 10 COUNT(DISTINCT p2.ProductID) as cnt 
         FROM dbo.PharmacologicClass pc2
         INNER JOIN dbo.PharmacologicClassLink pcl2 ON pc2.PharmacologicClassID = pcl2.PharmacologicClassID
         INNER JOIN dbo.IngredientSubstance ams2 ON pcl2.ActiveMoietySubstanceID = ams2.IngredientSubstanceID
         INNER JOIN dbo.ActiveMoiety am2 ON ams2.IngredientSubstanceID = am2.IngredientSubstanceID
+        INNER JOIN dbo.IngredientSubstance ins2 ON am2.IngredientSubstanceID = ins2.IngredientSubstanceID
         INNER JOIN dbo.Ingredient i2 ON am2.IngredientSubstanceID = i2.IngredientSubstanceID
+            AND i2.ClassCode <> 'IACT'
         INNER JOIN dbo.Product p2 ON i2.ProductID = p2.ProductID
+        WHERE NOT EXISTS (
+            SELECT 1 
+            FROM [dbo].[vw_InactiveIngredients] inact2
+            WHERE inact2.UNII = ins2.UNII
+        )
         GROUP BY pc2.PharmacologicClassID
         ORDER BY COUNT(DISTINCT p2.ProductID) DESC
     ) t
