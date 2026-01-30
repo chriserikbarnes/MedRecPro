@@ -66,8 +66,11 @@ export const ChatState = (function () {
      * @property {string} conversationId - UUID for tracking conversation continuity
      * @property {AbortController|null} abortController - Controller for cancelling requests
      * @property {Function|null} currentProgressCallback - Callback for import progress updates
+     * @property {Object|null} checkpointState - Current checkpoint state for progressive responses
+     * @property {Array} progressItems - Array of completed progress items for display
      *
      * @see generateUUID - Creates conversation IDs
+     * @see CheckpointManager - External checkpoint management
      */
     /**************************************************************/
     const state = {
@@ -78,7 +81,9 @@ export const ChatState = (function () {
         systemContext: null,
         conversationId: generateUUID(),
         abortController: null,
-        currentProgressCallback: null
+        currentProgressCallback: null,
+        checkpointState: null,
+        progressItems: []
     };
 
     /**************************************************************/
@@ -481,6 +486,134 @@ export const ChatState = (function () {
 
     /**************************************************************/
     /**
+     * Gets the current checkpoint state.
+     *
+     * @returns {Object|null} Current checkpoint state or null
+     *
+     * @description
+     * Checkpoint state contains:
+     * - messageId: The assistant message ID awaiting checkpoint resolution
+     * - productGroups: Grouped results for user selection
+     * - selectedIds: Currently selected product IDs
+     * - status: 'pending', 'confirmed', or 'cancelled'
+     *
+     * @see setCheckpointState - Sets checkpoint state
+     * @see clearCheckpointState - Clears checkpoint state
+     */
+    /**************************************************************/
+    function getCheckpointState() {
+        return state.checkpointState;
+    }
+
+    /**************************************************************/
+    /**
+     * Sets the checkpoint state.
+     *
+     * @param {Object|null} checkpointData - Checkpoint state object or null
+     *
+     * @example
+     * ChatState.setCheckpointState({
+     *     messageId: 'msg-123',
+     *     productGroups: groupedResults,
+     *     selectedIds: Object.keys(groupedResults),
+     *     status: 'pending'
+     * });
+     *
+     * @see CheckpointManager - Manages checkpoint logic
+     */
+    /**************************************************************/
+    function setCheckpointState(checkpointData) {
+        state.checkpointState = checkpointData;
+    }
+
+    /**************************************************************/
+    /**
+     * Clears the checkpoint state.
+     *
+     * @description
+     * Called after checkpoint is confirmed, cancelled, or no longer needed.
+     */
+    /**************************************************************/
+    function clearCheckpointState() {
+        state.checkpointState = null;
+    }
+
+    /**************************************************************/
+    /**
+     * Checks if there is an active checkpoint.
+     *
+     * @returns {boolean} True if a checkpoint is pending
+     */
+    /**************************************************************/
+    function hasActiveCheckpoint() {
+        return state.checkpointState !== null && state.checkpointState.status === 'pending';
+    }
+
+    /**************************************************************/
+    /**
+     * Gets the progress items array.
+     *
+     * @returns {Array} Array of progress item objects
+     *
+     * @description
+     * Progress items track completed endpoint executions for display.
+     * Each item has: name, success, timestamp
+     *
+     * @see addProgressItem - Adds an item
+     * @see clearProgressItems - Clears all items
+     */
+    /**************************************************************/
+    function getProgressItems() {
+        return [...state.progressItems];
+    }
+
+    /**************************************************************/
+    /**
+     * Adds a progress item.
+     *
+     * @param {Object} item - Progress item to add
+     * @param {string} item.name - Display name (product/endpoint name)
+     * @param {boolean} item.success - Whether the operation succeeded
+     *
+     * @example
+     * ChatState.addProgressItem({
+     *     name: 'Lisinopril',
+     *     success: true
+     * });
+     */
+    /**************************************************************/
+    function addProgressItem(item) {
+        state.progressItems.push({
+            ...item,
+            timestamp: Date.now()
+        });
+    }
+
+    /**************************************************************/
+    /**
+     * Clears all progress items.
+     *
+     * @description
+     * Called when starting a new operation or after completion.
+     */
+    /**************************************************************/
+    function clearProgressItems() {
+        state.progressItems = [];
+    }
+
+    /**************************************************************/
+    /**
+     * Gets the count of progress items.
+     *
+     * @returns {number} Number of progress items
+     */
+    /**************************************************************/
+    function getProgressItemCount() {
+        return state.progressItems.length;
+    }
+
+    /**************************************************************/
+    /**
      * Public API for the state management module.
      *
      * @description
@@ -525,6 +658,18 @@ export const ChatState = (function () {
 
         // Progress tracking
         getProgressCallback: getProgressCallback,
-        setProgressCallback: setProgressCallback
+        setProgressCallback: setProgressCallback,
+
+        // Checkpoint state (progressive response)
+        getCheckpointState: getCheckpointState,
+        setCheckpointState: setCheckpointState,
+        clearCheckpointState: clearCheckpointState,
+        hasActiveCheckpoint: hasActiveCheckpoint,
+
+        // Progress items (progressive response)
+        getProgressItems: getProgressItems,
+        addProgressItem: addProgressItem,
+        clearProgressItems: clearProgressItems,
+        getProgressItemCount: getProgressItemCount
     };
 })();

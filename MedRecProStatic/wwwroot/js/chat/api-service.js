@@ -582,10 +582,11 @@ export const ApiService = (function () {
             description = description.replace(/\{\{?documentGuid\}?\}/gi, '').trim();
             description = description.replace(/[\s:-]+$/, '').trim();
 
-            // Try to extract product name
-            const productName = extractProductName(r.result);
+            // Try to get product name - prefer extractedProductName from endpoint execution
+            let productName = r.extractedProductName || extractProductName(r.result);
             if (productName) {
-                description = `${description} - ${productName}`;
+                // Put product name first for better readability
+                description = `${productName} - ${description}`;
             }
 
             return description;

@@ -1157,3 +1157,343 @@ body {
         transform: rotate(360deg);
     }
 }
+
+/**************************************************************/
+/* Progressive Response - Checkpoint Panel */
+/**************************************************************/
+
+.checkpoint-panel {
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-md);
+    margin-top: var(--space-md);
+    animation: checkpoint-slide-in 0.3s ease-out;
+}
+
+@keyframes checkpoint-slide-in {
+    0% {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.checkpoint-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.checkpoint-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--color-text-primary);
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.checkpoint-icon {
+    color: var(--color-accent);
+}
+
+.checkpoint-selection-info {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+}
+
+.checkpoint-selection-info .selected-count {
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+.checkpoint-sources {
+    max-height: 240px;
+    overflow-y: auto;
+    margin-bottom: var(--space-md);
+    padding-right: var(--space-xs);
+}
+
+/* Checkbox styling for sources */
+.source-checkbox {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-xs);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+    background: var(--color-bg-secondary);
+}
+
+.source-checkbox:hover {
+    background: var(--color-bg-hover);
+}
+
+.source-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-accent);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.source-checkbox-custom {
+    display: none;
+}
+
+.source-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.source-name {
+    display: block;
+    font-size: 0.9rem;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.source-description {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.source-count {
+    background: var(--color-accent-light);
+    color: var(--color-accent);
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+/* Selection controls */
+.checkpoint-selection-controls {
+    display: flex;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.checkpoint-select-btn {
+    background: none;
+    border: none;
+    color: var(--color-accent);
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: var(--space-xs) var(--space-sm);
+    transition: color var(--transition-fast);
+}
+
+.checkpoint-select-btn:hover {
+    color: var(--color-accent-hover);
+    text-decoration: underline;
+}
+
+/* Action buttons */
+.checkpoint-actions {
+    display: flex;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.checkpoint-confirm-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex: 1;
+    justify-content: center;
+}
+
+.checkpoint-confirm-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.checkpoint-cancel-btn {
+    flex-shrink: 0;
+}
+
+/* Hint text */
+.checkpoint-hint {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    text-align: center;
+}
+
+/**************************************************************/
+/* Progressive Response - Progress Details */
+/**************************************************************/
+
+.progress-indicator.detailed-progress {
+    flex-direction: row;
+    align-items: flex-start;
+}
+
+.progress-info.detailed {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.progress-details-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.progress-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    animation: progress-item-fade-in 0.2s ease-out;
+}
+
+@keyframes progress-item-fade-in {
+    0% {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.progress-item-current {
+    background: var(--color-accent-light);
+    color: var(--color-accent);
+}
+
+.progress-item-success {
+    color: var(--color-success);
+}
+
+.progress-item-failed {
+    color: var(--color-error);
+}
+
+.progress-item-more {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    padding-left: var(--space-lg);
+}
+
+.progress-item-icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+}
+
+.progress-item-spinner {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.progress-item-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/**************************************************************/
+/* Progressive Response - Cancellation Message */
+/**************************************************************/
+
+.checkpoint-cancelled {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    color: var(--color-text-muted);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+}
+
+.checkpoint-cancelled svg {
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+}
+
+/**************************************************************/
+/* Progressive Response - Batch Progress */
+/**************************************************************/
+
+.batch-progress {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-accent-light);
+    border-radius: var(--radius-md);
+    margin-top: var(--space-sm);
+}
+
+.batch-progress-header {
+    font-size: 0.85rem;
+    color: var(--color-accent);
+    font-weight: 500;
+    margin-bottom: var(--space-xs);
+}
+
+.batch-progress-products {
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+}
+
+.batch-product {
+    display: inline-block;
+}
+
+/**************************************************************/
+/* Progressive Response - Synthesis Complete */
+/**************************************************************/
+
+.synthesis-complete {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    color: var(--color-success);
+    background: rgba(16, 185, 129, 0.1);
+    border-radius: var(--radius-md);
+}
+
+.synthesis-complete-icon {
+    flex-shrink: 0;
+}
+
+/**************************************************************/
+/* Progressive Response - Progress Estimate */
+/**************************************************************/
+
+.progress-estimate {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-top: var(--space-xs);
+}

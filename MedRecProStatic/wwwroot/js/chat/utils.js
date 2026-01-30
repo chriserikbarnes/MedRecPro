@@ -210,6 +210,86 @@ export const ChatUtils = (function () {
 
     /**************************************************************/
     /**
+     * Converts a string to Title Case with smart handling of pharmaceutical terms.
+     *
+     * @param {string} str - String to convert to title case
+     * @returns {string} Title-cased string
+     *
+     * @description
+     * Converts text to title case where the first letter of each word is
+     * capitalized and the rest are lowercase. Handles special cases:
+     * - Preserves common pharmaceutical suffixes (XR, ER, SR, DR, CR, LA, SA, XL, CD)
+     * - Preserves Roman numerals (I, II, III, IV, V, VI, VII, VIII, IX, X)
+     * - Preserves all-caps acronyms (HCL, HCl, etc.)
+     * - Handles hyphenated words correctly
+     * - Trims whitespace and normalizes multiple spaces
+     *
+     * @example
+     * toTitleCase('LISINOPRIL');              // 'Lisinopril'
+     * toTitleCase('metformin hcl');           // 'Metformin HCL'
+     * toTitleCase('METOPROLOL SUCCINATE ER'); // 'Metoprolol Succinate ER'
+     * toTitleCase('diltiazem cd');            // 'Diltiazem CD'
+     * toTitleCase('omega-3 fatty acids');     // 'Omega-3 Fatty Acids'
+     *
+     * @see CheckpointRenderer.renderSourceItem - Uses for product name display
+     */
+    /**************************************************************/
+    function toTitleCase(str) {
+        if (!str || typeof str !== 'string') {
+            return str || '';
+        }
+
+        // Pharmaceutical suffixes to preserve in uppercase
+        const preserveUppercase = new Set([
+            'XR', 'ER', 'SR', 'DR', 'CR', 'LA', 'SA', 'XL', 'CD', 'EC', 'IR', 'ODT',
+            'HCL', 'HCL', 'HBR', 'MG', 'ML', 'MCG',
+            'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X',
+            'D/R'  // Delayed release notation
+        ]);
+
+        // Trim and normalize whitespace (including newlines and tabs)
+        const normalized = str.trim().replace(/[\s\n\t]+/g, ' ');
+
+        // Split on spaces and process each word
+        return normalized.split(' ').map(word => {
+            if (!word) return '';
+
+            // Check if whole word (uppercase) should be preserved
+            const upperWord = word.toUpperCase();
+            if (preserveUppercase.has(upperWord)) {
+                return upperWord;
+            }
+
+            // Handle hyphenated words (e.g., "omega-3")
+            if (word.includes('-')) {
+                return word.split('-').map(part => {
+                    const upperPart = part.toUpperCase();
+                    if (preserveUppercase.has(upperPart)) {
+                        return upperPart;
+                    }
+                    // Keep numbers as-is
+                    if (/^\d+$/.test(part)) {
+                        return part;
+                    }
+                    return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+                }).join('-');
+            }
+
+            // Handle forward slash notation (e.g., "D/R")
+            if (word.includes('/')) {
+                const upperSlash = word.toUpperCase();
+                if (preserveUppercase.has(upperSlash)) {
+                    return upperSlash;
+                }
+            }
+
+            // Standard title case: first letter uppercase, rest lowercase
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        }).join(' ');
+    }
+
+    /**************************************************************/
+    /**
      * Truncates a string to a maximum length with ellipsis.
      *
      * @param {string} str - String to truncate
@@ -323,6 +403,7 @@ export const ChatUtils = (function () {
 
         // String utilities
         escapeHtml: escapeHtml,
+        toTitleCase: toTitleCase,
         truncate: truncate,
         isNonEmptyString: isNonEmptyString,
 

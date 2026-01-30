@@ -34,6 +34,7 @@
 import { ChatUtils } from './utils.js';
 import { ChatState } from './state.js';
 import { MarkdownRenderer } from './markdown.js';
+import { ProgressiveConfig } from './progressive-config.js';
 
 export const MessageRenderer = (function () {
     'use strict';
@@ -187,7 +188,18 @@ export const MessageRenderer = (function () {
         // Build progress indicator HTML (for async operations like file import)
         let progressHtml = '';
         if (message.progress !== undefined && message.progress < 1) {
-            progressHtml = renderProgressIndicator(message);
+            // Check if we should show detailed progress with product names
+            if (ProgressiveConfig.isDetailedProgressEnabled() && message.progressItems && message.progressItems.length > 0) {
+                progressHtml = renderDetailedProgress(message);
+            } else {
+                progressHtml = renderProgressIndicator(message);
+            }
+        }
+
+        // Build checkpoint UI HTML (for progressive response checkpoints)
+        let checkpointHtml = '';
+        if (message.checkpointUI) {
+            checkpointHtml = message.checkpointUI;
         }
 
         // Build streaming indicator HTML (during response generation)
@@ -237,6 +249,7 @@ export const MessageRenderer = (function () {
                         ${filesHtml}
                         ${contentHtml}
                         ${progressHtml}
+                        ${checkpointHtml}
                         ${streamingHtml}
                         ${errorHtml}
                     </div>
@@ -312,6 +325,106 @@ export const MessageRenderer = (function () {
                 <div class="progress-info" style="min-width: 240px;">
                     <div class="progress-status-text">${ChatUtils.escapeHtml(message.progressStatus || 'Processing...')}</div>
                     <div class="progress-hint">Please wait</div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**************************************************************/
+    /**
+     * Renders a detailed progress indicator with product names.
+     *
+     * @param {Object} message - Message with progress state
+     * @param {number} message.progress - Progress value 0-1
+     * @param {string} message.progressStatus - Status description text
+     * @param {Array} message.progressItems - Array of completed progress items
+     * @param {string} [message.currentProductName] - Currently processing product name
+     * @returns {string} HTML for detailed progress indicator
+     *
+     * @description
+     * Shows progress with a list of completed items and the current item being processed.
+     * Each item shows a checkmark or X icon based on success status.
+     *
+     * @see renderMessage - Uses for detailed progress display
+     * @see ProgressiveConfig.getMaxProgressItems - Controls max items shown
+     */
+    /**************************************************************/
+    function renderDetailedProgress(message) {
+        const progressItems = message.progressItems || [];
+        const maxItems = ProgressiveConfig.getMaxProgressItems();
+        const recentItems = progressItems.slice(-maxItems).reverse();
+        const hiddenCount = progressItems.length - recentItems.length;
+
+        let itemsHtml = '';
+
+        // Current item being processed
+        if (message.currentProductName) {
+            itemsHtml += `
+                <div class="progress-item progress-item-current">
+                    <svg class="progress-item-spinner icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="2" x2="12" y2="6"></line>
+                        <line x1="12" y1="18" x2="12" y2="22"></line>
+                        <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                        <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                        <line x1="2" y1="12" x2="6" y2="12"></line>
+                        <line x1="18" y1="12" x2="22" y2="12"></line>
+                        <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                        <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                    </svg>
+                    <span class="progress-item-name">${ChatUtils.escapeHtml(message.currentProductName)}</span>
+                </div>
+            `;
+        }
+
+        // Completed items
+        recentItems.forEach(item => {
+            const statusClass = item.success ? 'progress-item-success' : 'progress-item-failed';
+            const icon = item.success
+                ? '<polyline points="20 6 9 17 4 12"></polyline>'
+                : '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>';
+
+            itemsHtml += `
+                <div class="progress-item ${statusClass}">
+                    <svg class="progress-item-icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        ${icon}
+                    </svg>
+                    <span class="progress-item-name">${ChatUtils.escapeHtml(item.name)}</span>
+                </div>
+            `;
+        });
+
+        // Hidden count
+        if (hiddenCount > 0) {
+            itemsHtml += `
+                <div class="progress-item progress-item-more">
+                    <span>+ ${hiddenCount} more completed</span>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="progress-indicator detailed-progress" style="min-width: 320px;">
+                <div class="progress-ring-animated">
+                    <svg width="44" height="44" viewBox="0 0 44 44">
+                        <defs>
+                            <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+                                <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
+                                <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0.3" />
+                            </linearGradient>
+                        </defs>
+                        <circle class="progress-ring-track" cx="22" cy="22" r="16"
+                            fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="3"></circle>
+                        <circle class="progress-ring-spinner" cx="22" cy="22" r="16"
+                            fill="none" stroke="url(#progressGradient)" stroke-width="3"
+                            stroke-linecap="round" stroke-dasharray="60 40"></circle>
+                    </svg>
+                </div>
+                <div class="progress-info detailed" style="min-width: 280px;">
+                    <div class="progress-status-text">${ChatUtils.escapeHtml(message.progressStatus || 'Fetching data...')}</div>
+                    <div class="progress-details-list">
+                        ${itemsHtml}
+                    </div>
                 </div>
             </div>
         `;
@@ -498,6 +611,7 @@ export const MessageRenderer = (function () {
         renderMessage: renderMessage,
         renderMessages: renderMessages,
         updateMessage: updateMessage,
+        renderDetailedProgress: renderDetailedProgress,
 
         // Interaction handlers
         toggleThinking: toggleThinking,

@@ -41,6 +41,7 @@ import { ChatConfig } from './config.js';
 import { ChatState } from './state.js';
 import { ApiService } from './api-service.js';
 import { MessageRenderer } from './message-renderer.js';
+import { ProgressiveConfig } from './progressive-config.js';
 
 export const EndpointExecutor = (function () {
     'use strict';
@@ -1553,6 +1554,316 @@ export const EndpointExecutor = (function () {
 
     /**************************************************************/
     /**
+     * Extracts a product name for progress display from endpoint or result data.
+     *
+     * @param {Object|null} result - Execution result (null if not yet executed)
+     * @param {Object} endpoint - Original endpoint specification
+     * @param {Object} [processedEndpoint] - Endpoint with substituted variables
+     * @returns {string|null} Product name for display or null
+     *
+     * @description
+     * Attempts to extract a meaningful product name from multiple sources:
+     * 1. Result data (productName, name, title fields)
+     * 2. Endpoint description
+     * 3. Expanded value (if array expansion)
+     * 4. Query parameters
+     *
+     * Used for displaying detailed progress like "Fetching: Lisinopril (3/12)..."
+     *
+     * @example
+     * const name = extractProgressProductName(result, endpoint);
+     * // Returns: "Lisinopril" or "Aspirin Tablets" or null
+     *
+     * @see processExpandedEndpoint - Uses for progress display
+     */
+    /**************************************************************/
+    function extractProgressProductName(result, endpoint, processedEndpoint = null) {
+        // Try to get from result data first (most accurate)
+        if (result && result.result) {
+            const data = result.result;
+            const item = Array.isArray(data) ? (data[0] || {}) : data;
+
+            // Check common name fields
+            const nameFields = [
+                'productName', 'ProductName', 'product_name',
+                'brandName', 'BrandName', 'brand_name',
+                'genericName', 'GenericName', 'generic_name',
+                'substanceName', 'SubstanceName',
+                'title', 'Title',
+                'displayName', 'DisplayName',
+                'name', 'Name'
+            ];
+
+            for (const field of nameFields) {
+                if (item[field] && typeof item[field] === 'string') {
+                    return truncateProductName(item[field]);
+                }
+
+                // Check nested wrappers
+                const wrappers = ['sectionContent', 'document', 'label', 'ingredient'];
+                for (const wrapper of wrappers) {
+                    if (item[wrapper] && item[wrapper][field]) {
+                        return truncateProductName(item[wrapper][field]);
+                    }
+                }
+            }
+        }
+
+        // Try expanded value (for array expansions with variable like documentGuid)
+        const ep = processedEndpoint || endpoint;
+        if (ep && ep._expandedValue) {
+            // If the expanded value is a GUID, try to extract name from description
+            if (/^[0-9a-f-]{36}$/i.test(ep._expandedValue)) {
+                // Don't use the GUID as a name, fall through to description
+            } else {
+                return truncateProductName(ep._expandedValue);
+            }
+        }
+
+        // Try endpoint description
+        if (ep && ep.description) {
+            const name = extractNameFromDescription(ep.description);
+            if (name) {
+                return truncateProductName(name);
+            }
+        }
+
+        // Try query parameters
+        if (ep && ep.queryParameters) {
+            const params = ep.queryParameters;
+            const paramFields = ['productName', 'name', 'term', 'query', 'search', 'substanceName'];
+
+            for (const field of paramFields) {
+                if (params[field] && typeof params[field] === 'string') {
+                    return truncateProductName(params[field]);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**************************************************************/
+    /**
+     * Extracts a product/drug name from an endpoint description.
+     *
+     * @param {string} description - Endpoint description text
+     * @returns {string|null} Extracted name or null
+     *
+     * @description
+     * Parses common description patterns to extract the product name:
+     * - "Get X dosing information" -> X
+     * - "Search for X" -> X
+     * - "Retrieve X product data" -> X
+     */
+    /**************************************************************/
+    function extractNameFromDescription(description) {
+        if (!description || typeof description !== 'string') {
+            return null;
+        }
+
+        // Remove template variables
+        let cleaned = description.replace(/\{\{?[^}]+\}?\}/g, '').trim();
+
+        // Pattern: "Get/Retrieve/Search/Find X ..." or "X information/data/details"
+        const patterns = [
+            /(?:get|retrieve|search\s+for|find|lookup|fetch)\s+([a-zA-Z][a-zA-Z0-9\-\s]{2,30}?)(?:\s+(?:dosing|information|data|details|products?|labels?|sections?|content))/i,
+            /^([a-zA-Z][a-zA-Z0-9\-\s]{2,30}?)\s+(?:dosing|information|data|details|products?|labels?)/i,
+            /(?:for|about)\s+([a-zA-Z][a-zA-Z0-9\-\s]{2,30})$/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = cleaned.match(pattern);
+            if (match && match[1]) {
+                // Clean up the extracted name
+                let name = match[1].trim();
+                // Remove trailing common words
+                name = name.replace(/\s+(the|a|an|product|label|drug|medication)$/i, '').trim();
+                if (name.length > 2) {
+                    return name;
+                }
+            }
+        }
+
+        // Fallback: Look for capitalized drug-like names
+        const capitalizedMatch = cleaned.match(/\b([A-Z][a-z]+(?:[-][a-zA-Z]+)?)\b/);
+        if (capitalizedMatch && capitalizedMatch[1].length > 3) {
+            return capitalizedMatch[1];
+        }
+
+        return null;
+    }
+
+    /**************************************************************/
+    /**
+     * Truncates a product name for display.
+     *
+     * @param {string} name - Product name to truncate
+     * @param {number} [maxLength=35] - Maximum length
+     * @returns {string} Truncated name
+     */
+    /**************************************************************/
+    function truncateProductName(name, maxLength = 35) {
+        if (!name || typeof name !== 'string') {
+            return '';
+        }
+
+        // Clean up the name
+        let cleaned = name.trim();
+
+        // Remove FDA boilerplate
+        const boilerplate = [
+            'HIGHLIGHTS OF PRESCRIBING INFORMATION',
+            'These highlights do not include'
+        ];
+        for (const prefix of boilerplate) {
+            if (cleaned.toLowerCase().startsWith(prefix.toLowerCase())) {
+                cleaned = cleaned.substring(prefix.length).trim();
+                cleaned = cleaned.replace(/^[.,:\-;\s]+/, '').trim();
+            }
+        }
+
+        // Truncate if needed
+        if (cleaned.length > maxLength) {
+            cleaned = cleaned.substring(0, maxLength - 3) + '...';
+        }
+
+        return cleaned;
+    }
+
+    /**************************************************************/
+    /**
+     * Builds a mapping of documentGuid -> productName from API result data.
+     *
+     * @param {Object|Array} data - API response data (typically from product search)
+     * @param {Object} mapping - Object to store the guid -> name mappings
+     *
+     * @description
+     * Scans result data for documentGuid and productName pairs.
+     * This is used to name subsequent results that only have a GUID.
+     */
+    /**************************************************************/
+    function buildDocumentGuidMapping(data, mapping) {
+        if (!data || !mapping) return;
+
+        // Handle nested data structures (e.g., productsByClass)
+        let items = [];
+        if (Array.isArray(data)) {
+            items = data;
+        } else if (typeof data === 'object') {
+            // Check for nested arrays in objects
+            for (const key of Object.keys(data)) {
+                if (Array.isArray(data[key])) {
+                    items.push(...data[key]);
+                } else if (typeof data[key] === 'object' && data[key] !== null) {
+                    // Check one level deeper (e.g., productsByClass.Anticonvulsants)
+                    for (const subKey of Object.keys(data[key])) {
+                        if (Array.isArray(data[key][subKey])) {
+                            items.push(...data[key][subKey]);
+                        }
+                    }
+                }
+            }
+            // If no nested arrays found, treat the object itself as a single item
+            if (items.length === 0) {
+                items = [data];
+            }
+        }
+
+        items.forEach(item => {
+            if (!item || typeof item !== 'object') return;
+
+            // Look for documentGuid
+            const guidFields = ['documentGuid', 'DocumentGuid', 'documentGUID', 'setId', 'SetId', 'id', 'Id'];
+            let guid = null;
+            for (const field of guidFields) {
+                if (item[field] && typeof item[field] === 'string') {
+                    guid = item[field];
+                    break;
+                }
+            }
+
+            if (!guid) return;
+
+            // Look for product name
+            const nameFields = [
+                'productName', 'ProductName', 'product_name',
+                'brandName', 'BrandName', 'brand_name',
+                'genericName', 'GenericName', 'generic_name',
+                'title', 'Title',
+                'displayName', 'DisplayName',
+                'name', 'Name'
+            ];
+
+            for (const field of nameFields) {
+                if (item[field] && typeof item[field] === 'string' && item[field].length > 0) {
+                    const name = truncateProductName(item[field]);
+                    if (name && name.length > 2) {
+                        mapping[guid] = name;
+                        console.log(`[EndpointExecutor] Mapped GUID ${guid.substring(0, 8)}... -> ${name}`);
+                        break;
+                    }
+                }
+            }
+        });
+
+        console.log(`[EndpointExecutor] GUID->Name mapping now has ${Object.keys(mapping).length} entries`);
+    }
+
+    /**************************************************************/
+    /**
+     * Extracts documentGuid from a result or its endpoint.
+     *
+     * @param {Object} result - Execution result
+     * @param {Object} expandedEndpoint - The expanded endpoint object
+     * @returns {string|null} The documentGuid if found
+     */
+    /**************************************************************/
+    function extractDocumentGuidFromResult(result, expandedEndpoint) {
+        // Handle both structures:
+        // - Non-expanded: expandedEndpoint is just the endpoint object
+        // - Expanded: expandedEndpoint is { endpoint, variables }
+        const vars = expandedEndpoint?.variables || {};
+        const ep = expandedEndpoint?.endpoint || expandedEndpoint || {};
+
+        // Check if endpoint was expanded with a documentGuid variable
+        const guidVars = ['documentGuid', 'DocumentGuid', 'documentGUID', 'setId', 'SetId'];
+        for (const v of guidVars) {
+            if (vars[v]) {
+                console.log(`[EndpointExecutor] Found GUID in expanded variables: ${v} = ${vars[v]}`);
+                return vars[v];
+            }
+        }
+
+        // Also check the _expandedValue (stores the value when array expanding)
+        if (ep._expandedValue && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(ep._expandedValue)) {
+            console.log(`[EndpointExecutor] Found GUID in _expandedValue: ${ep._expandedValue}`);
+            return ep._expandedValue;
+        }
+
+        // Check the endpoint path for a GUID pattern
+        if (result && result.specification && result.specification.path) {
+            const guidMatch = result.specification.path.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+            if (guidMatch) {
+                return guidMatch[0];
+            }
+        }
+
+        // Check result data
+        if (result && result.result) {
+            const data = result.result;
+            const item = Array.isArray(data) ? (data[0] || {}) : data;
+            const guidFields = ['documentGuid', 'DocumentGuid', 'setId', 'SetId'];
+            for (const field of guidFields) {
+                if (item[field]) return item[field];
+            }
+        }
+
+        return null;
+    }
+
+    /**************************************************************/
+    /**
      * Processes a single expanded endpoint execution.
      *
      * @param {Object} expandedItem - Expanded endpoint item with variables
@@ -1566,6 +1877,7 @@ export const EndpointExecutor = (function () {
      * @param {AbortController} abortController - For request cancellation
      * @param {number} completedCount - Number of completed endpoints
      * @param {number} totalEndpoints - Total endpoints to execute
+     * @param {Function} [progressCallback] - Optional callback for progress events
      * @returns {Promise<Object>} Result object for the results array
      *
      * @description
@@ -1590,7 +1902,8 @@ export const EndpointExecutor = (function () {
         assistantMessage,
         abortController,
         completedCount,
-        totalEndpoints
+        totalEndpoints,
+        progressCallback = null
     ) {
         const currentEndpoint = expandedItem.endpoint || expandedItem;
         const currentVars = expandedItem.variables || extractedVariables;
@@ -1598,11 +1911,30 @@ export const EndpointExecutor = (function () {
         // Substitute variables
         const processedEndpoint = substituteEndpointVariables(currentEndpoint, currentVars);
 
-        // Update progress
+        // Extract product name for detailed progress (before execution)
+        const productName = extractProgressProductName(null, endpoint, processedEndpoint);
+
+        // Update progress with product name if detailed progress is enabled
         const expandInfo = isArrayExpansion ? ` [${expandIdx + 1}/${totalExpanded}]` : '';
         assistantMessage.progress = completedCount / totalEndpoints;
-        assistantMessage.progressStatus = `Step ${step}${expandInfo}: ${processedEndpoint.description || 'Executing query'}...`;
+
+        if (ProgressiveConfig.isDetailedProgressEnabled() && productName) {
+            assistantMessage.progressStatus = `Fetching: ${productName} (${completedCount + 1}/${totalEndpoints})...`;
+        } else {
+            assistantMessage.progressStatus = `Step ${step}${expandInfo}: ${processedEndpoint.description || 'Executing query'}...`;
+        }
         MessageRenderer.updateMessage(assistantMessage.id);
+
+        // Notify progress callback of start
+        if (progressCallback) {
+            progressCallback({
+                type: 'endpoint_start',
+                productName: productName,
+                current: completedCount + 1,
+                total: totalEndpoints,
+                endpoint: processedEndpoint
+            });
+        }
 
         const startTime = Date.now();
 
@@ -1947,9 +2279,12 @@ export const EndpointExecutor = (function () {
      * @see processExpandedEndpoint - Executes individual endpoints
      */
     /**************************************************************/
-    async function executeEndpointsWithDependencies(endpoints, assistantMessage, abortController) {
+    async function executeEndpointsWithDependencies(endpoints, assistantMessage, abortController, progressCallback = null) {
         const results = [];
         const extractedVariables = {};
+
+        // Map documentGuid -> productName for naming subsequent results
+        const documentGuidToProductName = {};
 
         // Log execution start
         console.log('[EndpointExecutor] ========================================');
@@ -2022,9 +2357,78 @@ export const EndpointExecutor = (function () {
                         assistantMessage,
                         abortController,
                         completedCount,
-                        totalEndpoints
+                        totalEndpoints,
+                        progressCallback
                     );
+
+                    // Extract and attach product name to result for grouping
+                    let productName = extractProgressProductName(result, endpoint);
+
+                    // Build documentGuid -> productName mapping from early results
+                    // (typically step 1 returns product list with names and GUIDs)
+                    if (result.result) {
+                        buildDocumentGuidMapping(result.result, documentGuidToProductName);
+                    }
+
+                    // Also try to build mapping from extractedVariables if both arrays exist
+                    if (extractedVariables.documentGuid && extractedVariables.productName) {
+                        const guids = Array.isArray(extractedVariables.documentGuid)
+                            ? extractedVariables.documentGuid
+                            : [extractedVariables.documentGuid];
+                        const names = Array.isArray(extractedVariables.productName)
+                            ? extractedVariables.productName
+                            : [extractedVariables.productName];
+
+                        if (guids.length === names.length) {
+                            guids.forEach((guid, i) => {
+                                if (guid && names[i] && !documentGuidToProductName[guid]) {
+                                    const cleanName = truncateProductName(names[i]);
+                                    if (cleanName) {
+                                        documentGuidToProductName[guid] = cleanName;
+                                        console.log(`[EndpointExecutor] Mapped GUID from extractedVars: ${guid.substring(0, 8)}... -> ${cleanName}`);
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                    // If we couldn't extract a meaningful name, look it up in our GUID mapping
+                    const badNames = [
+                        'Dosage and Administration', 'all', 'Dosing', 'Administration',
+                        'Contraindications', 'Warnings', 'Precautions', 'Interactions',
+                        'Adverse Reactions', 'Indications', 'Label', 'Section'
+                    ];
+                    const isBadName = !productName || badNames.some(bad =>
+                        productName.toLowerCase() === bad.toLowerCase() ||
+                        productName.toLowerCase().startsWith(bad.toLowerCase())
+                    );
+
+                    if (isBadName) {
+                        const docGuid = extractDocumentGuidFromResult(result, expandedEndpoints[expandIdx]);
+                        if (docGuid && documentGuidToProductName[docGuid]) {
+                            productName = documentGuidToProductName[docGuid];
+                            console.log(`[EndpointExecutor] Resolved productName from GUID mapping: ${docGuid.substring(0, 8)}... -> ${productName}`);
+                        }
+                    }
+
+                    if (productName) {
+                        result.extractedProductName = productName;
+                    }
+
                     results.push(result);
+
+                    // Invoke progress callback with detailed info if provided
+                    if (progressCallback && ProgressiveConfig.isDetailedProgressEnabled()) {
+                        progressCallback({
+                            type: 'endpoint_complete',
+                            productName: productName,
+                            success: result.statusCode >= 200 && result.statusCode < 300,
+                            hasData: result.hasData,
+                            current: completedCount + 1,
+                            total: totalEndpoints,
+                            result: result
+                        });
+                    }
                 }
 
                 completedCount++;
@@ -2061,6 +2465,296 @@ export const EndpointExecutor = (function () {
 
     /**************************************************************/
     /**
+     * Executes only the discovery phase (step 1) to identify available products.
+     *
+     * @param {Array} endpoints - Array of endpoint specifications
+     * @param {Object} assistantMessage - Message object for progress updates
+     * @param {AbortController} abortController - For request cancellation
+     * @param {Function} [progressCallback] - Optional callback for progress events
+     * @returns {Promise<Object>} Discovery result containing:
+     *   - results: Array of step 1 execution results
+     *   - extractedVariables: Variables extracted from step 1
+     *   - documentGuidToProductName: Mapping of GUIDs to product names
+     *   - hasMoreSteps: Whether there are additional steps to execute
+     *
+     * @description
+     * Used for the checkpoint flow:
+     * 1. Execute step 1 to discover available products
+     * 2. Show checkpoint UI for user selection
+     * 3. Execute remaining steps with filtered products
+     */
+    /**************************************************************/
+    async function executeDiscoveryPhase(endpoints, assistantMessage, abortController, progressCallback = null) {
+        const results = [];
+        const extractedVariables = {};
+        const documentGuidToProductName = {};
+
+        console.log('[EndpointExecutor] ========================================');
+        console.log('[EndpointExecutor] DISCOVERY PHASE STARTED (Step 1 only)');
+        console.log('[EndpointExecutor] ========================================');
+
+        // Group and sort endpoints by step
+        const endpointsByStep = groupEndpointsByStep(endpoints);
+        const sortedSteps = Array.from(endpointsByStep.keys()).sort((a, b) => a - b);
+
+        // Only execute step 1
+        const step1 = sortedSteps[0];
+        if (step1 === undefined) {
+            console.log('[EndpointExecutor] No endpoints to execute');
+            return { results: [], extractedVariables: {}, documentGuidToProductName: {}, hasMoreSteps: false };
+        }
+
+        const stepEndpoints = endpointsByStep.get(step1);
+        const totalEndpoints = stepEndpoints.length;
+        let completedCount = 0;
+
+        console.log(`[EndpointExecutor] Executing discovery step ${step1} (${stepEndpoints.length} endpoint(s))`);
+
+        for (const endpoint of stepEndpoints) {
+            // No dependency check needed for step 1
+
+            const expandedEndpoints = expandEndpointForArrays(endpoint, extractedVariables);
+
+            for (let expandIdx = 0; expandIdx < expandedEndpoints.length; expandIdx++) {
+                const result = await processExpandedEndpoint(
+                    expandedEndpoints[expandIdx],
+                    endpoint,
+                    extractedVariables,
+                    step1,
+                    expandedEndpoints.length > 1,
+                    expandIdx,
+                    expandedEndpoints.length,
+                    assistantMessage,
+                    abortController,
+                    completedCount,
+                    totalEndpoints,
+                    progressCallback
+                );
+
+                // Build GUID -> name mapping
+                if (result.result) {
+                    buildDocumentGuidMapping(result.result, documentGuidToProductName);
+                }
+
+                // Extract product name
+                let productName = extractProgressProductName(result, endpoint);
+                if (productName) {
+                    result.extractedProductName = productName;
+                }
+
+                results.push(result);
+
+                if (progressCallback) {
+                    progressCallback({
+                        type: 'endpoint_complete',
+                        productName: productName,
+                        success: result.statusCode >= 200 && result.statusCode < 300,
+                        hasData: result.hasData,
+                        current: completedCount + 1,
+                        total: totalEndpoints,
+                        result: result
+                    });
+                }
+            }
+            completedCount++;
+        }
+
+        console.log('[EndpointExecutor] ========================================');
+        console.log('[EndpointExecutor] DISCOVERY PHASE COMPLETE');
+        console.log(`[EndpointExecutor] Results: ${results.length}`);
+        console.log(`[EndpointExecutor] Products found: ${Object.keys(documentGuidToProductName).length}`);
+        console.log(`[EndpointExecutor] Extracted variables: ${JSON.stringify(extractedVariables)}`);
+        console.log('[EndpointExecutor] ========================================');
+
+        return {
+            results,
+            extractedVariables,
+            documentGuidToProductName,
+            hasMoreSteps: sortedSteps.length > 1
+        };
+    }
+
+    /**************************************************************/
+    /**
+     * Executes remaining steps (after discovery) with optional product filtering.
+     *
+     * @param {Array} endpoints - Array of endpoint specifications
+     * @param {Object} assistantMessage - Message object for progress updates
+     * @param {AbortController} abortController - For request cancellation
+     * @param {Object} options - Execution options
+     * @param {Object} options.extractedVariables - Variables from discovery phase
+     * @param {Object} options.documentGuidToProductName - GUID to name mapping
+     * @param {Array<string>} [options.selectedGuids] - Optional list of GUIDs to filter to
+     * @param {Function} [options.progressCallback] - Optional callback for progress events
+     * @returns {Promise<Array>} Array of execution results
+     */
+    /**************************************************************/
+    async function executeRemainingSteps(endpoints, assistantMessage, abortController, options = {}) {
+        const {
+            extractedVariables = {},
+            documentGuidToProductName = {},
+            selectedGuids = null,
+            progressCallback = null
+        } = options;
+
+        const results = [];
+        const localVars = { ...extractedVariables };
+        const localMapping = { ...documentGuidToProductName };
+
+        console.log('[EndpointExecutor] ========================================');
+        console.log('[EndpointExecutor] EXECUTING REMAINING STEPS');
+        if (selectedGuids) {
+            console.log(`[EndpointExecutor] Filtering to ${selectedGuids.length} selected products`);
+        }
+        console.log('[EndpointExecutor] ========================================');
+
+        // Filter documentGuid/documentGuids array if selection provided
+        // Support both singular and plural naming conventions from skill configurations
+        const guidVarName = localVars.documentGuid ? 'documentGuid' :
+            (localVars.documentGuids ? 'documentGuids' : null);
+
+        if (selectedGuids && guidVarName && Array.isArray(localVars[guidVarName])) {
+            const originalCount = localVars[guidVarName].length;
+            localVars[guidVarName] = localVars[guidVarName].filter(guid => selectedGuids.includes(guid));
+            console.log(`[EndpointExecutor] Filtered ${guidVarName}: ${originalCount} -> ${localVars[guidVarName].length}`);
+
+            // Also filter productName/productNames array if it exists
+            const nameVarName = localVars.productName ? 'productName' :
+                (localVars.productNames ? 'productNames' : null);
+            const origNameVar = extractedVariables.documentGuid ? 'documentGuid' :
+                (extractedVariables.documentGuids ? 'documentGuids' : null);
+
+            if (nameVarName && Array.isArray(localVars[nameVarName]) && origNameVar) {
+                const filteredNames = [];
+                const origGuids = extractedVariables[origNameVar];
+                const origNames = extractedVariables[nameVarName] || extractedVariables.productName || extractedVariables.productNames || [];
+
+                if (Array.isArray(origGuids)) {
+                    origGuids.forEach((guid, i) => {
+                        if (selectedGuids.includes(guid) && origNames[i]) {
+                            filteredNames.push(origNames[i]);
+                        }
+                    });
+                }
+                localVars[nameVarName] = filteredNames;
+            }
+        }
+
+        // Group and sort endpoints by step
+        const endpointsByStep = groupEndpointsByStep(endpoints);
+        const sortedSteps = Array.from(endpointsByStep.keys()).sort((a, b) => a - b);
+
+        // Skip step 1 (already done in discovery)
+        const remainingSteps = sortedSteps.slice(1);
+
+        if (remainingSteps.length === 0) {
+            console.log('[EndpointExecutor] No remaining steps to execute');
+            return results;
+        }
+
+        // Count total endpoints for progress
+        let totalEndpoints = 0;
+        for (const step of remainingSteps) {
+            const stepEndpoints = endpointsByStep.get(step);
+            for (const ep of stepEndpoints) {
+                const expanded = expandEndpointForArrays(ep, localVars);
+                totalEndpoints += expanded.length;
+            }
+        }
+
+        let completedCount = 0;
+
+        // Execute remaining steps
+        for (const step of remainingSteps) {
+            const stepEndpoints = endpointsByStep.get(step);
+            console.log(`[EndpointExecutor] ======== EXECUTING STEP ${step} (${stepEndpoints.length} endpoint(s)) ========`);
+
+            for (const endpoint of stepEndpoints) {
+                // Check dependencies (against both discovery results and our results)
+                // For now, assume step 1 succeeded if we got here
+
+                const expandedEndpoints = expandEndpointForArrays(endpoint, localVars);
+                const isArrayExpansion = expandedEndpoints.length > 1;
+
+                if (isArrayExpansion) {
+                    console.log(`[EndpointExecutor] === MULTI-DOCUMENT EXPANSION: ${expandedEndpoints.length} calls ===`);
+                }
+
+                for (let expandIdx = 0; expandIdx < expandedEndpoints.length; expandIdx++) {
+                    const result = await processExpandedEndpoint(
+                        expandedEndpoints[expandIdx],
+                        endpoint,
+                        localVars,
+                        step,
+                        isArrayExpansion,
+                        expandIdx,
+                        expandedEndpoints.length,
+                        assistantMessage,
+                        abortController,
+                        completedCount,
+                        totalEndpoints,
+                        progressCallback
+                    );
+
+                    // Build mapping from result
+                    if (result.result) {
+                        buildDocumentGuidMapping(result.result, localMapping);
+                    }
+
+                    // Extract product name
+                    let productName = extractProgressProductName(result, endpoint);
+
+                    // Look up from mapping if needed
+                    const badNames = [
+                        'Dosage and Administration', 'all', 'Dosing', 'Administration',
+                        'Contraindications', 'Warnings', 'Precautions', 'Interactions',
+                        'Adverse Reactions', 'Indications', 'Label', 'Section'
+                    ];
+                    const isBadName = !productName || badNames.some(bad =>
+                        productName.toLowerCase() === bad.toLowerCase() ||
+                        productName.toLowerCase().startsWith(bad.toLowerCase())
+                    );
+
+                    if (isBadName) {
+                        const docGuid = extractDocumentGuidFromResult(result, expandedEndpoints[expandIdx]);
+                        if (docGuid && localMapping[docGuid]) {
+                            productName = localMapping[docGuid];
+                        }
+                    }
+
+                    if (productName) {
+                        result.extractedProductName = productName;
+                    }
+
+                    results.push(result);
+
+                    if (progressCallback) {
+                        progressCallback({
+                            type: 'endpoint_complete',
+                            productName: productName,
+                            success: result.statusCode >= 200 && result.statusCode < 300,
+                            hasData: result.hasData,
+                            current: completedCount + 1,
+                            total: totalEndpoints,
+                            result: result
+                        });
+                    }
+
+                    completedCount++;
+                }
+            }
+        }
+
+        console.log('[EndpointExecutor] ========================================');
+        console.log('[EndpointExecutor] REMAINING STEPS COMPLETE');
+        console.log(`[EndpointExecutor] Total results: ${results.length}`);
+        console.log('[EndpointExecutor] ========================================');
+
+        return results;
+    }
+
+    /**************************************************************/
+    /**
      * Public API for the endpoint execution module.
      *
      * @description
@@ -2071,10 +2765,18 @@ export const EndpointExecutor = (function () {
         // Main execution
         executeEndpointsWithDependencies: executeEndpointsWithDependencies,
 
+        // Checkpoint-aware execution (discovery + remaining steps)
+        executeDiscoveryPhase: executeDiscoveryPhase,
+        executeRemainingSteps: executeRemainingSteps,
+
         // Utility functions (exposed for testing/advanced use)
         extractValueByPath: extractValueByPath,
         findPropertyDeep: findPropertyDeep,
         substituteVariables: substituteVariables,
-        resultHasData: resultHasData
+        resultHasData: resultHasData,
+
+        // Progress display helpers
+        extractProgressProductName: extractProgressProductName,
+        truncateProductName: truncateProductName
     };
 })();

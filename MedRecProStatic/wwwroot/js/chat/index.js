@@ -67,6 +67,13 @@ import { UIHelpers } from './ui-helpers.js';
 import { SettingsRenderer } from './settings-renderer.js';
 import { EndpointStatsRenderer } from './endpoint-stats-renderer.js';
 
+// Progressive response modules
+import { ProgressiveConfig } from './progressive-config.js';
+import { ResultGrouper } from './result-grouper.js';
+import { CheckpointManager } from './checkpoint-manager.js';
+import { CheckpointRenderer } from './checkpoint-renderer.js';
+import { BatchSynthesizer } from './batch-synthesizer.js';
+
 /**************************************************************/
 /**
  * MedRecPro Chat Application
@@ -476,33 +483,172 @@ const MedRecProChat = (function () {
      *
      * @description
      * Handles the endpoint execution flow:
-     * 1. Shows progress indicator
-     * 2. Executes endpoints with dependencies
-     * 3. Handles retries if all endpoints fail
-     * 4. Synthesizes results into natural language
-     * 5. Appends follow-ups and data references
-     * 6. Updates final message state
+     * 1. Shows progress indicator with product names
+     * 2. Executes endpoints with dependencies and progress callbacks
+     * 3. Checks for checkpoint threshold (5+ products)
+     * 4. Shows checkpoint UI for user selection if threshold met
+     * 5. Handles retries if all endpoints fail
+     * 6. Synthesizes results into natural language (batch or single)
+     * 7. Appends follow-ups and data references
+     * 8. Updates final message state
      *
      * @async
      * @see EndpointExecutor.executeEndpointsWithDependencies
      * @see ApiService.synthesizeResults
      * @see ApiService.attemptRetryInterpretation
+     * @see CheckpointManager - Manages checkpoint decisions
+     * @see BatchSynthesizer - Handles batch synthesis
      */
     /**************************************************************/
     async function executeAndSynthesizeEndpoints(originalInput, interpretation, assistantMessage) {
+        // Clear any previous progress items
+        ChatState.clearProgressItems();
+
         // Show progress
         ChatState.updateMessage(assistantMessage.id, {
             progress: 0,
-            progressStatus: 'Executing queries...'
+            progressStatus: 'Discovering available products...',
+            progressItems: []
         });
         MessageRenderer.updateMessage(assistantMessage.id);
 
-        // Execute endpoints with dependency support
-        const results = await EndpointExecutor.executeEndpointsWithDependencies(
+        // Create progress callback for detailed progress display
+        const progressCallback = ProgressiveConfig.isDetailedProgressEnabled() ? (progressEvent) => {
+            if (progressEvent.type === 'endpoint_start') {
+                // Update current item being processed
+                ChatState.updateMessage(assistantMessage.id, {
+                    currentProductName: progressEvent.productName,
+                    progressStatus: CheckpointRenderer.createProgressStatus(
+                        progressEvent.productName || 'Processing',
+                        progressEvent.current,
+                        progressEvent.total
+                    )
+                });
+                MessageRenderer.updateMessage(assistantMessage.id);
+            } else if (progressEvent.type === 'endpoint_complete') {
+                // Add completed item to progress list
+                if (progressEvent.productName) {
+                    ChatState.addProgressItem({
+                        name: progressEvent.productName,
+                        success: progressEvent.success
+                    });
+
+                    ChatState.updateMessage(assistantMessage.id, {
+                        progressItems: ChatState.getProgressItems(),
+                        currentProductName: null
+                    });
+                    MessageRenderer.updateMessage(assistantMessage.id);
+                }
+            }
+        } : null;
+
+        // ================================================================
+        // CHECKPOINT-AWARE EXECUTION FLOW
+        // Phase 1: Execute discovery (step 1) to identify available products
+        // Phase 2: If many products found, show checkpoint for user selection
+        // Phase 3: Execute remaining steps for selected products only
+        // ================================================================
+
+        // Phase 1: Discovery - execute only step 1 to find available products
+        const discovery = await EndpointExecutor.executeDiscoveryPhase(
             interpretation.suggestedEndpoints,
             assistantMessage,
-            ChatState.getAbortController()
+            ChatState.getAbortController(),
+            progressCallback
         );
+
+        // Check how many products were discovered
+        const discoveredProductCount = Object.keys(discovery.documentGuidToProductName).length;
+
+        // Support both 'documentGuid' (singular) and 'documentGuids' (plural) variable names
+        // The skill configuration may use either form
+        const documentGuidVar = discovery.extractedVariables.documentGuid ||
+            discovery.extractedVariables.documentGuids;
+        const hasDocumentGuids = documentGuidVar &&
+            (Array.isArray(documentGuidVar)
+                ? documentGuidVar.length > 0
+                : true);
+
+        console.log(`[MedRecProChat] Discovery found ${discoveredProductCount} products, hasMoreSteps=${discovery.hasMoreSteps}`);
+
+        // If many products found and there are more steps, show checkpoint BEFORE fetching data
+        if (discovery.hasMoreSteps && hasDocumentGuids &&
+            discoveredProductCount >= ProgressiveConfig.getCheckpointThreshold()) {
+
+            console.log('[MedRecProChat] Checkpoint threshold met, showing selection UI BEFORE data fetch');
+
+            // Build product groups from discovered GUIDs (not from fetched data)
+            const productGroups = buildProductGroupsFromDiscovery(discovery);
+
+            // Create checkpoint state
+            CheckpointManager.createCheckpoint({
+                messageId: assistantMessage.id,
+                productGroups: productGroups,
+                originalQuery: originalInput,
+                interpretation: interpretation,
+                discoveryResults: discovery.results,
+                extractedVariables: discovery.extractedVariables,
+                documentGuidToProductName: discovery.documentGuidToProductName
+            });
+
+            // Store checkpoint state
+            ChatState.setCheckpointState({
+                messageId: assistantMessage.id,
+                productGroups: productGroups,
+                selectedIds: Object.keys(productGroups),
+                status: 'pending',
+                discoveryData: {
+                    extractedVariables: discovery.extractedVariables,
+                    documentGuidToProductName: discovery.documentGuidToProductName
+                }
+            });
+
+            // Render checkpoint UI
+            const checkpointHtml = CheckpointRenderer.renderCheckpointPanel(
+                productGroups,
+                assistantMessage.id
+            );
+
+            // Update message with checkpoint UI
+            ChatState.updateMessage(assistantMessage.id, {
+                progress: undefined,
+                progressStatus: undefined,
+                progressItems: undefined,
+                currentProductName: undefined,
+                checkpointUI: checkpointHtml,
+                isStreaming: false,
+                content: '' // Clear any previous content
+            });
+            MessageRenderer.updateMessage(assistantMessage.id);
+
+            // Exit early - remaining execution happens when user confirms checkpoint
+            return;
+        }
+
+        // No checkpoint needed - execute all remaining steps
+        let results = [...discovery.results];
+
+        if (discovery.hasMoreSteps) {
+            ChatState.updateMessage(assistantMessage.id, {
+                progressStatus: 'Fetching product data...'
+            });
+            MessageRenderer.updateMessage(assistantMessage.id);
+
+            const remainingResults = await EndpointExecutor.executeRemainingSteps(
+                interpretation.suggestedEndpoints,
+                assistantMessage,
+                ChatState.getAbortController(),
+                {
+                    extractedVariables: discovery.extractedVariables,
+                    documentGuidToProductName: discovery.documentGuidToProductName,
+                    progressCallback: progressCallback
+                }
+            );
+            results.push(...remainingResults);
+        }
+
+        // Group results by product (no checkpoint needed)
+        const productGroups = ResultGrouper.groupResultsByProduct(results);
 
         // Check for failures
         const failedResults = results.filter(r => r.statusCode >= 400 || r.error);
@@ -650,6 +796,400 @@ const MedRecProChat = (function () {
 
     /**************************************************************/
     /**
+     * Builds product groups from discovery phase data for checkpoint display.
+     *
+     * @param {Object} discovery - Discovery phase result
+     * @param {Object} discovery.documentGuidToProductName - GUID to name mapping
+     * @param {Object} discovery.extractedVariables - Extracted variables including documentGuid array
+     * @returns {Object} Product groups suitable for checkpoint display
+     *
+     * @description
+     * Creates minimal product groups (just id/name) from the discovery data
+     * before any label data has been fetched. This allows the checkpoint
+     * to be shown BEFORE the expensive data fetching step.
+     */
+    /**************************************************************/
+    function buildProductGroupsFromDiscovery(discovery) {
+        const groups = {};
+        const mapping = discovery.documentGuidToProductName || {};
+
+        // Support both 'documentGuid' (singular) and 'documentGuids' (plural) variable names
+        const guids = discovery.extractedVariables?.documentGuid ||
+            discovery.extractedVariables?.documentGuids || [];
+
+        // Convert single GUID to array
+        const guidArray = Array.isArray(guids) ? guids : [guids];
+
+        // Build groups from the GUID -> name mapping
+        guidArray.forEach((guid, index) => {
+            if (!guid) return;
+
+            // Skip "all" and other meta-values
+            if (guid.toLowerCase() === 'all') return;
+
+            const name = mapping[guid] || `Product ${index + 1}`;
+
+            groups[guid] = {
+                id: guid,
+                name: name,
+                results: [], // No results yet - data not fetched
+                totalDataSize: 0,
+                hasData: false,
+                endpointDescriptions: ['Dosage and Administration'] // Placeholder
+            };
+        });
+
+        // Sort by name
+        const sortedGroups = {};
+        Object.keys(groups)
+            .sort((a, b) => {
+                const nameA = (groups[a].name || '').toLowerCase();
+                const nameB = (groups[b].name || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            })
+            .forEach(key => {
+                sortedGroups[key] = groups[key];
+            });
+
+        console.log(`[MedRecProChat] Built ${Object.keys(sortedGroups).length} product groups from discovery`);
+
+        return sortedGroups;
+    }
+
+    /**************************************************************/
+    /**
+     * Handles checkpoint confirmation - fetches data and synthesizes selected products.
+     *
+     * @param {string} messageId - ID of the assistant message with checkpoint
+     *
+     * @description
+     * Called when user clicks "Synthesize Selected" on checkpoint panel.
+     * Now executes the remaining steps (data fetching) for selected products only,
+     * then continues with synthesis.
+     *
+     * @example
+     * // Called from checkpoint confirm button
+     * MedRecProChat.checkpointConfirm('msg-123');
+     *
+     * @see CheckpointManager.confirmCheckpoint - Gets selected results
+     * @see synthesizeAfterCheckpoint - Continues with synthesis
+     */
+    /**************************************************************/
+    async function checkpointConfirm(messageId) {
+        console.log(`[MedRecProChat] Checkpoint confirmed for message ${messageId}`);
+
+        // Get checkpoint confirmation data
+        const confirmation = CheckpointManager.confirmCheckpoint();
+        if (!confirmation) {
+            console.warn('[MedRecProChat] No pending checkpoint to confirm');
+            return;
+        }
+
+        // Get the checkpoint state (contains discovery data)
+        const checkpointState = ChatState.getCheckpointState();
+
+        // Clear checkpoint state
+        ChatState.clearCheckpointState();
+
+        // Get the assistant message
+        const assistantMessage = ChatState.getMessageById(messageId);
+        if (!assistantMessage) {
+            console.warn('[MedRecProChat] Could not find assistant message');
+            return;
+        }
+
+        // Clear checkpoint UI and show data fetching progress
+        ChatState.updateMessage(messageId, {
+            checkpointUI: undefined,
+            progress: 0.1,
+            progressStatus: `Fetching data for ${confirmation.selectedProducts} selected product(s)...`,
+            isStreaming: true
+        });
+        MessageRenderer.updateMessage(messageId);
+
+        try {
+            // Get the selected product GUIDs
+            const selectedGuids = confirmation.selectedIds;
+
+            // Create progress callback
+            const progressCallback = ProgressiveConfig.isDetailedProgressEnabled() ? (progressEvent) => {
+                if (progressEvent.type === 'endpoint_complete' && progressEvent.productName) {
+                    ChatState.updateMessage(messageId, {
+                        progressStatus: `Fetching: ${progressEvent.productName} (${progressEvent.current}/${progressEvent.total})...`
+                    });
+                    MessageRenderer.updateMessage(messageId);
+                }
+            } : null;
+
+            // Execute remaining steps with only selected products
+            const remainingResults = await EndpointExecutor.executeRemainingSteps(
+                confirmation.interpretation.suggestedEndpoints,
+                assistantMessage,
+                ChatState.getAbortController(),
+                {
+                    extractedVariables: checkpointState?.discoveryData?.extractedVariables || {},
+                    documentGuidToProductName: checkpointState?.discoveryData?.documentGuidToProductName || {},
+                    selectedGuids: selectedGuids,
+                    progressCallback: progressCallback
+                }
+            );
+
+            // Update progress for synthesis
+            ChatState.updateMessage(messageId, {
+                progress: 0.8,
+                progressStatus: `Synthesizing ${confirmation.selectedProducts} product(s)...`
+            });
+            MessageRenderer.updateMessage(messageId);
+
+            // Continue with synthesis using the fetched results
+            await synthesizeAfterCheckpoint(
+                confirmation.originalQuery,
+                confirmation.interpretation,
+                remainingResults,
+                assistantMessage
+            );
+        } catch (error) {
+            console.error('[MedRecProChat] Checkpoint execution failed:', error);
+            ChatState.updateMessage(messageId, {
+                error: error.message || 'Data fetch failed',
+                isStreaming: false,
+                progress: undefined,
+                progressStatus: undefined
+            });
+            MessageRenderer.updateMessage(messageId);
+        }
+    }
+
+    /**************************************************************/
+    /**
+     * Handles checkpoint cancellation.
+     *
+     * @param {string} messageId - ID of the assistant message with checkpoint
+     *
+     * @description
+     * Called when user clicks "Cancel" on checkpoint panel.
+     * Clears checkpoint state and shows cancellation message.
+     *
+     * @example
+     * // Called from checkpoint cancel button
+     * MedRecProChat.checkpointCancel('msg-123');
+     */
+    /**************************************************************/
+    function checkpointCancel(messageId) {
+        console.log(`[MedRecProChat] Checkpoint cancelled for message ${messageId}`);
+
+        // Cancel the checkpoint
+        CheckpointManager.cancelCheckpoint();
+
+        // Clear checkpoint state
+        ChatState.clearCheckpointState();
+
+        // Update message to show cancellation
+        ChatState.updateMessage(messageId, {
+            checkpointUI: undefined,
+            content: CheckpointRenderer.renderCancellationMessage('Query cancelled by user'),
+            isStreaming: false,
+            progress: undefined,
+            progressStatus: undefined
+        });
+        MessageRenderer.updateMessage(messageId);
+    }
+
+    /**************************************************************/
+    /**
+     * Toggles a product selection in the checkpoint.
+     *
+     * @param {string} messageId - ID of the assistant message with checkpoint
+     * @param {string} productId - ID of the product to toggle
+     * @param {boolean} isSelected - New selection state
+     *
+     * @description
+     * Called when user checks/unchecks a product checkbox in checkpoint panel.
+     *
+     * @example
+     * // Called from checkbox onchange
+     * MedRecProChat.checkpointToggle('msg-123', 'product-abc', true);
+     */
+    /**************************************************************/
+    function checkpointToggle(messageId, productId, isSelected) {
+        // Update selection in manager
+        if (isSelected) {
+            const checkpoint = CheckpointManager.getPendingCheckpoint();
+            if (checkpoint && !checkpoint.selectedProductIds.includes(productId)) {
+                checkpoint.selectedProductIds.push(productId);
+            }
+        } else {
+            CheckpointManager.toggleProduct(productId);
+        }
+
+        // Update UI
+        const selectedCount = CheckpointManager.getSelectedCount();
+        const totalCount = CheckpointManager.getTotalCount();
+        CheckpointRenderer.updateCheckpointSelection(messageId, selectedCount, totalCount);
+    }
+
+    /**************************************************************/
+    /**
+     * Selects all products in the checkpoint.
+     *
+     * @param {string} messageId - ID of the assistant message with checkpoint
+     *
+     * @example
+     * MedRecProChat.checkpointSelectAll('msg-123');
+     */
+    /**************************************************************/
+    function checkpointSelectAll(messageId) {
+        const selectedIds = CheckpointManager.selectAll();
+        CheckpointRenderer.updateCheckboxStates(messageId, selectedIds);
+        CheckpointRenderer.updateCheckpointSelection(
+            messageId,
+            selectedIds.length,
+            CheckpointManager.getTotalCount()
+        );
+    }
+
+    /**************************************************************/
+    /**
+     * Deselects all products in the checkpoint.
+     *
+     * @param {string} messageId - ID of the assistant message with checkpoint
+     *
+     * @example
+     * MedRecProChat.checkpointSelectNone('msg-123');
+     */
+    /**************************************************************/
+    function checkpointSelectNone(messageId) {
+        CheckpointManager.selectNone();
+        CheckpointRenderer.updateCheckboxStates(messageId, []);
+        CheckpointRenderer.updateCheckpointSelection(
+            messageId,
+            0,
+            CheckpointManager.getTotalCount()
+        );
+    }
+
+    /**************************************************************/
+    /**
+     * Synthesizes results after checkpoint confirmation.
+     *
+     * @param {string} originalQuery - User's original query
+     * @param {Object} interpretation - Original interpretation
+     * @param {Array} selectedResults - Results for selected products
+     * @param {Object} assistantMessage - Assistant message to update
+     *
+     * @description
+     * Continues the synthesis flow after user confirms checkpoint selection.
+     * Uses batch synthesis if enabled, otherwise single synthesis.
+     *
+     * @async
+     * @see BatchSynthesizer.synthesizeInBatches - For batch synthesis
+     * @see ApiService.synthesizeResults - For single synthesis
+     */
+    /**************************************************************/
+    async function synthesizeAfterCheckpoint(originalQuery, interpretation, selectedResults, assistantMessage) {
+        // Check if batch synthesis should be used
+        const productGroups = ResultGrouper.groupResultsByProduct(selectedResults);
+        const useBatch = BatchSynthesizer.shouldUseBatchSynthesis(productGroups);
+
+        let responseContent = '';
+
+        if (useBatch) {
+            // Use batch synthesis with progressive display
+            const batchResult = await BatchSynthesizer.synthesizeInBatches(
+                productGroups,
+                { originalQuery, interpretation },
+                {
+                    onBatchStart: (batchGroups, batchIndex, totalBatches) => {
+                        const productNames = Object.values(batchGroups).map(g => g.name);
+                        ChatState.updateMessage(assistantMessage.id, {
+                            progressStatus: `Synthesizing batch ${batchIndex}/${totalBatches}: ${productNames.join(', ')}...`
+                        });
+                        MessageRenderer.updateMessage(assistantMessage.id);
+                    },
+                    onBatchComplete: (batchResponse, batchGroups, batchIndex) => {
+                        // Progressively append content
+                        const currentMessage = ChatState.getMessageById(assistantMessage.id);
+                        const newContent = (currentMessage.content || '') +
+                            (currentMessage.content ? '\n\n' : '') +
+                            (batchResponse.response || '');
+
+                        ChatState.updateMessage(assistantMessage.id, {
+                            content: sanitizeApiUrls(newContent)
+                        });
+                        MessageRenderer.updateMessage(assistantMessage.id);
+                    }
+                }
+            );
+
+            responseContent = batchResult.response;
+
+            // Add follow-ups from batch result
+            if (batchResult.suggestedFollowUps && batchResult.suggestedFollowUps.length > 0) {
+                responseContent += '\n\n**Suggested follow-ups:**\n';
+                batchResult.suggestedFollowUps.forEach(followUp => {
+                    responseContent += `- ${followUp}\n`;
+                });
+            }
+
+            // Add data references from batch result
+            const hasViewFullLabels = /(?:\*\*)?View Full Labels?:?(?:\*\*)?/i.test(responseContent);
+            if (!hasViewFullLabels && batchResult.dataReferences && Object.keys(batchResult.dataReferences).length > 0) {
+                responseContent += '\n\n**View Full Labels:**\n';
+                for (const [displayName, url] of Object.entries(batchResult.dataReferences)) {
+                    responseContent += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
+                }
+            }
+        } else {
+            // Use single synthesis
+            const synthesis = await ApiService.synthesizeResults(
+                originalQuery,
+                interpretation,
+                selectedResults
+            );
+
+            responseContent = synthesis.response || 'No results found.';
+            responseContent = sanitizeApiUrls(responseContent);
+
+            // Add follow-ups
+            if (synthesis.suggestedFollowUps && synthesis.suggestedFollowUps.length > 0) {
+                responseContent += '\n\n**Suggested follow-ups:**\n';
+                synthesis.suggestedFollowUps.forEach(followUp => {
+                    responseContent += `- ${followUp}\n`;
+                });
+            }
+
+            // Add data references
+            const hasViewFullLabels = /(?:\*\*)?View Full Labels?:?(?:\*\*)?/i.test(responseContent);
+            if (!hasViewFullLabels && synthesis.dataReferences && Object.keys(synthesis.dataReferences).length > 0) {
+                responseContent += '\n\n**View Full Labels:**\n';
+                for (const [displayName, url] of Object.entries(synthesis.dataReferences)) {
+                    responseContent += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
+                }
+            }
+        }
+
+        // Add API source links
+        const sourceLinks = ApiService.formatApiSourceLinks(selectedResults);
+        if (sourceLinks) {
+            responseContent += sourceLinks;
+        }
+
+        // Update final message state
+        ChatState.updateMessage(assistantMessage.id, {
+            content: responseContent,
+            progress: undefined,
+            progressStatus: undefined,
+            isStreaming: false
+        });
+        MessageRenderer.updateMessage(assistantMessage.id);
+
+        // Reset loading state
+        ChatState.setLoading(false);
+        UIHelpers.updateUI();
+    }
+
+    /**************************************************************/
+    /**
      * Retries a failed message.
      *
      * @param {string} messageId - ID of the failed message
@@ -756,7 +1296,14 @@ const MedRecProChat = (function () {
         removeFile: FileHandler.removeFile,
 
         // Code actions (called from HTML)
-        copyCode: MarkdownRenderer.copyCode
+        copyCode: MarkdownRenderer.copyCode,
+
+        // Checkpoint actions (called from HTML)
+        checkpointConfirm: checkpointConfirm,
+        checkpointCancel: checkpointCancel,
+        checkpointToggle: checkpointToggle,
+        checkpointSelectAll: checkpointSelectAll,
+        checkpointSelectNone: checkpointSelectNone
     };
 })();
 
