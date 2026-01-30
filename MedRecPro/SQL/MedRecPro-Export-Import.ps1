@@ -176,6 +176,7 @@ $Tables = @(
     "PharmacologicClassHierarchy"
     "PharmacologicClassLink"
     "PharmacologicClassName"
+    "PharmClassDosageFormExclusion"
     "Policy"
     "Product"
     "ProductConcept"

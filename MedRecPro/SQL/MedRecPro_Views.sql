@@ -238,23 +238,34 @@ SELECT
     d.VersionNumber,
     d.Title AS DocumentTitle,
     d.EffectiveTime AS LabelEffectiveDate
-FROM dbo.PharmacologicClass pc
-    INNER JOIN dbo.PharmacologicClassLink pcl ON pc.PharmacologicClassID = pcl.PharmacologicClassID
-    INNER JOIN dbo.IngredientSubstance ams ON pcl.ActiveMoietySubstanceID = ams.IngredientSubstanceID
-    INNER JOIN dbo.ActiveMoiety am ON ams.IngredientSubstanceID = am.IngredientSubstanceID
-    INNER JOIN dbo.IngredientSubstance ins ON am.IngredientSubstanceID = ins.IngredientSubstanceID
-    INNER JOIN dbo.Ingredient i ON ins.IngredientSubstanceID = i.IngredientSubstanceID
-        AND i.ClassCode <> 'IACT'
-    INNER JOIN dbo.[Product] p ON i.ProductID = p.ProductID
-    INNER JOIN dbo.Section s ON p.SectionID = s.SectionID
-    INNER JOIN dbo.StructuredBody sb ON s.StructuredBodyID = sb.StructuredBodyID
-    INNER JOIN dbo.Document d ON sb.DocumentID = d.DocumentID
+FROM dbo.PharmacologicClass AS pc 
+INNER JOIN dbo.PharmacologicClassLink AS pcl 
+    ON pc.PharmacologicClassID = pcl.PharmacologicClassID 
+INNER JOIN dbo.IngredientSubstance AS ams 
+    ON pcl.ActiveMoietySubstanceID = ams.IngredientSubstanceID 
+INNER JOIN dbo.ActiveMoiety AS am 
+    ON ams.IngredientSubstanceID = am.IngredientSubstanceID 
+INNER JOIN dbo.IngredientSubstance AS ins 
+    ON am.IngredientSubstanceID = ins.IngredientSubstanceID 
+INNER JOIN dbo.Ingredient AS i 
+    ON ins.IngredientSubstanceID = i.IngredientSubstanceID 
+    AND i.ClassCode <> 'IACT'  -- KEY: Filters to active ingredients for THIS product
+INNER JOIN dbo.Product AS p 
+    ON i.ProductID = p.ProductID 
+INNER JOIN dbo.Section AS s 
+    ON p.SectionID = s.SectionID 
+INNER JOIN dbo.StructuredBody AS sb 
+    ON s.StructuredBodyID = sb.StructuredBodyID 
+INNER JOIN dbo.[Document] AS d 
+    ON sb.DocumentID = d.DocumentID
 WHERE 
-    -- Exclude pharm classes where the defining substance EVER appears as inactive in ANY product
+    -- Exclude pharmacologic class/dosage form combinations that are illogical
     NOT EXISTS (
         SELECT 1 
-        FROM [dbo].[vw_InactiveIngredients] inact
-        WHERE inact.UNII = ins.UNII
+        FROM dbo.PharmClassDosageFormExclusion AS ex
+        WHERE ex.ClassCode = pc.ClassCode 
+          AND ex.ExcludedFormCode = p.FormDisplayName  -- Using FormDisplayName to match exclusion data
+          AND ex.IsActive = 1
     )
 
 AND ins.UNII IS NOT NULL
@@ -276,6 +287,106 @@ GO
 
 PRINT 'Created view: vw_ProductsByPharmacologicClass';
 GO
+
+/**************************************************************/
+-- VIEW: vw_PharmacologicClassByActiveIngredient
+-- 
+-- Now includes exclusion logic based on dosage form compatibility
+-- 
+-- Changes from original:
+-- 1. REMOVED: The global NOT EXISTS check against vw_InactiveIngredients
+-- 2. RETAINED: The i.ClassCode <> 'IACT' filter (per-product active check)
+-- 3. ADDED: NOT EXISTS check against PharmClassDosageFormExclusion
+/**************************************************************/
+
+-- Drop extended property if exists
+IF EXISTS (
+    SELECT 1 FROM sys.extended_properties ep
+    INNER JOIN sys.views v ON ep.major_id = v.object_id
+    WHERE v.name = 'vw_PharmacologicClassByActiveIngredient' 
+      AND v.schema_id = SCHEMA_ID('dbo')
+      AND ep.name = 'MS_Description'
+)
+BEGIN
+    EXEC sys.sp_dropextendedproperty 
+        @name = N'MS_Description', 
+        @level0type = N'SCHEMA', @level0name = N'dbo', 
+        @level1type = N'VIEW', @level1name = N'vw_PharmacologicClassByActiveIngredient';
+END
+GO
+
+-- Drop view if exists
+IF OBJECT_ID('dbo.vw_PharmacologicClassByActiveIngredient', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_PharmacologicClassByActiveIngredient;
+GO
+
+CREATE VIEW [dbo].[vw_PharmacologicClassByActiveIngredient]
+AS
+SELECT 
+    pc.PharmacologicClassID, 
+    pc.ClassCode AS PharmClassCode, 
+    pc.ClassDisplayName AS PharmClassName, 
+    am.ActiveMoietyID, 
+    am.MoietyUNII, 
+    am.MoietyName, 
+    ins.IngredientSubstanceID, 
+    ins.UNII AS SubstanceUNII, 
+    ins.SubstanceName, 
+    p.ProductID, 
+    p.ProductName, 
+    p.FormCode AS DosageFormCode, 
+    p.FormDisplayName AS DosageFormName, 
+    i.ClassCode AS IngredientClassCode,
+    d.DocumentID, 
+    d.DocumentGUID, 
+    d.SetGUID, 
+    d.VersionNumber, 
+    d.Title AS DocumentTitle, 
+    d.EffectiveTime AS LabelEffectiveDate
+FROM dbo.PharmacologicClass AS pc 
+INNER JOIN dbo.PharmacologicClassLink AS pcl 
+    ON pc.PharmacologicClassID = pcl.PharmacologicClassID 
+INNER JOIN dbo.IngredientSubstance AS ams 
+    ON pcl.ActiveMoietySubstanceID = ams.IngredientSubstanceID 
+INNER JOIN dbo.ActiveMoiety AS am 
+    ON ams.IngredientSubstanceID = am.IngredientSubstanceID 
+INNER JOIN dbo.IngredientSubstance AS ins 
+    ON am.IngredientSubstanceID = ins.IngredientSubstanceID 
+INNER JOIN dbo.Ingredient AS i 
+    ON ins.IngredientSubstanceID = i.IngredientSubstanceID 
+    AND i.ClassCode <> 'IACT'  -- KEY: Filters to active ingredients for THIS product
+INNER JOIN dbo.Product AS p 
+    ON i.ProductID = p.ProductID 
+INNER JOIN dbo.Section AS s 
+    ON p.SectionID = s.SectionID 
+INNER JOIN dbo.StructuredBody AS sb 
+    ON s.StructuredBodyID = sb.StructuredBodyID 
+INNER JOIN dbo.[Document] AS d 
+    ON sb.DocumentID = d.DocumentID
+WHERE 
+    -- Exclude pharmacologic class/dosage form combinations that are illogical
+    NOT EXISTS (
+        SELECT 1 
+        FROM dbo.PharmClassDosageFormExclusion AS ex
+        WHERE ex.ClassCode = pc.ClassCode 
+          AND ex.ExcludedFormCode = p.FormDisplayName  -- Using FormDisplayName to match exclusion data
+          AND ex.IsActive = 1
+    );
+GO
+
+EXEC sys.sp_addextendedproperty 
+    @name = N'MS_Description', 
+    @value = N'Pharmacologic classes linked to products via active ingredients only, with 
+               dosage form compatibility filtering. Excludes class associations where the 
+               dosage form is incompatible with the class mechanism of action (e.g., 
+               osmotic laxative class excluded from injectable formulations).', 
+    @level0type = N'SCHEMA', @level0name = N'dbo', 
+    @level1type = N'VIEW', @level1name = N'vw_PharmacologicClassByActiveIngredient';
+GO
+
+PRINT 'Created view: vw_PharmacologicClassByActiveIngredient';
+GO
+
 
 --#endregion
 
@@ -2726,8 +2837,10 @@ INNER JOIN dbo.Ingredient i ON am.IngredientSubstanceID = i.IngredientSubstanceI
 INNER JOIN dbo.Product p ON i.ProductID = p.ProductID
 WHERE NOT EXISTS (
     SELECT 1 
-    FROM [dbo].[vw_InactiveIngredients] inact
-    WHERE inact.UNII = ins.UNII
+    FROM dbo.PharmClassDosageFormExclusion ex
+    WHERE ex.ClassCode = pc.ClassCode 
+      AND ex.ExcludedFormCode = p.FormDisplayName
+      AND ex.IsActive = 1
 )
 GROUP BY pc.PharmacologicClassID, pc.ClassDisplayName
 HAVING COUNT(DISTINCT p.ProductID) >= (
@@ -2743,8 +2856,10 @@ HAVING COUNT(DISTINCT p.ProductID) >= (
         INNER JOIN dbo.Product p2 ON i2.ProductID = p2.ProductID
         WHERE NOT EXISTS (
             SELECT 1 
-            FROM [dbo].[vw_InactiveIngredients] inact2
-            WHERE inact2.UNII = ins2.UNII
+            FROM dbo.PharmClassDosageFormExclusion ex2
+            WHERE ex2.ClassCode = pc2.ClassCode 
+              AND ex2.ExcludedFormCode = p2.FormDisplayName
+              AND ex2.IsActive = 1
         )
         GROUP BY pc2.PharmacologicClassID
         ORDER BY COUNT(DISTINCT p2.ProductID) DESC
