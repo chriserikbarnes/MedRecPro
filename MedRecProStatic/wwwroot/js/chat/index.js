@@ -475,6 +475,66 @@ const MedRecProChat = (function () {
 
     /**************************************************************/
     /**
+     * Strips "View Full Labels:" sections from content and extracts the links.
+     *
+     * @param {string} content - Content potentially containing label link sections
+     * @returns {Object} Object with stripped content and extracted links
+     * @returns {string} returns.content - Content with label sections removed
+     * @returns {Array<Object>} returns.links - Array of extracted link objects
+     *
+     * @description
+     * When batch synthesis is used, each batch response may contain its own
+     * "View Full Labels:" section with links. This function extracts those
+     * links so they can be aggregated and displayed once at the end of
+     * the complete response, preventing scattered/disconnected label links.
+     *
+     * @example
+     * const { content, links } = stripAndExtractLabelLinks(batchResponse);
+     * // content: "Dosing info...\n\nMore info..."
+     * // links: [{ name: 'Lisinopril', url: '/api/Label/...' }]
+     *
+     * @see synthesizeAfterCheckpoint - Uses this for batch processing
+     */
+    /**************************************************************/
+    function stripAndExtractLabelLinks(content) {
+        if (!content) return { content: '', links: [] };
+
+        const links = [];
+
+        // Pattern to match "View Full Labels:" or "View Full Label:" sections
+        // Captures the entire section including all bullet points until next section or end
+        const viewLabelsPattern = /\n*(?:\*\*)?View Full Labels?:?(?:\*\*)?\n((?:[-*•]\s*\[.+?\]\(.+?\)\n?)+)/gi;
+
+        // Extract links from matched sections
+        let strippedContent = content.replace(viewLabelsPattern, (match, linkSection) => {
+            // Parse individual links from the section
+            const linkPattern = /[-*•]\s*\[(?:View Full Label\s*\(?)?([^\]\)]+?)(?:\))?\]\(([^)]+)\)/gi;
+            let linkMatch;
+
+            while ((linkMatch = linkPattern.exec(linkSection)) !== null) {
+                const name = linkMatch[1].trim();
+                const url = linkMatch[2].trim();
+
+                // Clean up name - remove "View Full Label" prefix if present
+                const cleanName = name.replace(/^View Full Label\s*\(?/i, '').replace(/\)?\s*$/, '');
+
+                links.push({
+                    name: cleanName || 'Unknown Product',
+                    url: url
+                });
+            }
+
+            return ''; // Remove the section from content
+        });
+
+        // Clean up any resulting double newlines
+        strippedContent = strippedContent.replace(/\n{3,}/g, '\n\n').trim();
+
+        return { content: strippedContent, links };
+    }
+
+    /**************************************************************/
+    /**
      * Executes endpoints and synthesizes results into a response.
      *
      * @param {string} originalInput - User's original message
@@ -569,11 +629,19 @@ const MedRecProChat = (function () {
                 ? documentGuidVar.length > 0
                 : true);
 
-        console.log(`[MedRecProChat] Discovery found ${discoveredProductCount} products, hasMoreSteps=${discovery.hasMoreSteps}`);
+        // Also check if we have product GUIDs in the mapping (even if not in extractedVariables)
+        // This handles single-step discovery endpoints that find products via GUID->Name mapping
+        const hasDiscoveredProducts = discoveredProductCount > 0;
 
-        // If many products found and there are more steps, show checkpoint BEFORE fetching data
-        if (discovery.hasMoreSteps && hasDocumentGuids &&
-            discoveredProductCount >= ProgressiveConfig.getCheckpointThreshold()) {
+        console.log(`[MedRecProChat] Discovery found ${discoveredProductCount} products, hasMoreSteps=${discovery.hasMoreSteps}, hasDocumentGuids=${hasDocumentGuids}, hasDiscoveredProducts=${hasDiscoveredProducts}`);
+
+        // Show checkpoint if:
+        // 1. We have more steps to execute AND document GUIDs extracted, OR
+        // 2. We discovered many products (even without explicit step 2) that need label fetching
+        const shouldShowCheckpoint = discoveredProductCount >= ProgressiveConfig.getCheckpointThreshold() &&
+            (discovery.hasMoreSteps && hasDocumentGuids || hasDiscoveredProducts);
+
+        if (shouldShowCheckpoint) {
 
             console.log('[MedRecProChat] Checkpoint threshold met, showing selection UI BEFORE data fetch');
 
@@ -645,6 +713,29 @@ const MedRecProChat = (function () {
                 }
             );
             results.push(...remainingResults);
+        } else if (discoveredProductCount > 0 && discoveredProductCount < ProgressiveConfig.getCheckpointThreshold()) {
+            // Single-step plan with few products - dynamically fetch labels
+            // This handles cases like "tell me about lisinopril" where the AI returns
+            // a single-step discovery but we still need to fetch the label content
+            const guidsToFetch = Object.keys(discovery.documentGuidToProductName);
+
+            if (guidsToFetch.length > 0) {
+                console.log(`[MedRecProChat] Single-step plan with ${guidsToFetch.length} product(s) - fetching labels dynamically`);
+
+                ChatState.updateMessage(assistantMessage.id, {
+                    progressStatus: `Fetching label data for ${guidsToFetch.length} product(s)...`
+                });
+                MessageRenderer.updateMessage(assistantMessage.id);
+
+                const labelResults = await fetchLabelsForGuids(
+                    guidsToFetch,
+                    discovery.documentGuidToProductName,
+                    assistantMessage,
+                    ChatState.getAbortController(),
+                    progressCallback
+                );
+                results.push(...labelResults);
+            }
         }
 
         // Group results by product (no checkpoint needed)
@@ -773,7 +864,8 @@ const MedRecProChat = (function () {
             if (!hasViewFullLabels && synthesis.dataReferences && Object.keys(synthesis.dataReferences).length > 0) {
                 responseContent += '\n\n**View Full Labels:**\n';
                 for (const [displayName, url] of Object.entries(synthesis.dataReferences)) {
-                    responseContent += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
+                    const titleCaseName = ChatUtils.toTitleCase(displayName);
+                    responseContent += `- [View Full Label (${titleCaseName})](${ChatConfig.buildUrl(url)})\n`;
                 }
             }
         }
@@ -814,11 +906,18 @@ const MedRecProChat = (function () {
         const mapping = discovery.documentGuidToProductName || {};
 
         // Support both 'documentGuid' (singular) and 'documentGuids' (plural) variable names
-        const guids = discovery.extractedVariables?.documentGuid ||
+        let guids = discovery.extractedVariables?.documentGuid ||
             discovery.extractedVariables?.documentGuids || [];
 
         // Convert single GUID to array
-        const guidArray = Array.isArray(guids) ? guids : [guids];
+        let guidArray = Array.isArray(guids) ? guids : (guids ? [guids] : []);
+
+        // If extractedVariables doesn't have the full GUID list, but documentGuidToProductName does,
+        // use the mapping keys instead. This handles single-step discovery endpoints.
+        if (guidArray.length <= 1 && Object.keys(mapping).length > guidArray.length) {
+            console.log('[MedRecProChat] Using documentGuidToProductName keys for product groups');
+            guidArray = Object.keys(mapping);
+        }
 
         // Build groups from the GUID -> name mapping
         guidArray.forEach((guid, index) => {
@@ -854,6 +953,162 @@ const MedRecProChat = (function () {
         console.log(`[MedRecProChat] Built ${Object.keys(sortedGroups).length} product groups from discovery`);
 
         return sortedGroups;
+    }
+
+    /**************************************************************/
+    /**
+     * Dynamically fetches label content for a list of document GUIDs.
+     *
+     * @param {Array<string>} guids - Array of document GUIDs to fetch
+     * @param {Object} guidToNameMap - Mapping of GUIDs to product names
+     * @param {Object} assistantMessage - Message object for progress updates
+     * @param {AbortController} abortController - For request cancellation
+     * @param {Function} progressCallback - Optional callback for progress updates
+     * @returns {Promise<Array>} Array of fetch results
+     *
+     * @description
+     * Used when the checkpoint is shown for single-step discovery endpoints
+     * (where there's no step 2 in the plan to fetch labels). This function
+     * dynamically generates and executes label fetch API calls for each
+     * selected product GUID.
+     *
+     * @example
+     * const results = await fetchLabelsForGuids(
+     *     ['guid1', 'guid2'],
+     *     { 'guid1': 'Lisinopril', 'guid2': 'Enalapril' },
+     *     assistantMessage,
+     *     abortController
+     * );
+     *
+     * @see checkpointConfirm - Uses this for single-step plan label fetching
+     */
+    /**************************************************************/
+    async function fetchLabelsForGuids(guids, guidToNameMap, assistantMessage, abortController, progressCallback) {
+        const results = [];
+        const totalGuids = guids.length;
+
+        console.log(`[MedRecProChat] === DYNAMIC LABEL FETCH: ${totalGuids} GUIDs ===`);
+
+        for (let i = 0; i < totalGuids; i++) {
+            const guid = guids[i];
+            const productName = guidToNameMap[guid] || `Product ${i + 1}`;
+
+            // Update progress
+            if (progressCallback) {
+                progressCallback({
+                    type: 'endpoint_start',
+                    productName: productName,
+                    current: i + 1,
+                    total: totalGuids
+                });
+            }
+
+            ChatState.updateMessage(assistantMessage.id, {
+                progressStatus: `Fetching: ${productName} (${i + 1}/${totalGuids})...`
+            });
+            MessageRenderer.updateMessage(assistantMessage.id);
+
+            const startTime = Date.now();
+            let fetchResult = null;
+
+            // Try fetching with specific section first, then fallback to full label
+            const fetchStrategies = [
+                { sectionCode: '34068-7', description: 'Dosage and Administration' },
+                { sectionCode: null, description: 'Full label (fallback)' }
+            ];
+
+            for (const strategy of fetchStrategies) {
+                const endpoint = {
+                    method: 'GET',
+                    path: `/api/Label/markdown/sections/${guid}`,
+                    queryParams: strategy.sectionCode ? { sectionCode: strategy.sectionCode } : {},
+                    description: `Label: ${productName} - ${strategy.description}`
+                };
+
+                const fullApiUrl = ChatConfig.buildUrl(endpoint.path) +
+                    (strategy.sectionCode ? '?' + new URLSearchParams(endpoint.queryParams).toString() : '');
+
+                try {
+                    const response = await fetch(fullApiUrl, {
+                        method: endpoint.method,
+                        headers: { 'Accept': 'application/json' },
+                        signal: abortController?.signal
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        const hasData = data && (
+                            (typeof data === 'object' && Object.keys(data).length > 0) ||
+                            (Array.isArray(data) && data.length > 0) ||
+                            (typeof data === 'string' && data.length > 0)
+                        );
+
+                        if (hasData) {
+                            console.log(`[MedRecProChat] Label fetch [${i + 1}/${totalGuids}] succeeded (${strategy.description}): ${productName} (${guid.substring(0, 8)}...)`);
+
+                            fetchResult = {
+                                specification: endpoint,
+                                statusCode: response.status,
+                                result: data,
+                                executionTimeMs: Date.now() - startTime,
+                                step: 2,
+                                hasData: true,
+                                extractedProductName: productName,
+                                _apiUrl: fullApiUrl
+                            };
+                            break; // Success - stop trying other strategies
+                        }
+                    }
+
+                    // If 404 or no data, try next strategy
+                    if (response.status === 404 || !response.ok) {
+                        console.log(`[MedRecProChat] Label fetch [${i + 1}/${totalGuids}] ${strategy.description} returned ${response.status}, trying fallback...`);
+                        continue;
+                    }
+
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        console.log('[MedRecProChat] Label fetch aborted');
+                        throw error;
+                    }
+                    console.log(`[MedRecProChat] Label fetch [${i + 1}/${totalGuids}] ${strategy.description} exception: ${error.message}`);
+                    // Try next strategy
+                    continue;
+                }
+            }
+
+            // If all strategies failed, record failure
+            if (!fetchResult) {
+                console.log(`[MedRecProChat] Label fetch [${i + 1}/${totalGuids}] all strategies failed: ${productName} (${guid.substring(0, 8)}...)`);
+                fetchResult = {
+                    specification: { method: 'GET', path: `/api/Label/markdown/sections/${guid}` },
+                    statusCode: 404,
+                    result: null,
+                    executionTimeMs: Date.now() - startTime,
+                    step: 2,
+                    hasData: false,
+                    extractedProductName: productName,
+                    error: 'Label not found (tried section and full label)'
+                };
+            }
+
+            results.push(fetchResult);
+
+            // Notify progress callback
+            if (progressCallback) {
+                progressCallback({
+                    type: 'endpoint_complete',
+                    productName: productName,
+                    current: i + 1,
+                    total: totalGuids,
+                    success: fetchResult.hasData
+                });
+            }
+        }
+
+        console.log(`[MedRecProChat] === DYNAMIC LABEL FETCH COMPLETE: ${results.filter(r => r.hasData).length}/${totalGuids} successful ===`);
+
+        return results;
     }
 
     /**************************************************************/
@@ -922,7 +1177,7 @@ const MedRecProChat = (function () {
             } : null;
 
             // Execute remaining steps with only selected products
-            const remainingResults = await EndpointExecutor.executeRemainingSteps(
+            let remainingResults = await EndpointExecutor.executeRemainingSteps(
                 confirmation.interpretation.suggestedEndpoints,
                 assistantMessage,
                 ChatState.getAbortController(),
@@ -933,6 +1188,26 @@ const MedRecProChat = (function () {
                     progressCallback: progressCallback
                 }
             );
+
+            // If no remaining steps returned results, we need to dynamically fetch labels
+            // This handles single-step discovery endpoints where step 2 doesn't exist
+            if (remainingResults.length === 0 && selectedGuids.length > 0) {
+                console.log(`[MedRecProChat] No remaining steps - dynamically fetching labels for ${selectedGuids.length} products`);
+
+                ChatState.updateMessage(messageId, {
+                    progressStatus: `Fetching label data for ${selectedGuids.length} product(s)...`
+                });
+                MessageRenderer.updateMessage(messageId);
+
+                // Dynamically fetch labels for selected GUIDs
+                remainingResults = await fetchLabelsForGuids(
+                    selectedGuids,
+                    checkpointState?.discoveryData?.documentGuidToProductName || {},
+                    assistantMessage,
+                    ChatState.getAbortController(),
+                    progressCallback
+                );
+            }
 
             // Update progress for synthesis
             ChatState.updateMessage(messageId, {
@@ -1094,6 +1369,10 @@ const MedRecProChat = (function () {
         let responseContent = '';
 
         if (useBatch) {
+            // Track accumulated content for progressive display (without label links)
+            let progressiveContent = '';
+            let allLabelLinks = new Map(); // Use Map to deduplicate by URL
+
             // Use batch synthesis with progressive display
             const batchResult = await BatchSynthesizer.synthesizeInBatches(
                 productGroups,
@@ -1106,22 +1385,43 @@ const MedRecProChat = (function () {
                         });
                         MessageRenderer.updateMessage(assistantMessage.id);
                     },
-                    onBatchComplete: (batchResponse, batchGroups, batchIndex) => {
-                        // Progressively append content
-                        const currentMessage = ChatState.getMessageById(assistantMessage.id);
-                        const newContent = (currentMessage.content || '') +
-                            (currentMessage.content ? '\n\n' : '') +
-                            (batchResponse.response || '');
+                    onBatchComplete: async (batchResponse, batchGroups, batchIndex) => {
+                        // Extract and strip label links from batch response
+                        const { content: strippedContent, links } = stripAndExtractLabelLinks(batchResponse.response || '');
 
+                        // Collect label links for aggregation at the end
+                        links.forEach(link => {
+                            allLabelLinks.set(link.url, link);
+                        });
+
+                        // Collect data references from response object too
+                        if (batchResponse.dataReferences) {
+                            for (const [displayName, url] of Object.entries(batchResponse.dataReferences)) {
+                                const fullUrl = ChatConfig.buildUrl(url);
+                                allLabelLinks.set(fullUrl, { name: displayName, url: fullUrl });
+                            }
+                        }
+
+                        // Progressively append stripped content
+                        progressiveContent += (progressiveContent ? '\n\n' : '') + strippedContent;
+
+                        // Update message with progressive content (hide progress status to show content)
                         ChatState.updateMessage(assistantMessage.id, {
-                            content: sanitizeApiUrls(newContent)
+                            content: sanitizeApiUrls(progressiveContent),
+                            progress: undefined,
+                            progressStatus: undefined,
+                            isStreaming: true
                         });
                         MessageRenderer.updateMessage(assistantMessage.id);
+
+                        // Yield to allow browser to repaint before next batch
+                        await new Promise(resolve => requestAnimationFrame(resolve));
                     }
                 }
             );
 
-            responseContent = batchResult.response;
+            // Build final response content from progressive content (already stripped)
+            responseContent = progressiveContent;
 
             // Add follow-ups from batch result
             if (batchResult.suggestedFollowUps && batchResult.suggestedFollowUps.length > 0) {
@@ -1131,13 +1431,16 @@ const MedRecProChat = (function () {
                 });
             }
 
-            // Add data references from batch result
-            const hasViewFullLabels = /(?:\*\*)?View Full Labels?:?(?:\*\*)?/i.test(responseContent);
-            if (!hasViewFullLabels && batchResult.dataReferences && Object.keys(batchResult.dataReferences).length > 0) {
+            // Add aggregated label links at the end (before data sources)
+            if (allLabelLinks.size > 0) {
                 responseContent += '\n\n**View Full Labels:**\n';
-                for (const [displayName, url] of Object.entries(batchResult.dataReferences)) {
-                    responseContent += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
-                }
+                // Sort by name for consistent display, apply title case for consistency
+                const sortedLinks = Array.from(allLabelLinks.values())
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                sortedLinks.forEach(link => {
+                    const titleCaseName = ChatUtils.toTitleCase(link.name);
+                    responseContent += `- [View Full Label (${titleCaseName})](${link.url})\n`;
+                });
             }
         } else {
             // Use single synthesis
@@ -1163,7 +1466,8 @@ const MedRecProChat = (function () {
             if (!hasViewFullLabels && synthesis.dataReferences && Object.keys(synthesis.dataReferences).length > 0) {
                 responseContent += '\n\n**View Full Labels:**\n';
                 for (const [displayName, url] of Object.entries(synthesis.dataReferences)) {
-                    responseContent += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
+                    const titleCaseName = ChatUtils.toTitleCase(displayName);
+                    responseContent += `- [View Full Label (${titleCaseName})](${ChatConfig.buildUrl(url)})\n`;
                 }
             }
         }

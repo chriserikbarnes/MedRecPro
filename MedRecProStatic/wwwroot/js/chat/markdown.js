@@ -224,7 +224,7 @@ export const MarkdownRenderer = (function () {
      * - *italic* -> <em>italic</em>
      * - `code` -> <code>code</code>
      * - [text](url) -> <a href="url">text</a>
-     * - # Header -> <h1>Header</h1> (supports h1-h3)
+     * - # Header -> <h1>Header</h1> (supports h1-h6)
      * - - item -> <li>item</li> (unordered list)
      * - 1. item -> numbered list item
      * - > quote -> <blockquote>quote</blockquote>
@@ -355,8 +355,23 @@ export const MarkdownRenderer = (function () {
 
         // Process each line
         for (const line of lines) {
-            // Headers: ### -> h3, ## -> h2, # -> h1
-            if (line.startsWith('### ')) {
+            // Headers: ###### -> h6, ##### -> h5, #### -> h4, ### -> h3, ## -> h2, # -> h1
+            // Check longer patterns first to avoid partial matches
+            // Also handle edge case of # symbols without text (render as hr or skip)
+            if (/^#{1,6}\s*$/.test(line)) {
+                // Bare # symbols without text - treat as horizontal rule
+                flushList();
+                processed.push('<hr>');
+            } else if (line.startsWith('###### ')) {
+                flushList();
+                processed.push('<h6>' + line.slice(7) + '</h6>');
+            } else if (line.startsWith('##### ')) {
+                flushList();
+                processed.push('<h5>' + line.slice(6) + '</h5>');
+            } else if (line.startsWith('#### ')) {
+                flushList();
+                processed.push('<h4>' + line.slice(5) + '</h4>');
+            } else if (line.startsWith('### ')) {
                 flushList();
                 processed.push('<h3>' + line.slice(4) + '</h3>');
             } else if (line.startsWith('## ')) {

@@ -172,7 +172,6 @@ export const CheckpointRenderer = (function () {
                     <span class="source-name">${escapedName}</span>
                     ${descriptionHtml}
                 </div>
-                <span class="source-count" title="${resultCount} endpoint result(s)">${resultCount}</span>
             </label>
         `;
     }

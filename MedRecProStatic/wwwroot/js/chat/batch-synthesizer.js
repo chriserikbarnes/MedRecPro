@@ -109,9 +109,9 @@ export const BatchSynthesizer = (function () {
 
             console.log(`[BatchSynthesizer] Processing batch ${batchIndex}/${totalBatches}: ${batch.productNames.join(', ')}`);
 
-            // Notify batch start
+            // Notify batch start (await in case callback is async for UI repaint)
             if (onBatchStart) {
-                onBatchStart(batchGroups, batchIndex, totalBatches);
+                await onBatchStart(batchGroups, batchIndex, totalBatches);
             }
 
             try {
@@ -153,9 +153,9 @@ export const BatchSynthesizer = (function () {
                     Object.assign(allDataReferences, batchResponse.dataReferences);
                 }
 
-                // Notify batch complete
+                // Notify batch complete (await in case callback is async for UI repaint)
                 if (onBatchComplete) {
-                    onBatchComplete(batchResponse, batchGroups, batchIndex);
+                    await onBatchComplete(batchResponse, batchGroups, batchIndex);
                 }
 
             } catch (error) {

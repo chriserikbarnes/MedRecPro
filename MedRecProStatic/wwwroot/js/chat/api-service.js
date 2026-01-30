@@ -31,6 +31,7 @@
 
 import { ChatConfig } from './config.js';
 import { ChatState } from './state.js';
+import { ChatUtils } from './utils.js';
 
 export const ApiService = (function () {
     'use strict';
@@ -795,7 +796,8 @@ export const ApiService = (function () {
             if (!hasViewFullLabels && hasDataReferences) {
                 content += '\n\n**View Full Labels:**\n';
                 for (const [displayName, url] of Object.entries(directResponse.dataReferences)) {
-                    content += `- [${displayName}](${ChatConfig.buildUrl(url)})\n`;
+                    const titleCaseName = ChatUtils.toTitleCase(displayName);
+                    content += `- [View Full Label (${titleCaseName})](${ChatConfig.buildUrl(url)})\n`;
                 }
             }
 

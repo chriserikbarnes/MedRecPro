@@ -2559,6 +2559,34 @@ export const EndpointExecutor = (function () {
             completedCount++;
         }
 
+        // Build GUID->Name mapping from extracted parallel arrays if not already populated
+        // This handles cases where outputMapping extracts documentGuids[] and productNames[] separately
+        const guidArrayKey = extractedVariables.documentGuids ? 'documentGuids' :
+            (extractedVariables.documentGuid ? 'documentGuid' : null);
+        const nameArrayKey = extractedVariables.productNames ? 'productNames' :
+            (extractedVariables.productName ? 'productName' : null);
+
+        if (guidArrayKey && nameArrayKey && Object.keys(documentGuidToProductName).length === 0) {
+            const guids = Array.isArray(extractedVariables[guidArrayKey])
+                ? extractedVariables[guidArrayKey]
+                : [extractedVariables[guidArrayKey]];
+            const names = Array.isArray(extractedVariables[nameArrayKey])
+                ? extractedVariables[nameArrayKey]
+                : [extractedVariables[nameArrayKey]];
+
+            console.log(`[EndpointExecutor] Building GUID->Name mapping from extracted arrays: ${guids.length} GUIDs, ${names.length} names`);
+
+            for (let i = 0; i < guids.length && i < names.length; i++) {
+                const guid = guids[i];
+                const name = names[i];
+                if (guid && name && !documentGuidToProductName[guid]) {
+                    documentGuidToProductName[guid] = name;
+                }
+            }
+
+            console.log(`[EndpointExecutor] GUID->Name mapping now has ${Object.keys(documentGuidToProductName).length} entries`);
+        }
+
         console.log('[EndpointExecutor] ========================================');
         console.log('[EndpointExecutor] DISCOVERY PHASE COMPLETE');
         console.log(`[EndpointExecutor] Results: ${results.length}`);
@@ -2716,9 +2744,24 @@ export const EndpointExecutor = (function () {
                     );
 
                     if (isBadName) {
-                        const docGuid = extractDocumentGuidFromResult(result, expandedEndpoints[expandIdx]);
+                        const currentEndpoint = expandedEndpoints[expandIdx];
+                        const docGuid = extractDocumentGuidFromResult(result, currentEndpoint);
+
+                        // Try mapping lookup first
                         if (docGuid && localMapping[docGuid]) {
                             productName = localMapping[docGuid];
+                        }
+                        // Fallback: use parallel array index if available
+                        else if (currentEndpoint._expandedIndex) {
+                            const nameArrayKey = localVars.productNames ? 'productNames' :
+                                (localVars.productName ? 'productName' : null);
+                            if (nameArrayKey && Array.isArray(localVars[nameArrayKey])) {
+                                const idx = currentEndpoint._expandedIndex - 1; // _expandedIndex is 1-based
+                                if (localVars[nameArrayKey][idx]) {
+                                    productName = localVars[nameArrayKey][idx];
+                                    console.log(`[EndpointExecutor] Using parallel array name at index ${idx}: ${productName}`);
+                                }
+                            }
                         }
                     }
 
