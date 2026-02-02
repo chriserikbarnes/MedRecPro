@@ -1,0 +1,6 @@
+@MedRecProMCP_HostAddress = http://localhost:5233
+
+GET {{MedRecProMCP_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
