@@ -1035,6 +1035,7 @@ export const EndpointExecutor = (function () {
                 hasData: fallbackHasData,
                 _expandedIndex: currentEndpoint._expandedIndex,
                 _expandedTotal: currentEndpoint._expandedTotal,
+                _expandedValue: currentEndpoint._expandedValue,  // Preserve for GUID->Name mapping
                 _fallbackUsed: true,
                 _apiUrl: fallbackFullUrl  // Include URL for synthesis data references
             };
@@ -1048,6 +1049,9 @@ export const EndpointExecutor = (function () {
                 executionTimeMs: Date.now() - startTime,
                 step: step,
                 hasData: false,
+                _expandedIndex: currentEndpoint._expandedIndex,
+                _expandedTotal: currentEndpoint._expandedTotal,
+                _expandedValue: currentEndpoint._expandedValue,  // Preserve for GUID->Name mapping
                 _fallbackUsed: true,
                 _apiUrl: fallbackFullUrl  // Include URL even on failure for debugging
             };
@@ -1367,6 +1371,7 @@ export const EndpointExecutor = (function () {
             hasData: true,
             _expandedIndex: params.currentEndpoint._expandedIndex,
             _expandedTotal: params.currentEndpoint._expandedTotal,
+            _expandedValue: params.currentEndpoint._expandedValue,  // Preserve for GUID->Name mapping
             _uniiFallbackUsed: true,
             _originalUnii: params.originalUnii,
             _correctedUnii: params.correctedUnii,
@@ -1610,13 +1615,15 @@ export const EndpointExecutor = (function () {
         }
 
         // Try expanded value (for array expansions with variable like documentGuid)
+        // Check result._expandedValue first (preserved through fallback), then endpoint
+        const expandedValue = result?._expandedValue || processedEndpoint?._expandedValue || endpoint?._expandedValue;
         const ep = processedEndpoint || endpoint;
-        if (ep && ep._expandedValue) {
+        if (expandedValue) {
             // If the expanded value is a GUID, try to extract name from description
-            if (/^[0-9a-f-]{36}$/i.test(ep._expandedValue)) {
+            if (/^[0-9a-f-]{36}$/i.test(expandedValue)) {
                 // Don't use the GUID as a name, fall through to description
             } else {
-                return truncateProductName(ep._expandedValue);
+                return truncateProductName(expandedValue);
             }
         }
 
@@ -1835,7 +1842,13 @@ export const EndpointExecutor = (function () {
             }
         }
 
-        // Also check the _expandedValue (stores the value when array expanding)
+        // Check _expandedValue on the result object (preserved through fallback)
+        if (result && result._expandedValue && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(result._expandedValue)) {
+            console.log(`[EndpointExecutor] Found GUID in result._expandedValue: ${result._expandedValue}`);
+            return result._expandedValue;
+        }
+
+        // Also check the _expandedValue on endpoint (stores the value when array expanding)
         if (ep._expandedValue && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(ep._expandedValue)) {
             console.log(`[EndpointExecutor] Found GUID in _expandedValue: ${ep._expandedValue}`);
             return ep._expandedValue;
@@ -1988,6 +2001,7 @@ export const EndpointExecutor = (function () {
                     hasData: hasData,
                     _expandedIndex: currentEndpoint._expandedIndex,
                     _expandedTotal: currentEndpoint._expandedTotal,
+                    _expandedValue: currentEndpoint._expandedValue,  // Preserve for GUID->Name mapping
                     _apiUrl: fullApiUrl  // Include URL for synthesis data references
                 };
             } else {
@@ -2393,10 +2407,12 @@ export const EndpointExecutor = (function () {
                     }
 
                     // If we couldn't extract a meaningful name, look it up in our GUID mapping
+                    // Detect placeholder/template names that should be replaced
                     const badNames = [
                         'Dosage and Administration', 'all', 'Dosing', 'Administration',
                         'Contraindications', 'Warnings', 'Precautions', 'Interactions',
-                        'Adverse Reactions', 'Indications', 'Label', 'Section'
+                        'Adverse Reactions', 'Indications', 'Label', 'Section',
+                        'EACH', 'each', 'Every', 'every', 'anticonvulsant', 'anticonvulsants'
                     ];
                     const isBadName = !productName || badNames.some(bad =>
                         productName.toLowerCase() === bad.toLowerCase() ||
@@ -2732,11 +2748,12 @@ export const EndpointExecutor = (function () {
                     // Extract product name
                     let productName = extractProgressProductName(result, endpoint);
 
-                    // Look up from mapping if needed
+                    // Look up from mapping if needed - detect placeholder/template names
                     const badNames = [
                         'Dosage and Administration', 'all', 'Dosing', 'Administration',
                         'Contraindications', 'Warnings', 'Precautions', 'Interactions',
-                        'Adverse Reactions', 'Indications', 'Label', 'Section'
+                        'Adverse Reactions', 'Indications', 'Label', 'Section',
+                        'EACH', 'each', 'Every', 'every', 'anticonvulsant', 'anticonvulsants'
                     ];
                     const isBadName = !productName || badNames.some(bad =>
                         productName.toLowerCase() === bad.toLowerCase() ||
