@@ -647,6 +647,24 @@ body {
     font-size: 0.75rem;
 }
 
+/* Enhanced streaming indicator for better visibility */
+.streaming-indicator-visible {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+}
+
+/* Animated spinner for streaming indicator */
+.streaming-spinner {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    color: var(--color-accent);
+    animation: spin 1s linear infinite;
+}
+
 .streaming-dot {
     width: 6px;
     height: 6px;

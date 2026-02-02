@@ -467,6 +467,49 @@ export const MarkdownRenderer = (function () {
             html = html.replace(`__HTML_BLOCK_${index}__`, block);
         });
 
+        // Step 7: Prune redundant horizontal rules
+        // Removes consecutive <hr> tags with only empty spacing between them
+        html = pruneConsecutiveHorizontalRules(html);
+
+        return html;
+    }
+
+    /**************************************************************/
+    /**
+     * Removes consecutive horizontal rules with no meaningful content between them.
+     *
+     * @param {string} html - The HTML string to process
+     * @returns {string} HTML with consecutive horizontal rules collapsed to a single rule
+     *
+     * @description
+     * During batch synthesis, content can produce patterns like:
+     * - `<hr><hr>` (consecutive rules)
+     * - `<hr><div style="height:0.5rem;"></div><hr>` (rules with only spacing)
+     * - `<hr><p></p><hr>` (rules with empty paragraphs)
+     *
+     * This helper collapses these to a single `<hr>` for cleaner output.
+     *
+     * @example
+     * pruneConsecutiveHorizontalRules('<hr><hr>');
+     * // Returns: '<hr>'
+     *
+     * @example
+     * pruneConsecutiveHorizontalRules('<hr><div style="height:0.5rem;"></div><hr>');
+     * // Returns: '<hr>'
+     */
+    /**************************************************************/
+    function pruneConsecutiveHorizontalRules(html) {
+        // Pattern matches <hr> followed by optional empty content, then another <hr>
+        // Empty content includes: whitespace, empty divs, empty paragraphs, empty spacing divs
+        const emptyContentPattern = /(<hr>)(\s*(?:<div[^>]*>\s*<\/div>\s*|<p>\s*<\/p>\s*)*)+(<hr>)/gi;
+
+        // Keep replacing until no more matches (handles multiple consecutive rules)
+        let previous;
+        do {
+            previous = html;
+            html = html.replace(emptyContentPattern, '$1');
+        } while (html !== previous);
+
         return html;
     }
 
@@ -548,6 +591,9 @@ export const MarkdownRenderer = (function () {
 
         // Code block utilities
         copyCode: copyCode,
-        clearCodeBlockStorage: clearCodeBlockStorage
+        clearCodeBlockStorage: clearCodeBlockStorage,
+
+        // HTML cleanup utilities
+        pruneConsecutiveHorizontalRules: pruneConsecutiveHorizontalRules
     };
 })();

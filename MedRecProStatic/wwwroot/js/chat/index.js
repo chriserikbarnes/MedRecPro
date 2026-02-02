@@ -572,8 +572,34 @@ const MedRecProChat = (function () {
         });
         MessageRenderer.updateMessage(assistantMessage.id);
 
-        // Create progress callback for detailed progress display
-        const progressCallback = ProgressiveConfig.isDetailedProgressEnabled() ? (progressEvent) => {
+        // Create progress callback for detailed progress display during discovery phase
+        // Uses isDiscovery: true to show "Discovery Phase" instead of product names
+        const discoveryProgressCallback = ProgressiveConfig.isDetailedProgressEnabled() ? (progressEvent) => {
+            if (progressEvent.type === 'endpoint_start') {
+                // Update current item being processed - use discovery-specific status
+                ChatState.updateMessage(assistantMessage.id, {
+                    currentProductName: progressEvent.productName,
+                    progressStatus: CheckpointRenderer.createProgressStatus(
+                        progressEvent.productName || 'Processing',
+                        progressEvent.current,
+                        progressEvent.total,
+                        { isDiscovery: true }
+                    )
+                });
+                MessageRenderer.updateMessage(assistantMessage.id);
+            } else if (progressEvent.type === 'endpoint_complete') {
+                // During discovery, don't show individual product completions
+                // Just update that discovery is progressing
+                ChatState.updateMessage(assistantMessage.id, {
+                    currentProductName: null
+                });
+                MessageRenderer.updateMessage(assistantMessage.id);
+            }
+        } : null;
+
+        // Create progress callback for fetching phase (after discovery)
+        // Shows actual product names during data fetching
+        const fetchingProgressCallback = ProgressiveConfig.isDetailedProgressEnabled() ? (progressEvent) => {
             if (progressEvent.type === 'endpoint_start') {
                 // Update current item being processed
                 ChatState.updateMessage(assistantMessage.id, {
@@ -614,7 +640,7 @@ const MedRecProChat = (function () {
             interpretation.suggestedEndpoints,
             assistantMessage,
             ChatState.getAbortController(),
-            progressCallback
+            discoveryProgressCallback
         );
 
         // Check how many products were discovered
@@ -709,7 +735,7 @@ const MedRecProChat = (function () {
                 {
                     extractedVariables: discovery.extractedVariables,
                     documentGuidToProductName: discovery.documentGuidToProductName,
-                    progressCallback: progressCallback
+                    progressCallback: fetchingProgressCallback
                 }
             );
             results.push(...remainingResults);
@@ -732,7 +758,7 @@ const MedRecProChat = (function () {
                     discovery.documentGuidToProductName,
                     assistantMessage,
                     ChatState.getAbortController(),
-                    progressCallback
+                    fetchingProgressCallback
                 );
                 results.push(...labelResults);
             }

@@ -515,18 +515,32 @@ export const CheckpointRenderer = (function () {
      * @param {string} productName - Name of product being fetched
      * @param {number} current - Current index (1-based)
      * @param {number} total - Total count
+     * @param {Object} [options] - Optional configuration
+     * @param {boolean} [options.isDiscovery=false] - Whether this is the discovery phase
      * @returns {string} Progress status text
      *
      * @description
-     * Generates text like "Fetching: Lisinopril (3/12)..."
+     * Generates text like "Fetching: Lisinopril (3/12)..." for normal fetching,
+     * or "Discovery Phase (1/3)..." during product discovery.
      * Used for updating message.progressStatus.
      *
      * @example
      * const status = createProgressStatus('Lisinopril', 3, 12);
      * // Returns: "Fetching: Lisinopril (3/12)..."
+     *
+     * @example
+     * const status = createProgressStatus('all', 1, 1, { isDiscovery: true });
+     * // Returns: "Discovery Phase (1/1)..."
      */
     /**************************************************************/
-    function createProgressStatus(productName, current, total) {
+    function createProgressStatus(productName, current, total, options = {}) {
+        const { isDiscovery = false } = options;
+
+        // During discovery phase, show "Discovery Phase" instead of product name
+        if (isDiscovery) {
+            return `Discovery Phase (${current}/${total})...`;
+        }
+
         const truncatedName = productName.length > 30
             ? productName.substring(0, 27) + '...'
             : productName;
