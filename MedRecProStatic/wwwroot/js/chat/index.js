@@ -74,6 +74,9 @@ import { CheckpointManager } from './checkpoint-manager.js';
 import { CheckpointRenderer } from './checkpoint-renderer.js';
 import { BatchSynthesizer } from './batch-synthesizer.js';
 
+// Test framework module
+import { TestRunner } from './util-test.js';
+
 /**************************************************************/
 /**
  * MedRecPro Chat Application
@@ -175,6 +178,192 @@ const MedRecProChat = (function () {
 
     /**************************************************************/
     /**
+     * Handles slash commands entered in the chat input.
+     *
+     * @param {string} input - The user input starting with '/'
+     * @returns {Promise<Object>} Result with handled flag and optional message
+     *
+     * @description
+     * Processes special slash commands before normal message handling.
+     * Currently supported commands:
+     * - /test - Runs the JavaScript unit test suite
+     * - /help - Shows available commands
+     *
+     * @example
+     * const result = await handleSlashCommand('/test');
+     * if (result.handled) {
+     *     // Command was processed, don't send as regular message
+     * }
+     *
+     * @see TestRunner.runAllTests - Runs the test suite
+     */
+    /**************************************************************/
+    async function handleSlashCommand(input) {
+        const command = input.toLowerCase().trim();
+
+        // /test - Run JavaScript unit tests
+        if (command === '/test' || command.startsWith('/test ')) {
+            await executeTestCommand();
+            return { handled: true };
+        }
+
+        // /help - Show available commands
+        if (command === '/help' || command === '/?') {
+            await executeHelpCommand();
+            return { handled: true };
+        }
+
+        // Unknown command - let it pass through as regular message
+        return { handled: false };
+    }
+
+    /**************************************************************/
+    /**
+     * Executes the /test command to run JavaScript unit tests.
+     *
+     * @description
+     * Creates user and assistant messages, runs all tests via TestRunner,
+     * and displays the formatted results in the chat.
+     *
+     * @async
+     * @see TestRunner.runAllTests - The test execution engine
+     */
+    /**************************************************************/
+    async function executeTestCommand() {
+        console.log('[executeTestCommand] Starting test command execution');
+
+        // Create user message showing the command
+        const userMessage = {
+            id: ChatUtils.generateUUID(),
+            role: 'user',
+            content: '/test',
+            timestamp: new Date()
+        };
+
+        // Create assistant placeholder
+        const assistantMessage = {
+            id: ChatUtils.generateUUID(),
+            role: 'assistant',
+            content: '',
+            isStreaming: true,
+            timestamp: new Date()
+        };
+
+        console.log('[executeTestCommand] Created messages, assistant ID:', assistantMessage.id);
+
+        // Update state and UI
+        ChatState.addMessage(userMessage);
+        ChatState.addMessage(assistantMessage);
+        UIHelpers.clearInput();
+        ChatState.setLoading(true);
+        UIHelpers.updateUI();
+        MessageRenderer.renderMessages();
+
+        console.log('[executeTestCommand] Initial render complete');
+
+        try {
+            // Show progress
+            ChatState.updateMessage(assistantMessage.id, {
+                progressStatus: 'Running JavaScript unit tests...'
+            });
+            MessageRenderer.updateMessage(assistantMessage.id);
+
+            console.log('[executeTestCommand] Running tests...');
+
+            // Run all tests
+            const results = await TestRunner.runAllTests();
+
+            console.log('[executeTestCommand] Tests complete:', results.passed, '/', results.total, 'passed');
+
+            // Format results as markdown
+            const markdown = results.summary;
+
+            // Determine status indicator
+            const statusIcon = results.failed === 0 ? '✅' : '❌';
+            const statusText = results.failed === 0
+                ? `All ${results.total} tests passed!`
+                : `${results.failed} of ${results.total} tests failed`;
+
+            console.log('[executeTestCommand] Updating message with results');
+
+            // Update message with results
+            const updatedMsg = ChatState.updateMessage(assistantMessage.id, {
+                content: `${statusIcon} **Test Run Complete:** ${statusText}\n\n${markdown}`,
+                isStreaming: false,
+                progressStatus: undefined
+            });
+
+            console.log('[executeTestCommand] State updated, isStreaming:', updatedMsg?.isStreaming);
+            console.log('[executeTestCommand] Content length:', updatedMsg?.content?.length);
+
+            MessageRenderer.updateMessage(assistantMessage.id);
+
+            console.log('[executeTestCommand] Render update called');
+
+        } catch (error) {
+            console.error('[MedRecProChat] Test execution error:', error);
+            ChatState.updateMessage(assistantMessage.id, {
+                error: `Test execution failed: ${error.message}`,
+                isStreaming: false,
+                progressStatus: undefined
+            });
+            MessageRenderer.updateMessage(assistantMessage.id);
+
+        } finally {
+            ChatState.setLoading(false);
+            UIHelpers.updateUI();
+            console.log('[executeTestCommand] Complete');
+        }
+    }
+
+    /**************************************************************/
+    /**
+     * Executes the /help command to show available slash commands.
+     *
+     * @description
+     * Displays a help message listing all available slash commands
+     * and their descriptions.
+     *
+     * @async
+     */
+    /**************************************************************/
+    async function executeHelpCommand() {
+        // Create user message showing the command
+        const userMessage = {
+            id: ChatUtils.generateUUID(),
+            role: 'user',
+            content: '/help',
+            timestamp: new Date()
+        };
+
+        // Create assistant message with help content
+        const assistantMessage = {
+            id: ChatUtils.generateUUID(),
+            role: 'assistant',
+            content: `## Available Commands
+
+| Command | Description |
+|---------|-------------|
+| \`/test\` | Run the JavaScript unit test suite |
+| \`/help\` | Show this help message |
+
+**Usage:**
+Type any command in the chat input and press Enter.
+
+**Note:** Commands starting with \`/\` that are not recognized will be sent as regular messages to the AI assistant.`,
+            isStreaming: false,
+            timestamp: new Date()
+        };
+
+        // Update state and UI
+        ChatState.addMessage(userMessage);
+        ChatState.addMessage(assistantMessage);
+        UIHelpers.clearInput();
+        MessageRenderer.renderMessages();
+    }
+
+    /**************************************************************/
+    /**
      * Sends a message through the complete processing pipeline.
      *
      * @description
@@ -207,6 +396,14 @@ const MedRecProChat = (function () {
         // Validate: must have text or files
         if (!input && files.length === 0) return;
         if (ChatState.isLoading()) return;
+
+        // Check for slash commands before normal message processing
+        if (input.startsWith('/')) {
+            const commandResult = await handleSlashCommand(input);
+            if (commandResult.handled) {
+                return;
+            }
+        }
 
         // Create user message
         const userMessage = {

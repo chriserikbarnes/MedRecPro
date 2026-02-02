@@ -519,20 +519,39 @@ export const MessageRenderer = (function () {
      */
     /**************************************************************/
     function updateMessage(messageId) {
+        console.log('[MessageRenderer.updateMessage] Called with ID:', messageId);
+
         const message = ChatState.getMessageById(messageId);
-        if (!message) return;
+        if (!message) {
+            console.log('[MessageRenderer.updateMessage] Message not found in state');
+            return;
+        }
+
+        console.log('[MessageRenderer.updateMessage] Message state:', {
+            isStreaming: message.isStreaming,
+            hasContent: !!message.content,
+            contentLength: message.content?.length,
+            progressStatus: message.progressStatus
+        });
 
         const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
+        console.log('[MessageRenderer.updateMessage] DOM element found:', !!msgEl);
+
         if (msgEl) {
             // Optimization: try to update just progress status to avoid flickering
             const statusTextEl = msgEl.querySelector('.progress-status-text');
+            console.log('[MessageRenderer.updateMessage] Status text element found:', !!statusTextEl);
+
             if (statusTextEl && message.progressStatus && message.isStreaming) {
+                console.log('[MessageRenderer.updateMessage] Using optimization path (status text only)');
                 statusTextEl.textContent = message.progressStatus;
                 return;
             }
 
+            console.log('[MessageRenderer.updateMessage] Doing full rebuild');
             // Full rebuild for content changes
             msgEl.outerHTML = renderMessage(message);
+            console.log('[MessageRenderer.updateMessage] Rebuild complete');
         }
 
         // Ensure latest content is visible

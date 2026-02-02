@@ -1,0 +1,393 @@
+{
+  "_description": "Test data for MedRecPro Chat JavaScript unit tests",
+  "_version": "1.0.0",
+  "_lastUpdated": "2026-02-02",
+
+  "utils": {
+    "escapeHtml": [
+      {
+        "description": "Script tag XSS prevention",
+        "input": "<script>alert(\"xss\")</script>",
+        "expected": "&lt;script&gt;alert(\"xss\")&lt;/script&gt;"
+      },
+      {
+        "description": "Normal text passthrough",
+        "input": "Normal text without HTML",
+        "expected": "Normal text without HTML"
+      },
+      {
+        "description": "DIV tag with attribute",
+        "input": "<div class=\"test\">",
+        "expected": "&lt;div class=\"test\"&gt;"
+      },
+      {
+        "description": "Multiple HTML entities",
+        "input": "<a href=\"url\">link</a> & more",
+        "expected": "&lt;a href=\"url\"&gt;link&lt;/a&gt; &amp; more"
+      },
+      {
+        "description": "Apostrophe handling",
+        "input": "It's a test",
+        "expected": "It's a test"
+      }
+    ],
+
+    "formatFileSize": [
+      {
+        "description": "Bytes under 1KB",
+        "input": 512,
+        "expected": "512 B"
+      },
+      {
+        "description": "Kilobytes",
+        "input": 1536,
+        "expected": "1.5 KB"
+      },
+      {
+        "description": "Megabytes",
+        "input": 5242880,
+        "expected": "5.0 MB"
+      },
+      {
+        "description": "Zero bytes",
+        "input": 0,
+        "expected": "0 B"
+      },
+      {
+        "description": "Exactly 1KB",
+        "input": 1024,
+        "expected": "1.0 KB"
+      },
+      {
+        "description": "Exactly 1MB",
+        "input": 1048576,
+        "expected": "1.0 MB"
+      },
+      {
+        "description": "Large file (100MB)",
+        "input": 104857600,
+        "expected": "100.0 MB"
+      }
+    ],
+
+    "toTitleCase": [
+      {
+        "description": "All uppercase drug name",
+        "input": "LISINOPRIL",
+        "expected": "Lisinopril"
+      },
+      {
+        "description": "Lowercase with HCL suffix",
+        "input": "metformin hcl",
+        "expected": "Metformin HCL"
+      },
+      {
+        "description": "Uppercase with ER suffix",
+        "input": "METOPROLOL SUCCINATE ER",
+        "expected": "Metoprolol Succinate ER"
+      },
+      {
+        "description": "Diltiazem CD",
+        "input": "diltiazem cd",
+        "expected": "Diltiazem CD"
+      },
+      {
+        "description": "Extended Release XR",
+        "input": "DRUG NAME XR",
+        "expected": "Drug Name XR"
+      },
+      {
+        "description": "Hyphenated words",
+        "input": "omega-3 fatty acids",
+        "expected": "Omega-3 Fatty Acids"
+      },
+      {
+        "description": "Roman numerals preserved",
+        "input": "factor iii",
+        "expected": "Factor III"
+      },
+      {
+        "description": "Mixed case input",
+        "input": "AsPiRiN tAbLeTs",
+        "expected": "Aspirin Tablets"
+      },
+      {
+        "description": "Multiple pharmaceutical suffixes",
+        "input": "drug name er hcl",
+        "expected": "Drug Name ER HCL"
+      }
+    ],
+
+    "truncate": [
+      {
+        "description": "String longer than max",
+        "input": {
+          "str": "This is a long string that needs truncation",
+          "maxLength": 20
+        },
+        "expected": "This is a long st..."
+      },
+      {
+        "description": "String shorter than max",
+        "input": {
+          "str": "Short",
+          "maxLength": 10
+        },
+        "expected": "Short"
+      },
+      {
+        "description": "String exactly at max",
+        "input": {
+          "str": "Exactly10c",
+          "maxLength": 10
+        },
+        "expected": "Exactly10c"
+      },
+      {
+        "description": "Very short max length",
+        "input": {
+          "str": "Test string",
+          "maxLength": 5
+        },
+        "expected": "Te..."
+      }
+    ],
+
+    "isNonEmptyString": [
+      {
+        "description": "Valid string",
+        "input": "hello",
+        "expected": true
+      },
+      {
+        "description": "Empty string",
+        "input": "",
+        "expected": false
+      },
+      {
+        "description": "Null input",
+        "input": null,
+        "expected": false
+      },
+      {
+        "description": "Number input",
+        "input": 123,
+        "expected": false
+      },
+      {
+        "description": "Whitespace only",
+        "input": "   ",
+        "expected": false
+      },
+      {
+        "description": "String with whitespace",
+        "input": "  hello  ",
+        "expected": true
+      },
+      {
+        "description": "Undefined input",
+        "input": null,
+        "expected": false
+      },
+      {
+        "description": "Boolean true",
+        "input": true,
+        "expected": false
+      },
+      {
+        "description": "Array input",
+        "input": [],
+        "expected": false
+      }
+    ],
+
+    "safeParseJSON": [
+      {
+        "description": "Valid JSON object",
+        "input": {
+          "json": "{\"valid\": true, \"count\": 42}",
+          "fallback": {}
+        },
+        "expected": {
+          "valid": true,
+          "count": 42
+        }
+      },
+      {
+        "description": "Invalid JSON",
+        "input": {
+          "json": "not valid json",
+          "fallback": {}
+        },
+        "expected": {}
+      },
+      {
+        "description": "Valid JSON array",
+        "input": {
+          "json": "[1, 2, 3]",
+          "fallback": []
+        },
+        "expected": [1, 2, 3]
+      },
+      {
+        "description": "Empty object JSON",
+        "input": {
+          "json": "{}",
+          "fallback": null
+        },
+        "expected": {}
+      },
+      {
+        "description": "Nested JSON",
+        "input": {
+          "json": "{\"outer\": {\"inner\": \"value\"}}",
+          "fallback": {}
+        },
+        "expected": {
+          "outer": {
+            "inner": "value"
+          }
+        }
+      }
+    ]
+  },
+
+  "markdown": {
+    "render": [
+      {
+        "description": "Bold text",
+        "input": "**Bold text**",
+        "contains": "<strong>Bold text</strong>"
+      },
+      {
+        "description": "Italic text",
+        "input": "*Italic text*",
+        "contains": "<em>Italic text</em>"
+      },
+      {
+        "description": "Inline code",
+        "input": "`inline code`",
+        "contains": "<code>inline code</code>"
+      },
+      {
+        "description": "H1 header",
+        "input": "# Header One",
+        "contains": "<h1>Header One</h1>"
+      },
+      {
+        "description": "H2 header",
+        "input": "## Header Two",
+        "contains": "<h2>Header Two</h2>"
+      },
+      {
+        "description": "H3 header",
+        "input": "### Header Three",
+        "contains": "<h3>Header Three</h3>"
+      },
+      {
+        "description": "Unordered list item dash",
+        "input": "- list item",
+        "contains": "<li>list item</li>"
+      },
+      {
+        "description": "Unordered list item asterisk",
+        "input": "* list item",
+        "contains": "<li>list item</li>"
+      },
+      {
+        "description": "Link with text",
+        "input": "[Link Text](https://example.com)",
+        "contains": "href=\"https://example.com\""
+      },
+      {
+        "description": "Combined formatting",
+        "input": "**Bold** and *italic*",
+        "contains": "<strong>Bold</strong>"
+      }
+    ]
+  },
+
+  "resultGrouper": {
+    "mockResults": [
+      {
+        "statusCode": 200,
+        "result": {
+          "documentGuid": "abc-123-def-456",
+          "productName": "Lisinopril 10mg Tablets",
+          "brandName": "Prinivil"
+        },
+        "specification": {
+          "description": "Label: Lisinopril",
+          "path": "/api/Label/markdown/sections/abc-123-def-456"
+        },
+        "extractedProductName": "Lisinopril 10mg Tablets"
+      },
+      {
+        "statusCode": 200,
+        "result": {
+          "documentGuid": "ghi-789-jkl-012",
+          "productName": "Metformin HCL 500mg",
+          "genericName": "metformin hydrochloride"
+        },
+        "specification": {
+          "description": "Label: Metformin",
+          "path": "/api/Label/markdown/sections/ghi-789-jkl-012"
+        },
+        "extractedProductName": "Metformin HCL 500mg"
+      },
+      {
+        "statusCode": 200,
+        "result": {
+          "documentGuid": "mno-345-pqr-678",
+          "productName": "Atorvastatin Calcium 20mg",
+          "brandName": "Lipitor"
+        },
+        "specification": {
+          "description": "Label: Atorvastatin",
+          "path": "/api/Label/markdown/sections/mno-345-pqr-678"
+        },
+        "extractedProductName": "Atorvastatin Calcium 20mg"
+      }
+    ],
+
+    "mockFailedResults": [
+      {
+        "statusCode": 404,
+        "error": "Not found",
+        "specification": {
+          "description": "Label: Unknown",
+          "path": "/api/Label/markdown/sections/invalid-guid"
+        }
+      },
+      {
+        "statusCode": 500,
+        "error": "Server error",
+        "specification": {
+          "description": "Label: Error",
+          "path": "/api/Label/error"
+        }
+      }
+    ]
+  },
+
+  "config": {
+    "expectedEndpoints": [
+      "context",
+      "interpret",
+      "synthesize",
+      "retry",
+      "chat",
+      "upload"
+    ],
+    "testPaths": [
+      {
+        "input": "/api/test/endpoint",
+        "description": "Simple API path"
+      },
+      {
+        "input": "/api/Label/markdown/sections/guid-here",
+        "description": "Label endpoint with GUID"
+      }
+    ]
+  }
+}
