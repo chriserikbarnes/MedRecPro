@@ -466,7 +466,8 @@ app.MapOAuthEndpoints();
 // at /.well-known/oauth-protected-resource
 
 // MCP endpoint - anonymous access allowed; API handles auth per-endpoint
-app.MapMcp().AllowAnonymous();
+// Route pattern "/mcp" maps the MCP Streamable HTTP transport to /mcp
+app.MapMcp("/mcp").AllowAnonymous();
 #endregion
 
 app.Run();

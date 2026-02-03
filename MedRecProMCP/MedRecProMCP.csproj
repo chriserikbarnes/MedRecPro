@@ -33,5 +33,11 @@
   <ItemGroup>
     <EmbeddedResource Include="Templates\*.html" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="PowerShell\**" />
+    <Content Remove="PowerShell\**" />
+    <EmbeddedResource Remove="PowerShell\**" />
+    <None Remove="PowerShell\**" />
+  </ItemGroup>
 
 </Project>
