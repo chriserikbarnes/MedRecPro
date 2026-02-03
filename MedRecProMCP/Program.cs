@@ -38,6 +38,7 @@ using Azure.Identity;
 using MedRecProMCP.Configuration;
 using MedRecProMCP.Endpoints;
 using MedRecProMCP.Handlers;
+using MedRecProMCP.Models;
 using MedRecProMCP.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -88,6 +89,7 @@ builder.Services.Configure<McpServerSettings>(configuration.GetSection("McpServe
 builder.Services.Configure<MedRecProApiSettings>(configuration.GetSection("MedRecProApi"));
 builder.Services.Configure<AuthenticationSettings>(configuration.GetSection("Authentication"));
 builder.Services.Configure<JwtSettings>(configuration.GetSection("Jwt"));
+builder.Services.Configure<WorkPlanExecutionOptions>(configuration.GetSection("WorkPlan"));
 
 #pragma warning disable CS0618 // Type or member is obsolete - backward compatibility
 builder.Services.Configure<OAuthProviderSettings>(configuration.GetSection("Authentication"));
@@ -119,6 +121,10 @@ builder.Services.AddSingleton<IMcpTokenService, McpTokenService>();
 builder.Services.AddSingleton<IOAuthService, OAuthService>();
 builder.Services.AddSingleton<IClientRegistrationService, ClientRegistrationService>();
 builder.Services.AddSingleton<IPkceService, PkceService>();
+
+// Register AI work plan executor service
+// Scoped because it uses the scoped MedRecProApiClient
+builder.Services.AddScoped<IWorkPlanExecutor, WorkPlanExecutor>();
 #endregion
 
 #region HTTP Client Configuration
