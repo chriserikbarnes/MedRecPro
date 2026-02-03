@@ -414,6 +414,48 @@ app.MapGet("/error", () => Results.Problem(
     statusCode: 500,
     title: "An error occurred"));
 
+/**************************************************************/
+/// <summary>
+/// Serves static HTML documentation for the MCP server.
+/// </summary>
+/// <remarks>
+/// Loads the HTML template from an embedded resource and replaces
+/// placeholders with configuration values. Referenced in Protected Resource Metadata.
+/// </remarks>
+/// <seealso cref="MedRecProMCP.Templates.McpDocumentation.html"/>
+/**************************************************************/
+app.MapGet("/docs", async (HttpContext context) =>
+{
+    #region implementation
+    // Load the HTML template from embedded resource
+    var assembly = typeof(Program).Assembly;
+    var resourceName = "MedRecProMCP.Templates.McpDocumentation.html";
+
+    await using var stream = assembly.GetManifestResourceStream(resourceName);
+    if (stream == null)
+    {
+        return Results.Problem(
+            statusCode: 500,
+            title: "Documentation template not found");
+    }
+
+    using var reader = new StreamReader(stream);
+    var template = await reader.ReadToEndAsync();
+
+    // Replace placeholders with configuration values
+    var serverUrl = mcpSettings.ServerUrl;
+    var serverName = mcpSettings.ServerName ?? "MedRecPro MCP Server";
+    var version = configuration.GetValue<string>("Version") ?? "0.0.1-alpha";
+
+    var html = template
+        .Replace("{{ServerUrl}}", serverUrl)
+        .Replace("{{ServerName}}", serverName)
+        .Replace("{{Version}}", version);
+
+    return Results.Content(html, "text/html");
+    #endregion
+});
+
 // OAuth 2.1 Authorization Server Metadata (RFC 8414)
 app.MapOAuthMetadataEndpoints();
 
@@ -423,8 +465,8 @@ app.MapOAuthEndpoints();
 // Protected Resource Metadata is automatically served by McpAuthenticationHandler
 // at /.well-known/oauth-protected-resource
 
-// MCP endpoint with authorization requirement
-app.MapMcp().RequireAuthorization("McpAccess");
+// MCP endpoint - anonymous access allowed; API handles auth per-endpoint
+app.MapMcp().AllowAnonymous();
 #endregion
 
 app.Run();
