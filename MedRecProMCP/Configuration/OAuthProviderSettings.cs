@@ -6,6 +6,7 @@
 /// These settings configure Google and Microsoft OAuth integration
 /// for user authentication. The MCP server acts as an OAuth client
 /// to these providers while acting as an OAuth server to MCP clients.
+/// Maps to secrets: Authentication:Google and Authentication:Microsoft
 /// </remarks>
 /**************************************************************/
 
@@ -13,26 +14,48 @@ namespace MedRecProMCP.Configuration;
 
 /**************************************************************/
 /// <summary>
-/// Container for all OAuth provider configurations.
+/// Container for all authentication provider configurations.
 /// </summary>
-/// <seealso cref="GoogleOAuthSettings"/>
-/// <seealso cref="MicrosoftOAuthSettings"/>
+/// <remarks>
+/// Binds to the "Authentication" section in configuration.
+/// </remarks>
+/// <seealso cref="GoogleAuthSettings"/>
+/// <seealso cref="MicrosoftAuthSettings"/>
 /**************************************************************/
-public class OAuthProviderSettings
+public class AuthenticationSettings
 {
     /**************************************************************/
     /// <summary>
     /// Google OAuth provider configuration.
     /// </summary>
+    /// <remarks>
+    /// Maps to secrets: Authentication:Google:*
+    /// </remarks>
     /**************************************************************/
-    public GoogleOAuthSettings Google { get; set; } = new();
+    public GoogleAuthSettings Google { get; set; } = new();
 
     /**************************************************************/
     /// <summary>
     /// Microsoft (Entra ID) OAuth provider configuration.
     /// </summary>
+    /// <remarks>
+    /// Maps to secrets: Authentication:Microsoft:*
+    /// </remarks>
     /**************************************************************/
-    public MicrosoftOAuthSettings Microsoft { get; set; } = new();
+    public MicrosoftAuthSettings Microsoft { get; set; } = new();
+}
+
+/**************************************************************/
+/// <summary>
+/// Legacy class for backward compatibility.
+/// </summary>
+/// <remarks>
+/// Use <see cref="AuthenticationSettings"/> instead.
+/// </remarks>
+/**************************************************************/
+[Obsolete("Use AuthenticationSettings instead. This class exists for backward compatibility.")]
+public class OAuthProviderSettings : AuthenticationSettings
+{
 }
 
 /**************************************************************/
@@ -42,9 +65,10 @@ public class OAuthProviderSettings
 /// <remarks>
 /// Google OAuth uses the authorization code flow with PKCE.
 /// Scopes typically include openid, profile, and email.
+/// Maps to secrets: Authentication:Google:*
 /// </remarks>
 /**************************************************************/
-public class GoogleOAuthSettings
+public class GoogleAuthSettings
 {
     /**************************************************************/
     /// <summary>
@@ -53,6 +77,7 @@ public class GoogleOAuthSettings
     /// <remarks>
     /// Obtained from Google Cloud Console.
     /// In production, stored in Azure Key Vault.
+    /// Maps to secrets: Authentication:Google:ClientId
     /// </remarks>
     /**************************************************************/
     public string ClientId { get; set; } = string.Empty;
@@ -64,6 +89,7 @@ public class GoogleOAuthSettings
     /// <remarks>
     /// Obtained from Google Cloud Console.
     /// In production, stored in Azure Key Vault.
+    /// Maps to secrets: Authentication:Google:ClientSecret
     /// </remarks>
     /**************************************************************/
     public string ClientSecret { get; set; } = string.Empty;
@@ -99,14 +125,28 @@ public class GoogleOAuthSettings
 
 /**************************************************************/
 /// <summary>
+/// Legacy class for backward compatibility.
+/// </summary>
+/// <remarks>
+/// Use <see cref="GoogleAuthSettings"/> instead.
+/// </remarks>
+/**************************************************************/
+[Obsolete("Use GoogleAuthSettings instead. This class exists for backward compatibility.")]
+public class GoogleOAuthSettings : GoogleAuthSettings
+{
+}
+
+/**************************************************************/
+/// <summary>
 /// Microsoft (Entra ID) OAuth provider configuration.
 /// </summary>
 /// <remarks>
 /// Microsoft OAuth uses the authorization code flow with PKCE.
 /// Supports both personal accounts and organizational accounts.
+/// Maps to secrets: Authentication:Microsoft:*
 /// </remarks>
 /**************************************************************/
-public class MicrosoftOAuthSettings
+public class MicrosoftAuthSettings
 {
     /**************************************************************/
     /// <summary>
@@ -115,20 +155,22 @@ public class MicrosoftOAuthSettings
     /// <remarks>
     /// Obtained from Azure Portal App Registration.
     /// In production, stored in Azure Key Vault.
+    /// Maps to secrets: Authentication:Microsoft:ClientId
     /// </remarks>
     /**************************************************************/
     public string ClientId { get; set; } = string.Empty;
 
     /**************************************************************/
     /// <summary>
-    /// Microsoft OAuth Client Secret.
+    /// Microsoft OAuth Client Secret for development environment.
     /// </summary>
     /// <remarks>
     /// Obtained from Azure Portal App Registration.
     /// In production, stored in Azure Key Vault.
+    /// Maps to secrets: Authentication:Microsoft:ClientSecret:Dev
     /// </remarks>
     /**************************************************************/
-    public string ClientSecret { get; set; } = string.Empty;
+    public MicrosoftClientSecretSettings ClientSecret { get; set; } = new();
 
     /**************************************************************/
     /// <summary>
@@ -137,6 +179,7 @@ public class MicrosoftOAuthSettings
     /// <remarks>
     /// Use "common" for multi-tenant apps supporting both personal
     /// and organizational accounts.
+    /// Maps to secrets: Authentication:Microsoft:TenantId
     /// </remarks>
     /**************************************************************/
     public string TenantId { get; set; } = "common";
@@ -176,4 +219,48 @@ public class MicrosoftOAuthSettings
     /// </summary>
     /**************************************************************/
     public string[] Scopes { get; set; } = { "openid", "profile", "email", "User.Read" };
+}
+
+/**************************************************************/
+/// <summary>
+/// Microsoft client secret settings with Dev/Prod separation.
+/// </summary>
+/// <remarks>
+/// Maps to secrets: Authentication:Microsoft:ClientSecret:Dev/Prod
+/// </remarks>
+/**************************************************************/
+public class MicrosoftClientSecretSettings
+{
+    /**************************************************************/
+    /// <summary>
+    /// Client secret for development environment.
+    /// </summary>
+    /// <remarks>
+    /// Maps to secrets: Authentication:Microsoft:ClientSecret:Dev
+    /// </remarks>
+    /**************************************************************/
+    public string Dev { get; set; } = string.Empty;
+
+    /**************************************************************/
+    /// <summary>
+    /// Client secret for production environment.
+    /// </summary>
+    /// <remarks>
+    /// Maps to secrets: Authentication:Microsoft:ClientSecret:Prod
+    /// </remarks>
+    /**************************************************************/
+    public string Prod { get; set; } = string.Empty;
+}
+
+/**************************************************************/
+/// <summary>
+/// Legacy class for backward compatibility.
+/// </summary>
+/// <remarks>
+/// Use <see cref="MicrosoftAuthSettings"/> instead.
+/// </remarks>
+/**************************************************************/
+[Obsolete("Use MicrosoftAuthSettings instead. This class exists for backward compatibility.")]
+public class MicrosoftOAuthSettings : MicrosoftAuthSettings
+{
 }

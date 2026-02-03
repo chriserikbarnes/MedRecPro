@@ -76,11 +76,22 @@ if (builder.Environment.IsProduction())
 /// <summary>
 /// Binds configuration sections to strongly-typed options classes.
 /// </summary>
+/// <remarks>
+/// Configuration paths match secrets.json key structure:
+/// - McpServer: McpServer:*
+/// - MedRecProApi: MedRecProApi:*
+/// - Authentication: Authentication:Google:*, Authentication:Microsoft:*
+/// - Jwt: Jwt:Key, Jwt:Issuer, Jwt:Audience, Jwt:ExpirationMinutes
+/// </remarks>
 /**************************************************************/
 builder.Services.Configure<McpServerSettings>(configuration.GetSection("McpServer"));
 builder.Services.Configure<MedRecProApiSettings>(configuration.GetSection("MedRecProApi"));
-builder.Services.Configure<OAuthProviderSettings>(configuration.GetSection("OAuth:Providers"));
+builder.Services.Configure<AuthenticationSettings>(configuration.GetSection("Authentication"));
 builder.Services.Configure<JwtSettings>(configuration.GetSection("Jwt"));
+
+#pragma warning disable CS0618 // Type or member is obsolete - backward compatibility
+builder.Services.Configure<OAuthProviderSettings>(configuration.GetSection("Authentication"));
+#pragma warning restore CS0618
 
 var mcpSettings = configuration.GetSection("McpServer").Get<McpServerSettings>()
     ?? throw new InvalidOperationException("McpServer configuration section is required.");
@@ -88,6 +99,8 @@ var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt configuration section is required.");
 var medrecProApiSettings = configuration.GetSection("MedRecProApi").Get<MedRecProApiSettings>()
     ?? throw new InvalidOperationException("MedRecProApi configuration section is required.");
+var authSettings = configuration.GetSection("Authentication").Get<AuthenticationSettings>()
+    ?? throw new InvalidOperationException("Authentication configuration section is required.");
 #endregion
 
 #region Core Services
@@ -158,8 +171,13 @@ builder.Services.AddHttpClient<MedRecProApiClient>(client =>
 /// </remarks>
 /// <seealso cref="McpAuthenticationDefaults"/>
 /**************************************************************/
+// Use McpServer:JwtSigningKey for MCP token signing (this key is expected by the API)
+// Falls back to Jwt:Key if McpServer key is not configured
+var signingKeyValue = !string.IsNullOrEmpty(mcpSettings.JwtSigningKey)
+    ? mcpSettings.JwtSigningKey
+    : jwtSettings.Key;
 var jwtSigningKey = new SymmetricSecurityKey(
-    Encoding.UTF8.GetBytes(jwtSettings.SigningKey));
+    Encoding.UTF8.GetBytes(signingKeyValue));
 
 builder.Services.AddAuthentication(options =>
 {
@@ -176,8 +194,13 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = mcpSettings.ServerUrl.TrimEnd('/'),
-        ValidAudience = mcpSettings.ServerUrl.TrimEnd('/'),
+        // Use Jwt:Issuer and Jwt:Audience from secrets.json, fall back to ServerUrl
+        ValidIssuer = !string.IsNullOrEmpty(jwtSettings.Issuer)
+            ? jwtSettings.Issuer
+            : mcpSettings.ServerUrl.TrimEnd('/'),
+        ValidAudience = !string.IsNullOrEmpty(jwtSettings.Audience)
+            ? jwtSettings.Audience
+            : mcpSettings.ServerUrl.TrimEnd('/'),
         IssuerSigningKey = jwtSigningKey,
         ClockSkew = TimeSpan.FromMinutes(1),
         NameClaimType = "name",
@@ -213,7 +236,7 @@ builder.Services.AddAuthentication(options =>
         }
     };
 })
-.AddMcp(McpAuthenticationDefaults.AuthenticationScheme + "_Metadata", options =>
+.AddMcp(options =>
 {
     /**************************************************************/
     /// <summary>

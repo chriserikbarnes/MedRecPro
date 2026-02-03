@@ -22,6 +22,7 @@ using MedRecPro.Service.Common;
 using MedRecPro.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.Json;
@@ -29,6 +30,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json;
 using RazorLight;
@@ -379,6 +381,7 @@ builder.Services.AddCors(options =>
     /// <remarks>
     /// This policy is more restrictive and used in production.
     /// Adjust the origins to match your actual deployment domains.
+    /// Note: MCP server is hosted at /mcp path under www.medrecpro.com (same origin).
     /// </remarks>
     /**************************************************************/
     options.AddPolicy("Production", policy =>
@@ -442,6 +445,97 @@ builder.Services.AddAuthentication(options =>
     options.ClaimActions.MapJsonKey(ClaimTypes.Email, "mail");
     options.ClaimActions.MapJsonKey(ClaimTypes.Name, "displayName");
 });
+
+#region MCP Server JWT Authentication
+/**************************************************************/
+/// <summary>
+/// Configures JWT Bearer authentication for tokens issued by the MCP Server.
+/// </summary>
+/// <remarks>
+/// This allows the MedRecPro API to accept tokens from the MCP server,
+/// enabling Claude and other MCP clients to access the API through
+/// the MCP gateway while preserving user identity.
+///
+/// The MCP server issues JWTs that contain:
+/// - Standard claims (iss, aud, exp, iat, jti)
+/// - User identity claims from upstream IdP (email, name, sub)
+/// - Encrypted upstream token for pass-through scenarios
+/// </remarks>
+/// <seealso cref="Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions"/>
+/// <seealso cref="Microsoft.IdentityModel.Tokens.TokenValidationParameters"/>
+/**************************************************************/
+
+// Get MCP server settings from configuration
+var mcpServerUrl = builder.Configuration["McpServer:Url"];
+var mcpJwtSigningKey = builder.Configuration["McpServer:JwtSigningKey"];
+
+if (!string.IsNullOrEmpty(mcpServerUrl) && !string.IsNullOrEmpty(mcpJwtSigningKey))
+{
+    #region implementation
+    builder.Services.AddAuthentication()
+        .AddJwtBearer("McpBearer", options =>
+        {
+            // Configure token validation parameters for MCP-issued JWTs
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = mcpServerUrl.TrimEnd('/'),
+                ValidAudience = mcpServerUrl.TrimEnd('/'),
+                IssuerSigningKey = new SymmetricSecurityKey(
+                    System.Text.Encoding.UTF8.GetBytes(mcpJwtSigningKey)),
+                ClockSkew = TimeSpan.FromMinutes(1),
+                NameClaimType = "name",
+                RoleClaimType = "roles"
+            };
+
+            // Configure JWT bearer events for logging and diagnostics
+            options.Events = new JwtBearerEvents
+            {
+                OnAuthenticationFailed = context =>
+                {
+                    var logger = context.HttpContext.RequestServices
+                        .GetRequiredService<ILoggerFactory>()
+                        .CreateLogger("McpJwtAuth");
+
+                    // Only log if this scheme was actually attempted
+                    if (context.Exception is not SecurityTokenException)
+                    {
+                        logger.LogDebug(
+                            "[MCP Auth] Token validation skipped: {Error}",
+                            context.Exception.Message);
+                    }
+                    return Task.CompletedTask;
+                },
+                OnTokenValidated = context =>
+                {
+                    var logger = context.HttpContext.RequestServices
+                        .GetRequiredService<ILoggerFactory>()
+                        .CreateLogger("McpJwtAuth");
+
+                    var userName = context.Principal?.Identity?.Name ?? "unknown";
+                    var provider = context.Principal?.FindFirst("provider")?.Value ?? "unknown";
+
+                    logger.LogInformation(
+                        "[MCP Auth] Token validated for user: {User} (provider: {Provider})",
+                        userName, provider);
+
+                    return Task.CompletedTask;
+                }
+            };
+        });
+
+    Console.WriteLine($"[Startup] MCP JWT authentication enabled for issuer: {mcpServerUrl}");
+    #endregion
+}
+else
+{
+    Console.WriteLine("[Startup] MCP JWT authentication not configured (McpServer:Url or McpServer:JwtSigningKey missing)");
+}
+#endregion
+
 #endregion
 
 // Register  custom IPasswordHasher for MedRecPro.Models.User.
@@ -451,15 +545,47 @@ builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 // --- Authorization ---
 builder.Services.AddAuthorization(options =>
 {
+    /**************************************************************/
+    /// <summary>
+    /// BasicAuthPolicy - Requires Basic Authentication scheme.
+    /// </summary>
+    /// <remarks>
+    /// Used for endpoints that specifically require Basic Authentication
+    /// (username:password Base64 encoded in Authorization header).
+    /// </remarks>
+    /**************************************************************/
     options.AddPolicy("BasicAuthPolicy", new AuthorizationPolicyBuilder()
         .AddAuthenticationSchemes("BasicAuthentication") // Ensure this matches the scheme name above
         .RequireAuthenticatedUser()
         .Build());
 
-    // Example: Default policy requiring any authenticated user
-    // options.DefaultPolicy = new AuthorizationPolicyBuilder()
-    //    .RequireAuthenticatedUser()
-    //    .Build();
+    /**************************************************************/
+    /// <summary>
+    /// ApiAccess - Policy that accepts both Identity cookies and MCP JWT tokens.
+    /// </summary>
+    /// <remarks>
+    /// This policy allows API endpoints to accept authentication from:
+    /// - Identity cookies (IdentityConstants.ApplicationScheme) for browser sessions
+    /// - MCP JWT Bearer tokens (McpBearer) for MCP server requests
+    ///
+    /// Use this policy on API endpoints that need to support both
+    /// direct browser access and MCP client access.
+    /// </remarks>
+    /// <seealso cref="Microsoft.AspNetCore.Identity.IdentityConstants"/>
+    /**************************************************************/
+    options.AddPolicy("ApiAccess", new AuthorizationPolicyBuilder()
+        .AddAuthenticationSchemes(
+            IdentityConstants.ApplicationScheme,
+            "McpBearer")
+        .RequireAuthenticatedUser()
+        .Build());
+
+    // Make ApiAccess the default policy for API controllers
+    // This allows endpoints to accept either cookie auth or MCP JWT tokens
+    options.DefaultPolicy = options.GetPolicy("ApiAccess")
+        ?? new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
+            .Build();
 });
 
 #region Ignore Empty Fields When Serializing

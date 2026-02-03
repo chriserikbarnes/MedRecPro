@@ -25,9 +25,30 @@ public class JwtSettings
     /// <remarks>
     /// This key should be at least 256 bits (32 characters) for HS256.
     /// In production, this should be stored in Azure Key Vault.
+    /// Maps to secrets: Jwt:Key
     /// </remarks>
     /**************************************************************/
-    public string SigningKey { get; set; } = string.Empty;
+    public string Key { get; set; } = string.Empty;
+
+    /**************************************************************/
+    /// <summary>
+    /// The issuer claim for JWT tokens.
+    /// </summary>
+    /// <remarks>
+    /// Maps to secrets: Jwt:Issuer
+    /// </remarks>
+    /**************************************************************/
+    public string Issuer { get; set; } = string.Empty;
+
+    /**************************************************************/
+    /// <summary>
+    /// The audience claim for JWT tokens.
+    /// </summary>
+    /// <remarks>
+    /// Maps to secrets: Jwt:Audience
+    /// </remarks>
+    /**************************************************************/
+    public string Audience { get; set; } = string.Empty;
 
     /**************************************************************/
     /// <summary>
@@ -35,9 +56,10 @@ public class JwtSettings
     /// </summary>
     /// <remarks>
     /// Recommended: 60 minutes (1 hour) for security best practices.
+    /// Maps to secrets: Jwt:ExpirationMinutes
     /// </remarks>
     /**************************************************************/
-    public int AccessTokenExpirationMinutes { get; set; } = 60;
+    public int ExpirationMinutes { get; set; } = 60;
 
     /**************************************************************/
     /// <summary>

@@ -9,9 +9,14 @@
 /// - Authorization code exchange for tokens
 /// - Token refresh operations
 /// - User information retrieval
+///
+/// Configuration paths (matching secrets.json):
+/// - Authentication:Google:ClientId, Authentication:Google:ClientSecret
+/// - Authentication:Microsoft:ClientId, Authentication:Microsoft:ClientSecret:Dev/Prod
+/// - Authentication:Microsoft:TenantId
 /// </remarks>
 /// <seealso cref="IOAuthService"/>
-/// <seealso cref="OAuthProviderSettings"/>
+/// <seealso cref="AuthenticationSettings"/>
 /**************************************************************/
 
 using MedRecProMCP.Configuration;
@@ -30,9 +35,10 @@ namespace MedRecProMCP.Services;
 /**************************************************************/
 public class OAuthService : IOAuthService
 {
-    private readonly OAuthProviderSettings _providerSettings;
+    private readonly AuthenticationSettings _authSettings;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<OAuthService> _logger;
+    private readonly IHostEnvironment _environment;
 
     private static readonly HashSet<string> SupportedProviders = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -44,15 +50,21 @@ public class OAuthService : IOAuthService
     /// <summary>
     /// Initializes a new instance of OAuthService.
     /// </summary>
+    /// <remarks>
+    /// Injects AuthenticationSettings which maps to the Authentication section
+    /// in configuration (matching secrets.json key structure).
+    /// </remarks>
     /**************************************************************/
     public OAuthService(
-        IOptions<OAuthProviderSettings> providerSettings,
+        IOptions<AuthenticationSettings> authSettings,
         IHttpClientFactory httpClientFactory,
-        ILogger<OAuthService> logger)
+        ILogger<OAuthService> logger,
+        IHostEnvironment environment)
     {
-        _providerSettings = providerSettings.Value;
+        _authSettings = authSettings.Value;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _environment = environment;
     }
 
     /**************************************************************/
@@ -88,15 +100,15 @@ public class OAuthService : IOAuthService
 
         if (provider.Equals("google", StringComparison.OrdinalIgnoreCase))
         {
-            baseUrl = _providerSettings.Google.AuthorizationEndpoint;
-            clientId = _providerSettings.Google.ClientId;
-            defaultScopes = _providerSettings.Google.Scopes;
+            baseUrl = _authSettings.Google.AuthorizationEndpoint;
+            clientId = _authSettings.Google.ClientId;
+            defaultScopes = _authSettings.Google.Scopes;
         }
         else // microsoft
         {
-            baseUrl = _providerSettings.Microsoft.AuthorizationEndpoint;
-            clientId = _providerSettings.Microsoft.ClientId;
-            defaultScopes = _providerSettings.Microsoft.Scopes;
+            baseUrl = _authSettings.Microsoft.AuthorizationEndpoint;
+            clientId = _authSettings.Microsoft.ClientId;
+            defaultScopes = _authSettings.Microsoft.Scopes;
         }
 
         queryParams["client_id"] = clientId;
@@ -137,15 +149,16 @@ public class OAuthService : IOAuthService
 
         if (provider.Equals("google", StringComparison.OrdinalIgnoreCase))
         {
-            tokenEndpoint = _providerSettings.Google.TokenEndpoint;
-            clientId = _providerSettings.Google.ClientId;
-            clientSecret = _providerSettings.Google.ClientSecret;
+            tokenEndpoint = _authSettings.Google.TokenEndpoint;
+            clientId = _authSettings.Google.ClientId;
+            clientSecret = _authSettings.Google.ClientSecret;
         }
         else // microsoft
         {
-            tokenEndpoint = _providerSettings.Microsoft.TokenEndpoint;
-            clientId = _providerSettings.Microsoft.ClientId;
-            clientSecret = _providerSettings.Microsoft.ClientSecret;
+            tokenEndpoint = _authSettings.Microsoft.TokenEndpoint;
+            clientId = _authSettings.Microsoft.ClientId;
+            // Use environment-appropriate client secret (Dev vs Prod)
+            clientSecret = getMicrosoftClientSecret();
         }
 
         var tokenRequest = new Dictionary<string, string>
@@ -228,15 +241,16 @@ public class OAuthService : IOAuthService
 
         if (provider.Equals("google", StringComparison.OrdinalIgnoreCase))
         {
-            tokenEndpoint = _providerSettings.Google.TokenEndpoint;
-            clientId = _providerSettings.Google.ClientId;
-            clientSecret = _providerSettings.Google.ClientSecret;
+            tokenEndpoint = _authSettings.Google.TokenEndpoint;
+            clientId = _authSettings.Google.ClientId;
+            clientSecret = _authSettings.Google.ClientSecret;
         }
         else // microsoft
         {
-            tokenEndpoint = _providerSettings.Microsoft.TokenEndpoint;
-            clientId = _providerSettings.Microsoft.ClientId;
-            clientSecret = _providerSettings.Microsoft.ClientSecret;
+            tokenEndpoint = _authSettings.Microsoft.TokenEndpoint;
+            clientId = _authSettings.Microsoft.ClientId;
+            // Use environment-appropriate client secret (Dev vs Prod)
+            clientSecret = getMicrosoftClientSecret();
         }
 
         var tokenRequest = new Dictionary<string, string>
@@ -308,11 +322,11 @@ public class OAuthService : IOAuthService
 
         if (provider.Equals("google", StringComparison.OrdinalIgnoreCase))
         {
-            userInfoEndpoint = _providerSettings.Google.UserInfoEndpoint;
+            userInfoEndpoint = _authSettings.Google.UserInfoEndpoint;
         }
         else // microsoft
         {
-            userInfoEndpoint = _providerSettings.Microsoft.UserInfoEndpoint;
+            userInfoEndpoint = _authSettings.Microsoft.UserInfoEndpoint;
         }
 
         try
@@ -398,6 +412,26 @@ public class OAuthService : IOAuthService
     {
         return SupportedProviders;
     }
+
+    #region Private Methods
+
+    /**************************************************************/
+    /// <summary>
+    /// Gets the appropriate Microsoft client secret based on the current environment.
+    /// </summary>
+    /// <remarks>
+    /// Uses Authentication:Microsoft:ClientSecret:Dev for development
+    /// and Authentication:Microsoft:ClientSecret:Prod for production.
+    /// </remarks>
+    /**************************************************************/
+    private string getMicrosoftClientSecret()
+    {
+        return _environment.IsDevelopment()
+            ? _authSettings.Microsoft.ClientSecret.Dev
+            : _authSettings.Microsoft.ClientSecret.Prod;
+    }
+
+    #endregion
 }
 
 #region Internal DTOs

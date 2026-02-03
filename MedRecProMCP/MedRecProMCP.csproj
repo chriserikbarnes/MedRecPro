@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>MedRecProMCP</RootNamespace>
     <AssemblyName>MedRecProMCP</AssemblyName>
+    <UserSecretsId>a3368d1e-a6d1-4f8e-a022-64dcc284d108</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

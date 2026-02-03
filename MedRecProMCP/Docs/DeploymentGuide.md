@@ -229,7 +229,7 @@ Alternatively, the application sets the `X-Accel-Buffering: no` header programma
 4. Create or edit an **OAuth 2.0 Client ID**
 5. Add authorized redirect URIs:
    - `https://mcp.medrecpro.com/oauth/callback/google`
-   - `http://localhost:7100/oauth/callback/google` (for development)
+   - `http://localhost:7169/oauth/callback/google` (for development)
 
 ### Microsoft Entra ID (Azure AD)
 
@@ -238,7 +238,7 @@ Alternatively, the application sets the `X-Accel-Buffering: no` header programma
 3. Select your app or create a new one
 4. Under **Authentication**, add redirect URIs:
    - `https://mcp.medrecpro.com/oauth/callback/microsoft`
-   - `http://localhost:7100/oauth/callback/microsoft` (for development)
+   - `http://localhost:7169/oauth/callback/microsoft` (for development)
 5. Under **Certificates & secrets**, create a client secret
 6. Note the **Application (client) ID** and **Directory (tenant) ID**
 

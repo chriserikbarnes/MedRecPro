@@ -15,7 +15,7 @@ namespace MedRecProMCP.Configuration;
 /// MCP Server configuration settings.
 /// </summary>
 /// <seealso cref="JwtSettings"/>
-/// <seealso cref="OAuthProviderSettings"/>
+/// <seealso cref="AuthenticationSettings"/>
 /**************************************************************/
 public class McpServerSettings
 {
@@ -83,4 +83,14 @@ public class McpServerSettings
     /// </summary>
     /**************************************************************/
     public int ClientRegistrationExpirationHours { get; set; } = 24;
+
+    /**************************************************************/
+    /// <summary>
+    /// JWT signing key specific to the MCP server.
+    /// </summary>
+    /// <remarks>
+    /// Maps to secrets: McpServer:JwtSigningKey
+    /// </remarks>
+    /**************************************************************/
+    public string JwtSigningKey { get; set; } = string.Empty;
 }

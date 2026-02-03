@@ -63,14 +63,18 @@ public class McpTokenService : IMcpTokenService
         _logger = logger;
 
         #region implementation
-        // Initialize signing key
+        // Initialize signing key using McpServer:JwtSigningKey (expected by the API)
+        // Falls back to Jwt:Key if McpServer key is not configured
+        var signingKeyValue = !string.IsNullOrEmpty(_mcpSettings.JwtSigningKey)
+            ? _mcpSettings.JwtSigningKey
+            : _jwtSettings.Key;
         _signingKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_jwtSettings.SigningKey));
+            Encoding.UTF8.GetBytes(signingKeyValue));
 
         // Initialize encryption key (derive from configured key or use signing key)
         var encryptionKeySource = !string.IsNullOrEmpty(_jwtSettings.UpstreamTokenEncryptionKey)
             ? _jwtSettings.UpstreamTokenEncryptionKey
-            : _jwtSettings.SigningKey;
+            : signingKeyValue;
 
         using var sha256 = SHA256.Create();
         _encryptionKey = sha256.ComputeHash(Encoding.UTF8.GetBytes(encryptionKeySource));
@@ -90,7 +94,7 @@ public class McpTokenService : IMcpTokenService
         #region implementation
         var claimsList = userClaims.ToList();
         var now = DateTime.UtcNow;
-        var accessTokenExpiry = now.AddMinutes(_jwtSettings.AccessTokenExpirationMinutes);
+        var accessTokenExpiry = now.AddMinutes(_jwtSettings.ExpirationMinutes);
         var refreshTokenExpiry = now.AddHours(_jwtSettings.RefreshTokenExpirationHours);
 
         // Generate unique token ID
@@ -172,7 +176,7 @@ public class McpTokenService : IMcpTokenService
         {
             AccessToken = accessToken,
             TokenType = "Bearer",
-            ExpiresIn = _jwtSettings.AccessTokenExpirationMinutes * 60,
+            ExpiresIn = _jwtSettings.ExpirationMinutes * 60,
             RefreshToken = refreshToken,
             Scope = string.Join(" ", scopes)
         };
