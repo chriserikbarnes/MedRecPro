@@ -2423,22 +2423,17 @@ GO
 
 CREATE VIEW dbo.vw_LabelSectionMarkdown
 AS
-WITH ContentWithMarkdown AS (
-    -- Step 1: Convert HTML-style content tags to Markdown
-    -- Process each ContentText row, replacing SPL formatting with markdown
+WITH
+-- Helper function to convert SPL content tags to Markdown
+-- Applied to all text content (paragraphs, list items, table cells)
+TextToMarkdown AS (
     SELECT
-        sc.DocumentGUID,
-        sc.SetGUID,
-        sc.DocumentTitle,
-        sc.SectionCode,
-        sc.SectionTitle,
-        sc.SequenceNumber,
-        -- Create unique section key for grouping (handles NULL SectionCode)
-        CAST(sc.DocumentGUID AS VARCHAR(36)) + '|' +
-            COALESCE(sc.SectionCode, 'NULL') + '|' +
-            COALESCE(sc.SectionTitle, '') AS SectionKey,
+        stc.SectionTextContentID,
+        stc.SectionID,
+        stc.SequenceNumber,
+        stc.ContentType,
+        stc.ParentSectionTextContentID,
         -- Convert SPL content tags to Markdown
-        -- Order matters: process specific patterns before generic cleanup
         REPLACE(
             REPLACE(
                 REPLACE(
@@ -2448,64 +2443,268 @@ WITH ContentWithMarkdown AS (
                                 REPLACE(
                                     REPLACE(
                                         REPLACE(
-                                            REPLACE(sc.ContentText,
-                                                -- Bold: <content styleCode="bold">text</content> → **text**
+                                            REPLACE(stc.ContentText,
                                                 '<content styleCode="bold">', '**'),
-                                            '</content>', ''), -- First pass: close tags after bold
+                                            '</content>', ''),
                                         '<content styleCode="italics">', '*'),
-                                    -- Handle closing tags that remain
                                     '</content>', ''),
                                 '<content styleCode="underline">', '_'),
                             '</content>', ''),
-                        -- Clean up any remaining content tags with other styleCodes
                         '<content styleCode=', ''),
                     '">', ''),
-                -- Handle self-closing variations
                 '/>', ''),
-            -- Clean up orphaned closing tags
             '</content>', '') AS ContentMarkdown
-    FROM dbo.vw_SectionContent sc
-    WHERE sc.ContentText IS NOT NULL
-      AND LEN(LTRIM(RTRIM(sc.ContentText))) > 0
+    FROM dbo.SectionTextContent stc
+    WHERE stc.ContentText IS NOT NULL
+      AND LEN(LTRIM(RTRIM(stc.ContentText))) > 0
 ),
-AggregatedSections AS (
-    -- Step 2: Aggregate all content for each section
+
+-- Get all lists with their items converted to markdown
+ListMarkdown AS (
     SELECT
-        DocumentGUID,
-        SetGUID,
-        DocumentTitle,
-        SectionCode,
-        SectionTitle,
-        SectionKey,
-        -- Aggregate content in sequence order, separated by double newlines
+        tl.SectionTextContentID,
+        tl.ListType,
         STRING_AGG(
-            CAST(ContentMarkdown AS NVARCHAR(MAX)),
+            CAST(
+                CASE
+                    WHEN tl.ListType = 'ordered'
+                    THEN CAST(tli.SequenceNumber AS VARCHAR(10)) + '. '
+                    ELSE '- '
+                END +
+                COALESCE(
+                    CASE WHEN tli.ItemCaption IS NOT NULL AND LEN(tli.ItemCaption) > 0
+                         THEN '**' + tli.ItemCaption + '** '
+                         ELSE ''
+                    END, ''
+                ) +
+                COALESCE(
+                    REPLACE(
+                        REPLACE(
+                            REPLACE(
+                                REPLACE(
+                                    REPLACE(
+                                        REPLACE(
+                                            REPLACE(
+                                                REPLACE(
+                                                    REPLACE(
+                                                        REPLACE(tli.ItemText,
+                                                            '<content styleCode="bold">', '**'),
+                                                        '</content>', ''),
+                                                    '<content styleCode="italics">', '*'),
+                                                '</content>', ''),
+                                            '<content styleCode="underline">', '_'),
+                                        '</content>', ''),
+                                    '<content styleCode=', ''),
+                                '">', ''),
+                            '/>', ''),
+                        '</content>', ''),
+                    ''
+                )
+            AS NVARCHAR(MAX)),
+            CHAR(13) + CHAR(10)  -- Single line break between list items
+        ) WITHIN GROUP (ORDER BY tli.SequenceNumber) AS ListMarkdownText
+    FROM dbo.TextList tl
+    INNER JOIN dbo.TextListItem tli ON tl.TextListID = tli.TextListID
+    WHERE tli.ItemText IS NOT NULL OR tli.ItemCaption IS NOT NULL
+    GROUP BY tl.SectionTextContentID, tl.TextListID, tl.ListType
+),
+
+-- Get all tables converted to markdown format
+-- First, aggregate cells into rows
+TableCellsPerRow AS (
+    SELECT
+        ttr.TextTableRowID,
+        ttr.TextTableID,
+        ttr.RowGroupType,
+        ttr.SequenceNumber AS RowSequence,
+        STRING_AGG(
+            CAST(
+                COALESCE(
+                    REPLACE(
+                        REPLACE(
+                            REPLACE(
+                                REPLACE(
+                                    REPLACE(
+                                        REPLACE(
+                                            REPLACE(
+                                                REPLACE(
+                                                    REPLACE(
+                                                        REPLACE(ttc.CellText,
+                                                            '<content styleCode="bold">', '**'),
+                                                        '</content>', ''),
+                                                    '<content styleCode="italics">', '*'),
+                                                '</content>', ''),
+                                            '<content styleCode="underline">', '_'),
+                                        '</content>', ''),
+                                    '<content styleCode=', ''),
+                                '">', ''),
+                            '/>', ''),
+                        '</content>', ''),
+                    ''
+                )
+            AS NVARCHAR(MAX)),
+            ' | '
+        ) WITHIN GROUP (ORDER BY ttc.SequenceNumber) AS RowCells,
+        COUNT(*) AS CellCount
+    FROM dbo.TextTableRow ttr
+    INNER JOIN dbo.TextTableCell ttc ON ttr.TextTableRowID = ttc.TextTableRowID
+    GROUP BY ttr.TextTableRowID, ttr.TextTableID, ttr.RowGroupType, ttr.SequenceNumber
+),
+
+-- Aggregate rows into complete tables with markdown formatting
+TableMarkdown AS (
+    SELECT
+        tt.SectionTextContentID,
+        -- Build complete markdown table
+        COALESCE(
+            CASE WHEN tt.Caption IS NOT NULL AND LEN(tt.Caption) > 0
+                 THEN '**' + tt.Caption + '**' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+                 ELSE ''
+            END, ''
+        ) +
+        STRING_AGG(
+            CAST(
+                '| ' + tcpr.RowCells + ' |' +
+                -- Add separator row after header (first row when HasHeader = 1, or first thead row)
+                CASE
+                    WHEN tcpr.RowGroupType = 'thead' OR (tt.HasHeader = 1 AND tcpr.RowSequence = 1)
+                    THEN CHAR(13) + CHAR(10) + '|' + REPLICATE(' --- |', tcpr.CellCount)
+                    ELSE ''
+                END
+            AS NVARCHAR(MAX)),
+            CHAR(13) + CHAR(10)
+        ) WITHIN GROUP (
+            ORDER BY
+                CASE tcpr.RowGroupType
+                    WHEN 'thead' THEN 1
+                    WHEN 'tbody' THEN 2
+                    WHEN 'tfoot' THEN 3
+                    ELSE 2
+                END,
+                tcpr.RowSequence
+        ) AS TableMarkdownText
+    FROM dbo.TextTable tt
+    INNER JOIN TableCellsPerRow tcpr ON tt.TextTableID = tcpr.TextTableID
+    GROUP BY tt.SectionTextContentID, tt.TextTableID, tt.Caption, tt.HasHeader
+),
+
+-- All sections with titles - these are the "display sections" that will appear in output
+-- This ensures every titled section appears even if it has no direct content
+AllTitledSections AS (
+    SELECT
+        s.SectionID,
+        s.SectionCode,
+        s.Title AS SectionTitle,
+        d.DocumentID,
+        d.DocumentGUID,
+        d.SetGUID,
+        d.Title AS DocumentTitle
+    FROM dbo.Section s
+    INNER JOIN dbo.[Document] d ON s.DocumentID = d.DocumentID
+    WHERE s.Title IS NOT NULL
+),
+
+-- Map content sections to their display parent
+-- Sections with Title contribute to themselves; sections without Title contribute to their parent
+SectionToParent AS (
+    -- Sections with titles map to themselves
+    SELECT
+        s.SectionID AS ContentSectionID,
+        s.SectionID AS DisplaySectionID,
+        0 AS HierarchySequence  -- Parent's own content comes first
+    FROM dbo.Section s
+    WHERE s.Title IS NOT NULL
+
+    UNION ALL
+
+    -- Child sections (with NULL title) map to their parent section
+    SELECT
+        child.SectionID AS ContentSectionID,
+        parent.SectionID AS DisplaySectionID,
+        sh.SequenceNumber AS HierarchySequence  -- Use hierarchy sequence for ordering
+    FROM dbo.SectionHierarchy sh
+    INNER JOIN dbo.Section child ON sh.ChildSectionID = child.SectionID
+    INNER JOIN dbo.Section parent ON sh.ParentSectionID = parent.SectionID
+    WHERE child.Title IS NULL
+      AND parent.Title IS NOT NULL
+),
+
+-- Combine all content types with proper sequencing
+-- Content appears at the SectionTextContent level, lists and tables are children
+AllSectionContent AS (
+    -- Regular text paragraphs
+    SELECT
+        sp.DisplaySectionID AS SectionID,
+        sp.HierarchySequence,
+        stc.SequenceNumber,
+        0 AS SubSequence,  -- Text content comes first within same sequence
+        tm.ContentMarkdown AS MarkdownContent
+    FROM SectionToParent sp
+    INNER JOIN dbo.SectionTextContent stc ON sp.ContentSectionID = stc.SectionID
+    INNER JOIN TextToMarkdown tm ON stc.SectionTextContentID = tm.SectionTextContentID
+    WHERE stc.ContentText IS NOT NULL
+      AND LEN(LTRIM(RTRIM(stc.ContentText))) > 0
+
+    UNION ALL
+
+    -- List content (attached to SectionTextContent)
+    SELECT
+        sp.DisplaySectionID AS SectionID,
+        sp.HierarchySequence,
+        stc.SequenceNumber,
+        1 AS SubSequence,  -- Lists come after text within same sequence
+        lm.ListMarkdownText AS MarkdownContent
+    FROM SectionToParent sp
+    INNER JOIN dbo.SectionTextContent stc ON sp.ContentSectionID = stc.SectionID
+    INNER JOIN ListMarkdown lm ON stc.SectionTextContentID = lm.SectionTextContentID
+
+    UNION ALL
+
+    -- Table content (attached to SectionTextContent)
+    SELECT
+        sp.DisplaySectionID AS SectionID,
+        sp.HierarchySequence,
+        stc.SequenceNumber,
+        2 AS SubSequence,  -- Tables come after lists within same sequence
+        tbm.TableMarkdownText AS MarkdownContent
+    FROM SectionToParent sp
+    INNER JOIN dbo.SectionTextContent stc ON sp.ContentSectionID = stc.SectionID
+    INNER JOIN TableMarkdown tbm ON stc.SectionTextContentID = tbm.SectionTextContentID
+),
+
+-- Aggregate content per section
+AggregatedContent AS (
+    SELECT
+        SectionID,
+        STRING_AGG(
+            CAST(MarkdownContent AS NVARCHAR(MAX)),
             CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)  -- Paragraph separator (CRLF + blank line)
-        ) WITHIN GROUP (ORDER BY SequenceNumber) AS AggregatedText,
+        ) WITHIN GROUP (ORDER BY HierarchySequence, SequenceNumber, SubSequence) AS AggregatedText,
         COUNT(*) AS ContentBlockCount
-    FROM ContentWithMarkdown
-    GROUP BY
-        DocumentGUID,
-        SetGUID,
-        DocumentTitle,
-        SectionCode,
-        SectionTitle,
-        SectionKey
+    FROM AllSectionContent
+    WHERE MarkdownContent IS NOT NULL
+      AND LEN(LTRIM(RTRIM(MarkdownContent))) > 0
+    GROUP BY SectionID
 )
--- Step 3: Add markdown section header and final formatting
+-- Final output: Join all titled sections with their aggregated content
+-- This ensures sections with titles but no direct content still appear
 SELECT
-    DocumentGUID,
-    SetGUID,
-    DocumentTitle,
-    SectionCode,
-    SectionTitle,
-    SectionKey,
+    ats.DocumentGUID,
+    ats.SetGUID,
+    ats.DocumentTitle,
+    ats.SectionCode,
+    ats.SectionTitle,
+    -- Create unique section key for grouping (handles NULL SectionCode)
+    CAST(ats.DocumentGUID AS VARCHAR(36)) + '|' +
+        COALESCE(ats.SectionCode, 'NULL') + '|' +
+        COALESCE(ats.SectionTitle, '') AS SectionKey,
     -- Prepend section title as markdown header
-    '## ' + COALESCE(SectionTitle, 'Untitled Section') +
+    '## ' + ats.SectionTitle +
         CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10) +
-        COALESCE(AggregatedText, '') AS FullSectionText,
-    ContentBlockCount
-FROM AggregatedSections;
+        COALESCE(ac.AggregatedText, '') AS FullSectionText,
+    COALESCE(ac.ContentBlockCount, 0) AS ContentBlockCount
+FROM AllTitledSections ats
+LEFT JOIN AggregatedContent ac ON ats.SectionID = ac.SectionID;
 GO
 
 -- Add extended property description
@@ -2517,7 +2716,7 @@ IF NOT EXISTS (
 BEGIN
     EXEC sp_addextendedproperty
         @name = N'MS_Description',
-        @value = N'Aggregates section content into markdown-formatted text blocks for LLM/API consumption. Converts SPL HTML-style tags to markdown and concatenates all ContentText by DocumentGUID and SectionTitle.',
+        @value = N'Aggregates section content (text, lists, and tables) into markdown-formatted text blocks for LLM/API consumption. Converts SPL HTML-style tags to markdown, renders lists as bullet/numbered items, and tables as markdown tables. Concatenates all content by DocumentGUID and SectionTitle in sequence order.',
         @level0type = N'SCHEMA', @level0name = N'dbo',
         @level1type = N'VIEW', @level1name = N'vw_LabelSectionMarkdown';
 END

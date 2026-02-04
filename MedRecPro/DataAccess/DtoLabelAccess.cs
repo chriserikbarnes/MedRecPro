@@ -2915,7 +2915,10 @@ namespace MedRecPro.DataAccess
             }
 
             var entities = await query
-                .OrderBy(s => s.SectionCode)
+                // Removed b/c database is handling this ordering
+                // Ordering by section code will not produce the original
+                // document structure
+                //.OrderBy(s => s.SectionCode)
                 .ToListAsync();
 
             var ret = buildLabelSectionMarkdownDtos(db, entities, pkSecret, logger);

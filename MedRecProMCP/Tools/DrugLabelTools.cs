@@ -25,15 +25,21 @@
 ///
 /// ## Tool Selection Guide
 ///
-/// **Use search_drug_labels when:**
-/// - Quick question about specific aspect (side effects, dosage)
-/// - Comparing multiple products
-/// - Need specific sections only
+/// **Use search_drug_labels when user asks SPECIFIC QUESTIONS:**
+/// - "What are the side effects of X?"
+/// - "What is the dosage for X?"
+/// - "What are the warnings for X?"
+/// - "What is X used for?"
+/// - "Compare X and Y"
+/// - Any targeted question about a particular aspect of a drug
 ///
-/// **Use export_drug_label_markdown when:**
-/// - User wants complete formatted label
-/// - User wants to export or save full label
-/// - User requests "the full label" or "complete information"
+/// **Use export_drug_label_markdown when user wants COMPLETE LABEL:**
+/// - "Show me the label for X"
+/// - "Show me all information about X"
+/// - "Give me the full label"
+/// - "Export the label"
+/// - "I want to see the complete label"
+/// - Any request to VIEW or DISPLAY the full label document
 ///
 /// ## Common Scenarios
 ///
@@ -211,9 +217,29 @@ public class DrugLabelTools
     /**************************************************************/
     [McpServerTool(Name = "search_drug_labels")]
     [Description("""
-    🔍 SEARCH: Find FDA drug labels by product name, ingredient, or UNII code.
+    🔍 SEARCH: Find FDA drug labels and answer SPECIFIC QUESTIONS about drugs.
 
-    📋 WORKFLOW: Start here for ANY drug information lookup.
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ ⚠️ CRITICAL: TOOL SELECTION - READ THIS FIRST                           ┃
+    ┃                                                                         ┃
+    ┃ USE THIS TOOL (search_drug_labels) when user asks:                      ┃
+    ┃ • "What are the side effects of X?"                                     ┃
+    ┃ • "What is the dosage for X?"                                           ┃
+    ┃ • "What are the warnings for X?"                                        ┃
+    ┃ • "What is X used for?"                                                 ┃
+    ┃ • "Compare X and Y"                                                     ┃
+    ┃ • Any SPECIFIC QUESTION about a drug                                    ┃
+    ┃                                                                         ┃
+    ┃ USE export_drug_label_markdown INSTEAD when user asks:                  ┃
+    ┃ • "Show me the label for X"                                             ┃
+    ┃ • "Show me all information about X"                                     ┃
+    ┃ • "Give me the full label"                                              ┃
+    ┃ • "Export the label"                                                    ┃
+    ┃ • "I want to see the complete label"                                    ┃
+    ┃ • Any request for COMPLETE/FULL label information                       ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    📋 PURPOSE: Answer specific drug questions with targeted section data.
     ├── Returns: ProductName, ActiveIngredient, UNII, DocumentGUID, Label Sections
     ├── Sections: Full markdown text for Indications, Warnings, Dosage, Adverse Reactions, etc.
     └── **ViewLabelUrl**: Clickable link to view the FDA label in a browser (renders as HTML)
@@ -424,6 +450,26 @@ public class DrugLabelTools
     📄 EXPORT: Get a complete FDA drug label as clean, formatted markdown.
 
     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ ⚠️ CRITICAL: TOOL SELECTION - READ THIS FIRST                           ┃
+    ┃                                                                         ┃
+    ┃ USE THIS TOOL (export_drug_label_markdown) when user asks:              ┃
+    ┃ • "Show me the label for X"                                             ┃
+    ┃ • "Show me all information about X"                                     ┃
+    ┃ • "Give me the full label"                                              ┃
+    ┃ • "Export the label"                                                    ┃
+    ┃ • "I want to see the complete label"                                    ┃
+    ┃ • Any request for COMPLETE/FULL label information                       ┃
+    ┃                                                                         ┃
+    ┃ USE search_drug_labels INSTEAD when user asks:                          ┃
+    ┃ • "What are the side effects of X?"                                     ┃
+    ┃ • "What is the dosage for X?"                                           ┃
+    ┃ • "What are the warnings for X?"                                        ┃
+    ┃ • "What is X used for?"                                                 ┃
+    ┃ • "Compare X and Y"                                                     ┃
+    ┃ • Any SPECIFIC QUESTION about a drug                                    ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
     ┃ 🔄 TWO-STEP WORKFLOW - ALWAYS FOLLOW THIS PROCESS                       ┃
     ┃                                                                         ┃
     ┃ Step 1: Call WITHOUT documentGuid → Get product list                    ┃
@@ -464,16 +510,6 @@ public class DrugLabelTools
     ┃ Place this link at the END of the rendered markdown content.            ┃
     ┃ This provides source verification for users.                            ┃
     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-
-    🔧 USE search_drug_labels INSTEAD when:
-    • User has a quick question (side effects, dosage)
-    • User wants to compare multiple products
-    • User only needs specific sections
-
-    📖 USE THIS TOOL when:
-    • User wants a complete, formatted label document
-    • User wants to export or save the full label
-    • User requests "the full label" or "complete information" or "show me the label for"
     """)]
     public async Task<string> ExportDrugLabelMarkdown(
         [Description("Brand/product name search (Step 1). Use for brand names like 'Lipitor', 'Advil'. Leave empty when providing documentGuid.")]
