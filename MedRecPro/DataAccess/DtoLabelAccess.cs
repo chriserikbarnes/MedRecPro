@@ -3060,7 +3060,6 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <seealso cref="GetLabelSectionMarkdownAsync"/>
         /// <seealso cref="GenerateLabelMarkdownAsync"/>
-        /// <seealso cref="IClaudeApiService.GenerateCleanMarkdownAsync"/>
         public static async Task<string> GenerateCleanLabelMarkdownAsync(
             ApplicationDbContext db,
             Guid documentGuid,

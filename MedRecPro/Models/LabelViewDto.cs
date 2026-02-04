@@ -2049,6 +2049,154 @@ namespace MedRecPro.Models
 
     /**************************************************************/
     /// <summary>
+    /// DTO for GetProductLatestLabelDetails endpoint results.
+    /// Combines product search results with section markdown content and absolute URLs
+    /// to original XML documents for AI/MCP consumption.
+    /// </summary>
+    /// <remarks>
+    /// This DTO extends the ProductLatestLabel data with:
+    /// - All markdown-formatted section content from the label
+    /// - Absolute URLs to the original XML document (required for MCP/AI chat contexts
+    ///   where relative paths would be broken links)
+    ///
+    /// **Use Case:** AI skill augmentation workflows where an MCP server needs to return
+    /// complete product information including authoritative label content and links
+    /// to source documents.
+    /// </remarks>
+    /// <example>
+    /// Response structure:
+    /// <code>
+    /// {
+    ///   "ProductLatestLabel": {
+    ///     "ProductName": "LIPITOR",
+    ///     "ActiveIngredient": "ATORVASTATIN CALCIUM",
+    ///     "UNII": "A0JWA85V8F",
+    ///     "DocumentGUID": "052493C7-89A3-452E-8140-04DD95F0D9E2"
+    ///   },
+    ///   "ViewLabelUrl": "https://example.com/api/Label/original/052493C7-89A3-452E-8140-04DD95F0D9E2/false",
+    ///   "ViewLabelMinifiedUrl": "https://example.com/api/Label/original/052493C7-89A3-452E-8140-04DD95F0D9E2/true",
+    ///   "Sections": [
+    ///     {
+    ///       "LabelSectionMarkdown": {
+    ///         "SectionCode": "34067-9",
+    ///         "SectionTitle": "INDICATIONS AND USAGE",
+    ///         "FullSectionText": "## INDICATIONS AND USAGE\n\nLIPITOR is indicated..."
+    ///       }
+    ///     }
+    ///   ]
+    /// }
+    /// </code>
+    /// </example>
+    /// <seealso cref="ProductLatestLabelDto"/>
+    /// <seealso cref="LabelSectionMarkdownDto"/>
+    /// <seealso cref="LabelView.ProductLatestLabel"/>
+    /// <seealso cref="LabelView.LabelSectionMarkdown"/>
+    public class ProductLatestLabelDetailsDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all ProductLatestLabel view columns.
+        /// Includes ProductName, ActiveIngredient, UNII, DocumentGUID, and other product identifiers.
+        /// </summary>
+        /// <seealso cref="ProductLatestLabelDto.ProductLatestLabel"/>
+        public required Dictionary<string, object?> ProductLatestLabel { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Absolute URL to view the FDA drug label in a web browser.
+        /// When opened in a browser, renders as formatted HTML via XSL stylesheet transformation.
+        /// This URL includes the full scheme and host to ensure it works in MCP/AI contexts.
+        /// </summary>
+        /// <remarks>
+        /// **CRITICAL FOR AI RESPONSES:** This URL MUST be included in every response to users
+        /// for source verification and traceability to the official FDA label document.
+        /// Format in responses as: [View Full Label ({ProductName})]({ViewLabelUrl})
+        /// </remarks>
+        /// <example>https://medrecpro.example.com/api/Label/original/052493C7-89A3-452E-8140-04DD95F0D9E2/false</example>
+        /// <seealso cref="LabelController.OriginalXmlDocument"/>
+        public string? ViewLabelUrl { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Absolute URL to view the FDA drug label (minified version for reduced bandwidth).
+        /// When opened in a browser, renders as formatted HTML via XSL stylesheet transformation.
+        /// This URL includes the full scheme and host to ensure it works in MCP/AI contexts.
+        /// </summary>
+        /// <remarks>
+        /// Use this URL when bandwidth is a concern. The minified version removes unnecessary
+        /// whitespace from the XML but renders identically in a browser.
+        /// </remarks>
+        /// <example>https://medrecpro.example.com/api/Label/original/052493C7-89A3-452E-8140-04DD95F0D9E2/true</example>
+        /// <seealso cref="LabelController.OriginalXmlDocument"/>
+        public string? ViewLabelMinifiedUrl { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collection of markdown-formatted label sections for this product.
+        /// Each section contains the full markdown text ready for AI/LLM consumption.
+        /// </summary>
+        /// <remarks>
+        /// Sections are returned in LOINC code order and include common sections like:
+        /// - 34067-9: Indications and Usage
+        /// - 34084-4: Adverse Reactions
+        /// - 34070-3: Contraindications
+        /// - 43685-7: Warnings and Precautions
+        /// - 34068-7: Dosage and Administration
+        /// </remarks>
+        /// <seealso cref="LabelSectionMarkdownDto"/>
+        public List<LabelSectionMarkdownDto>? Sections { get; set; }
+
+        #region Helper Properties
+
+        /**************************************************************/
+        /// <summary>
+        /// Proprietary product name.
+        /// </summary>
+        /// <seealso cref="ProductLatestLabelDto.ProductName"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ProductName =>
+            ProductLatestLabel.TryGetValue(nameof(ProductName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Active ingredient substance name.
+        /// </summary>
+        /// <seealso cref="ProductLatestLabelDto.ActiveIngredient"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ActiveIngredient =>
+            ProductLatestLabel.TryGetValue(nameof(ActiveIngredient), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// UNII code for the active ingredient.
+        /// </summary>
+        /// <seealso cref="ProductLatestLabelDto.UNII"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? UNII =>
+            ProductLatestLabel.TryGetValue(nameof(UNII), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Document GUID for the latest label.
+        /// </summary>
+        /// <seealso cref="ProductLatestLabelDto.DocumentGUID"/>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? DocumentGUID =>
+            ProductLatestLabel.TryGetValue(nameof(DocumentGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        #endregion Helper Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
     /// DTO for ProductIndications view results.
     /// Provides product indication text combined with active ingredients.
     /// </summary>

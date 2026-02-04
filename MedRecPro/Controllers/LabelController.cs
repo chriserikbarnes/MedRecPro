@@ -4571,6 +4571,203 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Gets the latest labels for products with full section markdown content and absolute URLs to original XML.
+        /// Combines product search results with all label sections for AI/MCP consumption.
+        /// </summary>
+        /// <param name="unii">
+        /// Optional UNII (Unique Ingredient Identifier) code for exact match filtering.
+        /// Example: "R16CO5Y76E" for aspirin.
+        /// </param>
+        /// <param name="productNameSearch">
+        /// Optional product name search term. Supports partial matching.
+        /// </param>
+        /// <param name="activeIngredientSearch">
+        /// Optional active ingredient search term. Supports partial matching.
+        /// </param>
+        /// <param name="sectionCode">
+        /// Optional LOINC section code to filter sections. If not specified, all sections are returned.
+        /// Common codes: 34067-9 (Indications), 34084-4 (Adverse Reactions), 34070-3 (Contraindications).
+        /// </param>
+        /// <param name="pageNumber">
+        /// Optional. The 1-based page number to retrieve. Defaults to 1.
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional. The number of records per page. Defaults to 10.
+        /// </param>
+        /// <returns>List of products with full section details and absolute URLs.</returns>
+        /// <response code="200">Returns the list of product label details.</response>
+        /// <response code="400">If paging parameters are invalid.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <remarks>
+        /// ## Overview
+        ///
+        /// This endpoint is designed for **MCP (Model Context Protocol)** and **AI skill augmentation** workflows
+        /// where you need complete product information with authoritative label content in a single call.
+        ///
+        /// The endpoint combines:
+        /// - **Product search results** from `GetProductLatestLabels`
+        /// - **Section markdown content** from `GetLabelSectionMarkdown`
+        /// - **Absolute URLs** to original XML documents (required for MCP contexts where relative paths break)
+        ///
+        /// ## Response Format (200)
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "ProductLatestLabel": {
+        ///       "ProductName": "LIPITOR",
+        ///       "ActiveIngredient": "ATORVASTATIN CALCIUM",
+        ///       "UNII": "A0JWA85V8F",
+        ///       "DocumentGUID": "052493C7-89A3-452E-8140-04DD95F0D9E2"
+        ///     },
+        ///     "ViewLabelUrl": "https://medrecpro.example.com/api/Label/original/052493C7-89A3-452E-8140-04DD95F0D9E2/false",
+        ///     "ViewLabelMinifiedUrl": "https://medrecpro.example.com/api/Label/original/052493C7-89A3-452E-8140-04DD95F0D9E2/true",
+        ///     "Sections": [
+        ///       {
+        ///         "LabelSectionMarkdown": {
+        ///           "SectionCode": "34067-9",
+        ///           "SectionTitle": "INDICATIONS AND USAGE",
+        ///           "FullSectionText": "## INDICATIONS AND USAGE\n\nLIPITOR is indicated..."
+        ///         }
+        ///       }
+        ///     ]
+        ///   }
+        /// ]
+        /// ```
+        ///
+        /// ## Use Case
+        ///
+        /// Use this endpoint when building AI skills that need to:
+        /// 1. Search for products by name, ingredient, or UNII
+        /// 2. Display full label content to users in chat interfaces
+        /// 3. Provide clickable links to original FDA label XML documents
+        ///
+        /// ## Performance Consideration
+        ///
+        /// This endpoint makes additional database calls to fetch section content for each product.
+        /// For large result sets, consider using pagination or filtering by `sectionCode` to reduce payload size.
+        ///
+        /// **Common LOINC Section Codes:**
+        /// - `34067-9` = Indications and Usage
+        /// - `34084-4` = Adverse Reactions
+        /// - `34070-3` = Contraindications
+        /// - `43685-7` = Warnings and Precautions
+        /// - `34068-7` = Dosage and Administration
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// // Find latest label details for aspirin with all sections
+        /// GET /api/Label/product/latest/details?unii=R16CO5Y76E
+        ///
+        /// // Find latest label by product name with only indications section
+        /// GET /api/Label/product/latest/details?productNameSearch=Lipitor&amp;sectionCode=34067-9
+        ///
+        /// // Paginated search for all products containing "statin"
+        /// GET /api/Label/product/latest/details?activeIngredientSearch=statin&amp;pageNumber=1&amp;pageSize=5
+        /// </code>
+        /// </example>
+        /// <seealso cref="GetProductLatestLabels"/>
+        /// <seealso cref="GetLabelSectionMarkdown"/>
+        /// <seealso cref="OriginalXmlDocument"/>
+        /// <seealso cref="DtoLabelAccess.GetProductLatestLabelsAsync"/>
+        /// <seealso cref="DtoLabelAccess.GetLabelSectionMarkdownAsync"/>
+        /// <seealso cref="ProductLatestLabelDetailsDto"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("product/latest/details")]
+        [ProducesResponseType(typeof(IEnumerable<ProductLatestLabelDetailsDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ProductLatestLabelDetailsDto>>> GetProductLatestLabelDetails(
+            [FromQuery] string? unii,
+            [FromQuery] string? productNameSearch,
+            [FromQuery] string? activeIngredientSearch,
+            [FromQuery] string? sectionCode,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region Input Validation
+
+            // Validate paging parameters
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
+            if (pagingValidation != null) return pagingValidation;
+
+            #endregion
+
+            #region implementation
+
+            try
+            {
+                // Construct base URL from current request for absolute links
+                var baseUrl = $"{Request.Scheme}://{Request.Host}";
+
+                // Get latest labels using the data access method
+                var productResults = await DtoLabelAccess.GetProductLatestLabelsAsync(
+                    _dbContext,
+                    unii,
+                    productNameSearch,
+                    activeIngredientSearch,
+                    _pkEncryptionSecret,
+                    _logger,
+                    pageNumber,
+                    pageSize);
+
+                // Build detailed results with sections and URLs for each product
+                var detailedResults = new List<ProductLatestLabelDetailsDto>();
+
+                foreach (var product in productResults)
+                {
+                    // Extract DocumentGUID from the product result
+                    var documentGuid = product.DocumentGUID;
+
+                    // Initialize the detailed DTO with product data
+                    var detailedDto = new ProductLatestLabelDetailsDto
+                    {
+                        ProductLatestLabel = product.ProductLatestLabel
+                    };
+
+                    // Add absolute URLs to original XML if DocumentGUID is available
+                    if (documentGuid.HasValue)
+                    {
+                        // Construct absolute URLs for original XML endpoints
+                        // Note: Always use /api/ prefix since the virtual app path is included in Request.Host for production
+                        // Construct absolute URLs for viewing the label in a browser
+                        // These URLs render as formatted HTML via XSL stylesheet transformation
+                        detailedDto.ViewLabelUrl = $"{baseUrl}/api/Label/original/{documentGuid.Value}/false";
+                        detailedDto.ViewLabelMinifiedUrl = $"{baseUrl}/api/Label/original/{documentGuid.Value}/true";
+
+                        // Fetch section markdown content for this document
+                        var sections = await DtoLabelAccess.GetLabelSectionMarkdownAsync(
+                            _dbContext,
+                            documentGuid.Value,
+                            _pkEncryptionSecret,
+                            _logger,
+                            sectionCode);
+
+                        detailedDto.Sections = sections;
+                    }
+
+                    detailedResults.Add(detailedDto);
+                }
+
+                // Add pagination headers if paging was requested
+                addPaginationHeaders(pageNumber, pageSize, detailedResults.Count);
+
+                return Ok(detailedResults);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving latest label details. UNII: {UNII}, Product: {Product}, Ingredient: {Ingredient}",
+                    unii, productNameSearch, activeIngredientSearch);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving latest label details.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets product indication text combined with active ingredients.
         /// Returns indication section content for products filtered by UNII, product name, substance name, or indication text.
         /// </summary>
