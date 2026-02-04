@@ -6,12 +6,34 @@
 /// ## Tool Workflow
 ///
 /// ```
-/// search_drug_labels ──► ProductLatestLabel + Sections + ViewLabelUrl
-///                        │
-///                        ├── ProductName, ActiveIngredient, UNII, DocumentGUID
-///                        ├── Markdown-formatted label sections (Indications, Warnings, etc.)
-///                        └── ViewLabelUrl - clickable link to view FDA label in browser
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │ search_drug_labels ──► Quick lookups, section queries, comparisons      │
+/// │                        │                                                │
+/// │                        ├── ProductName, ActiveIngredient, UNII          │
+/// │                        ├── Label sections (Indications, Warnings, etc.) │
+/// │                        └── ViewLabelUrl - link to FDA label             │
+/// └─────────────────────────────────────────────────────────────────────────┘
+///
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │ export_drug_label_markdown ──► Complete label export (TWO-STEP)         │
+/// │                                │                                        │
+/// │   Step 1: Search products ─────┼──► User selects DocumentGUID           │
+/// │                                │                                        │
+/// │   Step 2: Export markdown ─────┼──► FullMarkdown + ViewLabelUrl         │
+/// └─────────────────────────────────────────────────────────────────────────┘
 /// ```
+///
+/// ## Tool Selection Guide
+///
+/// **Use search_drug_labels when:**
+/// - Quick question about specific aspect (side effects, dosage)
+/// - Comparing multiple products
+/// - Need specific sections only
+///
+/// **Use export_drug_label_markdown when:**
+/// - User wants complete formatted label
+/// - User wants to export or save full label
+/// - User requests "the full label" or "complete information"
 ///
 /// ## Common Scenarios
 ///
@@ -21,11 +43,9 @@
 /// **Find drugs by active ingredient:**
 /// search_drug_labels (activeIngredientSearch="atorvastatin") → All products containing ingredient
 ///
-/// **Find drug by UNII code:**
-/// search_drug_labels (unii="A0JWA85V8F") → Exact ingredient match
-///
-/// **Get specific section only:**
-/// search_drug_labels (productNameSearch="Lipitor", sectionCode="34067-9") → Only Indications section
+/// **Export complete label:**
+/// export_drug_label_markdown (productNameSearch="Lipitor") → Step 1: Get product list
+/// export_drug_label_markdown (documentGuid="...") → Step 2: Get full markdown
 ///
 /// ## CRITICAL: Section Fallback Pattern
 ///
@@ -41,7 +61,9 @@
 /// <seealso cref="MedRecProApiClient"/>
 /**************************************************************/
 
+using MedRecProMCP.Configuration;
 using MedRecProMCP.Services;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
@@ -66,6 +88,7 @@ public class DrugLabelTools
 {
     private readonly MedRecProApiClient _apiClient;
     private readonly ILogger<DrugLabelTools> _logger;
+    private readonly MedRecProApiSettings _apiSettings;
 
     /**************************************************************/
     /// <summary>
@@ -73,12 +96,18 @@ public class DrugLabelTools
     /// </summary>
     /// <param name="apiClient">The MedRecPro API client.</param>
     /// <param name="logger">Logger instance.</param>
+    /// <param name="apiSettings">MedRecPro API configuration settings.</param>
     /// <seealso cref="MedRecProApiClient"/>
+    /// <seealso cref="MedRecProApiSettings"/>
     /**************************************************************/
-    public DrugLabelTools(MedRecProApiClient apiClient, ILogger<DrugLabelTools> logger)
+    public DrugLabelTools(
+        MedRecProApiClient apiClient,
+        ILogger<DrugLabelTools> logger,
+        IOptions<MedRecProApiSettings> apiSettings)
     {
         _apiClient = apiClient;
         _logger = logger;
+        _apiSettings = apiSettings.Value;
     }
 
     /**************************************************************/
@@ -312,6 +341,244 @@ public class DrugLabelTools
             return JsonSerializer.Serialize(new
             {
                 error = "Search failed",
+                message = ex.Message
+            });
+        }
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Exports a complete FDA drug label as clean, well-formatted markdown.
+    /// Implements a two-step workflow: search for products, then export selected document.
+    /// </summary>
+    /// <remarks>
+    /// ## Two-Step Workflow
+    ///
+    /// This tool implements a two-step workflow for accurate label export:
+    ///
+    /// ```
+    /// Step 1: Search Products ──► User selects correct product ──► DocumentGUID
+    ///                              │
+    ///                              └── Multiple products may have same name
+    ///                                  (different strengths, dosage forms)
+    ///
+    /// Step 2: Export Markdown ──► Complete formatted label with source links
+    ///                              │
+    ///                              ├── FullMarkdown: Ready-to-display content
+    ///                              └── ViewLabelUrl: Source verification link
+    /// ```
+    ///
+    /// ## When to Use This Tool
+    ///
+    /// Use `export_drug_label_markdown` when the user wants:
+    /// - A complete, formatted drug label document
+    /// - Clean markdown suitable for display or export
+    /// - The full label content, not just specific sections
+    ///
+    /// Use `search_drug_labels` instead when:
+    /// - User has a quick question about a specific aspect (side effects, dosage)
+    /// - User wants to compare multiple products
+    /// - User only needs specific sections (Indications, Warnings, etc.)
+    ///
+    /// ## Workflow Steps
+    ///
+    /// **Step 1 - Product Search (without documentGuid):**
+    /// Call this tool without documentGuid to search for products.
+    /// Present results to user for selection, showing:
+    /// - ProductName
+    /// - ActiveIngredient
+    /// - UNII
+    /// - DocumentGUID
+    ///
+    /// **Step 2 - Export Markdown (with documentGuid):**
+    /// Once user selects a product, call again WITH documentGuid.
+    /// Returns complete markdown export with source links.
+    ///
+    /// ## CRITICAL: Always present Step 1 results to user for selection.
+    /// Do NOT automatically select a product. Multiple products may match
+    /// (different strengths, dosage forms, or manufacturers).
+    /// </remarks>
+    /// <param name="productNameSearch">Brand/product name to search (Step 1).</param>
+    /// <param name="activeIngredientSearch">Generic ingredient name to search (Step 1).</param>
+    /// <param name="unii">UNII code for exact match (Step 1).</param>
+    /// <param name="documentGuid">DocumentGUID from Step 1 selection (Step 2).</param>
+    /// <returns>Product list (Step 1) or complete markdown export (Step 2).</returns>
+    /// <example>
+    /// <code>
+    /// // Step 1: Search for products
+    /// ExportDrugLabelMarkdown(productNameSearch: "Lipitor")
+    /// // Returns list of matching products for user selection
+    ///
+    /// // Step 2: Export selected product (user chose DocumentGUID from Step 1)
+    /// ExportDrugLabelMarkdown(documentGuid: "052493C7-89A3-452E-8140-04DD95F0D9E2")
+    /// // Returns complete markdown with source URLs
+    /// </code>
+    /// </example>
+    /// <seealso cref="SearchDrugLabels"/>
+    /// <seealso cref="MedRecProApiClient.GetStringAsync"/>
+    /**************************************************************/
+    [McpServerTool(Name = "export_drug_label_markdown")]
+    [Description("""
+    📄 EXPORT: Get a complete FDA drug label as clean, formatted markdown.
+
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ 🔄 TWO-STEP WORKFLOW - ALWAYS FOLLOW THIS PROCESS                       ┃
+    ┃                                                                         ┃
+    ┃ Step 1: Call WITHOUT documentGuid → Get product list                    ┃
+    ┃         Present results to user for selection                           ┃
+    ┃                                                                         ┃
+    ┃ Step 2: Call WITH documentGuid → Get complete markdown export           ┃
+    ┃         Render markdown and include source link                         ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    🎯 STEP 1 - Product Search (no documentGuid):
+    ├── Use productNameSearch for brand names (Lipitor, Advil)
+    ├── Use activeIngredientSearch for generic names (atorvastatin)
+    ├── Use unii for exact ingredient match
+    └── Returns: List of ProductName, ActiveIngredient, UNII, DocumentGUID
+
+    ⚠️ CRITICAL: Present Step 1 results to user for selection.
+    Do NOT automatically select a product. Multiple products may match
+    (different strengths, dosage forms, or manufacturers).
+
+    📋 STEP 2 - Export Markdown (with documentGuid):
+    ├── Provide documentGuid from user's Step 1 selection
+    ├── Returns: Complete markdown document with source links
+    └── FullMarkdown contains the entire formatted label
+
+    📊 MARKDOWN RENDERING INSTRUCTIONS:
+    When you receive the Step 2 response, render the FullMarkdown field
+    as formatted markdown for the user. The content includes:
+    - Document title as # header
+    - All sections with ## headers (Indications, Warnings, Dosage, etc.)
+    - Properly formatted tables, lists, and emphasis
+    - Clean content without XML/HTML artifacts
+
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ 🚨 MANDATORY: Include ViewLabelUrl in EVERY Step 2 response 🚨          ┃
+    ┃                                                                         ┃
+    ┃ Format: **Source:** [View Full Label ({ProductName})]({ViewLabelUrl})   ┃
+    ┃                                                                         ┃
+    ┃ Place this link at the END of the rendered markdown content.            ┃
+    ┃ This provides source verification for users.                            ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    🔧 USE search_drug_labels INSTEAD when:
+    • User has a quick question (side effects, dosage)
+    • User wants to compare multiple products
+    • User only needs specific sections
+
+    📖 USE THIS TOOL when:
+    • User wants a complete, formatted label document
+    • User wants to export or save the full label
+    • User requests "the full label" or "complete information" or "show me the label for"
+    """)]
+    public async Task<string> ExportDrugLabelMarkdown(
+        [Description("Brand/product name search (Step 1). Use for brand names like 'Lipitor', 'Advil'. Leave empty when providing documentGuid.")]
+        string? productNameSearch = null,
+
+        [Description("Generic ingredient name search (Step 1). Use for generic names like 'atorvastatin'. Leave empty when providing documentGuid.")]
+        string? activeIngredientSearch = null,
+
+        [Description("UNII code for exact ingredient match (Step 1). Leave empty when providing documentGuid.")]
+        string? unii = null,
+
+        [Description("DocumentGUID from Step 1 selection (Step 2). When provided, returns complete markdown export with source URLs. Format: GUID string like '052493C7-89A3-452E-8140-04DD95F0D9E2'.")]
+        string? documentGuid = null)
+    {
+        #region implementation
+
+        _logger.LogInformation(
+            "[Tool] ExportDrugLabelMarkdown: productName={ProductName}, ingredient={Ingredient}, unii={UNII}, documentGuid={DocumentGuid}",
+            productNameSearch, activeIngredientSearch, unii, documentGuid);
+
+        try
+        {
+            // STEP 2: If documentGuid is provided, fetch the markdown export
+            if (!string.IsNullOrWhiteSpace(documentGuid))
+            {
+                // Validate GUID format
+                if (!Guid.TryParse(documentGuid, out var parsedGuid))
+                {
+                    _logger.LogWarning("[Tool] ExportDrugLabelMarkdown: Invalid GUID format: {DocumentGuid}", documentGuid);
+                    return JsonSerializer.Serialize(new
+                    {
+                        error = "Invalid DocumentGUID",
+                        message = "The provided documentGuid is not a valid GUID format. Expected format: '052493C7-89A3-452E-8140-04DD95F0D9E2'."
+                    });
+                }
+
+                // Call GetLabelMarkdownExport endpoint
+                var exportEndpoint = $"api/Label/markdown/export/{parsedGuid}";
+                _logger.LogDebug("[Tool] ExportDrugLabelMarkdown: Calling {Endpoint}", exportEndpoint);
+
+                var exportResult = await _apiClient.GetStringAsync(exportEndpoint);
+
+                // Parse the response to add source URLs (the API doesn't include them)
+                var exportDto = JsonSerializer.Deserialize<JsonElement>(exportResult);
+
+                // Construct base URL for source links
+                // The API base URL is like "https://www.medrecpro.com/api" - we need "https://www.medrecpro.com"
+                var baseUrl = _apiSettings.BaseUrl.TrimEnd('/');
+                if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
+                {
+                    baseUrl = baseUrl[..^4]; // Remove "/api" suffix
+                }
+
+                // Build enriched response with source links
+                var enrichedResponse = new
+                {
+                    documentGUID = parsedGuid,
+                    setGUID = exportDto.TryGetProperty("setGUID", out var setGuid) ? setGuid.GetString() : null,
+                    documentTitle = exportDto.TryGetProperty("documentTitle", out var title) ? title.GetString() : null,
+                    sectionCount = exportDto.TryGetProperty("sectionCount", out var sCount) ? sCount.GetInt32() : 0,
+                    totalContentBlocks = exportDto.TryGetProperty("totalContentBlocks", out var tBlocks) ? tBlocks.GetInt32() : 0,
+                    fullMarkdown = exportDto.TryGetProperty("fullMarkdown", out var markdown) ? markdown.GetString() : null,
+                    viewLabelUrl = $"{baseUrl}/api/Label/original/{parsedGuid}/false",
+                    viewLabelMinifiedUrl = $"{baseUrl}/api/Label/original/{parsedGuid}/true"
+                };
+
+                _logger.LogInformation(
+                    "[Tool] ExportDrugLabelMarkdown: Successfully exported document {DocumentGuid} with {SectionCount} sections",
+                    parsedGuid, enrichedResponse.sectionCount);
+
+                return JsonSerializer.Serialize(enrichedResponse);
+            }
+
+            // STEP 1: Search for products
+            var queryParams = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(unii))
+                queryParams.Add($"unii={Uri.EscapeDataString(unii)}");
+
+            if (!string.IsNullOrWhiteSpace(productNameSearch))
+                queryParams.Add($"productNameSearch={Uri.EscapeDataString(productNameSearch)}");
+
+            if (!string.IsNullOrWhiteSpace(activeIngredientSearch))
+                queryParams.Add($"activeIngredientSearch={Uri.EscapeDataString(activeIngredientSearch)}");
+
+            // Default pagination for search results
+            queryParams.Add("pageNumber=1");
+            queryParams.Add("pageSize=10");
+
+            var searchEndpoint = $"api/Label/product/latest?{string.Join("&", queryParams)}";
+            _logger.LogDebug("[Tool] ExportDrugLabelMarkdown: Searching products with {Endpoint}", searchEndpoint);
+
+            var searchResult = await _apiClient.GetStringAsync(searchEndpoint);
+
+            _logger.LogInformation("[Tool] ExportDrugLabelMarkdown: Product search completed");
+            return searchResult;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "[Tool] ExportDrugLabelMarkdown failed: documentGuid={DocumentGuid}, productName={ProductName}",
+                documentGuid, productNameSearch);
+
+            return JsonSerializer.Serialize(new
+            {
+                error = "Export failed",
                 message = ex.Message
             });
         }
