@@ -13,7 +13,6 @@
 /**************************************************************/
 
 using MedRecProMCP.Configuration;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -31,7 +30,7 @@ namespace MedRecProMCP.Services;
 public class ClientRegistrationService : IClientRegistrationService
 {
     private readonly McpServerSettings _mcpSettings;
-    private readonly IMemoryCache _cache;
+    private readonly IPersistedCacheService _cache;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ClientRegistrationService> _logger;
 
@@ -62,7 +61,7 @@ public class ClientRegistrationService : IClientRegistrationService
     /**************************************************************/
     public ClientRegistrationService(
         IOptions<McpServerSettings> mcpSettings,
-        IMemoryCache cache,
+        IPersistedCacheService cache,
         IHttpClientFactory httpClientFactory,
         ILogger<ClientRegistrationService> logger)
     {
@@ -75,7 +74,7 @@ public class ClientRegistrationService : IClientRegistrationService
     /**************************************************************/
     /// <inheritdoc/>
     /**************************************************************/
-    public Task<ClientRegistrationResponse> RegisterClientAsync(ClientRegistrationRequest request)
+    public async Task<ClientRegistrationResponse> RegisterClientAsync(ClientRegistrationRequest request)
     {
         #region implementation
         if (!_mcpSettings.EnableDynamicClientRegistration)
@@ -132,12 +131,10 @@ public class ClientRegistrationService : IClientRegistrationService
             ExpiresAt = now.AddHours(_mcpSettings.ClientRegistrationExpirationHours)
         };
 
-        // Store in cache
+        // Store in persistent cache
         var cacheKey = ClientCachePrefix + clientId;
-        var cacheOptions = new MemoryCacheEntryOptions()
-            .SetAbsoluteExpiration(TimeSpan.FromHours(_mcpSettings.ClientRegistrationExpirationHours));
-
-        _cache.Set(cacheKey, client, cacheOptions);
+        await _cache.SetAsync(cacheKey, client,
+            TimeSpan.FromHours(_mcpSettings.ClientRegistrationExpirationHours));
 
         _logger.LogInformation(
             "[DCR] Registered new client: {ClientName} ({ClientId})",
@@ -157,7 +154,7 @@ public class ClientRegistrationService : IClientRegistrationService
             TokenEndpointAuthMethod = client.TokenEndpointAuthMethod
         };
 
-        return Task.FromResult(response);
+        return response;
         #endregion
     }
 
@@ -180,15 +177,16 @@ public class ClientRegistrationService : IClientRegistrationService
             return await FetchClientMetadataDocumentAsync(clientId);
         }
 
-        // Check cache for dynamically registered client
+        // Check persistent cache for dynamically registered client
         var cacheKey = ClientCachePrefix + clientId;
-        if (_cache.TryGetValue<RegisteredClient>(cacheKey, out var client) && client != null)
+        var (found, client) = await _cache.TryGetAsync<RegisteredClient>(cacheKey);
+        if (found && client != null)
         {
             // Check expiration
             if (client.ExpiresAt.HasValue && client.ExpiresAt < DateTime.UtcNow)
             {
                 _logger.LogWarning("[DCR] Client {ClientId} has expired", clientId);
-                _cache.Remove(cacheKey);
+                await _cache.RemoveAsync(cacheKey);
                 return null;
             }
 
@@ -263,9 +261,10 @@ public class ClientRegistrationService : IClientRegistrationService
 
         try
         {
-            // Check cache first
+            // Check persistent cache first
             var cacheKey = ClientCachePrefix + "cimd_" + hashUrl(clientIdUrl);
-            if (_cache.TryGetValue<RegisteredClient>(cacheKey, out var cachedClient))
+            var (cacheHit, cachedClient) = await _cache.TryGetAsync<RegisteredClient>(cacheKey);
+            if (cacheHit && cachedClient != null)
             {
                 _logger.LogDebug("[DCR] Retrieved CIMD from cache: {Url}", clientIdUrl);
                 return cachedClient;
@@ -319,7 +318,7 @@ public class ClientRegistrationService : IClientRegistrationService
 
             // Cache with HTTP cache headers or default TTL
             var cacheDuration = TimeSpan.FromHours(1);
-            _cache.Set(cacheKey, registeredClient, cacheDuration);
+            await _cache.SetAsync(cacheKey, registeredClient, cacheDuration);
 
             _logger.LogInformation(
                 "[DCR] Fetched and cached CIMD: {ClientName} ({Url})",
@@ -338,20 +337,20 @@ public class ClientRegistrationService : IClientRegistrationService
     /**************************************************************/
     /// <inheritdoc/>
     /**************************************************************/
-    public Task<bool> DeleteClientAsync(string clientId)
+    public async Task<bool> DeleteClientAsync(string clientId)
     {
         #region implementation
         // Can't delete pre-registered clients
         if (clientId.Equals("claude", StringComparison.OrdinalIgnoreCase))
         {
-            return Task.FromResult(false);
+            return false;
         }
 
         var cacheKey = ClientCachePrefix + clientId;
-        _cache.Remove(cacheKey);
+        await _cache.RemoveAsync(cacheKey);
 
         _logger.LogInformation("[DCR] Deleted client: {ClientId}", clientId);
-        return Task.FromResult(true);
+        return true;
         #endregion
     }
 

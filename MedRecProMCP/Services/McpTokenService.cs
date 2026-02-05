@@ -14,7 +14,6 @@
 /**************************************************************/
 
 using MedRecProMCP.Configuration;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -33,7 +32,7 @@ public class McpTokenService : IMcpTokenService
 {
     private readonly JwtSettings _jwtSettings;
     private readonly McpServerSettings _mcpSettings;
-    private readonly IMemoryCache _cache;
+    private readonly IPersistedCacheService _cache;
     private readonly ILogger<McpTokenService> _logger;
     private readonly SymmetricSecurityKey _signingKey;
     private readonly byte[] _encryptionKey;
@@ -54,7 +53,7 @@ public class McpTokenService : IMcpTokenService
     public McpTokenService(
         IOptions<JwtSettings> jwtSettings,
         IOptions<McpServerSettings> mcpSettings,
-        IMemoryCache cache,
+        IPersistedCacheService cache,
         ILogger<McpTokenService> logger)
     {
         _jwtSettings = jwtSettings.Value;
@@ -297,43 +296,43 @@ public class McpTokenService : IMcpTokenService
     /**************************************************************/
     /// <inheritdoc/>
     /**************************************************************/
-    public Task<bool> RevokeRefreshTokenAsync(string refreshToken)
+    public async Task<bool> RevokeRefreshTokenAsync(string refreshToken)
     {
         #region implementation
         var cacheKey = RefreshTokenCachePrefix + hashToken(refreshToken);
-        _cache.Remove(cacheKey);
+        await _cache.RemoveAsync(cacheKey);
 
         _logger.LogInformation("[Token] Revoked refresh token");
-        return Task.FromResult(true);
+        return true;
         #endregion
     }
 
     /**************************************************************/
     /// <inheritdoc/>
     /**************************************************************/
-    public Task<int> RevokeAllUserTokensAsync(string userId)
+    public async Task<int> RevokeAllUserTokensAsync(string userId)
     {
         #region implementation
         var userTokensKey = UserRefreshTokensPrefix + userId;
 
-        if (_cache.TryGetValue<List<string>>(userTokensKey, out var tokenHashes) &&
-            tokenHashes != null)
+        var (found, tokenHashes) = await _cache.TryGetAsync<List<string>>(userTokensKey);
+        if (found && tokenHashes != null)
         {
             foreach (var hash in tokenHashes)
             {
-                _cache.Remove(RefreshTokenCachePrefix + hash);
+                await _cache.RemoveAsync(RefreshTokenCachePrefix + hash);
             }
 
-            _cache.Remove(userTokensKey);
+            await _cache.RemoveAsync(userTokensKey);
 
             _logger.LogInformation(
                 "[Token] Revoked {Count} tokens for user {UserId}",
                 tokenHashes.Count, userId);
 
-            return Task.FromResult(tokenHashes.Count);
+            return tokenHashes.Count;
         }
 
-        return Task.FromResult(0);
+        return 0;
         #endregion
     }
 
@@ -426,30 +425,29 @@ public class McpTokenService : IMcpTokenService
     /// Stores refresh token data in the cache.
     /// </summary>
     /**************************************************************/
-    private Task storeRefreshTokenAsync(string refreshToken, RefreshTokenData data)
+    private async Task storeRefreshTokenAsync(string refreshToken, RefreshTokenData data)
     {
         #region implementation
         var tokenHash = hashToken(refreshToken);
         var cacheKey = RefreshTokenCachePrefix + tokenHash;
 
-        var cacheOptions = new MemoryCacheEntryOptions()
-            .SetAbsoluteExpiration(data.ExpiresAt)
-            .SetSlidingExpiration(TimeSpan.FromHours(1));
+        // Store refresh token with absolute expiration
+        var expiration = data.ExpiresAt - DateTime.UtcNow;
+        if (expiration <= TimeSpan.Zero)
+            expiration = TimeSpan.FromMinutes(1);
 
-        _cache.Set(cacheKey, data, cacheOptions);
+        await _cache.SetAsync(cacheKey, data, expiration);
 
         // Track token for user (for bulk revocation)
         var userTokensKey = UserRefreshTokensPrefix + data.UserId;
-        var userTokens = _cache.GetOrCreate(userTokensKey, entry =>
+        var (found, userTokens) = await _cache.TryGetAsync<List<string>>(userTokensKey);
+        if (!found || userTokens == null)
         {
-            entry.SetAbsoluteExpiration(TimeSpan.FromDays(7));
-            return new List<string>();
-        });
+            userTokens = new List<string>();
+        }
 
-        userTokens?.Add(tokenHash);
-        _cache.Set(userTokensKey, userTokens);
-
-        return Task.CompletedTask;
+        userTokens.Add(tokenHash);
+        await _cache.SetAsync(userTokensKey, userTokens, TimeSpan.FromDays(7));
         #endregion
     }
 
@@ -458,13 +456,13 @@ public class McpTokenService : IMcpTokenService
     /// Retrieves refresh token data from the cache.
     /// </summary>
     /**************************************************************/
-    private Task<RefreshTokenData?> getRefreshTokenDataAsync(string refreshToken)
+    private async Task<RefreshTokenData?> getRefreshTokenDataAsync(string refreshToken)
     {
         var tokenHash = hashToken(refreshToken);
         var cacheKey = RefreshTokenCachePrefix + tokenHash;
 
-        _cache.TryGetValue<RefreshTokenData>(cacheKey, out var data);
-        return Task.FromResult(data);
+        var (found, data) = await _cache.TryGetAsync<RefreshTokenData>(cacheKey);
+        return found ? data : null;
     }
 
     #endregion

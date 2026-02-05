@@ -21,7 +21,6 @@
 using MedRecProMCP.Configuration;
 using MedRecProMCP.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
 using System.Text.Json;
@@ -223,9 +222,9 @@ public static class OAuthEndpoints
         // Store with client's state as key
         await pkceService.StorePkceDataAsync(state, upstreamVerifier, client_id, redirect_uri, scopes);
 
-        // Also store mapping from upstream state to client state
-        context.RequestServices.GetRequiredService<IMemoryCache>()
-            .Set($"oauth_upstream_state_{upstreamState}", state, TimeSpan.FromMinutes(10));
+        // Also store mapping from upstream state to client state (persisted to survive restarts)
+        var persistedCache = context.RequestServices.GetRequiredService<IPersistedCacheService>();
+        await persistedCache.SetAsync($"oauth_upstream_state_{upstreamState}", state, TimeSpan.FromMinutes(10));
 
         // Build callback URL for the upstream provider
         var callbackUri = $"{mcpSettings.Value.ServerUrl.TrimEnd('/')}/oauth/callback/{selectedProvider}";
@@ -362,11 +361,12 @@ public static class OAuthEndpoints
             }, statusCode: 400);
         }
 
-        // Retrieve stored authorization data using the code
-        var cache = context.RequestServices.GetRequiredService<IMemoryCache>();
+        // Retrieve stored authorization data using the code (from persistent cache)
+        var persistedCache = context.RequestServices.GetRequiredService<IPersistedCacheService>();
         var cacheKey = $"oauth_auth_code_{code}";
 
-        if (!cache.TryGetValue<AuthorizationCodeData>(cacheKey, out var authData) || authData == null)
+        var (found, authData) = await persistedCache.TryGetAsync<AuthorizationCodeData>(cacheKey);
+        if (!found || authData == null)
         {
             logger.LogWarning("[OAuth] Auth code not found in cache: {CacheKey}", cacheKey);
             return Results.Json(new OAuthError
@@ -377,7 +377,7 @@ public static class OAuthEndpoints
         }
 
         // Remove the code (one-time use)
-        cache.Remove(cacheKey);
+        await persistedCache.RemoveAsync(cacheKey);
 
         // Validate redirect_uri matches
         if (!authData.RedirectUri.Equals(redirectUri, StringComparison.OrdinalIgnoreCase))
@@ -404,9 +404,10 @@ public static class OAuthEndpoints
             }, statusCode: 400);
         }
 
-        // Generate MCP tokens
+        // Generate MCP tokens (convert serializable claims back to Claim objects)
+        var claims = authData.ToClaimsList();
         var tokenResponse = await tokenService.GenerateAccessTokenAsync(
-            authData.UserClaims,
+            claims,
             authData.UpstreamAccessToken,
             authData.UpstreamRefreshToken,
             authData.Scopes,
@@ -414,7 +415,7 @@ public static class OAuthEndpoints
 
         logger.LogInformation(
             "[OAuth] Issued tokens for client {ClientId}, user {User}",
-            client.ClientId, authData.UserClaims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value);
+            client.ClientId, claims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value);
 
         return Results.Json(tokenResponse);
         #endregion
@@ -603,11 +604,12 @@ public static class OAuthEndpoints
             });
         }
 
-        // Look up client state from upstream state
-        var cache = context.RequestServices.GetRequiredService<IMemoryCache>();
+        // Look up client state from upstream state (from persistent cache)
+        var persistedCache = context.RequestServices.GetRequiredService<IPersistedCacheService>();
         var stateKey = $"oauth_upstream_state_{upstreamState}";
 
-        if (!cache.TryGetValue<string>(stateKey, out var clientState) || string.IsNullOrEmpty(clientState))
+        var (stateFound, clientState) = await persistedCache.TryGetAsync<string>(stateKey);
+        if (!stateFound || string.IsNullOrEmpty(clientState))
         {
             return Results.BadRequest(new OAuthError
             {
@@ -616,7 +618,7 @@ public static class OAuthEndpoints
             });
         }
 
-        cache.Remove(stateKey);
+        await persistedCache.RemoveAsync(stateKey);
 
         // Get stored PKCE data
         var pkceData = await pkceService.GetPkceDataAsync(clientState);
@@ -675,7 +677,7 @@ public static class OAuthEndpoints
         // Store authorization data for token exchange
         var authCodeData = new AuthorizationCodeData
         {
-            UserClaims = userClaims,
+            UserClaims = AuthorizationCodeData.FromClaims(userClaims),
             UpstreamAccessToken = tokenResult.AccessToken,
             UpstreamRefreshToken = tokenResult.RefreshToken,
             Scopes = pkceData.Scopes,
@@ -686,7 +688,7 @@ public static class OAuthEndpoints
             ExpiresAt = DateTime.UtcNow.AddMinutes(5)
         };
 
-        cache.Set($"oauth_auth_code_{ourCode}", authCodeData, TimeSpan.FromMinutes(5));
+        await persistedCache.SetAsync($"oauth_auth_code_{ourCode}", authCodeData, TimeSpan.FromMinutes(5));
 
         // Build redirect URL to client with our authorization code
         var redirectUrl = $"{pkceData.RedirectUri}?code={Uri.EscapeDataString(ourCode)}&state={Uri.EscapeDataString(clientState)}";
@@ -721,10 +723,14 @@ public class OAuthError
 /// <summary>
 /// Internal data structure for authorization code storage.
 /// </summary>
+/// <remarks>
+/// Uses SerializableClaim instead of System.Security.Claims.Claim
+/// to support JSON serialization in the persistent file cache.
+/// </remarks>
 /**************************************************************/
 internal class AuthorizationCodeData
 {
-    public List<Claim> UserClaims { get; set; } = new();
+    public List<SerializableClaim> UserClaims { get; set; } = new();
     public string UpstreamAccessToken { get; set; } = string.Empty;
     public string? UpstreamRefreshToken { get; set; }
     public List<string> Scopes { get; set; } = new();
@@ -733,5 +739,45 @@ internal class AuthorizationCodeData
     public string ClientId { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
+
+    /**************************************************************/
+    /// <summary>
+    /// Converts the serializable claims back to Claim objects.
+    /// </summary>
+    /**************************************************************/
+    public List<Claim> ToClaimsList()
+    {
+        return UserClaims.Select(c => new Claim(c.Type, c.Value)).ToList();
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Creates an AuthorizationCodeData from Claim objects.
+    /// </summary>
+    /**************************************************************/
+    public static List<SerializableClaim> FromClaims(IEnumerable<Claim> claims)
+    {
+        return claims.Select(c => new SerializableClaim
+        {
+            Type = c.Type,
+            Value = c.Value
+        }).ToList();
+    }
+}
+
+/**************************************************************/
+/// <summary>
+/// JSON-serializable representation of a security claim.
+/// </summary>
+/// <remarks>
+/// System.Security.Claims.Claim does not serialize cleanly to JSON
+/// due to circular references and non-public properties. This DTO
+/// captures the essential Type/Value pair for cache persistence.
+/// </remarks>
+/**************************************************************/
+internal class SerializableClaim
+{
+    public string Type { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
 }
 

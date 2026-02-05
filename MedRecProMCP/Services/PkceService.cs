@@ -10,7 +10,6 @@
 /// <seealso cref="IPkceService"/>
 /**************************************************************/
 
-using Microsoft.Extensions.Caching.Memory;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -23,7 +22,7 @@ namespace MedRecProMCP.Services;
 /**************************************************************/
 public class PkceService : IPkceService
 {
-    private readonly IMemoryCache _cache;
+    private readonly IPersistedCacheService _cache;
     private readonly ILogger<PkceService> _logger;
 
     // PKCE data cache prefix
@@ -37,7 +36,7 @@ public class PkceService : IPkceService
     /// Initializes a new instance of PkceService.
     /// </summary>
     /**************************************************************/
-    public PkceService(IMemoryCache cache, ILogger<PkceService> logger)
+    public PkceService(IPersistedCacheService cache, ILogger<PkceService> logger)
     {
         _cache = cache;
         _logger = logger;
@@ -69,7 +68,7 @@ public class PkceService : IPkceService
     /**************************************************************/
     /// <inheritdoc/>
     /**************************************************************/
-    public Task StorePkceDataAsync(
+    public async Task StorePkceDataAsync(
         string state,
         string codeVerifier,
         string clientId,
@@ -90,43 +89,39 @@ public class PkceService : IPkceService
         };
 
         var cacheKey = PkceCachePrefix + state;
-        var cacheOptions = new MemoryCacheEntryOptions()
-            .SetAbsoluteExpiration(PkceExpiration);
-
-        _cache.Set(cacheKey, pkceData, cacheOptions);
+        await _cache.SetAsync(cacheKey, pkceData, PkceExpiration);
 
         _logger.LogDebug(
             "[PKCE] Stored PKCE data for state {State}, client {ClientId}",
             state, clientId);
-
-        return Task.CompletedTask;
         #endregion
     }
 
     /**************************************************************/
     /// <inheritdoc/>
     /**************************************************************/
-    public Task<PkceData?> GetPkceDataAsync(string state)
+    public async Task<PkceData?> GetPkceDataAsync(string state)
     {
         #region implementation
         var cacheKey = PkceCachePrefix + state;
 
-        if (_cache.TryGetValue<PkceData>(cacheKey, out var pkceData))
+        var (found, pkceData) = await _cache.TryGetAsync<PkceData>(cacheKey);
+        if (found && pkceData != null)
         {
-            // Check if expired
-            if (pkceData != null && pkceData.ExpiresAt > DateTime.UtcNow)
+            // Check if expired (redundant with cache expiration, but belt-and-suspenders)
+            if (pkceData.ExpiresAt > DateTime.UtcNow)
             {
                 _logger.LogDebug("[PKCE] Retrieved PKCE data for state {State}", state);
-                return Task.FromResult<PkceData?>(pkceData);
+                return pkceData;
             }
 
             // Expired, remove it
-            _cache.Remove(cacheKey);
+            await _cache.RemoveAsync(cacheKey);
             _logger.LogWarning("[PKCE] PKCE data expired for state {State}", state);
         }
 
         _logger.LogWarning("[PKCE] No PKCE data found for state {State}", state);
-        return Task.FromResult<PkceData?>(null);
+        return null;
         #endregion
     }
 
@@ -161,15 +156,13 @@ public class PkceService : IPkceService
     /**************************************************************/
     /// <inheritdoc/>
     /**************************************************************/
-    public Task RemovePkceDataAsync(string state)
+    public async Task RemovePkceDataAsync(string state)
     {
         #region implementation
         var cacheKey = PkceCachePrefix + state;
-        _cache.Remove(cacheKey);
+        await _cache.RemoveAsync(cacheKey);
 
         _logger.LogDebug("[PKCE] Removed PKCE data for state {State}", state);
-
-        return Task.CompletedTask;
         #endregion
     }
 

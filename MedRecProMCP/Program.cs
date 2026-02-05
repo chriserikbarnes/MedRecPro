@@ -120,6 +120,9 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
 builder.Services.AddDistributedMemoryCache();
 
+// Register persistent file-based cache (survives Kestrel process restarts)
+builder.Services.AddSingleton<IPersistedCacheService, FilePersistedCacheService>();
+
 // Register token and OAuth services
 builder.Services.AddSingleton<IMcpTokenService, McpTokenService>();
 builder.Services.AddSingleton<IOAuthService, OAuthService>();
