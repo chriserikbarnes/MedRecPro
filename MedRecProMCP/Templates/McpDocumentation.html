@@ -9,6 +9,7 @@
         .container { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h1 { color: #333; border-bottom: 2px solid #007acc; padding-bottom: 0.5rem; }
         h2 { color: #007acc; margin-top: 2rem; }
+        h3 { color: #555; margin-top: 1.5rem; }
         code { background: #f0f0f0; padding: 0.2rem 0.4rem; border-radius: 3px; font-family: 'Consolas', monospace; }
         pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 5px; overflow-x: auto; }
         pre code { background: none; color: inherit; }
@@ -18,53 +19,304 @@
         table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
         th, td { text-align: left; padding: 0.75rem; border-bottom: 1px solid #ddd; }
         th { background: #f8f9fa; }
+        .tool-card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 1.25rem; margin: 1rem 0; }
+        .tool-card h4 { margin-top: 0; color: #333; }
+        .tool-card .tool-name { font-family: 'Consolas', monospace; color: #007acc; font-weight: bold; }
+        .param-table th { font-size: 0.9rem; }
+        .param-table td { font-size: 0.9rem; }
+        .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.8rem; font-weight: 600; }
+        .badge-required { background: #ffeef0; color: #d73a49; }
+        .badge-optional { background: #e8f5e9; color: #2e7d32; }
+        .note { background: #fff8e1; border-left: 4px solid #ffc107; padding: 0.75rem 1rem; margin: 1rem 0; }
+        .architecture-diagram { background: #f0f0f0; padding: 1rem; border-radius: 5px; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-x: auto; white-space: pre; line-height: 1.4; }
+        .workflow-diagram { background: #f0f4ff; border: 1px solid #c8d6e5; border-radius: 5px; padding: 1rem; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-x: auto; white-space: pre; line-height: 1.4; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>{{ServerName}}</h1>
         <p><strong>Version:</strong> {{Version}}</p>
-        <p>This MCP (Model Context Protocol) server provides secure access to MedRecPro medical records functionality for AI assistants like Claude.</p>
+        <p><strong>Runtime:</strong> ASP.NET Core 8.0</p>
+        <p><strong>Production URL:</strong> <a href="https://www.medrecpro.com/mcp">https://www.medrecpro.com/mcp</a></p>
+        <p>This MCP (Model Context Protocol) server provides secure access to MedRecPro medical records functionality for AI assistants like Claude. It acts as an OAuth 2.1 gateway between MCP clients and the MedRecPro Web API.</p>
+
+        <h2>Architecture</h2>
+        <p>The MCP server runs as an <strong>IIS virtual application</strong> at <code>/mcp</code> on the same Azure App Service as the main MedRecPro UI and API. IIS handles path-based routing to three separate ASP.NET Core processes:</p>
+        <div class="architecture-diagram">
+                             Azure App Service: "MedRecPro" (Windows, IIS)
+                            +--------------------------------------------------+
+                            |                                                  |
++------------------+        |  /          site\wwwroot       MedRecProStatic   |
+|  Claude / MCP    |  HTTPS |  /api       site\wwwroot\api   MedRecPro API     |
+|  Client          |------->|  /mcp       site\wwwroot\mcp   MedRecProMCP      |
++------------------+        |                                                  |
+        |                   +--------------------------------------------------+
+        v                                    |
++------------------+                         v
+|  Cloudflare      |                +------------------+
+|  (CDN/WAF/DNS)   |                |  Azure Key Vault |
++------------------+                |  (medrecprovault)|
+                                    +------------------+</div>
+
+        <table>
+            <tr><th>Virtual Path</th><th>Physical Path</th><th>Project</th><th>Purpose</th></tr>
+            <tr><td><code>/</code></td><td><code>site\wwwroot</code></td><td>MedRecProStatic</td><td>UI / Static content</td></tr>
+            <tr><td><code>/api</code></td><td><code>site\wwwroot\api</code></td><td>MedRecPro</td><td>Web API</td></tr>
+            <tr><td><code>/mcp</code></td><td><code>site\wwwroot\mcp</code></td><td>MedRecProMCP</td><td>MCP Server (this project)</td></tr>
+        </table>
 
         <h2>Connecting with Claude Desktop</h2>
         <p>Add the following to your Claude Desktop configuration file:</p>
         <pre><code>{
   "mcpServers": {
     "medrecpro": {
-      "url": "{{ServerUrl}}/mcp"
+      "url": "{{ServerUrl}}"
     }
   }
 }</code></pre>
 
         <h2>Authentication</h2>
-        <p>This server implements OAuth 2.1 with PKCE. When Claude connects, it will automatically handle the authentication flow:</p>
+        <p>This server implements <strong>OAuth 2.1 with PKCE</strong>. When Claude connects, it automatically handles the authentication flow:</p>
         <ol>
-            <li>Claude discovers the Protected Resource Metadata at <code>/.well-known/oauth-protected-resource</code></li>
-            <li>User is redirected to sign in with Google or Microsoft</li>
-            <li>Upon successful authentication, Claude receives an MCP access token</li>
-            <li>All subsequent tool calls include this token for authorization</li>
+            <li>Claude sends POST to <code>/mcp</code> (unauthenticated)</li>
+            <li>Server returns 401 with <code>WWW-Authenticate</code> header pointing to Protected Resource Metadata</li>
+            <li>Claude fetches <code>/.well-known/oauth-protected-resource</code> (RFC 9728)</li>
+            <li>Claude fetches <code>/.well-known/oauth-authorization-server</code> (RFC 8414)</li>
+            <li>Claude registers via <code>/oauth/register</code> (Dynamic Client Registration, RFC 7591)</li>
+            <li>Claude redirects user to <code>/oauth/authorize?provider=google</code></li>
+            <li>User authenticates with Google or Microsoft</li>
+            <li>Provider redirects to <code>/oauth/callback/{provider}</code></li>
+            <li>MCP server issues authorization code, redirects to Claude</li>
+            <li>Claude exchanges code for tokens via <code>/oauth/token</code></li>
+            <li>Claude sends authenticated POST to <code>/mcp</code> with Bearer token</li>
+            <li>MCP server forwards token to MedRecPro API for each tool call</li>
         </ol>
+        <p><strong>Supported OAuth scopes:</strong> <code>openid</code>, <code>profile</code>, <code>email</code>, <code>mcp:tools</code>, <code>mcp:read</code>, <code>mcp:write</code></p>
 
         <h2>Available Endpoints</h2>
+        <p>All endpoints are externally prefixed with <code>/mcp</code> by the IIS virtual application.</p>
         <table>
-            <tr><th>Endpoint</th><th>Description</th></tr>
-            <tr><td><code>GET /</code></td><td>Server status and info</td></tr>
-            <tr><td><code>GET /mcp</code></td><td>MCP protocol endpoint (requires auth)</td></tr>
-            <tr><td><code>GET /docs</code></td><td>This documentation page</td></tr>
-            <tr><td><code>GET /.well-known/oauth-protected-resource</code></td><td>Protected Resource Metadata (RFC 9728)</td></tr>
-            <tr><td><code>GET /.well-known/oauth-authorization-server</code></td><td>Authorization Server Metadata (RFC 8414)</td></tr>
-            <tr><td><code>GET /oauth/authorize</code></td><td>OAuth authorization endpoint</td></tr>
-            <tr><td><code>POST /oauth/token</code></td><td>Token exchange endpoint</td></tr>
-            <tr><td><code>POST /oauth/register</code></td><td>Dynamic Client Registration (RFC 7591)</td></tr>
+            <tr><th>Endpoint</th><th>Method</th><th>Description</th></tr>
+            <tr><td><code>/mcp</code></td><td>POST</td><td>MCP Streamable HTTP transport (JSON-RPC)</td></tr>
+            <tr><td><code>/mcp/health</code></td><td>GET</td><td>Health check (returns JSON status)</td></tr>
+            <tr><td><code>/mcp/docs</code></td><td>GET</td><td>This documentation page</td></tr>
+            <tr><td><code>/mcp/.well-known/oauth-protected-resource</code></td><td>GET</td><td>Protected Resource Metadata (RFC 9728)</td></tr>
+            <tr><td><code>/mcp/.well-known/oauth-authorization-server</code></td><td>GET</td><td>Authorization Server Metadata (RFC 8414)</td></tr>
+            <tr><td><code>/mcp/oauth/authorize</code></td><td>GET</td><td>OAuth authorization endpoint</td></tr>
+            <tr><td><code>/mcp/oauth/token</code></td><td>POST</td><td>Token exchange endpoint</td></tr>
+            <tr><td><code>/mcp/oauth/register</code></td><td>POST</td><td>Dynamic Client Registration (RFC 7591)</td></tr>
+            <tr><td><code>/mcp/oauth/callback/google</code></td><td>GET</td><td>Google OAuth callback</td></tr>
+            <tr><td><code>/mcp/oauth/callback/microsoft</code></td><td>GET</td><td>Microsoft OAuth callback</td></tr>
         </table>
+        <div class="note">
+            <strong>Note:</strong> <code>GET /mcp</code> returns HTTP 405 (Method Not Allowed). This is correct behavior &mdash; the MCP Streamable HTTP transport only accepts POST requests.
+        </div>
 
         <h2>MCP Tools</h2>
-        <p>Once authenticated, the following tool categories are available:</p>
-        <ul>
-            <li><strong>Drug Label Tools</strong> - Search and retrieve FDA drug label information</li>
-            <li><strong>User Tools</strong> - Manage user profile and preferences</li>
-        </ul>
-        <p>Claude will automatically discover available tools when connecting to the <code>/mcp</code> endpoint.</p>
+        <p>Once authenticated, Claude automatically discovers the following tools when connecting to the <code>/mcp</code> endpoint. Tools are organized into two categories:</p>
+
+        <!-- Drug Label Tools -->
+        <h3>Drug Label Tools</h3>
+        <p>Search and retrieve FDA drug label information from the MedRecPro database. All drug data is sourced from official FDA Structured Product Labeling (SPL) documents.</p>
+
+        <div class="workflow-diagram">
+Tool Workflow:
+
+search_drug_labels ──► Quick lookups, section queries, comparisons
+                       ├── ProductName, ActiveIngredient, UNII
+                       ├── Label sections (Indications, Warnings, etc.)
+                       └── ViewLabelUrl - link to FDA label
+
+export_drug_label_markdown ──► Complete label export (TWO-STEP)
+  Step 1: Search products ─────► User selects DocumentGUID
+  Step 2: Export markdown ──────► FullMarkdown + ViewLabelUrl</div>
+
+        <div class="tool-card">
+            <h4><span class="tool-name">search_drug_labels</span></h4>
+            <p>Searches for FDA drug labels and returns complete product details with markdown-formatted label sections. This is the primary tool for answering specific drug questions such as side effects, dosage, warnings, indications, and drug interactions.</p>
+            <p><strong>Use when the user asks specific questions about a drug</strong> (e.g., "What are the side effects of Lipitor?" or "Compare aspirin and ibuprofen").</p>
+
+            <table class="param-table">
+                <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+                <tr>
+                    <td><code>productNameSearch</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Brand/product name search (e.g., "Lipitor", "Advil", "Tylenol"). Supports partial matching.</td>
+                </tr>
+                <tr>
+                    <td><code>activeIngredientSearch</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Generic/active ingredient name search (e.g., "atorvastatin", "ibuprofen"). Supports partial matching.</td>
+                </tr>
+                <tr>
+                    <td><code>unii</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>UNII (Unique Ingredient Identifier) code for exact chemical match (e.g., "R16CO5Y76E" for aspirin).</td>
+                </tr>
+                <tr>
+                    <td><code>sectionCode</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>LOINC section code to filter results to a specific label section. See section codes table below.</td>
+                </tr>
+                <tr>
+                    <td><code>pageNumber</code></td>
+                    <td>int</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Page number for pagination (1-based). Default: 1.</td>
+                </tr>
+                <tr>
+                    <td><code>pageSize</code></td>
+                    <td>int</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Results per page (1&ndash;50). Default: 10. Recommended: 3 for initial searches since labels are large.</td>
+                </tr>
+            </table>
+
+            <p><strong>Returns:</strong> Array of product objects containing ProductName, ActiveIngredient, UNII, DocumentGUID, markdown-formatted label Sections, and a <strong>ViewLabelUrl</strong> link to view the FDA label in a browser.</p>
+        </div>
+
+        <div class="tool-card">
+            <h4><span class="tool-name">export_drug_label_markdown</span></h4>
+            <p>Exports a complete FDA drug label as clean, well-formatted markdown. Implements a <strong>two-step workflow</strong>: first search for products, then export the selected document.</p>
+            <p><strong>Use when the user wants a complete label</strong> (e.g., "Show me the full label for Lipitor" or "Export the label for atorvastatin").</p>
+
+            <p><strong>Step 1 &mdash; Product Search</strong> (call without <code>documentGuid</code>):</p>
+            <table class="param-table">
+                <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+                <tr>
+                    <td><code>productNameSearch</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Brand/product name search (e.g., "Lipitor").</td>
+                </tr>
+                <tr>
+                    <td><code>activeIngredientSearch</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Generic ingredient name search (e.g., "atorvastatin").</td>
+                </tr>
+                <tr>
+                    <td><code>unii</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>UNII code for exact ingredient match.</td>
+                </tr>
+            </table>
+            <p>Returns a list of matching products with ProductName, ActiveIngredient, UNII, and DocumentGUID. The user selects the correct product from the results.</p>
+
+            <p><strong>Step 2 &mdash; Export Markdown</strong> (call with <code>documentGuid</code>):</p>
+            <table class="param-table">
+                <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+                <tr>
+                    <td><code>documentGuid</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-required">Required</span></td>
+                    <td>DocumentGUID from Step 1 selection (e.g., "052493C7-89A3-452E-8140-04DD95F0D9E2").</td>
+                </tr>
+            </table>
+            <p>Returns the complete label as formatted markdown with source links (ViewLabelUrl).</p>
+        </div>
+
+        <h4>Common LOINC Section Codes</h4>
+        <p>Use these codes with the <code>sectionCode</code> parameter in <code>search_drug_labels</code> to filter results to a specific label section:</p>
+        <table>
+            <tr><th>Code</th><th>Section</th><th>Typical User Question</th></tr>
+            <tr><td><code>34067-9</code></td><td>Indications and Usage</td><td>"What is this drug used for?"</td></tr>
+            <tr><td><code>34084-4</code></td><td>Adverse Reactions</td><td>"What are the side effects?"</td></tr>
+            <tr><td><code>34070-3</code></td><td>Contraindications</td><td>"When should I NOT use this?"</td></tr>
+            <tr><td><code>43685-7</code></td><td>Warnings and Precautions</td><td>"What are the warnings?"</td></tr>
+            <tr><td><code>34068-7</code></td><td>Dosage and Administration</td><td>"What is the dosage?"</td></tr>
+            <tr><td><code>34073-7</code></td><td>Drug Interactions</td><td>"Does this interact with other drugs?"</td></tr>
+            <tr><td><code>34088-5</code></td><td>Overdosage</td><td>"What happens in an overdose?"</td></tr>
+            <tr><td><code>34066-1</code></td><td>Boxed Warning</td><td>"Does this have a black box warning?"</td></tr>
+            <tr><td><code>34090-1</code></td><td>Clinical Pharmacology</td><td>"How does this drug work?"</td></tr>
+            <tr><td><code>34076-0</code></td><td>Use in Specific Populations</td><td>"Is this safe during pregnancy?"</td></tr>
+        </table>
+
+        <div class="note">
+            <strong>Section Fallback:</strong> Not all FDA labels have every LOINC section code. If a query with a specific <code>sectionCode</code> returns empty results, retry <strong>without</strong> the <code>sectionCode</code> parameter to retrieve all available sections, then search the content for the relevant information.
+        </div>
+
+        <!-- User Tools -->
+        <h3>User Tools</h3>
+        <p>Manage user profile and activity information. All operations require authentication.</p>
+
+        <div class="tool-card">
+            <h4><span class="tool-name">GetMyProfile</span></h4>
+            <p>Gets the current authenticated user's profile information including name, email, and roles.</p>
+            <p><em>No parameters required.</em></p>
+        </div>
+
+        <div class="tool-card">
+            <h4><span class="tool-name">GetMyActivity</span></h4>
+            <p>Gets the current user's recent activity log showing actions performed in the system.</p>
+            <table class="param-table">
+                <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+                <tr>
+                    <td><code>pageNumber</code></td>
+                    <td>int</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Page number (1-based). Default: 1.</td>
+                </tr>
+                <tr>
+                    <td><code>pageSize</code></td>
+                    <td>int</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Results per page (1&ndash;100). Default: 20.</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="tool-card">
+            <h4><span class="tool-name">GetMyActivityByDateRange</span></h4>
+            <p>Gets the current user's activity within a specific date range.</p>
+            <table class="param-table">
+                <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+                <tr>
+                    <td><code>startDate</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-required">Required</span></td>
+                    <td>Start date in ISO 8601 format (e.g., <code>2024-01-01</code>).</td>
+                </tr>
+                <tr>
+                    <td><code>endDate</code></td>
+                    <td>string</td>
+                    <td><span class="badge badge-required">Required</span></td>
+                    <td>End date in ISO 8601 format (e.g., <code>2024-12-31</code>).</td>
+                </tr>
+                <tr>
+                    <td><code>pageNumber</code></td>
+                    <td>int</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Page number (1-based). Default: 1.</td>
+                </tr>
+                <tr>
+                    <td><code>pageSize</code></td>
+                    <td>int</td>
+                    <td><span class="badge badge-optional">Optional</span></td>
+                    <td>Results per page (1&ndash;100). Default: 20.</td>
+                </tr>
+            </table>
+        </div>
+
+        <h2>Tool Selection Guide</h2>
+        <table>
+            <tr><th>User Intent</th><th>Tool</th></tr>
+            <tr><td>"What are the side effects of X?"</td><td><code>search_drug_labels</code></td></tr>
+            <tr><td>"What is the dosage for X?"</td><td><code>search_drug_labels</code></td></tr>
+            <tr><td>"What are the warnings for X?"</td><td><code>search_drug_labels</code></td></tr>
+            <tr><td>"What is X used for?"</td><td><code>search_drug_labels</code></td></tr>
+            <tr><td>"Compare X and Y"</td><td><code>search_drug_labels</code></td></tr>
+            <tr><td>"Show me the full label for X"</td><td><code>export_drug_label_markdown</code></td></tr>
+            <tr><td>"Export the label"</td><td><code>export_drug_label_markdown</code></td></tr>
+            <tr><td>"Show me all information about X"</td><td><code>export_drug_label_markdown</code></td></tr>
+            <tr><td>"What is my profile?"</td><td><code>GetMyProfile</code></td></tr>
+            <tr><td>"Show my recent activity"</td><td><code>GetMyActivity</code></td></tr>
+        </table>
 
         <h2>Support</h2>
         <p>For questions or issues, visit <a href="https://www.medrecpro.com">www.medrecpro.com</a></p>
