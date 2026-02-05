@@ -112,7 +112,21 @@ public class OAuthService : IOAuthService
         }
 
         queryParams["client_id"] = clientId;
-        queryParams["scope"] = string.Join(" ", scopes ?? defaultScopes);
+
+        // Filter out MCP-specific scopes (mcp:*) before sending to upstream provider.
+        // Google/Microsoft don't recognize them and will reject the request.
+        // MCP scopes are stored in PkceData and used when minting our own MCP tokens.
+        var upstreamScopes = (scopes ?? defaultScopes)
+            .Where(s => !s.StartsWith("mcp:", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        // Ensure we always request at least the provider's default scopes
+        if (upstreamScopes.Length == 0)
+        {
+            upstreamScopes = defaultScopes;
+        }
+
+        queryParams["scope"] = string.Join(" ", upstreamScopes);
 
         var queryString = string.Join("&",
             queryParams.Select(kvp =>

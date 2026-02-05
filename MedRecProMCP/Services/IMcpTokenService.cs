@@ -13,6 +13,7 @@
 /**************************************************************/
 
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 
 namespace MedRecProMCP.Services;
 
@@ -109,6 +110,7 @@ public class TokenResponse
     /// The access token for accessing protected resources.
     /// </summary>
     /**************************************************************/
+    [JsonPropertyName("access_token")]
     public string AccessToken { get; set; } = string.Empty;
 
     /**************************************************************/
@@ -116,6 +118,7 @@ public class TokenResponse
     /// The token type (always "Bearer").
     /// </summary>
     /**************************************************************/
+    [JsonPropertyName("token_type")]
     public string TokenType { get; set; } = "Bearer";
 
     /**************************************************************/
@@ -123,6 +126,7 @@ public class TokenResponse
     /// Expiration time in seconds from issuance.
     /// </summary>
     /**************************************************************/
+    [JsonPropertyName("expires_in")]
     public int ExpiresIn { get; set; }
 
     /**************************************************************/
@@ -130,6 +134,7 @@ public class TokenResponse
     /// The refresh token for obtaining new access tokens.
     /// </summary>
     /**************************************************************/
+    [JsonPropertyName("refresh_token")]
     public string? RefreshToken { get; set; }
 
     /**************************************************************/
@@ -137,5 +142,6 @@ public class TokenResponse
     /// Space-separated list of granted scopes.
     /// </summary>
     /**************************************************************/
+    [JsonPropertyName("scope")]
     public string? Scope { get; set; }
 }

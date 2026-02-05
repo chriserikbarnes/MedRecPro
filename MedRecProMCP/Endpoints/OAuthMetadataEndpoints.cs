@@ -49,12 +49,14 @@ public static class OAuthMetadataEndpoints
 
         // OAuth 2.0 Authorization Server Metadata (RFC 8414)
         app.MapGet($"{wellKnownPrefix}/oauth-authorization-server", HandleAuthorizationServerMetadata)
+            .AllowAnonymous()
             .WithName("OAuthASMetadata")
             .WithTags("OAuth Metadata")
             .WithSummary("Returns OAuth 2.0 Authorization Server metadata (RFC 8414)");
 
         // OpenID Connect Discovery (for compatibility)
         app.MapGet($"{wellKnownPrefix}/openid-configuration", HandleAuthorizationServerMetadata)
+            .AllowAnonymous()
             .WithName("OpenIDConfiguration")
             .WithTags("OAuth Metadata")
             .WithSummary("Returns OpenID Connect discovery document");

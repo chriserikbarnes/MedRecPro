@@ -57,7 +57,8 @@ public static class OAuthEndpoints
 #else
         var group = app.MapGroup("/oauth")
 #endif
-            .WithTags("OAuth");
+            .WithTags("OAuth")
+            .AllowAnonymous();
 
         // Authorization endpoint - initiates the OAuth flow
         group.MapGet("/authorize", HandleAuthorize)
@@ -273,15 +274,37 @@ public static class OAuthEndpoints
     {
         #region implementation
         // Parse form data
-        var form = await context.Request.ReadFormAsync();
+        IFormCollection form;
+        try
+        {
+            form = await context.Request.ReadFormAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "[OAuth] Failed to read form data. Content-Type: {ContentType}",
+                context.Request.ContentType);
+            return Results.Json(new OAuthError
+            {
+                Error = "invalid_request",
+                ErrorDescription = "Request body must be application/x-www-form-urlencoded"
+            }, statusCode: 400);
+        }
+
         var grantType = form["grant_type"].ToString();
         var clientId = form["client_id"].ToString();
         var clientSecret = form["client_secret"].ToString();
+
+        logger.LogInformation(
+            "[OAuth] Token request: grant_type={GrantType}, client_id={ClientId}, has_secret={HasSecret}",
+            grantType, clientId, !string.IsNullOrEmpty(clientSecret));
 
         // Validate client
         var client = await clientService.ValidateClientAsync(clientId, clientSecret);
         if (client == null)
         {
+            logger.LogWarning(
+                "[OAuth] Client validation failed for client_id={ClientId}", clientId);
             return Results.Json(new OAuthError
             {
                 Error = "invalid_client",
@@ -298,6 +321,7 @@ public static class OAuthEndpoints
                 return await handleRefreshTokenGrant(form, client, tokenService, logger);
 
             default:
+                logger.LogWarning("[OAuth] Unsupported grant_type: {GrantType}", grantType);
                 return Results.Json(new OAuthError
                 {
                     Error = "unsupported_grant_type",
@@ -324,8 +348,13 @@ public static class OAuthEndpoints
         var redirectUri = form["redirect_uri"].ToString();
         var codeVerifier = form["code_verifier"].ToString();
 
+        logger.LogInformation(
+            "[OAuth] Auth code grant: has_code={HasCode}, has_redirect_uri={HasRedirectUri}, has_code_verifier={HasCodeVerifier}",
+            !string.IsNullOrEmpty(code), !string.IsNullOrEmpty(redirectUri), !string.IsNullOrEmpty(codeVerifier));
+
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(redirectUri) || string.IsNullOrEmpty(codeVerifier))
         {
+            logger.LogWarning("[OAuth] Missing required parameters in token request");
             return Results.Json(new OAuthError
             {
                 Error = "invalid_request",
@@ -339,6 +368,7 @@ public static class OAuthEndpoints
 
         if (!cache.TryGetValue<AuthorizationCodeData>(cacheKey, out var authData) || authData == null)
         {
+            logger.LogWarning("[OAuth] Auth code not found in cache: {CacheKey}", cacheKey);
             return Results.Json(new OAuthError
             {
                 Error = "invalid_grant",
@@ -352,6 +382,9 @@ public static class OAuthEndpoints
         // Validate redirect_uri matches
         if (!authData.RedirectUri.Equals(redirectUri, StringComparison.OrdinalIgnoreCase))
         {
+            logger.LogWarning(
+                "[OAuth] redirect_uri mismatch. Expected: {Expected}, Got: {Got}",
+                authData.RedirectUri, redirectUri);
             return Results.Json(new OAuthError
             {
                 Error = "invalid_grant",
@@ -363,6 +396,7 @@ public static class OAuthEndpoints
         var pkceService = context.RequestServices.GetRequiredService<IPkceService>();
         if (!pkceService.ValidateCodeVerifier(codeVerifier, authData.CodeChallenge))
         {
+            logger.LogWarning("[OAuth] PKCE code_verifier validation failed");
             return Results.Json(new OAuthError
             {
                 Error = "invalid_grant",
