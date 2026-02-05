@@ -35,14 +35,26 @@ public static class OAuthMetadataEndpoints
     public static WebApplication MapOAuthMetadataEndpoints(this WebApplication app)
     {
         #region implementation
+        /**************************************************************/
+        /// DEBUG: Routes include /mcp prefix since app runs standalone.
+        ///        Full path: /mcp/.well-known/oauth-authorization-server
+        /// RELEASE: IIS virtual app at /mcp strips the prefix.
+        ///        Internal path: /.well-known/* → External: /mcp/.well-known/*
+        /**************************************************************/
+#if DEBUG
+        var wellKnownPrefix = "/mcp/.well-known";
+#else
+        var wellKnownPrefix = "/.well-known";
+#endif
+
         // OAuth 2.0 Authorization Server Metadata (RFC 8414)
-        app.MapGet("/.well-known/oauth-authorization-server", HandleAuthorizationServerMetadata)
+        app.MapGet($"{wellKnownPrefix}/oauth-authorization-server", HandleAuthorizationServerMetadata)
             .WithName("OAuthASMetadata")
             .WithTags("OAuth Metadata")
             .WithSummary("Returns OAuth 2.0 Authorization Server metadata (RFC 8414)");
 
         // OpenID Connect Discovery (for compatibility)
-        app.MapGet("/.well-known/openid-configuration", HandleAuthorizationServerMetadata)
+        app.MapGet($"{wellKnownPrefix}/openid-configuration", HandleAuthorizationServerMetadata)
             .WithName("OpenIDConfiguration")
             .WithTags("OAuth Metadata")
             .WithSummary("Returns OpenID Connect discovery document");

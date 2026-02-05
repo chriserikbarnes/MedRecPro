@@ -46,7 +46,17 @@ public static class OAuthEndpoints
     public static WebApplication MapOAuthEndpoints(this WebApplication app)
     {
         #region implementation
+        /**************************************************************/
+        /// DEBUG: Routes include /mcp prefix since app runs standalone.
+        ///        Full path: /mcp/oauth/authorize, /mcp/oauth/token, etc.
+        /// RELEASE: IIS virtual app at /mcp strips the prefix.
+        ///        Internal path: /oauth/authorize → External: /mcp/oauth/authorize
+        /**************************************************************/
+#if DEBUG
+        var group = app.MapGroup("/mcp/oauth")
+#else
         var group = app.MapGroup("/oauth")
+#endif
             .WithTags("OAuth");
 
         // Authorization endpoint - initiates the OAuth flow

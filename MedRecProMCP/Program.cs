@@ -19,15 +19,19 @@
 /// 4. MedRecPro API validates token and applies authorization rules
 /// </summary>
 /// <remarks>
-/// Key Endpoints:
-/// - /mcp - MCP Streamable HTTP transport (auto-mapped by MapMcp())
-/// - /.well-known/oauth-protected-resource - PRM document (RFC 9728)
-/// - /.well-known/oauth-authorization-server - AS metadata (RFC 8414)
-/// - /oauth/authorize - Authorization endpoint (redirects to Google/Microsoft)
-/// - /oauth/token - Token endpoint (exchanges codes for MCP access tokens)
-/// - /oauth/register - Dynamic Client Registration (RFC 7591)
-/// - /oauth/callback/google - Callback from Google
-/// - /oauth/callback/microsoft - Callback from Microsoft
+/// Key Endpoints (external URLs when deployed at /mcp virtual application):
+/// - /mcp - MCP Streamable HTTP transport (MapMcp)
+/// - /mcp/.well-known/oauth-protected-resource - PRM document (RFC 9728)
+/// - /mcp/.well-known/oauth-authorization-server - AS metadata (RFC 8414)
+/// - /mcp/oauth/authorize - Authorization endpoint (redirects to Google/Microsoft)
+/// - /mcp/oauth/token - Token endpoint (exchanges codes for MCP access tokens)
+/// - /mcp/oauth/register - Dynamic Client Registration (RFC 7591)
+/// - /mcp/oauth/callback/google - Callback from Google
+/// - /mcp/oauth/callback/microsoft - Callback from Microsoft
+///
+/// Route paths use compiler directives (#if DEBUG) to handle the IIS virtual
+/// application path stripping, following the same pattern as ApiControllerBase.
+/// In DEBUG, routes include the /mcp prefix. In RELEASE, IIS strips it.
 /// </remarks>
 /// <seealso cref="MedRecProMCP.Services.McpTokenService"/>
 /// <seealso cref="MedRecProMCP.Services.OAuthService"/>
@@ -400,9 +404,26 @@ app.UseAuthorization();
 /// <summary>
 /// Maps all application endpoints.
 /// </summary>
+/// <remarks>
+/// Route paths change based on build configuration to handle IIS virtual
+/// application path stripping, following the same pattern as ApiControllerBase.
+///
+/// DEBUG (local development):
+///   App runs standalone at root. Routes include /mcp prefix so the
+///   full URL is http://localhost:5233/mcp, /mcp/oauth/*, etc.
+///
+/// RELEASE (Azure App Service):
+///   App runs as IIS virtual application at /mcp. IIS strips the /mcp
+///   prefix before forwarding to Kestrel, so routes are relative to root:
+///   / (MCP transport), /oauth/*, /.well-known/*, etc.
+///   External URLs remain https://www.medrecpro.com/mcp, /mcp/oauth/*, etc.
+/// </remarks>
+/// <seealso cref="MedRecPro.Controllers.ApiControllerBase"/>
 /**************************************************************/
 
-// Root endpoint for health checks
+#if DEBUG
+// DEBUG: Health check at root; MCP transport at /mcp; OAuth at /mcp/oauth/*
+// All paths include the /mcp prefix since the app runs standalone
 app.MapGet("/", () => Results.Ok(new
 {
     name = "MedRecPro MCP Server",
@@ -411,6 +432,18 @@ app.MapGet("/", () => Results.Ok(new
     mcp = "/mcp",
     documentation = $"{mcpSettings.ServerUrl}/docs"
 }));
+#else
+// RELEASE: Health check at /health; MCP transport at root /
+// IIS virtual application at /mcp strips the prefix, so root = /mcp externally
+app.MapGet("/health", () => Results.Ok(new
+{
+    name = "MedRecPro MCP Server",
+    version = configuration.GetValue<string>("Version") ?? "1.0.0",
+    status = "running",
+    mcp = "/",
+    documentation = $"{mcpSettings.ServerUrl}/docs"
+}));
+#endif
 
 // Error handling endpoint
 app.MapGet("/error", () => Results.Problem(
@@ -424,10 +457,17 @@ app.MapGet("/error", () => Results.Problem(
 /// <remarks>
 /// Loads the HTML template from an embedded resource and replaces
 /// placeholders with configuration values. Referenced in Protected Resource Metadata.
+///
+/// DEBUG: /mcp/docs (standalone, full path)
+/// RELEASE: /docs (IIS virtual app adds /mcp prefix externally)
 /// </remarks>
 /// <seealso cref="MedRecProMCP.Templates.McpDocumentation.html"/>
 /**************************************************************/
+#if DEBUG
+app.MapGet("/mcp/docs", async (HttpContext context) =>
+#else
 app.MapGet("/docs", async (HttpContext context) =>
+#endif
 {
     #region implementation
     // Load the HTML template from embedded resource
@@ -465,12 +505,30 @@ app.MapOAuthMetadataEndpoints();
 // OAuth endpoints (authorize, token, register, callbacks)
 app.MapOAuthEndpoints();
 
-// Protected Resource Metadata is automatically served by McpAuthenticationHandler
-// at /.well-known/oauth-protected-resource
+// Protected Resource Metadata (PRM) is automatically served by McpAuthenticationHandler
+// at /.well-known/oauth-protected-resource (RFC 9728).
+//
+// In RELEASE, IIS virtual app at /mcp strips the prefix, so the SDK's auto-mapped
+// path /.well-known/oauth-protected-resource is externally /mcp/.well-known/... — correct.
+//
+// In DEBUG, the SDK serves PRM at /.well-known/oauth-protected-resource but clients
+// discover it via WWW-Authenticate header which references ServerUrl (includes /mcp).
+// We add a redirect so /mcp/.well-known/oauth-protected-resource → the SDK's path.
+#if DEBUG
+app.MapGet("/mcp/.well-known/oauth-protected-resource",
+    () => Results.Redirect("/.well-known/oauth-protected-resource", permanent: false))
+    .WithTags("OAuth Metadata")
+    .WithSummary("DEBUG redirect to SDK-served Protected Resource Metadata")
+    .ExcludeFromDescription();
+#endif
 
-// MCP endpoint - anonymous access allowed; API handles auth per-endpoint
-// Route pattern "/mcp" maps the MCP Streamable HTTP transport to /mcp
+#if DEBUG
+// DEBUG: MCP transport at /mcp (standalone app, full path required)
 app.MapMcp("/mcp").AllowAnonymous();
+#else
+// RELEASE: MCP transport at root / (IIS virtual app at /mcp strips the prefix)
+app.MapMcp("/").AllowAnonymous();
+#endif
 #endregion
 
 app.Run();
