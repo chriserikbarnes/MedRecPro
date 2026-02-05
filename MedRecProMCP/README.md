@@ -388,3 +388,121 @@ This is **expected behavior**. The MCP Streamable HTTP transport at `/mcp` only 
 1. Verify Cloudflare transform rule sets `X-Accel-Buffering: no` for `/mcp` paths
 2. Verify Cloudflare cache rule bypasses cache for `/mcp` paths
 3. Check Azure App Service always-on is enabled
+
+---
+
+## MCP Registry Publishing
+
+The server is registered on the official [MCP Registry](https://registry.modelcontextprotocol.io/) for discoverability by MCP clients.
+
+**Registry Entry:** `com.medrecpro/drug-label-server`
+**Registry Search:** https://registry.modelcontextprotocol.io/v0.1/servers?search=medrecpro
+
+### Prerequisites
+
+1. **mcp-publisher CLI** — Install from [GitHub releases](https://github.com/modelcontextprotocol/registry/releases):
+   ```powershell
+   # Windows (PowerShell)
+   $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq "Arm64") { "arm64" } else { "amd64" }
+   Invoke-WebRequest -Uri "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_windows_$arch.tar.gz" -OutFile "mcp-publisher.tar.gz"
+   tar xf mcp-publisher.tar.gz mcp-publisher.exe
+   rm mcp-publisher.tar.gz
+   ```
+
+2. **Ed25519 keypair** — Used for DNS domain verification (stored locally, NOT in repo)
+
+3. **DNS TXT record** — Already configured in Cloudflare:
+   ```
+   medrecpro.com TXT "v=MCPv1; k=ed25519; p=<public-key>"
+   ```
+
+### server.json
+
+The registry metadata file is at `MedRecProMCP/server.json`:
+
+```json
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.medrecpro/drug-label-server",
+  "title": "MedRecPro Drug Label Server",
+  "description": "Search and export FDA drug labels by brand name, generic ingredient, or UNII code.",
+  "version": "0.0.1",
+  "websiteUrl": "https://www.medrecpro.com",
+  "repository": {
+    "url": "https://github.com/chriserikbarnes/MedRecPro",
+    "source": "github",
+    "subfolder": "MedRecProMCP"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://www.medrecpro.com/mcp"
+    }
+  ]
+}
+```
+
+Key points:
+- **`name`** uses the `com.medrecpro/` namespace (verified via DNS)
+- **`remotes`** declares this as a hosted server (not an npm/PyPI package)
+- **`packages`** is omitted since the server isn't distributed as a package
+
+### Publishing Process
+
+1. **Authenticate with DNS verification:**
+   ```powershell
+   mcp-publisher.exe login dns --domain=medrecpro.com --private-key=<64-char-hex-private-key>
+   ```
+
+   > ⚠️ The private key is stored in a local script outside the repo. See `C:\Users\chris\Documents\MCP-Server-JSON-Publisher.ps1`
+
+2. **Publish to the registry:**
+   ```powershell
+   mcp-publisher.exe publish server.json
+   ```
+
+3. **Verify the listing:**
+   ```bash
+   curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=medrecpro"
+   ```
+
+### When to Publish Updates
+
+Bump the `version` in `server.json` and re-publish when:
+- Adding, removing, or renaming tools
+- Changing the server URL
+- Updating the description or metadata
+
+The registry stores each version separately. Publishing does **not** deploy code — it only updates the catalog entry.
+
+### Maintaining Backward Compatibility
+
+Since the deployed server is a single instance (not versioned packages), avoid breaking changes:
+
+| ✅ Safe Changes | ❌ Breaking Changes |
+|---|---|
+| Add new tools | Remove existing tools |
+| Add optional parameters | Remove or rename parameters |
+| Add new response fields | Change response structure |
+| Fix bugs / improve logic | Change tool names |
+| Improve descriptions | Remove required fields |
+
+### DNS Verification Reference
+
+If you need to re-generate the keypair or set up on a new machine:
+
+```bash
+# Generate Ed25519 keypair (use Git Bash on Windows)
+openssl genpkey -algorithm Ed25519 -out mcp-key.pem
+
+# Extract public key (Base64) — goes in DNS TXT record
+openssl pkey -in mcp-key.pem -pubout -outform DER | tail -c 32 | base64
+
+# Extract private key (64-char hex) — used with CLI
+openssl pkey -in mcp-key.pem -noout -text 2>&1 | grep -A3 "priv:" | tail -n +2 | tr -d ' :\n'
+```
+
+DNS TXT record format (in Cloudflare):
+- **Type:** TXT
+- **Name:** `@` (root domain)
+- **Content:** `v=MCPv1; k=ed25519; p=<base64-public-key>`
