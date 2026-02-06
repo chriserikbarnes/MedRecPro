@@ -1,6 +1,6 @@
-﻿# MedRecPro
+# MedRecPro
 
-MedRecPro is a structured product label management system built with ASP.NET Core, providing secure access to data through a RESTful API.
+MedRecPro is a pharmaceutical structured product label (SPL) management platform built with ASP.NET Core. It provides secure access to FDA drug label data through a RESTful API, an AI-powered chat interface, and a Model Context Protocol (MCP) server for integration with AI assistants like Claude.
 
 ## Specifications
 
@@ -8,662 +8,691 @@ MedRecPro is a structured product label management system built with ASP.NET Cor
 - **Info**: https://www.fda.gov/industry/fda-data-standards-advisory-board/structured-product-labeling-resources
 - **Data Source**: https://dailymed.nlm.nih.gov/dailymed/spl-resources-all-drug-labels.cfm
 
-## Features
-
-- **User Authentication**: Secure authentication using ASP.NET Identity with support for external providers
-- **Document Management**: Full CRUD operations for medical labels based on SPL (Structured Product Labeling) standards
-- **Data Security**: Encrypted user identifiers and sensitive information
-- **Role-based Access Control**: Granular permissions system for different user roles
-- **API Documentation**: Swagger/OpenAPI integration
-
 ## Technology Stack
 
-- **Backend**: ASP.NET Core (.NET 6+)
-- **Database**: SQL Server with Entity Framework Core
-- **Authentication**: Cookie-based authentication with external provider support
+- **Runtime**: ASP.NET Core (.NET 8.0 LTS)
+- **Database**: Azure SQL Server (Serverless free tier) with Dapper + Entity Framework Core
+- **Authentication**: Cookie-based auth with Google and Microsoft OAuth providers; JWT bearer tokens for API access
+- **AI Integration**: Claude API for natural language query interpretation and synthesis
+- **MCP Protocol**: Model Context Protocol server with OAuth 2.1 (PKCE S256) for Claude.ai connector integration
+- **Hosting**: Azure App Service (Windows, IIS) with Cloudflare CDN/WAF/DNS
+- **Secrets**: Azure Key Vault
 - **API Documentation**: Swagger/OpenAPI
-- **Security**: 
-  - Identity framework for authentication
-  - Encryption mechanisms for sensitive data
-  - Bearer token authentication for API endpoints
+- **SPL Rendering**: RazorLight templates for SPL XML-to-HTML generation
 
-## API Endpoints
+## Solution Architecture
 
-### Authentication
-- `GET /api/auth/login/{provider}` - Initiates login with external provider
-- `GET /api/auth/external-logincallback` - Callback for external authentication
-- `GET /api/auth/user` - Retrieves current user info
-- `POST /api/auth/logout` - Logs out the current user
+The solution consists of five projects deployed to a single Azure App Service using IIS virtual applications:
 
-### Users
-- `GET /api/users/GetUser/{encryptedUserId}` - Retrieves user information
-- `POST /api/users/CreateUser` - Creates a new user
+```
+                        Cloudflare (CDN/WAF/DNS)
+                                |
+                                v
+    Azure App Service: "MedRecPro" (Windows, IIS)
+   +--------------------------------------------------------+
+   |                                                        |
+   |  /          site\wwwroot       MedRecProStatic         |
+   |  /api       site\wwwroot\api   MedRecPro API           |
+   |  /mcp       site\wwwroot\mcp   MedRecProMCP            |
+   |                                                        |
+   +--------------------------------------------------------+
+                        |
+                        v
+               Azure Key Vault
+              (medrecprovault)
+```
 
-### Labels
-- `GET /api/label` - Retrieves all labels
-- `GET /api/label/{encryptedId}` - Retrieves a specific item
-- `POST /api/label` - Creates a new item
-- `PUT /api/label/{encryptedId}` - Updates an existing item
-- `DELETE /api/label/{encryptedId}` - Deletes a item
+| Virtual Path | Project | Purpose |
+|---|---|---|
+| `/` | **MedRecProStatic** | Static site, marketing pages, AI chat UI, OAuth/MCP discovery metadata |
+| `/api` | **MedRecPro** | REST API: SPL parsing, label CRUD, authentication, AI interpret/synthesize |
+| `/mcp` | **MedRecProMCP** | MCP server: OAuth 2.1 gateway for Claude.ai integration |
+| _(CLI)_ | **MedRecProConsole** | Standalone bulk SPL import utility |
+| _(test)_ | **MedRecProTest** | Unit and integration tests |
 
-## Database Schema
+### How the Projects Relate
 
-The database includes tables for:
+**MedRecProStatic** is the user-facing front end. Its AI chat interface (`/Home/Chat`) communicates with the API using a request-interpret-execute-synthesize pattern: user queries are sent to the API's AI endpoints, which use Claude to map natural language to API calls. The static site also serves OAuth/MCP discovery metadata (`/.well-known/*`) at the domain root on behalf of the MCP server, because the MCP SDK resolves discovery URLs relative to the domain root rather than the `/mcp` path.
 
-- Users and authentication
-- SPL labels and metadata
-- Organizations and contacts
-- Relationships between entities
+**MedRecPro (API)** is the core backend. It handles SPL XML parsing and import, label data CRUD, user authentication, AI query interpretation via Claude, database views for navigation, and SPL document rendering via RazorLight templates.
+
+**MedRecProMCP** is an OAuth 2.1 gateway that exposes MedRecPro API capabilities as MCP tools. When Claude.ai connects, it authenticates users through Google/Microsoft OAuth, then forwards authenticated requests to the MedRecPro API. It uses JWT tokens, PKCE (S256), and Dynamic Client Registration (RFC 7591).
+
+## Repository File Structure
+
+```
+MedRecPro/                          # Root repository
+  README.md                         # This file
+  .gitignore
+  LICENSE.txt
+
+  MedRecPro/                        # ASP.NET Core Web API
+    Program.cs                      # App startup, DI, middleware
+    MedRecPro.csproj                # .NET 8.0 project file
+    appsettings.json                # Base configuration
+    appsettings.Development.json    # Local dev overrides
+    web.Release.config              # IIS release config
+    Controllers/
+      ApiControllerBase.cs          # Base controller (route prefix, #if DEBUG directives)
+      AuthController.cs             # OAuth login/logout, user info
+      UsersController.cs            # User CRUD, activity logs, authentication
+      LabelController.cs            # Label CRUD, views, search, import, AI endpoints
+      AiController.cs               # AI interpret/synthesize, conversations, context
+      SettingsController.cs         # App info, feature flags, metrics, logs, cache
+    Service/
+      SplImportService.cs           # SPL ZIP file import and parsing orchestration
+      SplParsingService.cs          # Core SPL XML parsing
+      SplDataService.cs             # Database operations for label data
+      SplContextService.cs          # SPL document context management
+      SplDocumentRenderingService.cs    # SPL-to-HTML rendering via RazorLight
+      SplStructuredBodyRenderingService.cs
+      SplSectionRenderingService.cs
+      SplIngredientRenderingService.cs
+      SplPackageRenderingService.cs
+      SplCharacteristicRenderingService.cs
+      SplAuthorRenderingService.cs
+      SplTextContentRenderingService.cs
+      SplRenderingRegistrationService.cs
+      ViewRenderService.cs          # Razor view rendering
+      ZipImportWorkerService.cs     # Background ZIP import worker
+      BackgroudTaskService.cs       # Background task management
+      AzureTokenCredentialService.cs
+      AzureAppHostTokenCredentialService.cs
+      ParsingServices/              # 20+ specialized SPL XML parsers
+        SectionParser.cs
+        ProductIdentityParser.cs
+        PackagingParser.cs
+        ... (and more)
+      ParsingValidators/            # SPL validation services
+    DataAccess/
+      RepositoryDataAccess.cs       # Core data access layer
+      UserDataAccess.cs             # User-specific queries
+      DtoLabelAccess.cs             # Label DTO queries (base)
+      DtoLabelAccess-Views.cs       # Database view queries
+      DtoLabelAccess-Document.cs    # Document queries
+      DtoLabelAccess-Ingredient.cs  # Ingredient queries
+      DtoLabelAccess-Organization.cs
+      DtoLabelAccess-ProductHierarchy.cs
+      DtoLabelAccess-ContentHierarchy.cs
+      DtoLabelAccess-BatchLoaders.cs
+      ... (and more)
+    Models/                         # Domain models, DTOs, enums
+      Labels.cs                     # Core label entities
+      User.cs                       # User model
+      Import.cs                     # Import models
+      Comparison.cs                 # Label comparison models
+      SectionStructure.cs           # Section hierarchy
+      DocumentRendering.cs          # Rendering models
+      ... (and more)
+    Skills/                         # AI skill definitions (markdown prompts for Claude)
+      skills.md                     # Master skill index
+      selectors.md                  # Query routing rules
+      retryPrompt.md                # Retry logic prompt
+      labelProductIndication.md     # Indication discovery skill
+      equianalgesicConversion.md    # Opioid conversion skill
+      product-extraction.md         # Product extraction skill
+      pharmacologic-class-matching.md
+      interfaces/                   # Modular skill interface definitions
+        response-format.md
+        synthesis-rules.md
+        api/                        # API-specific skill docs
+          indication-discovery.md
+          label-content.md
+          equianalgesic-conversion.md
+          pharmacologic-class.md
+          product-extraction-api.md
+          user-activity.md
+          cache-management.md
+          session-management.md
+          data-rescue.md
+          retry-fallback.md
+      prompts/                      # AI prompt templates
+        product-extraction-prompt.md
+        pharmacologic-class-matching-prompt.md
+    Views/
+      SplTemplates/                 # RazorLight templates for SPL XML rendering
+        GenerateSpl.cshtml          # Main SPL generation template
+        _Section.cshtml             # Section partial
+        _Product.cshtml             # Product partial
+        _Ingredient.cshtml          # Ingredient partial
+        _Packaging.cshtml           # Packaging partial
+        _Author.cshtml              # Author partial
+        ... (18 templates total)
+      Stylesheets/                  # SPL rendering stylesheets
+    Helpers/                        # Utility classes
+      EncryptionHelper.cs           # ID encryption/decryption
+      ConnectionStringHelper.cs     # DB connection management
+      XmlHelpers.cs                 # XML parsing utilities
+      ... (and more)
+    Auth/
+      BasicAuthenticationHandler.cs # Basic auth handler
+    Attributes/                     # Custom validation attributes for SPL fields
+    Filters/
+      ActivityLogActionFilter.cs    # Request activity logging
+    Migrations/                     # EF Core migrations
+    Exceptions/
+    SQL/                            # Database schema and maintenance scripts
+      MedRecPro.sql                 # Full database schema
+      MedRecPro_Views.sql           # View definitions
+      MedRecPro_Indexes.sql         # Index definitions
+      MedRecPro-Deployment.sql      # Deployment scripts
+      DbTriggerSetup.sql            # Database triggers
+      MedRecPro-Export-Import.ps1   # PowerShell export/import script
+      MedRecPro-AzureStatus.sql     # Azure status queries
+      MedRecPro-AzureRebuildIndex.sql
+      MedRecPro-AzureDisableIndex.sql
+      MedRecPro-AzureNuke.sql       # Full database reset (use with caution)
+      MedRecPro-AzureOnlineQueryEditorRebuildIndex.sql
+      MedRecPro-TableNames.sql
+      MedRecPro-TableTruncate.sql
+      MedRecPro-TableMissingIndexes.sql
+
+  MedRecProStatic/                  # Static site and AI chat interface
+    Program.cs                      # Startup, middleware, OAuth discovery endpoints
+    MedRecProStatic.csproj          # .NET 8.0 project file
+    web.config                      # IIS config (httpErrors PassThrough, handler isolation)
+    appsettings.json
+    appsettings.Development.json
+    Controllers/
+      HomeController.cs             # Index, Terms, Privacy, Chat pages
+    Models/
+      PageContent.cs                # Strongly-typed content models
+    Services/
+      ContentService.cs             # JSON content loader
+    Views/
+      Home/
+        Index.cshtml                # Landing page
+        Terms.cshtml                # Terms of Service
+        Privacy.cshtml              # Privacy Policy
+        Chat.cshtml                 # AI chat interface
+      Shared/
+        _Layout.cshtml              # Master layout
+    Content/
+      config.json                   # Site config (URLs, branding, version)
+      pages.json                    # Page content (home, terms, privacy)
+    wwwroot/
+      css/                          # Stylesheets
+      js/
+        site.js                     # Global scripts
+        chat/                       # AI chat modules (18 files)
+          index.js                  # Main orchestrator
+          api-service.js            # API communication
+          endpoint-executor.js      # API endpoint execution
+          batch-synthesizer.js      # Response synthesis
+          checkpoint-manager.js     # State checkpoints
+          checkpoint-renderer.js    # Progress UI rendering
+          message-renderer.js       # Chat message rendering
+          markdown.js               # Markdown-to-HTML
+          config.js                 # Chat configuration
+          state.js                  # Client state management
+          ... (and more)
+      lib/                          # Third-party (Bootstrap, jQuery)
+
+  MedRecProMCP/                     # MCP Server (OAuth 2.1 gateway)
+    Program.cs                      # Startup, DI, endpoint mappings
+    MedRecProMCP.csproj             # .NET 8.0 project file
+    server.json                     # MCP registry metadata
+    web.config                      # IIS config
+    appsettings.json / .Development.json / .Production.json
+    Configuration/
+      McpServerSettings.cs
+      MedRecProApiSettings.cs
+      JwtSettings.cs
+      OAuthProviderSettings.cs
+    Endpoints/
+      OAuthEndpoints.cs             # OAuth authorize, token, register, callbacks
+      OAuthMetadataEndpoints.cs     # .well-known metadata
+    Services/
+      McpTokenService.cs            # JWT token generation/validation
+      OAuthService.cs               # OAuth flow orchestration
+      ClientRegistrationService.cs  # Dynamic Client Registration (RFC 7591)
+      PkceService.cs                # PKCE implementation
+      FilePersistedCacheService.cs  # File-based persistent cache
+      MedRecProApiClient.cs         # HTTP client for API calls
+    Handlers/
+      TokenForwardingHandler.cs     # Token delegation handler
+    Tools/
+      DrugLabelTools.cs             # MCP tools: drug label search and export
+      UserTools.cs                  # MCP tools: user/account operations
+    Models/
+      AiAgentDtos.cs                # AI integration models
+      WorkPlanModels.cs             # Work plan models
+    Templates/
+      McpDocumentation.html         # Embedded docs page
+
+  MedRecProConsole/                 # Bulk import CLI tool
+    Program.cs                      # Entry point
+    Services/
+      ImportService.cs              # Import orchestration
+      ImportProgressTracker.cs      # Progress tracking
+    Models/
+      AppSettings.cs
+      CommandLineArgs.cs
+      ImportParameters.cs
+      ImportQueueItem.cs
+      ImportResults.cs
+      ImportProgressFile.cs
+    Helpers/
+      ConfigurationHelper.cs
+      ConsoleHelper.cs
+      HelpDocumentation.cs
+
+  MedRecProTest/                    # Unit and integration tests
+    SplImportServiceTests.cs
+    ProductRenderingServiceTests.cs
+    ComparisonServiceTests.cs
+    UserDataAccessTests.cs
+    LogActivityAsyncTests.cs
+    StringCipherTests.cs
+```
+
+## API Endpoints Summary
+
+All API endpoints are accessed under `/api` in production (IIS virtual application). Controllers use `#if DEBUG` directives to handle the path prefix difference between local development (`/api/[controller]`) and production where IIS strips the `/api` prefix.
+
+### Authentication (`/api/Auth`)
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `login/{provider}` | Start OAuth flow (Google or Microsoft) |
+| GET | `external-logincallback` | OAuth callback handler |
+| GET | `user` | Get current authenticated user info |
+| POST | `logout` | Log out current user |
+| POST | `token-placeholder` | Token exchange |
+| GET | `login` | Login page |
+| GET | `loginfailure` | Login failure handler |
+| GET | `lockout` | Account lockout handler |
+| GET | `accessdenied` | Access denied handler |
+
+### Users (`/api/Users`)
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `me` | Get current user profile |
+| GET | `{encryptedUserId}` | Get user by encrypted ID |
+| GET | `byemail` | Get user by email |
+| POST | `signup` | Create new user account |
+| POST | `authenticate` | Authenticate user |
+| PUT | `{encryptedUserId}/profile` | Update user profile |
+| DELETE | `{encryptedUserId}` | Delete user account |
+| PUT | `admin-update` | Administrative user update |
+| POST | `rotate-password` | Rotate user password |
+| GET | `user/{encryptedUserId}/activity` | Get user activity log |
+| GET | `user/{encryptedUserId}/activity/daterange` | Get activity within date range |
+| GET | `endpoint-stats` | Get endpoint performance statistics |
+
+### Labels (`/api/Label`)
+
+The main data controller with 40+ endpoints covering navigation views, search, CRUD, import, rendering, and AI features.
+
+**Navigation & Search Views:**
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `product/search` | Search products |
+| GET | `product/related` | Related products |
+| GET | `product/latest` | Latest product labels |
+| GET | `product/latest/details` | Latest product label details |
+| GET | `product/indications` | Product indications search |
+| GET | `ingredient/search` | Search by ingredient (active/inactive) |
+| GET | `ingredient/summaries` | Ingredient summary list |
+| GET | `ingredient/active/summaries` | Active ingredients only |
+| GET | `ingredient/inactive/summaries` | Inactive ingredients only |
+| GET | `ingredient/advanced` | Advanced ingredient search |
+| GET | `ingredient/by-application` | Ingredients by application number |
+| GET | `ingredient/related` | Related ingredients |
+| GET | `labeler/search` | Search by manufacturer/labeler |
+| GET | `labeler/summaries` | Labeler summary list |
+| GET | `ndc/search` | Search by NDC code |
+| GET | `ndc/package/search` | Search by NDC package code |
+| GET | `application-number/search` | Search by application number (NDA/ANDA) |
+| GET | `application-number/summaries` | Application number summaries |
+| GET | `pharmacologic-class/search` | Search by pharmacologic class |
+| GET | `pharmacologic-class/hierarchy` | Pharmacologic class hierarchy |
+| GET | `pharmacologic-class/summaries` | Pharmacologic class summaries |
+| GET | `section/search` | Search by LOINC section code |
+| GET | `section/summaries` | Section summaries |
+| GET | `document/navigation` | Document navigation tree |
+| GET | `document/version-history/{setGuidOrDocumentGuid}` | Document version history |
+
+**Label Content & Rendering:**
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `section/content/{documentGuid}` | Get section content for a document |
+| GET | `markdown/sections/{documentGuid}` | Get label sections as markdown |
+| GET | `markdown/export/{documentGuid}` | Export full label as markdown |
+| GET | `markdown/download/{documentGuid}` | Download label markdown file |
+| GET | `markdown/display/{documentGuid}` | Render label as HTML from markdown |
+| GET | `generate/{documentGuid}/{minify}` | Generate updated SPL XML |
+| GET | `original/{documentGuid}/{minify}` | Get original SPL XML |
+| GET | `single/{documentGuid}` | Get single label details |
+| GET | `complete/{pageNumber?}/{pageSize?}` | Paginated complete label list |
+
+**Drug Safety:**
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `drug-safety/interactions` | Drug interaction data |
+| GET | `drug-safety/dea-schedule` | DEA schedule classification |
+
+**AI-Powered Endpoints:**
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `extract-product` | AI-powered product extraction from text |
+| GET | `comparison/analysis/{documentGuid}` | Get comparison analysis |
+| POST | `comparison/analysis/{documentGuid}` | Start AI comparison analysis |
+| GET | `comparison/progress/{operationId}` | Check comparison progress |
+
+**CRUD & Import:**
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `{menuSelection}/{encryptedId}` | Get single entity by type |
+| POST | `{menuSelection}` | Create entity by type |
+| PUT | `{menuSelection}/{encryptedId}` | Update entity by type |
+| DELETE | `{menuSelection}/{encryptedId}` | Delete entity by type |
+| POST | `import` | Bulk SPL ZIP import |
+| GET | `import/progress/{operationId}` | Check import progress |
+
+**Reference:**
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `guide` | API usage guide |
+| GET | `inventory/summary` | Database inventory overview |
+| GET | `sectionMenu` | Available section menu items |
+| GET | `{menuSelection}/documentation` | Documentation for a data type |
+
+### AI (`/api/Ai`)
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `context` | Get AI context (auth status, demo mode, data counts) |
+| POST | `interpret` | Interpret natural language query into API endpoint specs |
+| POST | `synthesize` | Synthesize API results into human-readable response |
+| GET | `chat` | Convenience endpoint for simple queries |
+| POST | `conversations` | Create new conversation |
+| GET | `conversations/{conversationId}` | Get conversation |
+| GET | `conversations/{conversationId}/history` | Get conversation history |
+| DELETE | `conversations/{conversationId}` | Delete conversation |
+| GET | `conversations/stats` | Get conversation statistics |
+| POST | `retry` | Retry last AI operation |
+
+### Settings (`/api/Settings`)
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `demomode` | Check demo mode status |
+| GET | `info` | Application info |
+| GET | `features` | Feature flags |
+| GET | `database-limits` | Database limits |
+| GET | `metrics/database-cost` | Azure SQL free tier usage and cost projections |
+| POST | `clearmanagedcache` | Clear managed cache |
+| GET | `logs` | Activity logs |
+| GET | `logs/statistics` | Log statistics |
+| GET | `logs/categories` | Log categories |
+| GET | `logs/by-date` | Logs filtered by date |
+| GET | `logs/by-category` | Logs filtered by category |
+| GET | `logs/by-user` | Logs filtered by user |
+| GET | `logs/users` | Users with log entries |
+| GET | `test/app-credential` | Test Azure credentials |
+| GET | `test/app-metrics-pipeline` | Test metrics pipeline |
+
+### MCP Server (`/mcp`)
+
+The MCP server exposes its own endpoints. See the [MedRecProMCP README](MedRecProMCP/README.md) for full details.
+
+| Method | Route | Description |
+|---|---|---|
+| POST | `/mcp` | MCP Streamable HTTP transport (JSON-RPC) |
+| GET | `/mcp/health` | Health check |
+| GET | `/mcp/docs` | HTML documentation page |
+| GET | `/mcp/.well-known/oauth-protected-resource` | Protected Resource Metadata (RFC 9728) |
+| GET | `/mcp/.well-known/oauth-authorization-server` | Authorization Server Metadata (RFC 8414) |
+| GET | `/mcp/oauth/authorize` | OAuth authorization endpoint |
+| POST | `/mcp/oauth/token` | Token exchange endpoint |
+| POST | `/mcp/oauth/register` | Dynamic Client Registration (RFC 7591) |
+| GET | `/mcp/oauth/callback/google` | Google OAuth callback |
+| GET | `/mcp/oauth/callback/microsoft` | Microsoft OAuth callback |
+
+## MedRecProStatic and MCP Relationship
+
+MedRecProStatic serves the OAuth/MCP discovery metadata at the domain root because the MCP SDK resolves `/.well-known/*` relative to the domain, not the MCP endpoint path. When Claude connects to `https://www.medrecpro.com/mcp`, the SDK looks for discovery at `https://www.medrecpro.com/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`.
+
+These endpoints are registered directly in MedRecProStatic's `Program.cs` as static JSON responses. Attempts to redirect from the root site to `/mcp/.well-known/*` failed because 302 redirects cause the MCP SDK to derive the wrong resource URI, and reverse proxying through Cloudflare triggers Bot Fight Mode (403 errors).
+
+MedRecProStatic also has a critical `web.config` setting (`httpErrors existingResponse="PassThrough"`) placed outside the `<location>` element so it is inherited by the MCP and API virtual applications. Without this, IIS replaces 401 responses with HTML error pages, breaking the MCP OAuth challenge flow.
+
+## Database Schema and SQL Scripts
+
+Database schema definitions and maintenance scripts are maintained in `MedRecPro/SQL/`. These are the authoritative source for schema updates, view definitions, and index management.
+
+| Script | Purpose |
+|---|---|
+| `MedRecPro.sql` | Full database schema (tables, constraints, relationships) |
+| `MedRecPro_Views.sql` | View definitions used by navigation and search endpoints |
+| `MedRecPro_Indexes.sql` | Index definitions for query performance |
+| `MedRecPro-Deployment.sql` | Deployment-time schema updates |
+| `DbTriggerSetup.sql` | Database trigger configuration |
+| `MedRecPro-Export-Import.ps1` | PowerShell script for database export/import |
+| `MedRecPro-AzureStatus.sql` | Azure SQL status and diagnostics queries |
+| `MedRecPro-AzureRebuildIndex.sql` | Index rebuild for Azure SQL |
+| `MedRecPro-AzureDisableIndex.sql` | Disable indexes during bulk operations |
+| `MedRecPro-AzureOnlineQueryEditorRebuildIndex.sql` | Index rebuild via Azure Query Editor |
+| `MedRecPro-AzureNuke.sql` | Full database reset (destructive) |
+| `MedRecPro-TableNames.sql` | List all table names |
+| `MedRecPro-TableTruncate.sql` | Truncate tables for reimport |
+| `MedRecPro-TableMissingIndexes.sql` | Identify missing indexes |
+
+When updating database schemas or views, modify the scripts in `MedRecPro/SQL/` and run them against the target database. The `MedRecPro_Views.sql` file is particularly important as the navigation view queries (ingredient search, labeler search, pharmacologic class hierarchy, etc.) are defined there and power many of the API search endpoints.
+
+## AI Skills System
+
+The API includes an agentic AI layer that enables natural language interaction with pharmaceutical data. The system follows a **request-interpret-execute-synthesize** pattern:
+
+1. User submits a natural language query to `POST /api/Ai/interpret`
+2. Claude interprets the query and returns API endpoint specifications
+3. The client executes the specified API endpoints
+4. Results are sent to `POST /api/Ai/synthesize`
+5. Claude produces a human-readable response with suggested follow-ups
+
+AI skills are defined as markdown prompt files in `MedRecPro/Skills/`. Key skills include:
+- **Indication Discovery** - Find drugs by indication/use case
+- **Equianalgesic Conversion** - Opioid dose conversion calculations
+- **Product Extraction** - AI-powered extraction of product details from text
+- **Pharmacologic Class Matching** - Map drugs to pharmacologic classifications
+- **Label Content** - Retrieve and synthesize label sections
+- **Data Rescue** - Fallback strategies for missing or incomplete data
 
 ## Getting Started
 
-1. Clone the repository
-2. Configure your database connection in `appsettings.json`
-3. Run database migrations:
-   ```
-   dotnet ef database update
-   ```
-4. Run the application:
-   ```
-   dotnet run
-   ```
-5. Access the API at `https://localhost:5001` or as configured
+### Prerequisites
 
-## Security Configuration
+- .NET 8.0 SDK (LTS)
+- SQL Server (local) or Azure SQL Database
+- Visual Studio 2022 or VS Code
 
-Security settings including encryption keys should be configured in your user secrets or environment variables:
+### 1. Clone the repository
 
-```json
-{
-  "Authentication:Google:ClientSecret": "your-google-client-secret-here",
-  "Authentication:Google:ClientId": "your-google-client-id-here.apps.googleusercontent.com",
-
-  "Authentication:Microsoft:ClientId": "your-microsoft-client/application-id-here",
-  "Authentication:Microsoft:ClientSecret:Dev": "your-microsoft-client-secret-here",
-  "Authentication:Microsoft:ClientSecret:Prod": "your-microsoft-client-secret-here",
-  "Authentication:Microsoft:TenantId": "your-microsoft-tenant-here",
-
-  "Security:DB:PKSecret": "your-encryption-key-here", //changing this will break urls/favorites/bookmarks/links user's have created
- 
-  "Jwt:Key": "your-super-strong-key",
-  "Jwt:Issuer": "MedRecPro",
-  "Jwt:Audience": "MedRecUsers",
-  "Jwt:ExpirationMinutes": 60,
-
-  "ClaudeApiSettings:ApiKey": "your-claude-api-key-here",
-
-  "Dev:DB:Connection": "Server=localhost;Database=your-database;User Id=your-user;Password=your-password-here;",
-  "Prod:DB:Connection": "Server=tcp:yourdb.database.windows.net,9999;Initial Catalog=yourdb;Persist Security Info=False;User ID=your-admin;Password=your-password;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
-
-  "AzureAd:Domain": "your-domain.onmicrosoft.com",
-  "Azure:SqlDatabase:ResourceId": "/subscriptions/your-azure-subscription-id/resourceGroups/your-group/providers/Microsoft.Sql/servers/your-server-sql/databases/your-database"
-}
+```bash
+git clone <repo-url>
+cd MedRecPro
 ```
 
+### 2. Configure the API
 
-## Production Deployment (Azure + Cloudflare)
+Create user secrets for the MedRecPro API project:
 
-### Overview
-
-MedRecPro is deployed on Azure App Service with Cloudflare as the CDN/DNS provider. This section documents the complete setup process and common pitfalls.
-
-### Infrastructure Setup
-
-#### 1. Custom Domain Configuration
-
-**Cloudflare DNS Setup:**
-1. Add A records pointing to Azure App Service IP address ({20.0.0.1} your IP) root domain:
-   - **Type**: A
-   - **Name**: @
-   - **IPv4 address**:
-2. Create CNAME record for www subdomain:
-   - **Type**: CNAME
-   - **Name**: www
-   - **Target**: your-domain.com
-   - **Proxy status**: Proxied (orange cloud)
-
-**Azure Custom Domains:**
-1. Navigate to App Service → Custom domains
-2. Add both domains:
-   - your-domain.com
-   - www.your-domain.com
-3. Validate domain ownership via CNAME record
-
-**⚠️ Common Pitfall:** Azure requires both the root domain AND www subdomain to be explicitly added as custom domains, even if DNS is configured correctly.
-
----
-
-#### 2. SSL/TLS Configuration
-
-**Cloudflare SSL Settings:**
-1. Set encryption mode to **Full (strict)**
-   - Navigate to SSL/TLS → Overview
-   - Select "Full (strict)" for end-to-end encryption
-
-**Cloudflare Origin Certificates:**
-1. Create Origin Certificate:
-   - SSL/TLS → Origin Server → Create Certificate
-   - Hostnames: `your-domain.com` and `*.your-domain.com`
-   - Validity: 15 years
-   - Download both certificate and private key
-
-2. Convert to PFX format:
-   ```bash
-   openssl pkcs12 -export -out cloudflare-origin.pfx -inkey private-key.pem -in certificate.pem
-   ```
-
-**Azure Certificate Binding:**
-1. Upload PFX certificate:
-   - App Service → Certificates → Bring your own certificates
-   - Upload the PFX file with password
-   
-2. Bind to custom domains:
-   - App Service → Custom domains
-   - Click each domain → Add binding
-   - Select uploaded certificate
-   - TLS/SSL type: SNI SSL
-
-**⚠️ Common Pitfall:** Azure App Service Managed Certificates don't work with Cloudflare proxy enabled. Must use Cloudflare Origin Certificates instead.
-
----
-
-#### 3. OAuth Authentication Setup
-
-**Google Cloud Console:**
-1. Create OAuth 2.0 Client ID for web application
-2. Configure authorized JavaScript origins:
-   ```
-   https://your-domain.com
-   https://www.your-domain.com
-   https://your-app.azurewebsites.net
-   http://localhost:5093 (development)
-   ```
-
-3. Configure authorized redirect URIs:
-   ```
-   https://your-domain.com/api/signin-google
-   https://www.your-domain.com/api/signin-google
-   https://your-app.azurewebsites.net/api/signin-google
-   http://localhost:5093/signin-google (development)
-   ```
-
-**Microsoft Entra ID (Azure AD):**
-1. Create App Registration:
-   - Supported account types: Multi-tenant and personal Microsoft accounts
-   - Redirect URIs (Web platform):
-     ```
-     https://your-domain.com/api/signin-microsoft
-     https://www.your-domain.com/api/signin-microsoft
-     https://your-app.azurewebsites.net/api/signin-microsoft
-     http://localhost:5093/signin-microsoft (development)
-     ```
-
-2. API Permissions required:
-   - Microsoft Graph → User.Read (Delegated)
-   - OpenID permissions: openid, profile, email
-
-3. Create Client Secret:
-   - Certificates & secrets → New client secret
-   - Store securely in Azure Key Vault
-
-**⚠️ Critical Pitfalls:**
-
-1. **Redirect URI Path Prefix**: Production URIs must include `/api/` prefix due to application routing:
-   - ✅ Correct: `https://your-domain.com/api/signin-google`
-   - ❌ Wrong: `https://your-domain.com/signin-google`
-
-2. **Key Vault Secret Format**: Ensure no extra characters in secrets:
-   - ✅ Correct: `c5a76e9f-dce0-499d-94cd-121eea3a2d34`
-   - ❌ Wrong: `c5a76e9f-dce0-499d-94cd-121eea3a2d34",` (extra quote and comma)
-   
-3. **Authentication Code Configuration**: Use compiler directives for environment-specific paths:
-   ```csharp
-   #if DEBUG
-   var swaggerPath = "/swagger/index.html";  // Local development
-   #else
-   var swaggerPath = "/api/swagger/index.html";  // Azure production
-   #endif
-   ```
-
----
-
-#### 4. Azure Key Vault Configuration
-
-**Store Secrets in Key Vault:**
-1. Navigate to Azure Key Vault → Secrets
-2. Add secrets with proper naming (use `--` as separator):
-   ```
-   Authentication--Google--ClientId
-   Authentication--Google--ClientSecret
-   Authentication--Microsoft--ClientId
-   Authentication--Microsoft--ClientSecret--Prod
-   Authentication--Microsoft--TenantId
-   Security--DB--PKSecret
-   ClaudeApiSettings--ApiKey
-   ConnectionStrings--DefaultConnection
-   Jwt--Key
-   ```
-
-**Reference in App Service:**
-1. Navigate to App Service → Environment variables
-2. Add Key Vault references:
-   ```
-   Name: Authentication:Google:ClientId
-   Value: @Microsoft.KeyVault(VaultName=medrecprovault;SecretName=Authentication--Google--ClientId)
-   ```
-
-**⚠️ Important Notes:**
-- Key Vault uses `--` (double dash) as separator
-- App Service configuration uses `:` (colon) as separator
-- App Service automatically maps colons to double dashes when reading from Key Vault
-
----
-
-#### 5. Cloudflare Cache Management
-
-**Cache Purging:**
-After each deployment, purge Cloudflare cache to prevent serving stale static files:
-
-1. Cloudflare Dashboard → Caching → Configuration
-2. Use one of:
-   - **Purge Everything** (simplest for deployments)
-   - **Custom Purge** with specific URLs:
-     ```
-     https://www.your-domain.com/api/swagger/swagger-ui-bundle.js
-     https://www.your-domain.com/api/swagger/swagger-ui-standalone-preset.js
-     https://www.your-domain.com/api/swagger/index.html
-     ```
-
-**⚠️ Critical Issue:** Cloudflare caches files with incorrect content-types during errors. Always purge cache after deployment to prevent JavaScript files being served as HTML.
-
-**Deployment Checklist:**
-1. ✅ Deploy to Azure
-2. ✅ Verify deployment completed
-3. ✅ Purge Cloudflare cache
-4. ✅ Test authentication flows
-5. ✅ Verify Swagger UI loads correctly
-
----
-
-### Environment-Specific Configuration
-
-**Development (Local):**
-- Uses appsettings.Development.json
-- Authentication redirects to `/swagger/index.html`
-- Secrets stored in User Secrets
-
-**Production (Azure):**
-- Uses appsettings.json + Azure App Settings
-- Authentication redirects to `/api/swagger/index.html`
-- Secrets stored in Azure Key Vault
-- SSL via Cloudflare Origin Certificates
-
-### Testing Production Authentication
-
-**Test URLs:**
-```
-https://www.your-domain.com/api/auth/login/Google
-https://www.your-domain.com/api/auth/login/Microsoft
+```bash
+cd MedRecPro
+dotnet user-secrets init
+dotnet user-secrets set "Dev:DB:Connection" "Server=localhost;Database=MedRecProDB;User Id=sa;Password=your-password;"
+dotnet user-secrets set "Security:DB:PKSecret" "your-encryption-key"
+dotnet user-secrets set "Jwt:Key" "your-jwt-signing-key-min-32-chars"
+dotnet user-secrets set "Jwt:Issuer" "MedRecPro"
+dotnet user-secrets set "Jwt:Audience" "MedRecUsers"
+dotnet user-secrets set "Authentication:Google:ClientId" "your-google-client-id"
+dotnet user-secrets set "Authentication:Google:ClientSecret" "your-google-client-secret"
+dotnet user-secrets set "Authentication:Microsoft:ClientId" "your-microsoft-app-id"
+dotnet user-secrets set "Authentication:Microsoft:ClientSecret:Dev" "your-microsoft-secret"
+dotnet user-secrets set "Authentication:Microsoft:TenantId" "your-tenant-id"
+dotnet user-secrets set "ClaudeApiSettings:ApiKey" "your-claude-api-key"
 ```
 
-**Verify User Info:**
-```
-GET https://www.your-domain.com/api/auth/user
-```
+### 3. Set up the database
 
-Expected response:
-```json
-{
-  "encryptedUserId": "...",
-  "name": "user@example.com",
-  "claims": [...]
-}
+Run the schema script from `MedRecPro/SQL/MedRecPro.sql` against your SQL Server instance, then apply views and indexes:
+
+```bash
+# Apply schema, views, and indexes in order
+sqlcmd -S localhost -d MedRecProDB -i MedRecPro/SQL/MedRecPro.sql
+sqlcmd -S localhost -d MedRecProDB -i MedRecPro/SQL/MedRecPro_Views.sql
+sqlcmd -S localhost -d MedRecProDB -i MedRecPro/SQL/MedRecPro_Indexes.sql
 ```
 
-### Troubleshooting
+Or run EF Core migrations:
 
-**Issue: "redirect_uri_mismatch" error**
-- Solution: Verify redirect URIs include `/api/` prefix for production
-- Check both Google Cloud Console and Microsoft Entra ID configurations
+```bash
+cd MedRecPro
+dotnet ef database update
+```
 
-**Issue: "unauthorized_client" error (Microsoft)**
-- Solution: Check supported account types (should be Multi-tenant)
-- Verify Client ID has no extra characters in Key Vault
+### 4. Run the projects
 
-**Issue: Swagger UI shows JavaScript errors**
-- Solution: Purge Cloudflare cache
-- Verify static files are being served with correct content-type
+```bash
+# Terminal 1: API (port 5093)
+cd MedRecPro
+dotnet run
 
-**Issue: SSL certificate errors**
-- Solution: Verify both domains are bound to certificates in Azure
-- Check Cloudflare SSL mode is "Full (strict)"
+# Terminal 2: Static site (port 5001)
+cd MedRecProStatic
+dotnet run
 
-**Issue: Authentication succeeds but redirects to wrong page**
-- Solution: Check `AuthController.cs` uses correct path based on build configuration
-- Verify `#if DEBUG` / `#else` directives are properly set
+# Terminal 3: MCP server (port 5233, optional)
+cd MedRecProMCP
+dotnet run
+```
+
+### 5. Import SPL data
+
+Upload SPL ZIP files through the API import endpoint or use the console importer:
+
+```bash
+cd MedRecProConsole
+dotnet run -- --help
+```
+
+SPL ZIP files can be downloaded from the [DailyMed SPL Resources](https://dailymed.nlm.nih.gov/dailymed/spl-resources-all-drug-labels.cfm) page.
+
+## Setup Pitfalls and Fixes
+
+### IIS Virtual Application Path Stripping
+
+IIS strips the virtual application prefix from requests before forwarding to ASP.NET Core. A request to `/api/Label/search` arrives at Kestrel as `/Label/search`. All controllers use `#if DEBUG` compiler directives to handle this:
+
+```csharp
+#if DEBUG
+[Route("api/[controller]")]   // Local: full path
+#else
+[Route("[controller]")]        // Azure: IIS strips /api prefix
+#endif
+```
+
+The same pattern applies to MCP routes and Swagger paths.
+
+### Cloudflare + Azure App Service Managed Certificates
+
+Azure App Service Managed Certificates do not work with Cloudflare proxy enabled. Use Cloudflare Origin Certificates instead:
+
+1. Create an Origin Certificate in Cloudflare (SSL/TLS > Origin Server)
+2. Convert to PFX: `openssl pkcs12 -export -out origin.pfx -inkey key.pem -in cert.pem`
+3. Upload to Azure App Service > Certificates
+4. Bind to custom domains with SNI SSL
+
+### OAuth Redirect URI Prefix
+
+Production redirect URIs must include the `/api/` prefix:
+- Correct: `https://your-domain.com/api/signin-google`
+- Wrong: `https://your-domain.com/signin-google`
+
+### Cloudflare Bot Blocking
+
+Cloudflare has multiple independent bot-blocking systems that can interfere with MCP and server-to-server calls:
+
+- **"Block AI Bots"** (WAF managed rule) - Must allow Claude-User via AI Crawl Control settings
+- **"Bot Fight Mode"** - Blocks requests from hosting provider IPs. Cannot be bypassed with WAF rules. Whitelist Azure App Service outbound IPs via IP Access Rules (Security > WAF > Tools)
+- Always set a `User-Agent` header on outbound HttpClients to avoid bot detection
+
+### Azure SQL Serverless Cold Starts
+
+Azure SQL Serverless auto-pauses after inactivity. Resuming takes 15-30+ seconds, which can exceed default timeouts. Mitigations:
+- Increase HttpClient and SQL command timeouts
+- Use `EnableRetryOnFailure()` in `UseSqlServer()` configuration
+- Increase the auto-pause delay during active development
+
+### Key Vault Secret Naming
+
+Key Vault uses `--` (double dash) as separator; ASP.NET Core configuration uses `:` (colon). The framework maps between them automatically:
+- Key Vault: `Authentication--Google--ClientId`
+- Config: `Authentication:Google:ClientId`
+
+Ensure no extra characters (trailing commas, quotes) in Key Vault secret values.
+
+### IIS httpErrors PassThrough
+
+Without `<httpErrors existingResponse="PassThrough" />` in the root site's `web.config`, IIS replaces HTTP 401 responses with HTML error pages. This breaks OAuth challenge flows where the `WWW-Authenticate` header must reach the client. This setting must be in the root site (`MedRecProStatic`) because child virtual applications inherit it.
+
+### JWT Multi-Issuer/Audience
+
+When both the API and MCP server issue JWT tokens with different issuer/audience values, the JWT Bearer handler must accept both using `ValidIssuers` and `ValidAudiences` arrays instead of the singular properties.
 
 ## Azure SQL Free Tier Monitoring
 
-MedRecPro includes built-in monitoring for Azure SQL Database's serverless free tier, enabling the application to track vCore consumption and implement intelligent throttling to stay within budget.
+The API includes built-in monitoring for Azure SQL Database's serverless free tier (100,000 vCore seconds/month). The `AzureSqlMetricsService` queries Azure Monitor Metrics to track consumption, project monthly costs, and recommend throttling levels. See the `GET /api/Settings/metrics/database-cost` endpoint.
 
-### Overview
+## Security Configuration
 
-Azure SQL Database's serverless tier includes a monthly free allowance of **100,000 vCore seconds**. The `AzureSqlMetricsService` queries Azure Monitor Metrics to track consumption in real-time, enabling:
-
-- Dashboard display of current free tier usage
-- Projected monthly cost estimates
-- Automatic throttling when approaching budget limits
-- Cost optimization through usage awareness
-
-### Configuration
-
-Add the following to your `appsettings.json`:
+Security settings should be stored in user secrets (development) or Azure Key Vault (production):
 
 ```json
 {
-  "Azure": {
-    "SqlDatabase": {
-      "ResourceId": "/subscriptions/{subscription-id}/resourceGroups/{resource-group}/providers/Microsoft.Sql/servers/{server-name}/databases/{database-name}",
-      "MetricsRegion": "eastus"
-    }
-  }
+  "Authentication:Google:ClientId": "your-google-client-id.apps.googleusercontent.com",
+  "Authentication:Google:ClientSecret": "your-google-client-secret",
+  "Authentication:Microsoft:ClientId": "your-microsoft-app-id",
+  "Authentication:Microsoft:ClientSecret:Dev": "your-microsoft-secret",
+  "Authentication:Microsoft:ClientSecret:Prod": "your-microsoft-secret",
+  "Authentication:Microsoft:TenantId": "your-tenant-id",
+  "Security:DB:PKSecret": "your-encryption-key",
+  "Jwt:Key": "your-jwt-signing-key",
+  "Jwt:Issuer": "MedRecPro",
+  "Jwt:Audience": "MedRecUsers",
+  "Jwt:ExpirationMinutes": 60,
+  "ClaudeApiSettings:ApiKey": "your-claude-api-key",
+  "Dev:DB:Connection": "your-dev-connection-string",
+  "Prod:DB:Connection": "your-prod-connection-string"
 }
 ```
 
-| Setting | Description |
-|---------|-------------|
-| `ResourceId` | Full Azure Resource Manager path to your SQL database |
-| `MetricsRegion` | Azure region for the metrics endpoint (e.g., `eastus`, `westus3`) |
+Changing `Security:DB:PKSecret` will break all existing encrypted URLs, favorites, and bookmarks.
 
-### Prerequisites
+## Production Deployment
 
-**NuGet Packages:**
-```bash
-dotnet add package Azure.Monitor.Query.Metrics
-dotnet add package Azure.Identity
-```
+See the detailed deployment guides in each project's README:
+- **[MedRecProMCP README](MedRecProMCP/README.md)** - MCP server setup, OAuth provider config, Cloudflare rules, Claude.ai connector integration, and troubleshooting
+- **[MedRecProStatic README](MedRecProStatic/README.md)** - Static site deployment, content management, and IIS configuration
 
-**Azure RBAC Requirements:**
+### Deployment Checklist
 
-The application's managed identity (or service principal) requires the **Monitoring Reader** role on the SQL database resource to query metrics.
-
-### Service Registration
-
-```csharp
-// Program.cs
-builder.Services.AddMemoryCache();
-builder.Services.AddSingleton<AzureManagementTokenProvider>();
-builder.Services.AddSingleton<AzureSqlMetricsService>();
-```
-
-### Usage Examples
-
-**Get Current Free Tier Status:**
-```csharp
-var (used, remaining, percentUsed) = await _metricsService.GetFreeTierStatusAsync();
-
-// Example output:
-// Used: 45,230 vCore seconds
-// Remaining: 54,770 vCore seconds  
-// Percent Used: 45.2%
-```
-
-**Project Monthly Costs:**
-```csharp
-var (projectedUsage, projectedCost, daysElapsed) = await _metricsService.GetProjectedMonthlyCostAsync();
-
-// Example output after 15 days:
-// Projected Usage: 90,460 vCore seconds
-// Projected Cost: $0.00 (within free tier)
-// Days Elapsed: 15
-```
-
-**Check If Throttling Needed:**
-```csharp
-var (shouldThrottle, level, percent) = await _metricsService.ShouldThrottleAsync();
-
-switch (level)
-{
-    case "Aggressive":  // >90% used
-        // Block expensive operations
-        break;
-    case "Warning":     // 80-90% used
-        // Rate limit heavy queries
-        break;
-    case "None":        // <80% used
-        // Normal operation
-        break;
-}
-```
-
-### Key Methods
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `GetFreeTierStatusAsync()` | `(used, remaining, percentUsed)` | Current consumption status |
-| `GetUsedVCoreSecondsThisMonthAsync()` | `double` | Total vCore seconds used this month |
-| `GetRemainingFreeTierVCoreSecondsAsync()` | `double` | vCore seconds remaining in free tier |
-| `GetProjectedMonthlyCostAsync()` | `(projected, cost, days)` | Estimated end-of-month usage and cost |
-| `ShouldThrottleAsync()` | `(shouldThrottle, level, percent)` | Throttling recommendation |
-
-### Architecture Notes
-
-The service uses a dual-query strategy for reliability:
-
-1. **Primary:** REST API call to `management.azure.com` for `free_amount_remaining` metric
-2. **Fallback:** Azure Monitor Query SDK (`MetricsClient`) if REST returns no data
-
-Results are cached for 5 minutes to minimize API overhead. The service queries 15-minute granularity buckets and uses the minimum remaining value to ensure accurate tracking of consumption.
-
-### Cost Reference
-
-| Metric                   | Value                          |
-|--------------------------|--------------------------------|
-| Monthly Free Allowance   | 100,000 vCore seconds          |
-| Overage Rate             | ~$0.000145 per vCore second    |
-| Break-even (100% usage)  | $0.00/month                    |
-| 2x free tier usage       | ~$14.50/month                  |
-
-
-# MedRecPro AI Skills System
-
-## Overview
-
-This package implements an agentic AI layer for the MedRecPro pharmaceutical labeling management system. It enables natural language interaction with the system, allowing users to query pharmaceutical data, manage SPL documents, and perform system operations through conversational requests processed by Claude AI.
-
-## Architecture
-
-The system implements a **request-interpret-execute-synthesize** pattern:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          Client Application                         │
-└─────────────────────────────────────────────────────────────────────┘
-                                    │
-                    1. User submits natural language query
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    POST /api/ai/interpret                           │
-│                         AiController                                │
-└─────────────────────────────────────────────────────────────────────┘
-                                    │
-                    2. Claude interprets → returns API specs
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    AiAgentInterpretation                            │
-│   { endpoints: [{ method, path, queryParameters, ... }] }           │
-└─────────────────────────────────────────────────────────────────────┘
-                                    │
-                    3. Client executes specified endpoints
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    MedRecPro API Endpoints                          │
-│         /api/views/..., /api/labels/..., etc.                       │
-└─────────────────────────────────────────────────────────────────────┘
-                                    │
-                    4. Client sends results back
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    POST /api/ai/synthesize                          │
-│                         AiController                                │
-└─────────────────────────────────────────────────────────────────────┘
-                                    │
-                    5. Claude synthesizes → human-readable response
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    AiAgentSynthesis                                 │
-│   { response: "I found 47 products...", suggestedFollowUps: [...] } │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-## Files Included
-
-### Core Service Files
-
-| File                 | Description                                                    |
-|----------------------|----------------------------------------------------------------|
-| `AiAgentDtos.cs`     | Data transfer objects for requests/responses                   |
-| `AiController.cs`    | API controller exposing AI endpoints                           |
-
-### Skills Documentation
-
-| File                    | Description                                                  |
-|------|---------------------------------------------------------------------------------|
-| `SKILLS.md`             | Human-readable markdown documentation of available endpoints |
-| `medrecpro-skills.json` | Structured JSON skills document for AI interpretation        |
-
-
-## API Endpoints
-
-### GET /api/ai/context
-Returns current system state (authentication, demo mode, data counts).
-
-### POST /api/ai/interpret
-Interprets natural language query and returns API endpoint specifications.
-
-**Request:**
-```json
-{
-  "userMessage": "Find all products containing aspirin",
-  "conversationId": "conv-123"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "endpoints": [{
-    "method": "GET",
-    "path": "/api/views/ingredient/search",
-    "queryParameters": { "substanceNameSearch": "aspirin" },
-    "description": "Search products by ingredient name"
-  }],
-  "explanation": "I'll search for products containing aspirin."
-}
-```
-
-### POST /api/ai/synthesize
-Synthesizes API execution results into human-readable response.
-
-**Request:**
-```json
-{
-  "originalQuery": "Find all products containing aspirin",
-  "executedEndpoints": [{
-    "specification": { "method": "GET", "path": "/api/views/ingredient/search", "..." },
-    "statusCode": 200,
-    "result": [{ "ProductName": "Bayer Aspirin", "Next Product" }]
-  }]
-}
-```
-
-**Response:**
-```json
-{
-  "response": "I found 47 products containing aspirin...",
-  "dataHighlights": { "totalProducts": 47 },
-  "suggestedFollowUps": ["Show details for Bayer Aspirin"]
-}
-```
-
-### GET /api/ai/skills
-Returns the skills document describing available API capabilities.
-
-### GET /api/ai/chat?message={query}
-Convenience endpoint for simple queries (calls interpret internally).
-
-## Key Features
-
-### 1. System Context Awareness
-The AI agent checks:
-- Authentication status (determines available operations)
-- Demo mode state (warns about data persistence)
-- Database population (suggests import if empty)
-- Available capabilities
-
-### 2. Demo Mode Detection
-When `isDatabaseEmpty == true`, the agent suggests importing SPL data from DailyMed.
-
-### 3. Authentication Enforcement
-Write operations are flagged as requiring authentication. If user is not authenticated, the interpretation includes appropriate guidance.
-
-### 4. Comprehensive Skills Document
-The skills document includes:
-- All navigation view endpoints
-- CRUD operations for all label sections
-- Import/export capabilities
-- Common LOINC section codes
-- Trigger phrases for intent matching
-
-## Example Conversations
-
-### Query: "Find all drugs manufactured by Pfizer"
-```json
-// Interpretation
-{
-  "endpoints": [{
-    "method": "GET",
-    "path": "/api/views/labeler/search",
-    "queryParameters": { "labelerNameSearch": "Pfizer" }
-  }]
-}
-
-// Synthesis (after execution)
-{
-  "response": "I found 47 products manufactured by Pfizer Inc. Notable products include LIPITOR, VIAGRA, and ZOLOFT...",
-  "suggestedFollowUps": ["Show details for LIPITOR"]
-}
-```
-
-### Query: "Import some SPL data" (not authenticated)
-```json
-{
-  "success": false,
-  "requiresAuthentication": true,
-  "error": "This operation requires authentication. Please log in first."
-}
-```
-
-### Query: "What can you do?" (empty database)
-```json
-{
-  "isDirectResponse": true,
-  "directResponse": "The database is currently empty. To get started, import SPL ZIP files from DailyMed..."
-}
-```
-
-## Notes
-
-1. **Security**: The client executes API calls, preserving authentication context. The AI only returns specifications.
-
-2. **Encrypted IDs**: All IDs in responses are encrypted. Use these values in subsequent requests.
-
-3. **Error Handling**: Both interpretation and synthesis include fallback responses when Claude API fails.
-
-4. **Caching**: Skills document is cached for 1 hour to minimize overhead.
-
+1. Publish each project to its virtual application path on Azure App Service
+2. Verify Azure Key Vault secrets are configured
+3. Purge Cloudflare cache after deployment
+4. Test authentication flows (Google and Microsoft OAuth)
+5. Verify Swagger UI loads at `/api/swagger/index.html`
+6. Verify MCP health check at `/mcp/health`
+7. Test AI chat at the static site
 
 ## License
 
-See the [LICENSE.txt](LICENSE.txt) file for details.
+See the [LICENSE.txt](MedRecPro/LICENSE.txt) file for details.
