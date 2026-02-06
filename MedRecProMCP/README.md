@@ -321,7 +321,10 @@ Non-secret configuration shared across all environments.
 MedRecProMCP/
   Program.cs                          # App startup, DI, middleware, endpoint mappings
   MedRecProMCP.csproj                 # Project file (.NET 8.0)
+  MedRecProMCP.slnx                   # Solution file
+  MedRecProMCP.http                   # HTTP request test file
   web.config                          # IIS configuration (OutOfProcess hosting)
+  server.json                         # MCP registry metadata (see MCP Registry below)
   appsettings.json                    # Base configuration
   appsettings.Development.json        # Local dev overrides
   appsettings.Production.json         # Azure production overrides
@@ -329,24 +332,36 @@ MedRecProMCP/
     McpServerSettings.cs              # MCP server config model
     MedRecProApiSettings.cs           # API client config model
     JwtSettings.cs                    # JWT config model
-    AuthenticationSettings.cs         # OAuth provider config model
+    OAuthProviderSettings.cs          # OAuth provider config model (Google, Microsoft)
   Endpoints/
     OAuthEndpoints.cs                 # OAuth authorize, token, register, callbacks
     OAuthMetadataEndpoints.cs         # .well-known metadata endpoints
   Services/
+    IMcpTokenService.cs               # Token service interface
     McpTokenService.cs                # JWT token generation and validation
+    IOAuthService.cs                  # OAuth service interface
     OAuthService.cs                   # OAuth flow orchestration
+    IClientRegistrationService.cs     # Client registration interface
     ClientRegistrationService.cs      # Dynamic Client Registration (RFC 7591)
-    MedRecProApiClient.cs             # Typed HTTP client for MedRecPro API
+    IPkceService.cs                   # PKCE service interface
     PkceService.cs                    # PKCE implementation
+    IPersistedCacheService.cs         # Persisted cache interface
+    FilePersistedCacheService.cs      # File-based persistent cache (PKCE, registrations)
+    MedRecProApiClient.cs             # Typed HTTP client for MedRecPro API
   Handlers/
     TokenForwardingHandler.cs         # HTTP handler for token delegation
   Models/
     AiAgentDtos.cs                    # AI/Claude integration models
     WorkPlanModels.cs                 # Work plan and execution models
-  Tools/                              # MCP tool implementations
+  Tools/
+    DrugLabelTools.cs                 # MCP tools for drug label search and export
+    UserTools.cs                      # MCP tools for user/account operations
   Templates/
     McpDocumentation.html             # Embedded HTML documentation template
+  PowerShell/
+    test-mcp.ps1                      # MCP endpoint test script
+    test-mcp-detailed.ps1             # Detailed MCP test with verbose output
+    test-mcp-root.ps1                 # Root endpoint test script
   Properties/
     launchSettings.json               # Local development profiles
     PublishProfiles/
@@ -354,6 +369,138 @@ MedRecProMCP/
   Docs/
     DeploymentGuide.md                # Legacy deployment guide (subdomain approach)
 ```
+
+## Claude.ai Connector Integration
+
+This section documents the process of connecting the MCP server as a custom connector in Claude.ai's Settings > Connectors. This was a multi-session effort with numerous obstacles specific to the IIS virtual application + Cloudflare + Azure architecture.
+
+### Connection Status
+
+| Component | Status |
+|---|---|
+| OAuth 2.1 flow (PKCE S256) | Working |
+| MCP session establishment (`initialize`) | Working |
+| Tool listing (`tools/list`) | Working |
+| Tool execution (`tools/call`) | Working |
+| Downstream API calls (MCP -> MedRecPro API) | Working |
+
+### Issues Encountered and Fixes
+
+The following issues were encountered in order during integration. Each had to be resolved before the next became visible.
+
+#### 1. PKCE Validation Failure
+
+**Symptom:** OAuth token exchange failed with PKCE mismatch.
+**Root Cause:** The PKCE verifier/challenge pair was not being correctly stored and matched across the authorization flow.
+**Fix:** Corrected the PKCE storage and validation logic in `PkceService.cs`.
+
+#### 2. Discovery Endpoints Returning 302 Redirects
+
+**Symptom:** Claude's MCP SDK received 302 redirects instead of JSON for `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`.
+**Root Cause:** IIS path-based routing and the virtual application at `/mcp` caused discovery URL resolution issues. The MCP SDK expects `/.well-known/*` at the domain root, but the MCP server only handles requests under `/mcp`.
+**Fix:** Added the well-known endpoints directly to `MedRecProStatic/Program.cs` (the root site), serving the OAuth metadata as static JSON responses. This avoids redirects entirely.
+
+#### 3. Missing `[Authorize]` on MCP Transport
+
+**Symptom:** Claude could connect without authentication — no 401 challenge was sent.
+**Root Cause:** The `MapMcp()` endpoint lacked `.RequireAuthorization()`.
+**Fix:** Added `.RequireAuthorization()` to the `MapMcp("/")` call in `Program.cs` (RELEASE configuration).
+
+#### 4. `[AllowAnonymous]` on MCP Transport
+
+**Symptom:** Even with `.RequireAuthorization()`, the MCP transport was not triggering 401.
+**Root Cause:** The MCP SDK's default transport middleware was internally applying `[AllowAnonymous]`.
+**Fix:** Used the `McpAuthenticationHandler` challenge scheme to ensure the `WWW-Authenticate` header with `resource_metadata` URI is returned on unauthenticated requests.
+
+#### 5. IIS Replacing 401 with HTML Error Pages
+
+**Symptom:** Claude received HTML error pages instead of the JSON 401 response with `WWW-Authenticate` header.
+**Root Cause:** IIS intercepts HTTP error responses and replaces them with its own HTML pages.
+**Fix:** Added `<httpErrors existingResponse="PassThrough" />` to `web.config` in **both** `MedRecProStatic` (root site) and `MedRecProMCP`. The root site's setting is critical because it is inherited by child virtual applications.
+
+#### 6. Wrong `resource_metadata` URL in 401 Response
+
+**Symptom:** Claude could not find the Protected Resource Metadata (PRM) endpoint.
+**Root Cause:** The `resource_metadata` URI in the `WWW-Authenticate` header was pointing to the wrong path.
+**Fix:** Explicitly set `ResourceMetadataUri` in the `McpAuthenticationHandler` configuration to `{ServerUrl}/.well-known/oauth-protected-resource`.
+
+#### 7. PRM Endpoint 404
+
+**Symptom:** The PRM endpoint returned 404 after the URL was corrected.
+**Root Cause:** Route registration order and IIS path stripping resulted in the endpoint not being mapped.
+**Fix:** Added explicit PRM endpoint registration in `OAuthMetadataEndpoints.cs` with correct routing.
+
+#### 8. Cloudflare "Manage AI Bots" WAF Rule Blocking Claude
+
+**Symptom:** Claude's requests never reached the server (Cloudflare returned 403).
+**Root Cause:** Cloudflare's managed WAF rule "Block AI Bots" was blocking all requests from Claude-User (Anthropic's crawler user agent). The AI Crawl Control dashboard showed 149 blocked requests and 0 allowed.
+**Fix (Cloudflare Dashboard):**
+1. **Security > Settings > Block AI Bots Scope** — Changed to "Block only on hostnames with ads"
+2. **Security > AI Crawl Control > Crawlers** — Set `Claude-User` (Anthropic) to **Allow**
+
+#### 9. JWT Audience Validation Failed (IDX10214)
+
+**Symptom:** `IDX10214: Audience validation failed. Audiences: 'https://www.medrecpro.com/mcp'. Did not match: validationParameters.ValidAudience: 'MedRecUsers'`
+**Root Cause:** `McpTokenService` issues tokens with audience set to `ServerUrl` (`https://www.medrecpro.com/mcp`), but the JWT Bearer handler only accepted `MedRecUsers` (from `Jwt:Audience` config).
+**Fix:** Changed `ValidAudience` (single) to `ValidAudiences` (array) accepting both `jwtSettings.Audience` and `mcpSettings.ServerUrl.TrimEnd('/')`.
+
+#### 10. JWT Issuer Validation Failed (IDX10205)
+
+**Symptom:** `IDX10205: Issuer validation failed. Issuer: 'https://www.medrecpro.com/mcp'. Did not match: validationParameters.ValidIssuer: 'MedRecPro'`
+**Root Cause:** Same dual-token issue as audience — `McpTokenService` uses `ServerUrl` as issuer, but JWT handler only accepted `MedRecPro`.
+**Fix:** Changed `ValidIssuer` (single) to `ValidIssuers` (array) accepting both `jwtSettings.Issuer` and `mcpSettings.ServerUrl.TrimEnd('/')`.
+
+#### 11. Downstream API Calls Blocked by Cloudflare Bot Fight Mode
+
+**Symptom:** MCP tools executed but returned 403. The MCP server's HTTP calls to `https://www.medrecpro.com/api/...` were blocked.
+**Root Cause:** The MCP server (running on Azure) makes outbound HTTP requests to the public API URL. These requests go through Cloudflare, which flagged them via Bot Fight Mode because they came from Azure IP addresses with an empty `User-Agent` header.
+**Fix (two-part):**
+1. **Code** — Added `User-Agent: MedRecProMCP/1.0 (Internal-API-Client)` header to both HttpClient registrations in `Program.cs`
+2. **Cloudflare** — Bot Fight Mode **cannot** be skipped via WAF custom rules, but it will not trigger if an **IP Access Rule** matches the request. Added IP Access Rules (action: Allow) for all 32 Azure App Service outbound IPs:
+   ```bash
+   # Get all possible outbound IPs for the App Service
+   az webapp show --resource-group <rg> --name <app> \
+     --query possibleOutboundIpAddresses --output tsv
+
+   # Add each IP as a Cloudflare IP Access Rule (Allow)
+   # Use Cloudflare API with Global API Key:
+   for ip in $IPS; do
+     curl -s -X POST \
+       "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/firewall/access_rules/rules" \
+       -H "X-Auth-Email: $EMAIL" \
+       -H "X-Auth-Key: $API_KEY" \
+       -H "Content-Type: application/json" \
+       --data "{\"mode\":\"whitelist\",\"configuration\":{\"target\":\"ip\",\"value\":\"$ip\"},\"notes\":\"Azure App Service outbound IP\"}"
+   done
+   ```
+
+#### 12. Azure SQL Database Cold Start Timeouts
+
+**Symptom:** First tool calls after idle periods fail with `Database 'MedRecProDB' is not currently available` or `Execution Timeout Expired` (30-second command timeout).
+**Root Cause:** Azure SQL Serverless auto-pauses after inactivity. Resuming takes 15-30+ seconds, exceeding both the HttpClient timeout (30s) and SQL command timeout (30s).
+**Status:** Known issue. Subsequent requests succeed once the database warms up. Mitigation options include increasing the auto-pause delay, enabling `EnableRetryOnFailure` on `UseSqlServer`, or increasing the `TimeoutSeconds` in `MedRecProApi` settings.
+
+### Lessons Learned
+
+1. **IIS virtual applications strip path prefixes.** A request to `/mcp/oauth/authorize` arrives at Kestrel as `/oauth/authorize`. All route mappings must account for this in RELEASE builds. Use `#if DEBUG` directives.
+
+2. **OAuth discovery must be at the domain root.** The MCP SDK resolves `/.well-known/*` relative to the domain, not the MCP endpoint path. Serve these endpoints from the root site (`MedRecProStatic`), not the MCP virtual application.
+
+3. **`httpErrors existingResponse="PassThrough"` is critical.** Without it, IIS replaces 401 responses (needed for OAuth challenge) with HTML error pages. This must be set in the **root site's** `web.config` because child virtual applications inherit the setting.
+
+4. **Cloudflare has multiple independent bot-blocking systems:**
+   - **"Block AI Bots"** (WAF managed rule) — Controls AI crawler access. Allow Claude-User via AI Crawl Control.
+   - **"Bot Fight Mode"** — Blocks automated traffic from hosting provider IPs. Cannot be skipped with WAF rules. The only bypass is IP Access Rules.
+
+5. **Server-to-server calls through Cloudflare require whitelisting.** When your server makes HTTP calls to your own public domain, those requests go through Cloudflare and will be flagged as bot traffic. Always set a `User-Agent` header on outbound HttpClients, and whitelist your server's outbound IPs in Cloudflare IP Access Rules.
+
+6. **Azure App Service cannot make localhost connections.** The sandbox prevents outbound socket connections to `127.0.0.1:80`. Server-to-server calls within the same App Service must go through the public hostname.
+
+7. **JWT tokens from different issuers need `ValidIssuers`/`ValidAudiences` arrays.** When the MCP server issues tokens with different issuer/audience values than the existing user auth system, the JWT Bearer handler must accept both. Use the plural array properties, not the singular ones.
+
+8. **Azure SQL Serverless cold starts can cascade.** A paused database takes 15-30+ seconds to resume. If the MCP HttpClient timeout (30s) expires before the database wakes, the tool call fails. Consider `EnableRetryOnFailure` and generous timeouts for serverless databases.
+
+9. **Cloudflare API authentication:** The Global API Key uses `X-Auth-Email` + `X-Auth-Key` headers, **not** `Authorization: Bearer`. API Tokens (scoped) use `Authorization: Bearer`. Using the wrong format returns `Unable to authenticate request`.
 
 ## Troubleshooting
 
@@ -373,9 +520,27 @@ The JWT signing key is empty. This means Key Vault secrets aren't loading:
 2. Verify the App Service managed identity has `Get` and `List` permissions on Key Vault secrets
 3. Verify `ASPNETCORE_ENVIRONMENT` is set to `Production` in App Service environment variables
 
+### IDX10214 / IDX10205: Audience or Issuer validation failed
+
+JWT tokens issued by `McpTokenService` use `ServerUrl` as both issuer and audience. The JWT Bearer handler must accept both the MCP values and the existing user auth values:
+
+```csharp
+ValidIssuers = new[] { jwtSettings.Issuer, mcpSettings.ServerUrl.TrimEnd('/') }
+ValidAudiences = new[] { jwtSettings.Audience, mcpSettings.ServerUrl.TrimEnd('/') }
+```
+
 ### 405 Method Not Allowed on /mcp
 
 This is **expected behavior**. The MCP Streamable HTTP transport at `/mcp` only accepts POST requests. Browsers send GET, which returns 405.
+
+### 403 Forbidden on downstream API calls
+
+The MCP server's outbound HTTP calls to `https://www.medrecpro.com/api/...` are being blocked by Cloudflare:
+
+1. **Check Cloudflare Firewall Events** — Look for blocks with source `botFight` or `managedChallenge`
+2. **Verify IP Access Rules** — All Azure App Service outbound IPs must be whitelisted in Cloudflare (Security > WAF > Tools > IP Access Rules, action: Allow)
+3. **Verify User-Agent header** — The HttpClient must send a non-empty User-Agent. Check `Program.cs` for `client.DefaultRequestHeaders.Add("User-Agent", ...)`
+4. **Get outbound IPs:** `az webapp show --resource-group <rg> --name <app> --query possibleOutboundIpAddresses --output tsv`
 
 ### OAuth callback errors
 
@@ -388,6 +553,14 @@ This is **expected behavior**. The MCP Streamable HTTP transport at `/mcp` only 
 1. Verify Cloudflare transform rule sets `X-Accel-Buffering: no` for `/mcp` paths
 2. Verify Cloudflare cache rule bypasses cache for `/mcp` paths
 3. Check Azure App Service always-on is enabled
+
+### Database timeout on first tool call
+
+Azure SQL Serverless may be paused. The first request triggers a resume that takes 15-30+ seconds:
+
+1. **Retry** — The second attempt usually succeeds after the database warms up
+2. **Increase auto-pause delay** — In Azure Portal, set the serverless auto-pause delay to 10-15 minutes during testing
+3. **Add retry logic** — Consider `EnableRetryOnFailure()` in `UseSqlServer()` configuration
 
 ---
 

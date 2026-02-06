@@ -206,21 +206,9 @@ public static class OAuthEndpoints
         // Generate PKCE for upstream provider
         var (upstreamVerifier, upstreamChallenge) = pkceService.GenerateCodeChallengePair();
 
-        // Store PKCE and authorization data for the callback
-        var pkceData = new PkceData
-        {
-            CodeVerifier = upstreamVerifier,
-            CodeChallenge = code_challenge, // Client's challenge
-            ClientId = client_id,
-            RedirectUri = redirect_uri,
-            Scopes = scopes.ToList(),
-            Provider = selectedProvider,
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(10)
-        };
-
-        // Store with client's state as key
-        await pkceService.StorePkceDataAsync(state, upstreamVerifier, client_id, redirect_uri, scopes);
+        // Store PKCE data: upstream verifier (for Google/Microsoft) + client's code_challenge (from Claude)
+        await pkceService.StorePkceDataAsync(
+            state, upstreamVerifier, code_challenge, client_id, redirect_uri, scopes);
 
         // Also store mapping from upstream state to client state (persisted to survive restarts)
         var persistedCache = context.RequestServices.GetRequiredService<IPersistedCacheService>();

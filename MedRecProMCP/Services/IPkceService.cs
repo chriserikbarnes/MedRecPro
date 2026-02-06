@@ -32,18 +32,26 @@ public interface IPkceService
 
     /**************************************************************/
     /// <summary>
-    /// Stores a PKCE verifier for later validation.
+    /// Stores PKCE data for later validation.
     /// </summary>
     /// <param name="state">The state parameter to associate with this verifier.</param>
-    /// <param name="codeVerifier">The code verifier to store.</param>
+    /// <param name="codeVerifier">The upstream provider's code verifier (for Google/Microsoft token exchange).</param>
+    /// <param name="codeChallenge">The client's original code_challenge (from the MCP client, e.g. Claude).</param>
     /// <param name="clientId">The client ID that initiated this flow.</param>
     /// <param name="redirectUri">The redirect URI for this flow.</param>
     /// <param name="scopes">The requested scopes.</param>
     /// <returns>Task for async operation.</returns>
+    /// <remarks>
+    /// The codeVerifier is used to exchange the authorization code with the upstream
+    /// provider (Google/Microsoft). The codeChallenge is the client's original S256
+    /// challenge that will be validated when the client exchanges its authorization
+    /// code with this server using its own code_verifier.
+    /// </remarks>
     /**************************************************************/
     Task StorePkceDataAsync(
         string state,
         string codeVerifier,
+        string codeChallenge,
         string clientId,
         string redirectUri,
         IEnumerable<string> scopes);

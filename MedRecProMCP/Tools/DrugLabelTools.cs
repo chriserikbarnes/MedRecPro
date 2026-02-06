@@ -69,6 +69,7 @@
 
 using MedRecProMCP.Configuration;
 using MedRecProMCP.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
@@ -86,10 +87,17 @@ namespace MedRecProMCP.Tools;
 /// These tools provide Claude with the ability to search and retrieve
 /// drug label information from the MedRecPro API. All operations
 /// require authentication and forward the user's token to the API.
+///
+/// The [Authorize] attribute ensures the MCP SDK returns a 401 challenge
+/// with WWW-Authenticate headers when an unauthenticated client invokes
+/// these tools, triggering the OAuth flow.
 /// </remarks>
 /// <seealso cref="MedRecProApiClient"/>
 /**************************************************************/
 [McpServerToolType]
+#if !DEBUG
+[Authorize]
+#endif
 public class DrugLabelTools
 {
     private readonly MedRecProApiClient _apiClient;

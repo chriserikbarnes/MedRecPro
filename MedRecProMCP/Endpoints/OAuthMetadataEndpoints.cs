@@ -61,6 +61,17 @@ public static class OAuthMetadataEndpoints
             .WithTags("OAuth Metadata")
             .WithSummary("Returns OpenID Connect discovery document");
 
+        // Protected Resource Metadata (RFC 9728)
+        // The MCP SDK's McpAuthenticationHandler normally serves this endpoint, but when
+        // ResourceMetadataUri is set to an absolute external URL (required for IIS virtual
+        // app hosting), the handler's path matching fails because IIS strips the /mcp prefix.
+        // We map it explicitly so the 401 challenge's resource_metadata URL resolves correctly.
+        app.MapGet($"{wellKnownPrefix}/oauth-protected-resource", HandleProtectedResourceMetadata)
+            .AllowAnonymous()
+            .WithName("ProtectedResourceMetadata")
+            .WithTags("OAuth Metadata")
+            .WithSummary("Returns Protected Resource Metadata (RFC 9728)");
+
         return app;
         #endregion
     }
@@ -128,6 +139,48 @@ public static class OAuthMetadataEndpoints
             // Additional OIDC fields for compatibility
             SubjectTypesSupported = new List<string> { "public" },
             IdTokenSigningAlgValuesSupported = new List<string> { "RS256", "HS256" }
+        };
+
+        return Results.Json(metadata, new System.Text.Json.JsonSerializerOptions
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower
+        });
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Handles the Protected Resource Metadata endpoint (RFC 9728).
+    /// </summary>
+    /// <remarks>
+    /// Returns metadata that tells MCP clients where to find the OAuth
+    /// authorization server and what scopes/methods are supported.
+    /// This endpoint is referenced by the WWW-Authenticate header in 401
+    /// challenge responses (resource_metadata parameter).
+    /// </remarks>
+    /**************************************************************/
+    private static IResult HandleProtectedResourceMetadata(
+        IOptions<McpServerSettings> mcpSettings)
+    {
+        #region implementation
+        var serverUrl = mcpSettings.Value.ServerUrl.TrimEnd('/');
+
+        var metadata = new ProtectedResourceMetadataResponse
+        {
+            Resource = serverUrl,
+            AuthorizationServers = new List<string> { serverUrl },
+            ScopesSupported = mcpSettings.Value.ScopesSupported?.ToList() ?? new List<string>
+            {
+                "mcp:tools",
+                "mcp:read",
+                "mcp:write",
+                "openid",
+                "profile",
+                "email"
+            },
+            BearerMethodsSupported = new List<string> { "header" },
+            ResourceDocumentation = $"{serverUrl}/docs"
         };
 
         return Results.Json(metadata, new System.Text.Json.JsonSerializerOptions
@@ -273,4 +326,57 @@ public class AuthorizationServerMetadata
     /**************************************************************/
     [JsonPropertyName("id_token_signing_alg_values_supported")]
     public List<string>? IdTokenSigningAlgValuesSupported { get; set; }
+}
+
+/**************************************************************/
+/// <summary>
+/// Protected Resource Metadata (RFC 9728).
+/// </summary>
+/// <remarks>
+/// Describes a protected resource's OAuth configuration,
+/// including which authorization servers can issue tokens for it
+/// and what scopes/methods are supported.
+/// </remarks>
+/**************************************************************/
+public class ProtectedResourceMetadataResponse
+{
+    /**************************************************************/
+    /// <summary>
+    /// The protected resource identifier (URL).
+    /// </summary>
+    /**************************************************************/
+    [JsonPropertyName("resource")]
+    public string Resource { get; set; } = string.Empty;
+
+    /**************************************************************/
+    /// <summary>
+    /// List of authorization server URLs that can issue tokens.
+    /// </summary>
+    /**************************************************************/
+    [JsonPropertyName("authorization_servers")]
+    public List<string> AuthorizationServers { get; set; } = new();
+
+    /**************************************************************/
+    /// <summary>
+    /// List of supported OAuth scopes.
+    /// </summary>
+    /**************************************************************/
+    [JsonPropertyName("scopes_supported")]
+    public List<string>? ScopesSupported { get; set; }
+
+    /**************************************************************/
+    /// <summary>
+    /// List of supported bearer token delivery methods.
+    /// </summary>
+    /**************************************************************/
+    [JsonPropertyName("bearer_methods_supported")]
+    public List<string>? BearerMethodsSupported { get; set; }
+
+    /**************************************************************/
+    /// <summary>
+    /// URL of the resource documentation.
+    /// </summary>
+    /**************************************************************/
+    [JsonPropertyName("resource_documentation")]
+    public string? ResourceDocumentation { get; set; }
 }

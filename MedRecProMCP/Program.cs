@@ -149,6 +149,7 @@ builder.Services.AddHttpClient("MedRecProApi", client =>
 {
     client.BaseAddress = new Uri(medrecProApiSettings.BaseUrl);
     client.DefaultRequestHeaders.Add("Accept", "application/json");
+    client.DefaultRequestHeaders.Add("User-Agent", "MedRecProMCP/1.0 (Internal-API-Client)");
     client.Timeout = TimeSpan.FromSeconds(medrecProApiSettings.TimeoutSeconds);
 })
 .AddHttpMessageHandler<TokenForwardingHandler>();
@@ -158,6 +159,7 @@ builder.Services.AddHttpClient<MedRecProApiClient>(client =>
 {
     client.BaseAddress = new Uri(medrecProApiSettings.BaseUrl);
     client.DefaultRequestHeaders.Add("Accept", "application/json");
+    client.DefaultRequestHeaders.Add("User-Agent", "MedRecProMCP/1.0 (Internal-API-Client)");
     client.Timeout = TimeSpan.FromSeconds(medrecProApiSettings.TimeoutSeconds);
 })
 .AddHttpMessageHandler<TokenForwardingHandler>();
@@ -205,12 +207,18 @@ builder.Services.AddAuthentication(options =>
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
         // Use Jwt:Issuer and Jwt:Audience from secrets.json, fall back to ServerUrl
-        ValidIssuer = !string.IsNullOrEmpty(jwtSettings.Issuer)
-            ? jwtSettings.Issuer
-            : mcpSettings.ServerUrl.TrimEnd('/'),
-        ValidAudience = !string.IsNullOrEmpty(jwtSettings.Audience)
-            ? jwtSettings.Audience
-            : mcpSettings.ServerUrl.TrimEnd('/'),
+        ValidIssuer = null,
+        ValidIssuers = new[]
+        {
+            jwtSettings.Issuer,                     // existing user tokens ("MedRecPro")
+            mcpSettings.ServerUrl.TrimEnd('/')       // MCP tokens ("https://www.medrecpro.com/mcp")
+        }.Where(i => !string.IsNullOrEmpty(i)).ToArray(),
+        ValidAudience = null,
+        ValidAudiences = new[]
+        {
+            jwtSettings.Audience,                   // existing user tokens ("MedRecUsers")
+            mcpSettings.ServerUrl.TrimEnd('/')       // MCP tokens ("https://www.medrecpro.com/mcp")
+        }.Where(a => !string.IsNullOrEmpty(a)).ToArray(),
         IssuerSigningKey = jwtSigningKey,
         ClockSkew = TimeSpan.FromMinutes(1),
         NameClaimType = "name",
@@ -256,8 +264,16 @@ builder.Services.AddAuthentication(options =>
     /// This metadata document is served at /.well-known/oauth-protected-resource
     /// and tells MCP clients (like Claude) where to find the authorization
     /// server and what scopes are available.
+    ///
+    /// ResourceMetadataUri MUST be set explicitly for IIS virtual app hosting.
+    /// Without it, the SDK generates the WWW-Authenticate resource_metadata URL
+    /// from the incoming request (scheme + host + pathBase + path), which behind
+    /// IIS out-of-process produces http://host/.well-known/oauth-protected-resource
+    /// (wrong scheme, missing /mcp path prefix). Setting it to the full external
+    /// URL ensures the 401 challenge header points to the correct PRM endpoint.
     /// </remarks>
     /**************************************************************/
+    options.ResourceMetadataUri = new Uri($"{mcpSettings.ServerUrl}/.well-known/oauth-protected-resource");
     options.ResourceMetadata = new()
     {
         Resource = new Uri(mcpSettings.ServerUrl),
@@ -384,6 +400,39 @@ else
 }
 
 app.UseHttpsRedirection();
+
+// Request/Response logging — captures every inbound request and outbound status/headers
+// before auth runs. Critical for debugging MCP OAuth flow (what does Claude actually send?).
+app.Use(async (context, next) =>
+{
+    var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("HttpTraffic");
+
+    var method = context.Request.Method;
+    var path = context.Request.Path + context.Request.QueryString;
+    var hasAuth = context.Request.Headers.ContainsKey("Authorization");
+    var authHeader = hasAuth
+        ? context.Request.Headers["Authorization"].ToString()[..Math.Min(40, context.Request.Headers["Authorization"].ToString().Length)] + "..."
+        : "(none)";
+    var accept = context.Request.Headers["Accept"].ToString();
+    var contentType = context.Request.ContentType ?? "(none)";
+
+    logger.LogInformation(
+        "[Traffic] >>> {Method} {Path} | Auth: {Auth} | Accept: {Accept} | Content-Type: {ContentType}",
+        method, path, authHeader, accept, contentType);
+
+    await next();
+
+    var statusCode = context.Response.StatusCode;
+    var wwwAuth = context.Response.Headers.ContainsKey("WWW-Authenticate")
+        ? context.Response.Headers["WWW-Authenticate"].ToString()
+        : "(none)";
+    var responseContentType = context.Response.ContentType ?? "(none)";
+
+    logger.LogInformation(
+        "[Traffic] <<< {StatusCode} | WWW-Authenticate: {WwwAuth} | Content-Type: {ResponseContentType}",
+        statusCode, wwwAuth, responseContentType);
+});
 
 // CORS must come before routing
 if (app.Environment.IsDevelopment())
@@ -527,10 +576,15 @@ app.MapGet("/mcp/.well-known/oauth-protected-resource",
 
 #if DEBUG
 // DEBUG: MCP transport at /mcp (standalone app, full path required)
+// AllowAnonymous lets tools run without OAuth during local development
 app.MapMcp("/mcp").AllowAnonymous();
 #else
 // RELEASE: MCP transport at root / (IIS virtual app at /mcp strips the prefix)
-app.MapMcp("/").AllowAnonymous();
+// RequireAuthorization ensures ASP.NET Core returns HTTP 401 + WWW-Authenticate
+// on ALL unauthenticated requests (including initialize). The McpAuthenticationHandler
+// (challenge scheme) adds: WWW-Authenticate: Bearer resource_metadata="<PRM url>"
+// which triggers Claude's OAuth discovery flow per the MCP spec.
+app.MapMcp("/").RequireAuthorization();
 #endif
 #endregion
 

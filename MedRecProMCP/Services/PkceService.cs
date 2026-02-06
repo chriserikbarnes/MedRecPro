@@ -71,16 +71,18 @@ public class PkceService : IPkceService
     public async Task StorePkceDataAsync(
         string state,
         string codeVerifier,
+        string codeChallenge,
         string clientId,
         string redirectUri,
         IEnumerable<string> scopes)
     {
         #region implementation
         var now = DateTime.UtcNow;
+        // Store the upstream provider's verifier and the client's original code_challenge separately
         var pkceData = new PkceData
         {
-            CodeVerifier = codeVerifier,
-            CodeChallenge = computeCodeChallenge(codeVerifier),
+            CodeVerifier = codeVerifier,       // Upstream verifier (for Google/Microsoft exchange)
+            CodeChallenge = codeChallenge,      // Client's original S256 challenge (from Claude)
             ClientId = clientId,
             RedirectUri = redirectUri,
             Scopes = scopes.ToList(),

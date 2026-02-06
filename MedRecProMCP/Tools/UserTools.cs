@@ -11,6 +11,7 @@
 /**************************************************************/
 
 using MedRecProMCP.Services;
+using Microsoft.AspNetCore.Authorization;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Text.Json;
@@ -21,8 +22,16 @@ namespace MedRecProMCP.Tools;
 /// <summary>
 /// MCP tools for user-related operations.
 /// </summary>
+/// <remarks>
+/// The [Authorize] attribute ensures the MCP SDK returns a 401 challenge
+/// with WWW-Authenticate headers when an unauthenticated client invokes
+/// these tools, triggering the OAuth flow.
+/// </remarks>
 /**************************************************************/
 [McpServerToolType]
+#if !DEBUG
+[Authorize]
+#endif
 public class UserTools
 {
     private readonly MedRecProApiClient _apiClient;
