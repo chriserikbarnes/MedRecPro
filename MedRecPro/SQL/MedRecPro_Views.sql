@@ -1756,9 +1756,12 @@ GO
 
 /**************************************************************/
 -- View: vw_SectionContent
--- Purpose: Section content with text for full-text search
--- Usage: Retrieve section text content for document display
--- Returns: Section content with document context
+-- Purpose: Aggregated section content with text, lists, and tables
+-- Usage: Retrieve all content for a section rolled up from child sections
+-- Returns: One row per titled section with all content concatenated (raw text)
+-- Content: Paragraphs (SectionTextContent), Lists (TextList/TextListItem),
+--          Tables (TextTable/TextTableRow/TextTableCell), Child sections (SectionHierarchy)
+-- Note: SectionCode inherits from parent when child section code is NULL
 
 IF OBJECT_ID('dbo.vw_SectionContent', 'V') IS NOT NULL
     DROP VIEW dbo.vw_SectionContent;
@@ -1766,28 +1769,185 @@ GO
 
 CREATE VIEW dbo.vw_SectionContent
 AS
+WITH
+-- Map content sections to their display parent
+-- Sections with Title contribute to themselves; sections without Title contribute to their parent
+SectionToParent AS (
+    -- Sections with titles map to themselves
+    SELECT
+        s.SectionID AS ContentSectionID,
+        s.SectionID AS DisplaySectionID,
+        s.DocumentID,
+        0 AS HierarchySequence
+    FROM dbo.Section s
+    WHERE s.Title IS NOT NULL
+
+    UNION ALL
+
+    -- Child sections (with NULL title) map to their parent section
+    SELECT
+        child.SectionID AS ContentSectionID,
+        parent.SectionID AS DisplaySectionID,
+        parent.DocumentID,
+        sh.SequenceNumber AS HierarchySequence
+    FROM dbo.SectionHierarchy sh
+    INNER JOIN dbo.Section child ON sh.ChildSectionID = child.SectionID
+    INNER JOIN dbo.Section parent ON sh.ParentSectionID = parent.SectionID
+    WHERE child.Title IS NULL
+      AND parent.Title IS NOT NULL
+),
+
+-- Get all lists with their items (raw text, no formatting)
+ListContent AS (
+    SELECT
+        tl.SectionTextContentID,
+        STRING_AGG(
+            CAST(
+                COALESCE(
+                    CASE WHEN tli.ItemCaption IS NOT NULL AND LEN(tli.ItemCaption) > 0
+                         THEN tli.ItemCaption + ' '
+                         ELSE ''
+                    END, ''
+                ) +
+                COALESCE(tli.ItemText, '')
+            AS NVARCHAR(MAX)),
+            CHAR(13) + CHAR(10)
+        ) WITHIN GROUP (ORDER BY tli.SequenceNumber) AS ListText
+    FROM dbo.TextList tl
+    INNER JOIN dbo.TextListItem tli ON tl.TextListID = tli.TextListID
+    WHERE tli.ItemText IS NOT NULL OR tli.ItemCaption IS NOT NULL
+    GROUP BY tl.SectionTextContentID, tl.TextListID
+),
+
+-- Aggregate table cells into rows (raw text, no formatting)
+TableCellsPerRow AS (
+    SELECT
+        ttr.TextTableRowID,
+        ttr.TextTableID,
+        ttr.RowGroupType,
+        ttr.SequenceNumber AS RowSequence,
+        STRING_AGG(
+            CAST(COALESCE(ttc.CellText, '') AS NVARCHAR(MAX)),
+            ' '
+        ) WITHIN GROUP (ORDER BY ttc.SequenceNumber) AS RowText
+    FROM dbo.TextTableRow ttr
+    INNER JOIN dbo.TextTableCell ttc ON ttr.TextTableRowID = ttc.TextTableRowID
+    GROUP BY ttr.TextTableRowID, ttr.TextTableID, ttr.RowGroupType, ttr.SequenceNumber
+),
+
+-- Aggregate rows into complete tables (raw text, no formatting)
+TableContent AS (
+    SELECT
+        tt.SectionTextContentID,
+        COALESCE(
+            CASE WHEN tt.Caption IS NOT NULL AND LEN(tt.Caption) > 0
+                 THEN tt.Caption + CHAR(13) + CHAR(10)
+                 ELSE ''
+            END, ''
+        ) +
+        STRING_AGG(
+            CAST(tcpr.RowText AS NVARCHAR(MAX)),
+            CHAR(13) + CHAR(10)
+        ) WITHIN GROUP (
+            ORDER BY
+                CASE tcpr.RowGroupType
+                    WHEN 'thead' THEN 1
+                    WHEN 'tbody' THEN 2
+                    WHEN 'tfoot' THEN 3
+                    ELSE 2
+                END,
+                tcpr.RowSequence
+        ) AS TableText
+    FROM dbo.TextTable tt
+    INNER JOIN TableCellsPerRow tcpr ON tt.TextTableID = tcpr.TextTableID
+    GROUP BY tt.SectionTextContentID, tt.TextTableID, tt.Caption
+),
+
+-- Combine all content types with proper sequencing
+AllSectionContent AS (
+    -- Regular text paragraphs (raw content text)
+    SELECT
+        sp.DisplaySectionID AS SectionID,
+        sp.DocumentID,
+        sp.HierarchySequence,
+        stc.SequenceNumber,
+        0 AS SubSequence,
+        stc.ContentText AS RawContent
+    FROM SectionToParent sp
+    INNER JOIN dbo.SectionTextContent stc ON sp.ContentSectionID = stc.SectionID
+    WHERE stc.ContentText IS NOT NULL
+      AND LEN(LTRIM(RTRIM(stc.ContentText))) > 0
+
+    UNION ALL
+
+    -- List content (attached to SectionTextContent)
+    SELECT
+        sp.DisplaySectionID AS SectionID,
+        sp.DocumentID,
+        sp.HierarchySequence,
+        stc.SequenceNumber,
+        1 AS SubSequence,
+        lc.ListText AS RawContent
+    FROM SectionToParent sp
+    INNER JOIN dbo.SectionTextContent stc ON sp.ContentSectionID = stc.SectionID
+    INNER JOIN ListContent lc ON stc.SectionTextContentID = lc.SectionTextContentID
+
+    UNION ALL
+
+    -- Table content (attached to SectionTextContent)
+    SELECT
+        sp.DisplaySectionID AS SectionID,
+        sp.DocumentID,
+        sp.HierarchySequence,
+        stc.SequenceNumber,
+        2 AS SubSequence,
+        tc.TableText AS RawContent
+    FROM SectionToParent sp
+    INNER JOIN dbo.SectionTextContent stc ON sp.ContentSectionID = stc.SectionID
+    INNER JOIN TableContent tc ON stc.SectionTextContentID = tc.SectionTextContentID
+),
+
+-- Aggregate all content per section
+AggregatedContent AS (
+    SELECT
+        SectionID,
+        DocumentID,
+        STRING_AGG(
+            CAST(RawContent AS NVARCHAR(MAX)),
+            CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+        ) WITHIN GROUP (ORDER BY HierarchySequence, SequenceNumber, SubSequence) AS AggregatedText,
+        MIN(SequenceNumber) AS MinSequenceNumber
+    FROM AllSectionContent
+    WHERE RawContent IS NOT NULL
+      AND LEN(LTRIM(RTRIM(RawContent))) > 0
+    GROUP BY SectionID, DocumentID
+)
+
+-- Final output: preserve original column signature with aggregated content
 SELECT
-    dbo.[Document].DocumentID,
-    dbo.Section.SectionID,
-    dbo.[Document].DocumentGUID,
-    dbo.[Document].SetGUID,
-    dbo.Section.SectionGUID,
-    dbo.[Document].VersionNumber,
-    dbo.[Document].DocumentDisplayName,
-    dbo.[Document].Title AS DocumentTitle,
-    dbo.Section.SectionCode,
-    dbo.Section.SectionDisplayName,
-    dbo.Section.Title AS SectionTitle,
-    dbo.SectionTextContent.ContentText,
-    dbo.SectionTextContent.SequenceNumber,
-    dbo.SectionTextContent.ContentType,
-    dbo.Section.SectionCodeSystem
-FROM dbo.[Document]
-    INNER JOIN dbo.Section ON dbo.[Document].DocumentID = dbo.Section.DocumentID
-    INNER JOIN dbo.SectionTextContent ON dbo.Section.SectionID = dbo.SectionTextContent.SectionID
-WHERE (dbo.SectionTextContent.ContentText IS NOT NULL)
-    AND (LEN(dbo.SectionTextContent.ContentText) > 3)
-    AND (dbo.Section.Title IS NOT NULL)
+    d.DocumentID,
+    s.SectionID,
+    d.DocumentGUID,
+    d.SetGUID,
+    s.SectionGUID,
+    d.VersionNumber,
+    d.DocumentDisplayName,
+    d.Title AS DocumentTitle,
+    COALESCE(NULLIF(s.SectionCode, ''), NULLIF(ps.SectionCode, '')) AS SectionCode,
+    COALESCE(NULLIF(s.SectionDisplayName, ''), NULLIF(ps.SectionDisplayName, '')) AS SectionDisplayName,
+    s.Title AS SectionTitle,
+    ac.AggregatedText AS ContentText,
+    ROW_NUMBER() OVER (PARTITION BY d.DocumentID ORDER BY s.SectionID) AS SequenceNumber,
+    'Aggregated' AS ContentType,
+    COALESCE(NULLIF(s.SectionCodeSystem, ''), NULLIF(ps.SectionCodeSystem, '')) AS SectionCodeSystem
+FROM dbo.[Document] d
+INNER JOIN dbo.Section s ON d.DocumentID = s.DocumentID
+INNER JOIN AggregatedContent ac ON s.SectionID = ac.SectionID AND ac.DocumentID = d.DocumentID
+LEFT JOIN dbo.SectionHierarchy sh_parent ON s.SectionID = sh_parent.ChildSectionID
+LEFT JOIN dbo.Section ps ON sh_parent.ParentSectionID = ps.SectionID
+WHERE s.Title IS NOT NULL
+  AND ac.AggregatedText IS NOT NULL
+  AND LEN(ac.AggregatedText) > 3
 GO
 
 IF NOT EXISTS (
@@ -1798,13 +1958,29 @@ IF NOT EXISTS (
 BEGIN
     EXEC sp_addextendedproperty
         @name = N'MS_Description',
-        @value = N'Section content with text for full-text search and document display. Filters empty or minimal content.',
+        @value = N'Aggregated section content with text, lists, and tables rolled up from child sections via SectionHierarchy. Raw text concatenated via STRING_AGG for full-text search and document display. Filters empty or minimal content.',
         @level0type = N'SCHEMA', @level0name = N'dbo',
         @level1type = N'VIEW', @level1name = N'vw_SectionContent';
 END
 GO
 
 PRINT 'Created view: vw_SectionContent';
+GO
+
+-- NOTE: Covering index IX_Document_DocumentGUID_SectionContent is defined in MedRecPro_Indexes.sql
+
+-- Update statistics on tables used by vw_SectionContent for optimal query plans
+UPDATE STATISTICS dbo.Section WITH FULLSCAN;
+UPDATE STATISTICS dbo.SectionTextContent WITH FULLSCAN;
+UPDATE STATISTICS dbo.TextTable WITH FULLSCAN;
+UPDATE STATISTICS dbo.TextTableRow WITH FULLSCAN;
+UPDATE STATISTICS dbo.TextTableCell WITH FULLSCAN;
+UPDATE STATISTICS dbo.TextListItem WITH FULLSCAN;
+UPDATE STATISTICS dbo.Document WITH FULLSCAN;
+UPDATE STATISTICS dbo.SectionHierarchy WITH FULLSCAN;
+GO
+
+PRINT 'Updated statistics for vw_SectionContent related tables.';
 GO
 
 --#endregion

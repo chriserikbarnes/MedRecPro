@@ -2197,6 +2197,45 @@ GO
 
 --#endregion
 
+--#region vw_SectionContent Optimization Indexes
+
+/*******************************************************************************/
+/*  Covering index for vw_SectionContent DocumentGUID lookups                  */
+/*  Eliminates key lookup on Document clustered index when filtering by        */
+/*  DocumentGUID — the primary query pattern for this view.                    */
+/*******************************************************************************/
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Document_DocumentGUID_SectionContent' AND object_id = OBJECT_ID('dbo.Document'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Document_DocumentGUID_SectionContent
+    ON dbo.[Document] ([DocumentGUID] ASC)
+    INCLUDE ([DocumentID], [SetGUID], [VersionNumber], [DocumentDisplayName], [Title])
+    WHERE ([DocumentGUID] IS NOT NULL);
+    PRINT 'Created index: IX_Document_DocumentGUID_SectionContent';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_Document_DocumentGUID_SectionContent';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('Document')
+    AND name = 'IX_Document_DocumentGUID_SectionContent_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_Document_DocumentGUID_SectionContent_Description',
+        @value = N'Covering index for vw_SectionContent. Includes all Document columns needed by the view to eliminate key lookups when filtering by DocumentGUID.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'Document',
+        @level2type = N'INDEX', @level2name = N'IX_Document_DocumentGUID_SectionContent';
+END
+GO
+
+--#endregion
+
 /*******************************************************************************/
 /*                                                                             */
 /*  SECTION: INDEX STATISTICS AND SUMMARY                                      */
