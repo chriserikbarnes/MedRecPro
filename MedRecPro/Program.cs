@@ -184,6 +184,8 @@ builder.Services.AddSingleton<IDictionaryUtilityService, DictionaryUtilityServic
 
 builder.Services.AddHostedService<DemoModeService>();
 
+builder.Services.AddHostedService<DatabaseKeepAliveService>();
+
 builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddDocumentRenderingServices(options =>

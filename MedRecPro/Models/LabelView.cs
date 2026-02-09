@@ -2088,7 +2088,7 @@ namespace MedRecPro.Models
         /// <seealso cref="Label.Document"/>
         /// <seealso cref="Label.Section"/>
         /// <seealso cref="Label.SectionTextContent"/>
-        [Table("vw_SectionContent")]
+        [Table("tmp_SectionContent")]
         public class SectionContent
         {
             #region properties
@@ -2895,7 +2895,7 @@ namespace MedRecPro.Models
         /// <seealso cref="Label.SectionTextContent"/>
         /// <seealso cref="SectionContent"/>
         /// <seealso cref="SectionNavigation"/>
-        [Table("vw_LabelSectionMarkdown")]
+        [Table("tmp_LabelSectionMarkdown")]
         public class LabelSectionMarkdown
         {
             #region properties
@@ -3004,7 +3004,7 @@ namespace MedRecPro.Models
         /// <seealso cref="Label.Product"/>
         /// <seealso cref="Label.Organization"/>
         /// <seealso cref="Label.PharmacologicClass"/>
-        [Table("vw_InventorySummary")]
+        [Table("tmp_InventorySummary")]
         public class InventorySummary
         {
             #region properties
@@ -3040,7 +3040,7 @@ namespace MedRecPro.Models
             /// Grouped by category: TOTALS (1-10), BY_MARKETING_CATEGORY (100+),
             /// BY_DOSAGE_FORM (200+), TOP_LABELERS (300+), TOP_PHARM_CLASSES (400+), TOP_INGREDIENTS (500+).
             /// </summary>
-            public long? SortOrder { get; set; }
+            public int? SortOrder { get; set; }
 
             #endregion properties
         }

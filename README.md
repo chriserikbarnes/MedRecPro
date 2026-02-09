@@ -96,6 +96,7 @@ MedRecPro/                          # Root repository
       ViewRenderService.cs          # Razor view rendering
       ZipImportWorkerService.cs     # Background ZIP import worker
       BackgroudTaskService.cs       # Background task management
+      DatabaseKeepAliveService.cs   # Keeps Azure SQL Serverless awake during business hours
       AzureTokenCredentialService.cs
       AzureAppHostTokenCredentialService.cs
       ParsingServices/              # 20+ specialized SPL XML parsers
@@ -628,6 +629,7 @@ Cloudflare has multiple independent bot-blocking systems that can interfere with
 ### Azure SQL Serverless Cold Starts
 
 Azure SQL Serverless auto-pauses after inactivity. Resuming takes 15-30+ seconds, which can exceed default timeouts. Mitigations:
+- **`DatabaseKeepAliveService`** pings the database with `SELECT 1` every 55 minutes during business hours (Mon-Fri, 8 AM - 5 PM Eastern) to prevent auto-pause. Configured via the `DatabaseKeepAlive` section in `appsettings.json`
 - Increase HttpClient and SQL command timeouts
 - Use `EnableRetryOnFailure()` in `UseSqlServer()` configuration
 - Increase the auto-pause delay during active development
