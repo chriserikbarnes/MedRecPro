@@ -367,7 +367,7 @@ namespace MedRecPro.Controllers
         #region User Logs
         /**************************************************************/
         /// <summary>
-        /// (Admin) Retrieves activity log entries for a specific user with optional paging.
+        /// (Admin or Self) Retrieves activity log entries for a specific user with optional paging.
         /// </summary>
         /// <param name="encryptedUserId">The encrypted identifier of the user whose activity to retrieve.</param>
         /// <param name="pageNumber">The page number to retrieve. Defaults to 1.</param>
@@ -472,7 +472,13 @@ namespace MedRecPro.Controllers
                     return Unauthorized("User not found.");
                 }
 
-                if (!claimsUser.IsUserAdmin())
+                // Encrypted User ID values are never the same; comparing the decrypted values is necessary.
+                bool isSelf = String.Equals(
+                    encryptedUserId.Decrypt(_pkSecret),
+                    encryptedUpdaterUserIdFromAuth.Decrypt(_pkSecret),
+                    StringComparison.Ordinal);
+
+                if (!isSelf || !claimsUser.IsUserAdmin())
                 {
                     _logger.LogWarning("Non-admin user {UserId} attempted to access activity logs for user {TargetUserId}",
                         claimsUser.Id, userId);
@@ -519,7 +525,7 @@ namespace MedRecPro.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// (Admin) Retrieves activity log entries for a specific user filtered by date range with optional paging.
+        /// (Admin or self) Retrieves activity log entries for a specific user filtered by date range with optional paging.
         /// </summary>
         /// <param name="encryptedUserId">The encrypted identifier of the user whose activity to retrieve.</param>
         /// <param name="startDate">The start date for filtering activity logs (inclusive).</param>
@@ -644,9 +650,15 @@ namespace MedRecPro.Controllers
                     return Unauthorized("User not found.");
                 }
 
-                if (!claimsUser.IsUserAdmin())
+                // Encrypted User ID values are never the same; comparing the decrypted values is necessary.
+                bool isSelf = String.Equals(
+                    encryptedUserId.Decrypt(_pkSecret),
+                    encryptedUpdaterUserIdFromAuth.Decrypt(_pkSecret),
+                    StringComparison.Ordinal);
+
+                if (!isSelf || !claimsUser.IsUserAdmin())
                 {
-                    _logger.LogWarning("Non-admin user {UserId} attempted to access activity logs for user {TargetUserId}",
+                    _logger.LogWarning("User {UserId} attempted to access activity logs for user {TargetUserId}",
                         claimsUser.Id, userId);
                     return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized to view user activity logs.");
                 }
