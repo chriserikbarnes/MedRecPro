@@ -3022,9 +3022,9 @@ namespace MedRecPro.Api.Controllers
         /// - 34066-1: Boxed Warning
         /// - 34067-9: Indications and Usage
         /// - 34068-7: Dosage and Administration
-        /// - 34069-5: Contraindications
-        /// - 34070-3: Warnings
-        /// - 34071-1: Warnings and Precautions
+        /// - 34069-5: How Supplied
+        /// - 34070-3: Contraindications
+        /// - 34071-1: Warnings
         /// 
         /// Response (200):
         /// ```json
@@ -3243,7 +3243,7 @@ namespace MedRecPro.Api.Controllers
         /// | 34066-1 | Boxed Warning |
         /// | 34067-9 | Indications and Usage |
         /// | 34068-7 | Dosage and Administration |
-        /// | 34069-5 | Contraindications |
+        /// | 34069-5 | How Supplied |
         /// | 43685-7 | Warnings and Precautions |
         /// | 34084-4 | Adverse Reactions |
         /// | 34073-7 | Drug Interactions |
@@ -4516,7 +4516,6 @@ namespace MedRecPro.Api.Controllers
         /// </example>
         /// <seealso cref="DtoLabelAccess.GetProductLatestLabelsAsync"/>
         /// <seealso cref="LabelView.ProductLatestLabel"/>
-        /// <seealso cref="GetSingleDocument"/>
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("product/latest")]

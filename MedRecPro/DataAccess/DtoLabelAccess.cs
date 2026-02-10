@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.Diagnostics;
 using static MedRecPro.Models.Label;
+using System.Text.RegularExpressions;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
 namespace MedRecPro.DataAccess
@@ -20,6 +21,48 @@ namespace MedRecPro.DataAccess
     /// <seealso cref="DocumentDto"/>
     public static partial class DtoLabelAccess
     {
+        #region LOINC Section Number Lookup
+
+        /**************************************************************/
+        /// <summary>
+        /// Maps PLR-format LOINC section codes to their root section numbers.
+        /// Used to resolve SPL Unclassified Sections (42229-5) back to their
+        /// parent section context by matching title prefixes (e.g., "5." for
+        /// Warnings and Precautions subsections).
+        /// 
+        /// https://www.fda.gov/media/114007/download?attachment
+        /// </summary>
+        /// <seealso cref="GetSectionContentAsync"/>
+        /// <seealso cref="GetLabelSectionMarkdownAsync"/>
+        private static readonly Dictionary<string, string> _loincToSectionNumber = new()
+        {
+            ["34067-9"] = "1",     // Indications & Usage
+            ["34068-7"] = "2",     // Dosage & Administration
+            ["43678-2"] = "3",     // Dosage Forms & Strengths
+            ["34070-3"] = "4",     // Contraindications
+            ["43685-7"] = "5",     // Warnings and Precautions
+            ["34084-4"] = "6",     // Adverse Reactions
+            ["34073-7"] = "7",     // Drug Interactions
+            ["43684-0"] = "8",     // Use in Specific Populations
+            ["42227-9"] = "9",     // Drug Abuse and Dependence
+            ["34088-5"] = "10",    // Overdosage
+            ["34089-3"] = "11",    // Description
+            ["34090-1"] = "12",    // Clinical Pharmacology
+            ["43680-8"] = "13",    // Nonclinical Toxicology
+            ["34092-7"] = "14",    // Clinical Studies
+            ["34093-5"] = "15",    // References
+            ["34069-5"] = "16",    // How supplied
+            ["88436-1"] = "17",    // Patient Counseling Information
+        };
+
+        /// <summary>
+        /// LOINC code for SPL Unclassified Section — the fallback code assigned to
+        /// subsections where no specific LOINC code exists per FDA guidance.
+        /// </summary>
+        private const string UnclassifiedSectionCode = "42229-5";
+
+        #endregion LOINC Section Number Lookup
+
         #region Primary Entry Point
         /**************************************************************/
         /// <summary>
@@ -2137,6 +2180,38 @@ namespace MedRecPro.DataAccess
             var entities = await query.ToListAsync();
             var ret = buildSectionContentDtos(db, entities, pkSecret, logger);
 
+            // Enrich with unclassified child subsections (42229-5) when filtering by sectionCode.
+            // Many major PI sections store their real content in subsections coded 42229-5
+            // whose titles follow the pattern "{N}.{sub}" (e.g., "5.1 Premature Discontinuation"
+            // under Warnings and Precautions coded 43685-7).
+            if (!string.IsNullOrWhiteSpace(sectionCode))
+            {
+                // Resolve the root section number from the LOINC lookup table,
+                // falling back to regex extraction from the first result's title
+                string? sectionNumber = resolveSectionNumber(sectionCode, entities);
+
+                if (!string.IsNullOrEmpty(sectionNumber))
+                {
+                    var titlePrefix = sectionNumber + ".";
+
+                    var enrichEntities = await db.Set<LabelView.SectionContent>()
+                        .AsNoTracking()
+                        .Where(s => s.DocumentGUID == documentGuid
+                                    && s.SectionCode == UnclassifiedSectionCode
+                                    && s.SectionTitle != null
+                                    && s.SectionTitle.StartsWith(titlePrefix))
+                        .OrderBy(s => s.SequenceNumber)
+                        .ToListAsync();
+
+                    if (enrichEntities.Count > 0)
+                    {
+                        var enrichDtos = buildSectionContentDtos(db, enrichEntities, pkSecret, logger);
+                        ret ??= new List<SectionContentDto>();
+                        ret.AddRange(enrichDtos);
+                    }
+                }
+            }
+
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
@@ -2144,6 +2219,65 @@ namespace MedRecPro.DataAccess
             }
 
             return ret ?? new List<SectionContentDto>();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves the PLR root section number for a given LOINC code.
+        /// First attempts a lookup in the static <see cref="_loincToSectionNumber"/> dictionary,
+        /// then falls back to extracting the leading digits from the first entity's SectionTitle.
+        /// </summary>
+        /// <param name="sectionCode">The LOINC section code to resolve.</param>
+        /// <param name="entities">The initial query results whose first title is used as fallback.</param>
+        /// <returns>The root section number (e.g., "5") or null if unresolvable.</returns>
+        private static string? resolveSectionNumber(string sectionCode, List<LabelView.SectionContent> entities)
+        {
+            #region implementation
+
+            // Primary: authoritative LOINC-to-number lookup
+            if (_loincToSectionNumber.TryGetValue(sectionCode, out var number))
+                return number;
+
+            // Fallback: extract leading digits from the first result's title
+            var firstTitle = entities.FirstOrDefault()?.SectionTitle;
+            if (!string.IsNullOrEmpty(firstTitle))
+            {
+                var match = Regex.Match(firstTitle, @"^(\d+)");
+                if (match.Success)
+                    return match.Groups[1].Value;
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves the PLR root section number for a given LOINC code.
+        /// Overload for LabelSectionMarkdown entities.
+        /// </summary>
+        /// <param name="sectionCode">The LOINC section code to resolve.</param>
+        /// <param name="entities">The initial query results whose first title is used as fallback.</param>
+        /// <returns>The root section number (e.g., "5") or null if unresolvable.</returns>
+        private static string? resolveSectionNumber(string sectionCode, List<LabelView.LabelSectionMarkdown> entities)
+        {
+            #region implementation
+
+            if (_loincToSectionNumber.TryGetValue(sectionCode, out var number))
+                return number;
+
+            var firstTitle = entities.FirstOrDefault()?.SectionTitle;
+            if (!string.IsNullOrEmpty(firstTitle))
+            {
+                var match = Regex.Match(firstTitle, @"^(\d+)");
+                if (match.Success)
+                    return match.Groups[1].Value;
+            }
+
+            return null;
 
             #endregion
         }
@@ -2922,6 +3056,35 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             var ret = buildLabelSectionMarkdownDtos(db, entities, pkSecret, logger);
+
+            // Enrich with unclassified child subsections (42229-5) when filtering by sectionCode.
+            // Many major PI sections store their real content in subsections coded 42229-5
+            // whose titles follow the pattern "{N}.{sub}" (e.g., "5.1 Premature Discontinuation"
+            // under Warnings and Precautions coded 43685-7).
+            if (!string.IsNullOrWhiteSpace(sectionCode))
+            {
+                string? sectionNumber = resolveSectionNumber(sectionCode, entities);
+
+                if (!string.IsNullOrEmpty(sectionNumber))
+                {
+                    var titlePrefix = sectionNumber + ".";
+
+                    var enrichEntities = await db.Set<LabelView.LabelSectionMarkdown>()
+                        .AsNoTracking()
+                        .Where(s => s.DocumentGUID == documentGuid
+                                    && s.SectionCode == UnclassifiedSectionCode
+                                    && s.SectionTitle != null
+                                    && s.SectionTitle.StartsWith(titlePrefix))
+                        .ToListAsync();
+
+                    if (enrichEntities.Count > 0)
+                    {
+                        var enrichDtos = buildLabelSectionMarkdownDtos(db, enrichEntities, pkSecret, logger);
+                        ret ??= new List<LabelSectionMarkdownDto>();
+                        ret.AddRange(enrichDtos);
+                    }
+                }
+            }
 
             if (ret != null && ret.Count > 0)
             {
