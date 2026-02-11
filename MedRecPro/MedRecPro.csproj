@@ -19,13 +19,13 @@
 	<ItemGroup>
 		<PackageReference Include="AspNet.Security.OAuth.Apple" Version="8.3.0" />
 		<PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.4.0" />
-		<PackageReference Include="Azure.Identity" Version="1.13.2" />
+		<PackageReference Include="Azure.Identity" Version="1.17.1" />
 		<PackageReference Include="Azure.Monitor.Query.Metrics" Version="1.0.0" />
 		<PackageReference Include="Dapper" Version="2.1.66" />
 		<PackageReference Include="Dapper.Contrib" Version="2.0.78" />
 		<PackageReference Include="Google.Apis.Auth.AspNetCore3" Version="1.69.0" />
 		<PackageReference Include="HtmlAgilityPack" Version="1.12.1" />
-		<PackageReference Include="HtmlSanitizer" Version="9.0.884" />
+		<PackageReference Include="HtmlSanitizer" Version="9.0.892" />
 		<PackageReference Include="Humanizer" Version="2.14.1" />
 		<!-- REMOVED: Microsoft.AspNetCore.Authentication Version="2.3.0" -->
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="8.0.15" />
