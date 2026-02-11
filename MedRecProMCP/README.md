@@ -530,6 +530,13 @@ The following issues were encountered in order during integration. Each had to b
 **Root Cause:** `UsersController` had no `[Authorize]` attribute at the class level or on individual endpoints (except `resolve-mcp`). Without `[Authorize]`, ASP.NET Core's JWT bearer handler is never invoked for McpBearer tokens — the request arrives as anonymous and `User.Claims` is empty. Cookie auth worked without `[Authorize]` because Identity middleware runs globally and populates `User.Claims` from session cookies on every request, but JWT Bearer schemes require explicit `[Authorize]` to trigger validation.
 **Fix:** Added `[Authorize(Policy = "ApiAccess")]` to the `UsersController` class. The `ApiAccess` policy (Program.cs) accepts both `IdentityConstants.ApplicationScheme` (cookies) and `"McpBearer"` (JWT), so this triggers the JWT handler for MCP requests while preserving existing cookie auth behavior. Added `[AllowAnonymous]` to `signup` and `authenticate` endpoints that must remain publicly accessible. Also fixed `OnAuthenticationFailed` handler that was silently suppressing `SecurityTokenException` log output.
 
+#### 15. GetMyActivity / GetMyActivityByDateRange Failing Silently
+
+**Symptom:** After fixing Issue #14, `GetMyProfile` returns 200 successfully, but `GetMyActivity` and `GetMyActivityByDateRange` complete quickly with no second HTTP request to the activity endpoint. The MCP tools return `{"error":"Could not determine user ID"}` to Claude.
+**Root Cause (A — MCP side):** `UserTools.cs` calls `profile.TryGetProperty("encryptedId", ...)` but the API serializes with Newtonsoft.Json using `CamelCasePropertyNamesContractResolver` — the actual JSON property name is `"encryptedUserId"` (camelCase, and "User" was missing from the original lookup key). The case-sensitive `TryGetProperty` lookup fails and the second API call is never made.
+**Root Cause (B — API side):** `UsersController.cs` GetUserActivity (line 452) and GetUserActivityByDateRange (line 630) used `if (!isSelf || !claimsUser.IsUserAdmin())` — OR instead of AND. This blocked non-admin users from viewing their own activity logs. Only users who were both the target AND an admin could pass the check.
+**Fix:** Changed `"encryptedId"` → `"encryptedUserId"` in UserTools.cs (both occurrences) to match the camelCase JSON property name. Changed `||` → `&&` in both authorization checks in UsersController.cs so that self-access is allowed for all users, and admin access is allowed for any user's logs.
+
 ### Lessons Learned
 
 1. **IIS virtual applications strip path prefixes.** A request to `/mcp/oauth/authorize` arrives at Kestrel as `/oauth/authorize`. All route mappings must account for this in RELEASE builds. Use `#if DEBUG` directives.
@@ -555,6 +562,10 @@ The following issues were encountered in order during integration. Each had to b
 10. **`JwtSecurityTokenHandler` silently renames claim types.** The `OutboundClaimTypeMap` converts `ClaimTypes.NameIdentifier` to `"sub"` and `ClaimTypes.Name` to `"unique_name"` during JWT serialization. On the inbound side, `MapInboundClaims` (default `true`) may or may not reverse this depending on the handler implementation (`JsonWebTokenHandler` in .NET 8 does not). Always explicitly normalize claims to standard JWT short names before token creation, clear `OutboundClaimTypeMap`, and set `MapInboundClaims = false` on JWT handlers to ensure claim types are predictable end-to-end.
 
 11. **JWT Bearer schemes require `[Authorize]` to trigger validation.** Unlike cookie/Identity middleware which runs globally on every request and populates `User.Claims` from session cookies, JWT Bearer handlers only validate tokens when an endpoint has `[Authorize]` (or a policy that references the scheme). Without it, the Bearer token in the `Authorization` header is ignored, the request arrives as anonymous, and `User.Claims` is empty. If a controller mixes public and protected endpoints, use class-level `[Authorize(Policy = "...")]` with `[AllowAnonymous]` on public endpoints.
+
+12. **JSON property names must match the API's serialization casing.** The MedRecPro API uses Newtonsoft.Json with PascalCase (no camelCase conversion). When parsing API responses with `System.Text.Json` in the MCP project, `TryGetProperty()` is case-sensitive — `"encryptedId"` will not match `"EncryptedUserId"`. Always verify the exact property names returned by the API.
+
+13. **De Morgan's law in authorization logic.** `if (!isSelf || !isAdmin)` is equivalent to `if (!(isSelf && isAdmin))` — this requires BOTH conditions to be true, not either. For "allow if self OR admin", use `if (!isSelf && !isAdmin)`.
 
 ## Troubleshooting
 

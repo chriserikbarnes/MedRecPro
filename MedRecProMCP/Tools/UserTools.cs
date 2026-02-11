@@ -231,7 +231,7 @@ public class UserTools
             var profileResult = await _apiClient.GetStringAsync("api/users/me");
             var profile = JsonSerializer.Deserialize<JsonElement>(profileResult);
 
-            if (!profile.TryGetProperty("encryptedId", out var idElement))
+            if (!profile.TryGetProperty("encryptedUserId", out var idElement))
             {
                 return JsonSerializer.Serialize(new
                 {
@@ -381,7 +381,7 @@ public class UserTools
             var profileResult = await _apiClient.GetStringAsync("api/users/me");
             var profile = JsonSerializer.Deserialize<JsonElement>(profileResult);
 
-            if (!profile.TryGetProperty("encryptedId", out var idElement))
+            if (!profile.TryGetProperty("encryptedUserId", out var idElement))
             {
                 return JsonSerializer.Serialize(new
                 {

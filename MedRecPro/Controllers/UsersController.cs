@@ -449,7 +449,7 @@ namespace MedRecPro.Controllers
                     encryptedUpdaterUserIdFromAuth.Decrypt(_pkSecret),
                     StringComparison.Ordinal);
 
-                if (!isSelf || !claimsUser.IsUserAdmin())
+                if (!isSelf && !claimsUser.IsUserAdmin())
                 {
                     _logger.LogWarning("Non-admin user {UserId} attempted to access activity logs for user {TargetUserId}",
                         claimsUser.Id, userId);
@@ -627,7 +627,7 @@ namespace MedRecPro.Controllers
                     encryptedUpdaterUserIdFromAuth.Decrypt(_pkSecret),
                     StringComparison.Ordinal);
 
-                if (!isSelf || !claimsUser.IsUserAdmin())
+                if (!isSelf && !claimsUser.IsUserAdmin())
                 {
                     _logger.LogWarning("User {UserId} attempted to access activity logs for user {TargetUserId}",
                         claimsUser.Id, userId);
