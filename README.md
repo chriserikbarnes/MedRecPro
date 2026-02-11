@@ -12,7 +12,7 @@ MedRecPro is a pharmaceutical structured product label (SPL) management platform
 
 - **Runtime**: ASP.NET Core (.NET 8.0 LTS)
 - **Database**: Azure SQL Server (Serverless free tier) with Dapper + Entity Framework Core
-- **Authentication**: Cookie-based auth with Google and Microsoft OAuth providers; JWT bearer tokens for API access
+- **Authentication**: Cookie-based auth with Google and Microsoft OAuth providers; JWT bearer tokens for API access; McpBearer JWT scheme for MCP server integration
 - **AI Integration**: Claude API for natural language query interpretation and synthesis
 - **MCP Protocol**: Model Context Protocol server with OAuth 2.1 (PKCE S256) for Claude.ai connector integration
 - **Hosting**: Azure App Service (Windows, IIS) with Cloudflare CDN/WAF/DNS
@@ -56,7 +56,7 @@ The solution consists of five projects deployed to a single Azure App Service us
 
 **MedRecPro (API)** is the core backend. It handles SPL XML parsing and import, label data CRUD, user authentication, AI query interpretation via Claude, database views for navigation, and SPL document rendering via RazorLight templates.
 
-**MedRecProMCP** is an OAuth 2.1 gateway that exposes MedRecPro API capabilities as MCP tools. When Claude.ai connects, it authenticates users through Google/Microsoft OAuth, then forwards authenticated requests to the MedRecPro API. It uses JWT tokens, PKCE (S256), and Dynamic Client Registration (RFC 7591).
+**MedRecProMCP** is an OAuth 2.1 gateway that exposes MedRecPro API capabilities as MCP tools. When Claude.ai connects, it authenticates users through Google/Microsoft OAuth, resolves upstream identity provider identities to numeric database user IDs (auto-provisioning new users if needed), then forwards authenticated MCP JWTs to the MedRecPro API. It uses JWT tokens, PKCE (S256), Dynamic Client Registration (RFC 7591), and a shared PKSecret for encrypted user ID exchange with the API.
 
 ## Repository File Structure
 
@@ -75,7 +75,7 @@ MedRecPro/                          # Root repository
     Controllers/
       ApiControllerBase.cs          # Base controller (route prefix, #if DEBUG directives)
       AuthController.cs             # OAuth login/logout, user info
-      UsersController.cs            # User CRUD, activity logs, authentication
+      UsersController.cs            # User CRUD, activity logs, authentication, MCP user resolution/provisioning
       LabelController.cs            # Label CRUD, views, search, import, AI endpoints
       AiController.cs               # AI interpret/synthesize, conversations, context
       SettingsController.cs         # App info, feature flags, metrics, logs, cache
@@ -250,8 +250,11 @@ MedRecPro/                          # Root repository
       PkceService.cs                # PKCE implementation
       FilePersistedCacheService.cs  # File-based persistent cache
       MedRecProApiClient.cs         # HTTP client for API calls
+      UserResolutionService.cs      # Resolves upstream IdP email to numeric DB user ID
     Handlers/
-      TokenForwardingHandler.cs     # Token delegation handler
+      TokenForwardingHandler.cs     # Forwards MCP JWT to API (DelegatingHandler)
+    Helpers/
+      StringCipher.cs               # AES encryption (copy from API for user ID decryption)
     Tools/
       DrugLabelTools.cs             # MCP tools: drug label search and export
       UserTools.cs                  # MCP tools: user/account operations
@@ -285,6 +288,7 @@ MedRecPro/                          # Root repository
     UserDataAccessTests.cs
     LogActivityAsyncTests.cs
     StringCipherTests.cs
+    ResolveMcpUserTests.cs          # MCP user resolution and auto-provisioning tests
 ```
 
 ## API Endpoints Summary
@@ -321,6 +325,7 @@ All API endpoints are accessed under `/api` in production (IIS virtual applicati
 | GET | `user/{encryptedUserId}/activity` | Get user activity log |
 | GET | `user/{encryptedUserId}/activity/daterange` | Get activity within date range |
 | GET | `endpoint-stats` | Get endpoint performance statistics |
+| POST | `resolve-mcp` | Resolve email to encrypted user ID (McpBearer auth; auto-provisions new users) |
 
 ### Labels (`/api/Label`)
 

@@ -63,11 +63,33 @@ All endpoints are externally prefixed with `/mcp` by the IIS virtual application
 6. Claude redirects user to /mcp/oauth/authorize?provider=google
 7. User authenticates with Google/Microsoft
 8. Provider redirects to /mcp/oauth/callback/{provider}
-9. MCP server issues authorization code, redirects to Claude
-10. Claude exchanges code for tokens via /mcp/oauth/token
-11. Claude sends authenticated POST to /mcp with Bearer token
-12. MCP server forwards token to MedRecPro API for each tool call
+9. MCP server resolves upstream IdP email to numeric DB user ID via POST /api/users/resolve-mcp
+   (auto-provisions user if they don't exist in the database)
+10. MCP server issues authorization code with numeric NameIdentifier claim, redirects to Claude
+11. Claude exchanges code for tokens via /mcp/oauth/token
+12. Claude sends authenticated POST to /mcp with Bearer MCP JWT
+13. MCP server forwards MCP JWT to MedRecPro API for each tool call (McpBearer auth scheme)
 ```
+
+## User Resolution and Auto-Provisioning
+
+During the OAuth callback (step 9), the MCP server must map the upstream identity provider's identifier (Google sub / Microsoft GUID) to a numeric MedRecPro database user ID. The API's `getEncryptedIdFromClaim()` method expects a numeric `NameIdentifier` claim — without this resolution, all API calls would fail with 401.
+
+**How it works:**
+
+1. `OAuthEndpoints.cs` extracts email, display name, and provider from upstream IdP claims
+2. `UserResolutionService` generates a temporary MCP JWT and calls `POST /api/users/resolve-mcp`
+3. The API's `UsersController.ResolveMcpUser()` looks up the user by email:
+   - **User exists:** Returns their encrypted database user ID
+   - **User doesn't exist:** Auto-provisions a new user record (matching `AuthController.createUserForExternalLogin()` defaults: EmailConfirmed=true, Timezone="UTC", Locale="en-US", no password), then returns the encrypted ID
+4. `UserResolutionService` decrypts the encrypted ID using the shared `Security:DB:PKSecret` via `StringCipher`
+5. `OAuthEndpoints.cs` replaces the upstream `NameIdentifier` claim with the numeric database user ID
+6. The MCP JWT is issued with the numeric `NameIdentifier`, enabling all API calls to succeed
+
+**Key architecture:**
+- `TokenForwardingHandler` forwards the MCP JWT directly to the API (not the upstream Google/Microsoft token). The API's `McpBearer` authentication scheme validates these MCP-signed JWTs.
+- Both the MCP server and API share `Security:DB:PKSecret` from Azure Key Vault for `StringCipher` encryption/decryption of user IDs.
+- `UserResolutionService` uses a dedicated `"MedRecProApiDirect"` named HttpClient (without `TokenForwardingHandler`) to avoid circular token forwarding during resolution.
 
 ## Compiler Directives (#if DEBUG)
 
@@ -134,6 +156,7 @@ dotnet user-secrets set "Authentication:Google:ClientSecret" "<google-client-sec
 dotnet user-secrets set "Authentication:Microsoft:ClientId" "<microsoft-app-id>"
 dotnet user-secrets set "Authentication:Microsoft:ClientSecret:Dev" "<microsoft-client-secret>"
 dotnet user-secrets set "Authentication:Microsoft:TenantId" "<azure-tenant-id>"
+dotnet user-secrets set "Security:DB:PKSecret" "<encryption-key-must-match-api>"
 ```
 
 #### Run locally
@@ -178,6 +201,7 @@ Ensure the following secrets exist in Azure Key Vault (`medrecprovault`). These 
 | `Authentication--Microsoft--ClientId` | Microsoft Entra App ID |
 | `Authentication--Microsoft--ClientSecret--Prod` | Microsoft client secret (production) |
 | `Authentication--Microsoft--TenantId` | Azure AD Tenant ID |
+| `Security--DB--PKSecret` | Shared encryption key for user ID encryption/decryption (must match API) |
 
 > **Note:** Key Vault uses `--` as separator. ASP.NET Core maps these to `:` in configuration (e.g., `Jwt--Key` becomes `Jwt:Key`).
 
@@ -295,6 +319,7 @@ Non-secret configuration shared across all environments.
 | `MedRecProApi:BaseUrl` | MedRecPro API URL | `https://www.medrecpro.com/api` |
 | `MedRecProApi:TimeoutSeconds` | HTTP client timeout | `30` |
 | `MedRecProApi:RetryCount` | HTTP retry attempts | `3` |
+| `Security:DB:PKSecret` | Shared encryption key for StringCipher (must match API) | _(Key Vault)_ |
 | `KeyVaultUrl` | Azure Key Vault URL | _(empty in base, set in Production)_ |
 
 ### appsettings.Development.json
@@ -348,8 +373,12 @@ MedRecProMCP/
     IPersistedCacheService.cs         # Persisted cache interface
     FilePersistedCacheService.cs      # File-based persistent cache (PKCE, registrations)
     MedRecProApiClient.cs             # Typed HTTP client for MedRecPro API
+    IUserResolutionService.cs         # User resolution service interface
+    UserResolutionService.cs          # Resolves upstream IdP email to numeric DB user ID
   Handlers/
-    TokenForwardingHandler.cs         # HTTP handler for token delegation
+    TokenForwardingHandler.cs         # Forwards MCP JWT to API (DelegatingHandler)
+  Helpers/
+    StringCipher.cs                   # AES encryption/decryption (copy from API for user ID handling)
   Models/
     AiAgentDtos.cs                    # AI/Claude integration models
     WorkPlanModels.cs                 # Work plan and execution models
@@ -383,6 +412,8 @@ This section documents the process of connecting the MCP server as a custom conn
 | Tool listing (`tools/list`) | Working |
 | Tool execution (`tools/call`) | Working |
 | Downstream API calls (MCP -> MedRecPro API) | Working |
+| MCP user resolution (email -> numeric DB ID) | Working |
+| MCP user auto-provisioning (new users)       | Working |
 
 ### Issues Encountered and Fixes
 
