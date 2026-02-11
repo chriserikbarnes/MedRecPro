@@ -163,6 +163,30 @@ builder.Services.AddHttpClient<MedRecProApiClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(medrecProApiSettings.TimeoutSeconds);
 })
 .AddHttpMessageHandler<TokenForwardingHandler>();
+
+/**************************************************************/
+/// <summary>
+/// Configures a direct HttpClient for MedRecPro API calls without token forwarding.
+/// </summary>
+/// <remarks>
+/// Used by <see cref="MedRecProMCP.Services.UserResolutionService"/> during the OAuth
+/// callback to call the resolve-mcp endpoint with a manually attached temporary MCP JWT.
+/// This client does NOT use <see cref="TokenForwardingHandler"/> since the caller
+/// manages its own Authorization header.
+/// </remarks>
+/// <seealso cref="MedRecProMCP.Services.IUserResolutionService"/>
+/**************************************************************/
+builder.Services.AddHttpClient("MedRecProApiDirect", client =>
+{
+    client.BaseAddress = new Uri(medrecProApiSettings.BaseUrl);
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+    client.DefaultRequestHeaders.Add("User-Agent", "MedRecProMCP/1.0 (Internal-API-Client)");
+    client.Timeout = TimeSpan.FromSeconds(medrecProApiSettings.TimeoutSeconds);
+});
+
+// Register StringCipher for user ID decryption and user resolution service
+builder.Services.AddSingleton<MedRecProMCP.Helpers.StringCipher>();
+builder.Services.AddSingleton<IUserResolutionService, UserResolutionService>();
 #endregion
 
 #region Authentication Configuration

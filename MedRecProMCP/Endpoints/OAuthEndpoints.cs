@@ -659,6 +659,40 @@ public static class OAuthEndpoints
             userClaims.Add(new Claim("provider", provider));
         }
 
+        // Resolve the upstream IdP identity to a numeric MedRecPro database user ID.
+        // The API's getEncryptedIdFromClaim() expects a numeric NameIdentifier, but
+        // the upstream IdP provides a Google sub or Microsoft GUID. This resolution
+        // replaces the NameIdentifier with the actual database user ID.
+        var userEmail = userClaims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value;
+        if (!string.IsNullOrEmpty(userEmail))
+        {
+            var userResolutionService = context.RequestServices.GetRequiredService<IUserResolutionService>();
+            var resolvedUserId = await userResolutionService.ResolveUserIdAsync(
+                userEmail,
+                tokenResult.AccessToken,
+                userClaims);
+
+            if (resolvedUserId.HasValue)
+            {
+                // Replace the upstream IdP identifier with the numeric database user ID
+                userClaims.RemoveAll(c => c.Type == ClaimTypes.NameIdentifier);
+                userClaims.Add(new Claim(ClaimTypes.NameIdentifier, resolvedUserId.Value.ToString()));
+
+                logger.LogInformation(
+                    "[OAuth] Resolved {Email} to MedRecPro user ID {UserId}",
+                    userEmail, resolvedUserId.Value);
+            }
+            else
+            {
+                // With auto-provisioning in place, a resolution failure means
+                // something went wrong server-side (DB error, network issue).
+                // OAuth still succeeds but MCP tools that call the API will fail.
+                logger.LogError(
+                    "[OAuth] Could not resolve {Email} to a MedRecPro user. Auto-provisioning may have failed. MCP tools requiring API access will fail.",
+                    userEmail);
+            }
+        }
+
         // Generate our own authorization code
         var ourCode = Guid.NewGuid().ToString("N");
 

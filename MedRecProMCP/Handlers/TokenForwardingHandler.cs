@@ -4,16 +4,14 @@
 /// </summary>
 /// <remarks>
 /// This handler is added to the HttpClient pipeline for MedRecPro API calls.
-/// It extracts the upstream IdP token from the current user's MCP token
-/// and attaches it as a Bearer token to outgoing requests.
+/// It extracts the MCP JWT from the current request's Authorization header
+/// and forwards it directly to the downstream MedRecPro API.
 ///
-/// This preserves the user's identity end-to-end, allowing the MedRecPro API
-/// to apply its existing authorization rules based on who the actual user is.
+/// The API's "McpBearer" authentication scheme validates MCP-signed JWTs,
+/// so the MCP JWT is forwarded as-is rather than extracting the upstream IdP token.
 /// </remarks>
-/// <seealso cref="IMcpTokenService"/>
 /**************************************************************/
 
-using MedRecProMCP.Services;
 using System.Net.Http.Headers;
 
 namespace MedRecProMCP.Handlers;
@@ -26,7 +24,6 @@ namespace MedRecProMCP.Handlers;
 public class TokenForwardingHandler : DelegatingHandler
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly IMcpTokenService _tokenService;
     private readonly ILogger<TokenForwardingHandler> _logger;
 
     /**************************************************************/
@@ -34,16 +31,13 @@ public class TokenForwardingHandler : DelegatingHandler
     /// Initializes a new instance of TokenForwardingHandler.
     /// </summary>
     /// <param name="httpContextAccessor">Provides access to the current HTTP context.</param>
-    /// <param name="tokenService">Service for token operations.</param>
     /// <param name="logger">Logger instance.</param>
     /**************************************************************/
     public TokenForwardingHandler(
         IHttpContextAccessor httpContextAccessor,
-        IMcpTokenService tokenService,
         ILogger<TokenForwardingHandler> logger)
     {
         _httpContextAccessor = httpContextAccessor;
-        _tokenService = tokenService;
         _logger = logger;
     }
 
@@ -55,12 +49,11 @@ public class TokenForwardingHandler : DelegatingHandler
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The HTTP response from the downstream service.</returns>
     /// <remarks>
-    /// The handler:
-    /// 1. Extracts the MCP access token from the current request's Authorization header
-    /// 2. Decrypts and extracts the upstream IdP token from the MCP token
-    /// 3. Attaches the upstream token to the outgoing request
-    /// 4. Logs token forwarding for audit purposes (without exposing token values)
+    /// The handler forwards the MCP JWT directly to the downstream API.
+    /// The API's "McpBearer" scheme validates MCP-signed JWTs, so no
+    /// upstream token extraction is needed.
     /// </remarks>
+    /// <seealso cref="IHttpContextAccessor"/>
     /**************************************************************/
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -71,29 +64,17 @@ public class TokenForwardingHandler : DelegatingHandler
 
         if (httpContext != null)
         {
-            // Try to get the MCP access token from the current request
+            // Get the MCP access token from the current request
             var mcpToken = extractBearerToken(httpContext);
 
             if (!string.IsNullOrEmpty(mcpToken))
             {
-                // Extract the upstream IdP token from the MCP token
-                var upstreamToken = _tokenService.ExtractUpstreamToken(mcpToken);
+                // Forward the MCP JWT directly to the MedRecPro API
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", mcpToken);
 
-                if (!string.IsNullOrEmpty(upstreamToken))
-                {
-                    // Forward the upstream token to the MedRecPro API
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", upstreamToken);
-
-                    _logger.LogDebug(
-                        "[TokenForward] Forwarding upstream token to {Uri}",
-                        request.RequestUri);
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "[TokenForward] No upstream token found in MCP token for request to {Uri}",
-                        request.RequestUri);
-                }
+                _logger.LogDebug(
+                    "[TokenForward] Forwarding MCP token to {Uri}",
+                    request.RequestUri);
             }
             else
             {

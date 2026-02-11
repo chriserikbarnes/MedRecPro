@@ -1844,5 +1844,272 @@ namespace MedRecPro.Controllers
         }
 
         #endregion
+
+        #region MCP User Resolution
+
+        /**************************************************************/
+        /// <summary>
+        /// DTO for MCP user resolution request containing the user's email address.
+        /// </summary>
+        /// <remarks>
+        /// Used by the MCP server during OAuth callback to resolve the upstream
+        /// identity provider email to a MedRecPro database user ID.
+        /// </remarks>
+        /// <seealso cref="McpUserResolveResponse"/>
+        /// <seealso cref="ResolveMcpUser"/>
+        public class McpUserResolveRequest
+        {
+            /**************************************************************/
+            /// <summary>
+            /// The email address of the user to resolve.
+            /// </summary>
+            [Required]
+            [EmailAddress]
+            public string Email { get; set; } = string.Empty;
+
+            /**************************************************************/
+            /// <summary>
+            /// Optional display name from the upstream identity provider (e.g., "John Smith").
+            /// Used when auto-provisioning a new user. Falls back to email prefix if not provided.
+            /// </summary>
+            public string? DisplayName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Optional identity provider name (e.g., "Google", "Microsoft") for audit trail.
+            /// Used when auto-provisioning a new user.
+            /// </summary>
+            public string? Provider { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// DTO for MCP user resolution response containing the encrypted user ID.
+        /// </summary>
+        /// <remarks>
+        /// The encrypted user ID can only be decrypted by a server with access
+        /// to the shared PKSecret from Azure Key Vault.
+        /// </remarks>
+        /// <seealso cref="McpUserResolveRequest"/>
+        /// <seealso cref="ResolveMcpUser"/>
+        public class McpUserResolveResponse
+        {
+            /**************************************************************/
+            /// <summary>
+            /// The encrypted user ID (e.g., "F-xxxx...") that can be decrypted
+            /// to the numeric database user ID using PKSecret.
+            /// </summary>
+            /// <seealso cref="StringCipher"/>
+            public string EncryptedUserId { get; set; } = string.Empty;
+
+            /**************************************************************/
+            /// <summary>
+            /// Indicates whether the user was auto-provisioned during this resolution.
+            /// True if a new user record was created; false if the user already existed.
+            /// </summary>
+            public bool WasProvisioned { get; set; }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves a user's email address to their encrypted database user ID.
+        /// </summary>
+        /// <param name="request">The request containing the email address to resolve.</param>
+        /// <returns>
+        /// An <see cref="IActionResult"/> containing a <see cref="McpUserResolveResponse"/>
+        /// with the encrypted user ID. If the user does not exist, they are auto-provisioned
+        /// using the same defaults as <see cref="createMcpProvisionedUser"/>.
+        /// </returns>
+        /// <remarks>
+        /// This endpoint is secured with the **McpBearer** authentication scheme and is
+        /// intended exclusively for the MCP server to call during the OAuth callback flow.
+        ///
+        /// It does **not** use `getEncryptedIdFromClaim()` — instead it looks up the user
+        /// by email via `UserDataAccess.GetByEmailAsync()`, which populates `EncryptedUserId`
+        /// using `StringCipher.Encrypt(user.Id, pkSecret, Fast)`.
+        ///
+        /// If no user exists for the given email, the endpoint auto-provisions a new user
+        /// record using the same pattern as `AuthController.createUserForExternalLogin()`.
+        /// This ensures MCP users can use tools immediately after their first OAuth login
+        /// without requiring a prior login through the API or Static UI.
+        ///
+        /// The encrypted user ID is safe to return because only a server with access to
+        /// `Security:DB:PKSecret` (shared via Azure Key Vault) can decrypt it.
+        ///
+        /// **Example:**
+        /// ```
+        /// POST /api/users/resolve-mcp
+        /// Authorization: Bearer {mcp-jwt}
+        /// Content-Type: application/json
+        ///
+        /// { "email": "user@example.com", "displayName": "John Smith", "provider": "Google" }
+        /// ```
+        ///
+        /// **Response (existing user):**
+        /// ```json
+        /// { "encryptedUserId": "F-abc123...", "wasProvisioned": false }
+        /// ```
+        ///
+        /// **Response (newly provisioned user):**
+        /// ```json
+        /// { "encryptedUserId": "F-def456...", "wasProvisioned": true }
+        /// ```
+        /// </remarks>
+        /// <response code="200">Returns the encrypted user ID (user may have been auto-provisioned).</response>
+        /// <response code="400">If the email is missing or invalid.</response>
+        /// <response code="401">If the request is not authenticated with a valid MCP JWT.</response>
+        /// <response code="500">If an internal server error occurs during resolution or provisioning.</response>
+        /// <seealso cref="McpUserResolveRequest"/>
+        /// <seealso cref="McpUserResolveResponse"/>
+        /// <seealso cref="UserDataAccess.GetByEmailAsync"/>
+        /// <seealso cref="UserDataAccess.CreateAsync"/>
+        /// <seealso cref="createMcpProvisionedUser"/>
+        /// <seealso cref="StringCipher"/>
+        [Microsoft.AspNetCore.Authorization.Authorize(AuthenticationSchemes = "McpBearer")]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [HttpPost("resolve-mcp")]
+        [ProducesResponseType(typeof(McpUserResolveResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> ResolveMcpUser([FromBody] McpUserResolveRequest request)
+        {
+            #region implementation
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            try
+            {
+                // Look up the user by email — GetByEmailAsync populates EncryptedUserId
+                var user = await _userDataAccess.GetByEmailAsync(request.Email);
+
+                if (user != null)
+                {
+                    // Existing user — return their encrypted ID
+                    _logger.LogInformation(
+                        "[ResolveMcp] Resolved email {Email} to user {UserId}",
+                        request.Email, user.Id);
+
+                    return Ok(new McpUserResolveResponse
+                    {
+                        EncryptedUserId = user.EncryptedUserId,
+                        WasProvisioned = false
+                    });
+                }
+
+                // Auto-provision: create the user using the same pattern as
+                // AuthController.createUserForExternalLogin()
+                var displayName = !string.IsNullOrEmpty(request.DisplayName)
+                    ? request.DisplayName
+                    : extractNameFromEmail(request.Email);
+
+                var newUser = createMcpProvisionedUser(request.Email, displayName);
+
+                _logger.LogInformation(
+                    "[ResolveMcp] Auto-provisioning new user for email {Email} (provider: {Provider})",
+                    request.Email, request.Provider ?? "unknown");
+
+                var encryptedId = await _userDataAccess.CreateAsync(newUser, encryptedCreatorUserId: null);
+
+                if (string.IsNullOrEmpty(encryptedId) || encryptedId == "Duplicate")
+                {
+                    // Race condition: another request created the user between our check and create.
+                    // Re-fetch to get the now-existing user.
+                    user = await _userDataAccess.GetByEmailAsync(request.Email);
+                    if (user == null)
+                    {
+                        _logger.LogError(
+                            "[ResolveMcp] Failed to provision and re-fetch user for email {Email}",
+                            request.Email);
+                        return StatusCode(StatusCodes.Status500InternalServerError,
+                            "Failed to provision user.");
+                    }
+
+                    _logger.LogInformation(
+                        "[ResolveMcp] Race condition resolved — email {Email} already existed as user {UserId}",
+                        request.Email, user.Id);
+
+                    return Ok(new McpUserResolveResponse
+                    {
+                        EncryptedUserId = user.EncryptedUserId,
+                        WasProvisioned = false
+                    });
+                }
+
+                _logger.LogInformation(
+                    "[ResolveMcp] Auto-provisioned new user for email {Email} with encrypted ID {EncryptedId}",
+                    request.Email, encryptedId);
+
+                return Ok(new McpUserResolveResponse
+                {
+                    EncryptedUserId = encryptedId,
+                    WasProvisioned = true
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[ResolveMcp] Error resolving user for email {Email}", request.Email);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while resolving the user.");
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a new user object for MCP auto-provisioning with external login defaults.
+        /// </summary>
+        /// <param name="email">Email address for the new user.</param>
+        /// <param name="displayName">Display name for the new user.</param>
+        /// <returns>A new User object with appropriate defaults for MCP-provisioned external login.</returns>
+        /// <remarks>
+        /// Mirrors the pattern from <see cref="MedRecPro.Controllers.AuthController"/>
+        /// `createUserForExternalLogin()`. Sets sensible defaults including confirmed email
+        /// (standard for external logins) and generates a new security stamp.
+        /// No password is set since MCP users authenticate via Google/Microsoft OAuth.
+        /// </remarks>
+        /// <seealso cref="ResolveMcpUser"/>
+        private User createMcpProvisionedUser(string email, string displayName)
+        {
+            #region implementation
+            var lcEmail = email.ToLowerInvariant();
+            return new User
+            {
+                UserName = lcEmail,
+                Email = lcEmail,
+                PrimaryEmail = lcEmail,
+                EmailConfirmed = true,
+                DisplayName = displayName,
+                CanonicalUsername = lcEmail,
+                Timezone = "UTC",
+                Locale = "en-US",
+                CreatedAt = DateTime.UtcNow,
+                SecurityStamp = Guid.NewGuid().ToString()
+            };
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts a display name from an email address by taking the prefix before '@'.
+        /// </summary>
+        /// <param name="email">The email address to extract the name from.</param>
+        /// <returns>The email prefix, or the full email if no '@' is found.</returns>
+        /// <remarks>
+        /// Fallback strategy matching <see cref="MedRecPro.Controllers.AuthController"/>
+        /// `extractDisplayName()` behavior when no display name claim is available.
+        /// </remarks>
+        private static string extractNameFromEmail(string email)
+        {
+            #region implementation
+            if (string.IsNullOrEmpty(email)) return string.Empty;
+            var idx = email.IndexOf('@');
+            return idx > 0 ? email.Substring(0, idx) : email;
+            #endregion
+        }
+
+        #endregion
     }
 }
