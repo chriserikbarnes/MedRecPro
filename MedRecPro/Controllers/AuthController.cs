@@ -816,13 +816,17 @@ namespace MedRecPro.Controllers
                 var claims = User.Claims
                     .Select(c => new { c.Type, c.Value })
                     .Where(d => !string.IsNullOrEmpty(d.Type)
-                        && !d.Type.Contains("nameidentifier", StringComparison.CurrentCultureIgnoreCase));
+                        && !d.Type.Contains("nameidentifier", StringComparison.CurrentCultureIgnoreCase)
+                        && d.Type != "sub");
 
                 // Return user information
+                var userId = ClaimHelper.GetUserIdFromClaims(User.Claims);
                 return Ok(new
                 {
-                    encryptedUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)?.Encrypt(_pkSecret, StringCipher.EncryptionStrength.Fast),
-                    Name = User.Identity.Name,
+                    encryptedUserId = userId.HasValue
+                        ? StringCipher.Encrypt(userId.Value.ToString(), _pkSecret, StringCipher.EncryptionStrength.Fast)
+                        : null,
+                    Name = User.Identity?.Name,
                     Claims = claims
                 });
             }

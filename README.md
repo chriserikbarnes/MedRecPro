@@ -12,7 +12,7 @@ MedRecPro is a pharmaceutical structured product label (SPL) management platform
 
 - **Runtime**: ASP.NET Core (.NET 8.0 LTS)
 - **Database**: Azure SQL Server (Serverless free tier) with Dapper + Entity Framework Core
-- **Authentication**: Cookie-based auth with Google and Microsoft OAuth providers; JWT bearer tokens for API access; McpBearer JWT scheme for MCP server integration
+- **Authentication**: Cookie-based auth with Google and Microsoft OAuth providers; JWT bearer tokens for API access; McpBearer JWT scheme for MCP server integration (claims normalized to standard JWT short names: `sub`, `name`, `email`)
 - **AI Integration**: Claude API for natural language query interpretation and synthesis
 - **MCP Protocol**: Model Context Protocol server with OAuth 2.1 (PKCE S256) for Claude.ai connector integration
 - **Hosting**: Azure App Service (Windows, IIS) with Cloudflare CDN/WAF/DNS
@@ -76,6 +76,8 @@ MedRecPro/                          # Root repository
       ApiControllerBase.cs          # Base controller (route prefix, #if DEBUG directives)
       AuthController.cs             # OAuth login/logout, user info
       UsersController.cs            # User CRUD, activity logs, authentication, MCP user resolution/provisioning
+                                      #   [Authorize(Policy = "ApiAccess")] — accepts both cookie auth and McpBearer JWT
+                                      #   signup and authenticate endpoints use [AllowAnonymous]
       LabelController.cs            # Label CRUD, views, search, import, AI endpoints
       AiController.cs               # AI interpret/synthesize, conversations, context
       SettingsController.cs         # App info, feature flags, metrics, logs, cache
@@ -161,6 +163,7 @@ MedRecPro/                          # Root repository
         ... (18 templates total)
       Stylesheets/                  # SPL rendering stylesheets
     Helpers/                        # Utility classes
+      ClaimHelper.cs                # Centralized claim extraction (cookie auth + MCP JWT)
       EncryptionHelper.cs           # ID encryption/decryption
       ConnectionStringHelper.cs     # DB connection management
       XmlHelpers.cs                 # XML parsing utilities
@@ -170,6 +173,8 @@ MedRecPro/                          # Root repository
     Attributes/                     # Custom validation attributes for SPL fields
     Filters/
       ActivityLogActionFilter.cs    # Request activity logging
+      RequireActorAttributeFilter.cs      # Actor-based authorization filter
+      RequireUserRoleAttributeFilter.cs   # Role-based authorization filter
     Migrations/                     # EF Core migrations
     Exceptions/
     SQL/                            # Database schema and maintenance scripts

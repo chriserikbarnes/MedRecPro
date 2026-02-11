@@ -5,6 +5,7 @@ using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity; // Added for StatusCodes
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -33,6 +34,7 @@ namespace MedRecPro.Controllers
     /// <seealso cref="IActivityLogService"/>
     /// <seealso cref="StringCipher"/>
     [ApiController]
+    [Authorize(Policy = "ApiAccess")]
     public class UsersController : ApiControllerBase
     {
         private readonly StringCipher _stringCipher;
@@ -264,46 +266,15 @@ namespace MedRecPro.Controllers
         private string? getEncryptedIdFromClaim()
         {
             #region Implementation
-
-            string? ret = null;
-
-            // Encrypt to for the call to get the user from the db           
-            string encryptedAuthUserId;
-
             try
             {
-                long id = 0;
-
-                // IMPORTANT: Get the authenticated ID from claims.
-                var idClaim = User.Claims.FirstOrDefault(c => c.Type
-                    .Contains("NameIdentifier", StringComparison.OrdinalIgnoreCase))
-                    ?.Value;
-
-                if (string.IsNullOrEmpty(idClaim) || !Int64.TryParse(idClaim, out id) || id <= 0)
-                {
-                    throw new UnauthorizedAccessException("Unable to determine user ID from authentication context.");
-                }
-
-                try
-                {
-                    encryptedAuthUserId = StringCipher.Encrypt(id.ToString(), _pkSecret, StringCipher.EncryptionStrength.Fast);
-
-                    ret = encryptedAuthUserId;
-                }
-                catch (Exception ex) // Catch potential encryption errors
-                {
-                    _logger.LogError(ex, "Encryption failed for user ID.");
-                    throw;
-                }
+                return ClaimHelper.GetEncryptedUserIdOrThrow(User.Claims, _pkSecret);
             }
             catch (Exception e)
             {
                 _logger.LogError(e, "Failed to get encrypted id from claims");
                 throw;
             }
-
-            return ret;
-
             #endregion
         }
 
@@ -1183,6 +1154,7 @@ namespace MedRecPro.Controllers
         /// <response code="201">User created successfully. Returns the encrypted User ID in the response body or Location header.</response>
         /// <response code="400">If the request is invalid (e.g., missing fields, passwords don't match, email already exists).</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [AllowAnonymous]
         [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPost("signup")]
         [ProducesResponseType(typeof(string), StatusCodes.Status201Created)] // Assuming encrypted ID is returned
@@ -1249,6 +1221,7 @@ namespace MedRecPro.Controllers
         /// <response code="400">If the request is invalid (e.g., missing email or password).</response>
         /// <response code="401">Authentication failed (e.g., invalid credentials, account locked).</response>
         /// <response code="500">If an internal server error occurs.</response>
+        [AllowAnonymous]
         [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPost("authenticate")]
         [ProducesResponseType(typeof(UserFacingDto), StatusCodes.Status200OK)]

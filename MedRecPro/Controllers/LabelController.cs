@@ -544,13 +544,9 @@ namespace MedRecPro.Api.Controllers
             {
                 if (HttpContext?.User?.Identity?.IsAuthenticated == true)
                 {
-                    var userIdClaim = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                    if (long.TryParse(userIdClaim, out long userId))
-                    {
-                        return userId;
-                    }
+                    return ClaimHelper.GetUserIdFromClaims(HttpContext.User.Claims);
                 }
-                return null; // No authenticated user or invalid user ID
+                return null;
             }
             catch (Exception ex)
             {
@@ -793,17 +789,16 @@ namespace MedRecPro.Api.Controllers
         private string? getEncryptedUserId()
         {
             #region implementation
-
-            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-
-            if (string.IsNullOrEmpty(userIdClaim))
+            var userId = ClaimHelper.GetUserIdFromClaims(User.Claims);
+            if (!userId.HasValue)
             {
                 return null;
             }
 
-            // Encrypt the user ID for external use
-            return StringCipher.Encrypt(userIdClaim, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast);
-
+            return StringCipher.Encrypt(
+                userId.Value.ToString(),
+                _pkEncryptionSecret,
+                StringCipher.EncryptionStrength.Fast);
             #endregion
         }
 

@@ -556,17 +556,16 @@ namespace MedRecPro.Api.Controllers
         private string? getEncryptedUserId()
         {
             #region implementation
-
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-            if (string.IsNullOrEmpty(userIdClaim))
+            var userId = ClaimHelper.GetUserIdFromClaims(User.Claims);
+            if (!userId.HasValue)
             {
                 return null;
             }
 
-            // Encrypt the user ID for external use
-            return StringCipher.Encrypt(userIdClaim, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast);
-
+            return StringCipher.Encrypt(
+                userId.Value.ToString(),
+                _pkEncryptionSecret,
+                StringCipher.EncryptionStrength.Fast);
             #endregion
         }
 

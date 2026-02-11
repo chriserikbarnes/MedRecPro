@@ -224,6 +224,11 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
 {
+    // Disable Microsoft's default claim type mapping so JWT claims retain
+    // their original short names (sub, name, email) rather than being
+    // re-mapped to long .NET URI types.
+    options.MapInboundClaims = false;
+
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,

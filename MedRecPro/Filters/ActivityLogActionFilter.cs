@@ -1,4 +1,5 @@
-﻿using MedRecPro.Models;
+﻿using MedRecPro.Helpers;
+using MedRecPro.Models;
 using MedRecPro.Service;
 using Microsoft.AspNetCore.Mvc.Filters;
 using System.Diagnostics;
@@ -90,14 +91,9 @@ namespace MedRecPro.Filters
             var httpContext = context.HttpContext;
 
             // Get user ID (handle both authenticated and anonymous)
-            var userIdClaim = httpContext.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-            long? userId = null;
-
-            // Only set userId if we have a valid authenticated user
-            if (!string.IsNullOrEmpty(userIdClaim) && long.TryParse(userIdClaim, out var parsedUserId))
-            {
-                userId = parsedUserId;
-            }
+            long? userId = httpContext.User != null
+                ? ClaimHelper.GetUserIdFromClaims(httpContext.User.Claims)
+                : null;
 
             // Execute the action
             var resultContext = await next();

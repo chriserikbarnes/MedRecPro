@@ -477,6 +477,12 @@ if (!string.IsNullOrEmpty(mcpServerUrl) && !string.IsNullOrEmpty(mcpJwtSigningKe
     builder.Services.AddAuthentication()
         .AddJwtBearer("McpBearer", options =>
         {
+            // Disable Microsoft's default claim type mapping so JWT claims
+            // retain their original short names (sub, name, email).
+            // Combined with McpTokenService's claim normalization, this
+            // ensures the ClaimsPrincipal contains predictable claim types.
+            options.MapInboundClaims = false;
+
             // Configure token validation parameters for MCP-issued JWTs
             options.TokenValidationParameters = new TokenValidationParameters
             {
@@ -502,11 +508,16 @@ if (!string.IsNullOrEmpty(mcpServerUrl) && !string.IsNullOrEmpty(mcpJwtSigningKe
                         .GetRequiredService<ILoggerFactory>()
                         .CreateLogger("McpJwtAuth");
 
-                    // Only log if this scheme was actually attempted
-                    if (context.Exception is not SecurityTokenException)
+                    if (context.Exception is SecurityTokenException)
+                    {
+                        logger.LogWarning(
+                            "[MCP Auth] Token validation failed: {Error}",
+                            context.Exception.Message);
+                    }
+                    else
                     {
                         logger.LogDebug(
-                            "[MCP Auth] Token validation skipped: {Error}",
+                            "[MCP Auth] Authentication error: {Error}",
                             context.Exception.Message);
                     }
                     return Task.CompletedTask;

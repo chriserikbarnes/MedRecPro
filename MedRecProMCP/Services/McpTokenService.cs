@@ -113,7 +113,10 @@ public class McpTokenService : IMcpTokenService
             new("scope", string.Join(" ", scopes))
         };
 
-        // Add user claims, filtering out duplicates
+        // Add user claims, normalizing long .NET URI claim types to standard
+        // short JWT names (e.g., ClaimTypes.NameIdentifier → "sub") so the
+        // token payload is standards-compliant and predictable regardless of
+        // JwtSecurityTokenHandler's OutboundClaimTypeMap configuration.
         foreach (var claim in claimsList)
         {
             // Skip claims we're setting explicitly
@@ -125,7 +128,8 @@ public class McpTokenService : IMcpTokenService
                 continue;
             }
 
-            accessTokenClaims.Add(claim);
+            var normalizedType = normalizeClaimType(claim.Type);
+            accessTokenClaims.Add(new Claim(normalizedType, claim.Value, claim.ValueType));
         }
 
         // Encrypt and embed upstream token if configured
@@ -146,6 +150,9 @@ public class McpTokenService : IMcpTokenService
         };
 
         var tokenHandler = new JwtSecurityTokenHandler();
+        // Prevent double-mapping: claims are already normalized to standard
+        // JWT names, so the handler's outbound map must not re-map them.
+        tokenHandler.OutboundClaimTypeMap.Clear();
         var token = tokenHandler.CreateToken(tokenDescriptor);
         var accessToken = tokenHandler.WriteToken(token);
 
@@ -337,6 +344,33 @@ public class McpTokenService : IMcpTokenService
     }
 
     #region Private Methods
+
+    /**************************************************************/
+    /// <summary>
+    /// Normalizes .NET claim type URIs to standard short JWT claim names.
+    /// </summary>
+    /// <remarks>
+    /// <c>ClaimTypes.NameIdentifier</c>, <c>ClaimTypes.Name</c>, etc. use long URIs
+    /// (e.g., <c>http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier</c>).
+    /// JWT standards use short names (<c>sub</c>, <c>name</c>, <c>email</c>). This method
+    /// maps the long URIs to their JWT equivalents so the token payload is
+    /// standards-compliant and predictable.
+    /// </remarks>
+    /// <param name="claimType">The claim type string to normalize.</param>
+    /// <returns>The standard JWT claim name, or the original value if no mapping exists.</returns>
+    /**************************************************************/
+    private static string normalizeClaimType(string claimType)
+    {
+        return claimType switch
+        {
+            ClaimTypes.NameIdentifier => JwtRegisteredClaimNames.Sub,
+            ClaimTypes.Name           => JwtRegisteredClaimNames.Name,
+            ClaimTypes.Email          => JwtRegisteredClaimNames.Email,
+            ClaimTypes.GivenName      => JwtRegisteredClaimNames.GivenName,
+            ClaimTypes.Surname        => JwtRegisteredClaimNames.FamilyName,
+            _                         => claimType
+        };
+    }
 
     /**************************************************************/
     /// <summary>

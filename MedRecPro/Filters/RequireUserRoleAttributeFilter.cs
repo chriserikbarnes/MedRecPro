@@ -233,24 +233,17 @@ namespace MedRecPro.Filters
             #region implementation
             try
             {
-                // Get the authenticated ID from claims
-                var idClaim = context.HttpContext.User.Claims
-                    .FirstOrDefault(c => c.Type.Contains("NameIdentifier", StringComparison.OrdinalIgnoreCase))
-                    ?.Value;
-
-                if (string.IsNullOrEmpty(idClaim) || !long.TryParse(idClaim, out long id) || id <= 0)
+                var userId = ClaimHelper.GetUserIdFromClaims(context.HttpContext.User.Claims);
+                if (!userId.HasValue)
                 {
-                    _logger.LogWarning("Unable to parse user ID from claims. Claim value: {ClaimValue}", idClaim);
+                    _logger.LogWarning("Unable to parse user ID from claims.");
                     return null;
                 }
 
-                // Encrypt the ID for database lookup
-                string encryptedAuthUserId = StringCipher.Encrypt(
-                    id.ToString(),
+                return StringCipher.Encrypt(
+                    userId.Value.ToString(),
                     _pkSecret,
                     StringCipher.EncryptionStrength.Fast);
-
-                return encryptedAuthUserId;
             }
             catch (Exception ex)
             {

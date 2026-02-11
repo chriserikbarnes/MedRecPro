@@ -628,9 +628,7 @@ namespace MedRecPro.Helpers
                 try
                 {
                     var user = _httpContextAccessor.HttpContext.User;
-                    // Get user ID from claims - try common claim types
-                    userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                          ?? user.FindFirst("sub")?.Value;
+                    userId = ClaimHelper.GetUserIdFromClaims(user.Claims)?.ToString();
                     userName = user.FindFirst(ClaimTypes.Name)?.Value
                             ?? user.FindFirst("name")?.Value
                             ?? user.Identity?.Name;

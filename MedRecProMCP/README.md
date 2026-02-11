@@ -65,7 +65,7 @@ All endpoints are externally prefixed with `/mcp` by the IIS virtual application
 8. Provider redirects to /mcp/oauth/callback/{provider}
 9. MCP server resolves upstream IdP email to numeric DB user ID via POST /api/users/resolve-mcp
    (auto-provisions user if they don't exist in the database)
-10. MCP server issues authorization code with numeric NameIdentifier claim, redirects to Claude
+10. MCP server issues authorization code with numeric `sub` claim (standard JWT name), redirects to Claude
 11. Claude exchanges code for tokens via /mcp/oauth/token
 12. Claude sends authenticated POST to /mcp with Bearer MCP JWT
 13. MCP server forwards MCP JWT to MedRecPro API for each tool call (McpBearer auth scheme)
@@ -84,12 +84,14 @@ During the OAuth callback (step 9), the MCP server must map the upstream identit
    - **User doesn't exist:** Auto-provisions a new user record (matching `AuthController.createUserForExternalLogin()` defaults: EmailConfirmed=true, Timezone="UTC", Locale="en-US", no password), then returns the encrypted ID
 4. `UserResolutionService` decrypts the encrypted ID using the shared `Security:DB:PKSecret` via `StringCipher`
 5. `OAuthEndpoints.cs` replaces the upstream `NameIdentifier` claim with the numeric database user ID
-6. The MCP JWT is issued with the numeric `NameIdentifier`, enabling all API calls to succeed
+6. `McpTokenService.normalizeClaimType()` converts `ClaimTypes.NameIdentifier` to the standard JWT `sub` claim during token creation, and `OutboundClaimTypeMap` is cleared to prevent double-mapping
+7. The MCP JWT is issued with the numeric user ID as the `sub` claim, enabling all API calls to succeed
 
 **Key architecture:**
 - `TokenForwardingHandler` forwards the MCP JWT directly to the API (not the upstream Google/Microsoft token). The API's `McpBearer` authentication scheme validates these MCP-signed JWTs.
 - Both the MCP server and API share `Security:DB:PKSecret` from Azure Key Vault for `StringCipher` encryption/decryption of user IDs.
 - `UserResolutionService` uses a dedicated `"MedRecProApiDirect"` named HttpClient (without `TokenForwardingHandler`) to avoid circular token forwarding during resolution.
+- **Claim normalization:** `McpTokenService` normalizes .NET `ClaimTypes` URIs to standard JWT short names (`sub`, `name`, `email`, `given_name`, `family_name`) before token creation. Both JWT handlers set `MapInboundClaims = false` so claims retain their short names when read back. The API's `ClaimHelper` resolves user IDs from both `ClaimTypes.NameIdentifier` (cookie auth) and `"sub"` (MCP JWT auth).
 
 ## Compiler Directives (#if DEBUG)
 
@@ -414,6 +416,8 @@ This section documents the process of connecting the MCP server as a custom conn
 | Downstream API calls (MCP -> MedRecPro API) | Working |
 | MCP user resolution (email -> numeric DB ID) | Working |
 | MCP user auto-provisioning (new users)       | Working |
+| JWT claim normalization (sub, name, email)   | Working |
+| UsersController [Authorize(Policy = "ApiAccess")] | Working |
 
 ### Issues Encountered and Fixes
 
@@ -511,6 +515,21 @@ The following issues were encountered in order during integration. Each had to b
 **Root Cause:** Azure SQL Serverless auto-pauses after inactivity. Resuming takes 15-30+ seconds, exceeding both the HttpClient timeout (30s) and SQL command timeout (30s).
 **Status:** Known issue. Subsequent requests succeed once the database warms up. Mitigation options include increasing the auto-pause delay, enabling `EnableRetryOnFailure` on `UseSqlServer`, or increasing the `TimeoutSeconds` in `MedRecProApi` settings.
 
+#### 13. JWT Claim Type Mapping Mismatch (401 on Tool Calls)
+
+**Symptom:** After OAuth login succeeds and MCP JWT is generated, all tool calls that hit the API return 401. Logs show `[Auth] Token validated for user: unknown` and `getEncryptedIdFromClaim()` throws `UnauthorizedAccessException: Unable to determine user ID from authentication context`.
+**Root Cause:** `JwtSecurityTokenHandler.OutboundClaimTypeMap` silently converts `ClaimTypes.NameIdentifier` to `"sub"` and `ClaimTypes.Name` to `"unique_name"` during JWT serialization. On the API side, `getEncryptedIdFromClaim()` searched for `c.Type.Contains("NameIdentifier")` which does not match `"sub"`. Additionally, `NameClaimType = "name"` expected a `"name"` claim but the JWT contained `"unique_name"`, causing `Identity.Name` to be null.
+**Fix (three-part):**
+1. **McpTokenService** — Added `normalizeClaimType()` to explicitly map `ClaimTypes.*` URIs to standard JWT short names (`sub`, `name`, `email`, `given_name`, `family_name`) before token creation. Cleared `OutboundClaimTypeMap` to prevent double-mapping.
+2. **Both JWT handlers** — Added `MapInboundClaims = false` on the MCP server and API `McpBearer` handlers so claims retain their original short names when read back into `ClaimsPrincipal`.
+3. **API claim readers** — Created `ClaimHelper.cs` to resolve user IDs from both `ClaimTypes.NameIdentifier` (cookie auth) and `"sub"` (MCP JWT). Updated 9 scattered NameIdentifier lookups across `UsersController`, `AiController`, `AuthController`, `LabelController`, `RequireActorAttributeFilter`, `RequireUserRoleAttributeFilter`, `ActivityLogActionFilter`, and `LogHelper` to use the shared helper.
+
+#### 14. Missing `[Authorize]` on UsersController (401 on MCP Tool Calls)
+
+**Symptom:** After fixing JWT claim normalization (Issue #13), MCP-side logs now show `[Auth] Token validated for user: Christopher Barnes` correctly, but API tool calls still return 401. `ClaimHelper.GetEncryptedUserIdOrThrow` throws because `User.Claims` is empty. IIS logs show `Logon User: Anonymous`. No `[MCP Auth]` log from the API side.
+**Root Cause:** `UsersController` had no `[Authorize]` attribute at the class level or on individual endpoints (except `resolve-mcp`). Without `[Authorize]`, ASP.NET Core's JWT bearer handler is never invoked for McpBearer tokens — the request arrives as anonymous and `User.Claims` is empty. Cookie auth worked without `[Authorize]` because Identity middleware runs globally and populates `User.Claims` from session cookies on every request, but JWT Bearer schemes require explicit `[Authorize]` to trigger validation.
+**Fix:** Added `[Authorize(Policy = "ApiAccess")]` to the `UsersController` class. The `ApiAccess` policy (Program.cs) accepts both `IdentityConstants.ApplicationScheme` (cookies) and `"McpBearer"` (JWT), so this triggers the JWT handler for MCP requests while preserving existing cookie auth behavior. Added `[AllowAnonymous]` to `signup` and `authenticate` endpoints that must remain publicly accessible. Also fixed `OnAuthenticationFailed` handler that was silently suppressing `SecurityTokenException` log output.
+
 ### Lessons Learned
 
 1. **IIS virtual applications strip path prefixes.** A request to `/mcp/oauth/authorize` arrives at Kestrel as `/oauth/authorize`. All route mappings must account for this in RELEASE builds. Use `#if DEBUG` directives.
@@ -532,6 +551,10 @@ The following issues were encountered in order during integration. Each had to b
 8. **Azure SQL Serverless cold starts can cascade.** A paused database takes 15-30+ seconds to resume. If the MCP HttpClient timeout (30s) expires before the database wakes, the tool call fails. Consider `EnableRetryOnFailure` and generous timeouts for serverless databases.
 
 9. **Cloudflare API authentication:** The Global API Key uses `X-Auth-Email` + `X-Auth-Key` headers, **not** `Authorization: Bearer`. API Tokens (scoped) use `Authorization: Bearer`. Using the wrong format returns `Unable to authenticate request`.
+
+10. **`JwtSecurityTokenHandler` silently renames claim types.** The `OutboundClaimTypeMap` converts `ClaimTypes.NameIdentifier` to `"sub"` and `ClaimTypes.Name` to `"unique_name"` during JWT serialization. On the inbound side, `MapInboundClaims` (default `true`) may or may not reverse this depending on the handler implementation (`JsonWebTokenHandler` in .NET 8 does not). Always explicitly normalize claims to standard JWT short names before token creation, clear `OutboundClaimTypeMap`, and set `MapInboundClaims = false` on JWT handlers to ensure claim types are predictable end-to-end.
+
+11. **JWT Bearer schemes require `[Authorize]` to trigger validation.** Unlike cookie/Identity middleware which runs globally on every request and populates `User.Claims` from session cookies, JWT Bearer handlers only validate tokens when an endpoint has `[Authorize]` (or a policy that references the scheme). Without it, the Bearer token in the `Authorization` header is ignored, the request arrives as anonymous, and `User.Claims` is empty. If a controller mixes public and protected endpoints, use class-level `[Authorize(Policy = "...")]` with `[AllowAnonymous]` on public endpoints.
 
 ## Troubleshooting
 
