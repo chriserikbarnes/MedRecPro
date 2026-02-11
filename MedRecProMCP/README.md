@@ -692,7 +692,7 @@ Key points:
    mcp-publisher.exe login dns --domain=medrecpro.com --private-key=<64-char-hex-private-key>
    ```
 
-   > ⚠️ The private key is stored in a local script outside the repo. See `C:\Users\chris\Documents\MCP-Server-JSON-Publisher.ps1`
+   > ⚠️ The private key is stored in a local script outside the repo. See `C:\Users\{user}\{folder}\{publisher-script}.ps1`
 
 2. **Publish to the registry:**
    ```powershell
