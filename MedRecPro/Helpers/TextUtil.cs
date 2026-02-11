@@ -149,8 +149,8 @@ namespace MedRecPro.Helpers
 
             string ret = new StringCipher().Decrypt(text, key);
 
-            if (string.IsNullOrEmpty(ret))
-                throw new System.Security.Cryptography.CryptographicException("TextUtil.Decrypt: Decryption returned null or empty string.");
+            if (ret is null)
+                throw new System.Security.Cryptography.CryptographicException("TextUtil.Decrypt: Decryption returned null.");
 
             return ret;
 

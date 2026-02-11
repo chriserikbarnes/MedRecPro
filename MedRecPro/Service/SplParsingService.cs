@@ -285,7 +285,7 @@ namespace MedRecPro.Service
         /// <seealso cref="SplFileImportResult"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XDocument"/>
-        public async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent,
+        public virtual async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent,
             string fileNameInZip,
             Action<string>? reportProgress = null,
             ApplicationDbContext? sharedDbContext = null)

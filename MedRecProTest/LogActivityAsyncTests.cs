@@ -26,11 +26,11 @@ namespace MedRecPro.Service.Test
         /// <summary>
         /// Creates a mock IConfiguration with feature flags enabled.
         /// </summary>
-        private IConfiguration CreateMockConfiguration(bool backgroundProcessingEnabled = true)
+        private IConfiguration CreateMockConfiguration(bool activityTrackingEnabled = true)
         {
             var inMemorySettings = new Dictionary<string, string>
             {
-                {"FeatureFlags:BackgroundProcessingEnabled", backgroundProcessingEnabled.ToString()}
+                {"FeatureFlags:ActivityTrackingEnabled", activityTrackingEnabled.ToString()}
             };
 
             return new ConfigurationBuilder()
@@ -164,7 +164,7 @@ namespace MedRecPro.Service.Test
             // Arrange
             using var context = CreateTestContext("LogActivity_Disabled_Test");
             var logger = new Mock<ILogger<ActivityLogService>>();
-            var configuration = CreateMockConfiguration(backgroundProcessingEnabled: false);
+            var configuration = CreateMockConfiguration(activityTrackingEnabled: false);
             var service = new ActivityLogService(context, logger.Object, configuration);
 
             var log = new ActivityLog

@@ -1,5 +1,10 @@
+using MedRecPro.Data;
+using MedRecPro.DataAccess;
+using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -142,14 +147,40 @@ namespace MedRecPro.Service.Test
             scopeFactory.Setup(x => x.CreateScope()).Returns(scope.Object);
             scope.Setup(x => x.ServiceProvider).Returns(serviceProvider.Object);
 
-            // Setup mock services
-            var splDataService = new Mock<SplDataService>();
-            var splXmlParser = new Mock<SplXmlParser>();
+            // Create shared in-memory database context for DI resolution
+            var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseInMemoryDatabase($"SplImport_{Guid.NewGuid()}")
+                .Options;
+            var dbContext = new ApplicationDbContext(dbOptions);
 
+            // Create configuration with required encryption key
+            var testConfig = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    { "Security:DB:PKSecret", "TestSplImportSecret12345!@#" }
+                })
+                .Build();
+
+            // Setup mock SplDataService (requires constructor args)
+            var splDataService = new Mock<SplDataService>(
+                new Mock<Repository<SplData>>(dbContext, new StringCipher(),
+                    new Mock<ILogger<SplData>>().Object, testConfig).Object,
+                dbContext,
+                new Mock<ILogger<SplDataService>>().Object,
+                testConfig);
+
+            // Setup mock SplXmlParser (requires constructor args)
+            var splXmlParser = new Mock<SplXmlParser>(
+                new Mock<IServiceProvider>().Object,
+                new Mock<ILogger<SplXmlParser>>().Object);
+
+            // Register services for GetRequiredService resolution
             serviceProvider.Setup(x => x.GetService(typeof(SplDataService)))
                 .Returns(splDataService.Object);
             serviceProvider.Setup(x => x.GetService(typeof(SplXmlParser)))
                 .Returns(splXmlParser.Object);
+            serviceProvider.Setup(x => x.GetService(typeof(ApplicationDbContext)))
+                .Returns(dbContext);
 
             // Configure SplDataService to return non-duplicate for testing
             splDataService.Setup(x => x.IsDuplicateSplDataAsync(It.IsAny<string>(), It.IsAny<Guid>()))
@@ -158,7 +189,8 @@ namespace MedRecPro.Service.Test
                 .ReturnsAsync("encrypted-spl-data-id");
 
             // Configure SplXmlParser to return successful result
-            splXmlParser.Setup(x => x.ParseAndSaveSplDataAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Action<string>>(), null))
+            splXmlParser.Setup(x => x.ParseAndSaveSplDataAsync(It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<Action<string>>(), It.IsAny<ApplicationDbContext>()))
                 .ReturnsAsync(new SplFileImportResult
                 {
                     FileName = TestXmlFileName,

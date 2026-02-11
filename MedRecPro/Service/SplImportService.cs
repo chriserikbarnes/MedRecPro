@@ -162,7 +162,18 @@ namespace MedRecPro.Service
 
                 using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
 
+                if (!archive.Entries.Any())
+                {
+                    zipResult.FileResults.Add(createEmptyZipResult());
+                    _logger.LogWarning("ZIP file {ZipFileName} contains no entries.", zipFile.FileName);
+                    return zipResult;
+                }
+
                 await processZipEntriesAsync(archive, zipFile.FileName, currentUserId, updateStatus, zipResult, progressTracker, token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
