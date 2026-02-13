@@ -223,7 +223,7 @@ public class DrugLabelTools
     /// </example>
     /// <seealso cref="MedRecProApiClient.GetStringAsync"/>
     /**************************************************************/
-    [McpServerTool(Name = "search_drug_labels")]
+    [McpServerTool(Name = "search_drug_labels", Title = "Search Drug Labels", ReadOnly = true, Destructive = false, OpenWorld = true)]
     [Description("""
     🔍 SEARCH: Find FDA drug labels and answer SPECIFIC QUESTIONS about drugs.
 
@@ -453,7 +453,7 @@ public class DrugLabelTools
     /// <seealso cref="SearchDrugLabels"/>
     /// <seealso cref="MedRecProApiClient.GetStringAsync"/>
     /**************************************************************/
-    [McpServerTool(Name = "export_drug_label_markdown")]
+    [McpServerTool(Name = "export_drug_label_markdown", Title = "Export Drug Label", ReadOnly = true, Destructive = false, OpenWorld = true)]
     [Description("""
     📄 EXPORT: Get a complete FDA drug label as clean, formatted markdown.
 

@@ -511,7 +511,8 @@ app.MapGet("/", () => Results.Ok(new
     version = configuration.GetValue<string>("Version") ?? "1.0.0",
     status = "running",
     mcp = "/mcp",
-    documentation = $"{mcpSettings.ServerUrl}/docs"
+    documentation = $"{mcpSettings.ServerUrl}/docs",
+    gettingStarted = $"{mcpSettings.ServerUrl}/getting-started"
 }));
 #else
 // RELEASE: Health check at /health; MCP transport at root /
@@ -522,7 +523,8 @@ app.MapGet("/health", () => Results.Ok(new
     version = configuration.GetValue<string>("Version") ?? "1.0.0",
     status = "running",
     mcp = "/",
-    documentation = $"{mcpSettings.ServerUrl}/docs"
+    documentation = $"{mcpSettings.ServerUrl}/docs",
+    gettingStarted = $"{mcpSettings.ServerUrl}/getting-started"
 }));
 #endif
 
@@ -569,7 +571,7 @@ app.MapGet("/docs", async (HttpContext context) =>
     // Replace placeholders with configuration values
     var serverUrl = mcpSettings.ServerUrl;
     var serverName = mcpSettings.ServerName ?? "MedRecPro MCP Server";
-    var version = configuration.GetValue<string>("Version") ?? "0.0.1-alpha";
+    var version = configuration.GetValue<string>("Version") ?? "1.0.0";
 
     var html = template
         .Replace("{{ServerUrl}}", serverUrl)
@@ -577,6 +579,102 @@ app.MapGet("/docs", async (HttpContext context) =>
         .Replace("{{Version}}", version);
 
     return Results.Content(html, "text/html");
+    #endregion
+});
+
+/**************************************************************/
+/// <summary>
+/// Serves the user-facing getting-started page for the MCP directory listing.
+/// </summary>
+/// <remarks>
+/// Loads the HTML template from an embedded resource and replaces
+/// placeholders with configuration values. This page targets end-users
+/// discovering MedRecPro through the Claude connectors directory.
+///
+/// DEBUG: /mcp/getting-started (standalone, full path)
+/// RELEASE: /getting-started (IIS virtual app adds /mcp prefix externally)
+/// </remarks>
+/// <seealso cref="MedRecProMCP.Templates.McpGettingStarted.html"/>
+/**************************************************************/
+#if DEBUG
+app.MapGet("/mcp/getting-started", async (HttpContext context) =>
+#else
+app.MapGet("/getting-started", async (HttpContext context) =>
+#endif
+{
+    #region implementation
+    var assembly = typeof(Program).Assembly;
+    var resourceName = "MedRecProMCP.Templates.McpGettingStarted.html";
+
+    await using var stream = assembly.GetManifestResourceStream(resourceName);
+    if (stream == null)
+    {
+        return Results.Problem(
+            statusCode: 500,
+            title: "Getting started template not found");
+    }
+
+    using var reader = new StreamReader(stream);
+    var template = await reader.ReadToEndAsync();
+
+    var serverUrl = mcpSettings.ServerUrl;
+    var serverName = mcpSettings.ServerName ?? "MedRecPro MCP Server";
+    var version = configuration.GetValue<string>("Version") ?? "1.0.0";
+
+    var html = template
+        .Replace("{{ServerUrl}}", serverUrl)
+        .Replace("{{ServerName}}", serverName)
+        .Replace("{{Version}}", version);
+
+    return Results.Content(html, "text/html");
+    #endregion
+});
+
+/**************************************************************/
+/// <summary>
+/// Serves embedded images for the documentation and getting-started pages.
+/// </summary>
+/// <remarks>
+/// Returns images from embedded resources at Templates/Images/.
+/// Supports PNG and JPG formats with appropriate content types.
+///
+/// DEBUG: /mcp/docs/images/{filename}
+/// RELEASE: /docs/images/{filename}
+/// </remarks>
+/**************************************************************/
+#if DEBUG
+app.MapGet("/mcp/docs/images/{filename}", async (string filename) =>
+#else
+app.MapGet("/docs/images/{filename}", async (string filename) =>
+#endif
+{
+    #region implementation
+    // Sanitize filename to prevent path traversal
+    if (filename.Contains("..") || filename.Contains('/') || filename.Contains('\\'))
+    {
+        return Results.BadRequest("Invalid filename");
+    }
+
+    var assembly = typeof(Program).Assembly;
+    var resourceName = $"MedRecProMCP.Templates.Images.{filename}";
+
+    var stream = assembly.GetManifestResourceStream(resourceName);
+    if (stream == null)
+    {
+        return Results.NotFound();
+    }
+
+    // Determine content type from file extension
+    var contentType = filename.ToLowerInvariant() switch
+    {
+        var f when f.EndsWith(".png") => "image/png",
+        var f when f.EndsWith(".jpg") || f.EndsWith(".jpeg") => "image/jpeg",
+        var f when f.EndsWith(".gif") => "image/gif",
+        var f when f.EndsWith(".svg") => "image/svg+xml",
+        _ => "application/octet-stream"
+    };
+
+    return Results.Stream(stream, contentType);
     #endregion
 });
 

@@ -29,9 +29,10 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
   </ItemGroup>
 
-  <!-- Embedded HTML Templates -->
+  <!-- Embedded HTML Templates and Images -->
   <ItemGroup>
     <EmbeddedResource Include="Templates\*.html" />
+    <EmbeddedResource Include="Templates\Images\*" />
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="PowerShell\**" />

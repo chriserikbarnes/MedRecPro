@@ -2,7 +2,7 @@
 
 MCP (Model Context Protocol) server for the MedRecPro application. Acts as an OAuth 2.1 gateway between MCP clients (Claude, etc.) and the MedRecPro Web API.
 
-**Version:** 0.0.1-alpha
+**Version:** 1.0.0
 **Runtime:** ASP.NET Core 8.0
 **Production URL:** https://www.medrecpro.com/mcp
 
@@ -664,7 +664,7 @@ The registry metadata file is at `MedRecProMCP/server.json`:
   "name": "com.medrecpro/drug-label-server",
   "title": "MedRecPro Drug Label Server",
   "description": "Search and export FDA drug labels by brand name, generic ingredient, or UNII code.",
-  "version": "0.0.2",
+  "version": "1.0.0",
   "websiteUrl": "https://www.medrecpro.com",
   "icons": [
     {

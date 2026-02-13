@@ -2,7 +2,7 @@
 
 Static marketing, documentation, and AI chat site for MedRecPro - Pharmaceutical Labeling Management System. Also serves OAuth/MCP discovery metadata for the MedRecPro MCP Server.
 
-**Version:** 0.1.166-alpha
+**Version:** 1.0.0
 **Runtime:** ASP.NET Core 8.0
 **Production URL:** https://www.medrecpro.com
 
@@ -234,4 +234,4 @@ The site runs behind Cloudflare for CDN, WAF, and DNS. No special Cloudflare con
 ---
 
 **Last Updated:** February 2026
-**Status:** alpha
+**Status:** production

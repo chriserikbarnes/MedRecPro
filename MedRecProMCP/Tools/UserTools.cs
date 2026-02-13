@@ -102,7 +102,7 @@ public class UserTools
     /// phoneNumber, mfaEnabled, createdDate, lastLoginDate.
     /// </remarks>
     /**************************************************************/
-    [McpServerTool(Name = "get_my_profile")]
+    [McpServerTool(Name = "get_my_profile", Title = "Get My Profile", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("""
         👤 RETRIEVE: Get the current authenticated user's profile information.
 
@@ -177,7 +177,7 @@ public class UserTools
     /// - Maximum 100 results per page
     /// </remarks>
     /**************************************************************/
-    [McpServerTool(Name = "get_my_activity")]
+    [McpServerTool(Name = "get_my_activity", Title = "Get My Activity", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("""
         📋 LIST: Get the current user's recent activity log showing actions performed in the system.
 
@@ -285,7 +285,7 @@ public class UserTools
     /// Same pagination behavior as get_my_activity.
     /// </remarks>
     /**************************************************************/
-    [McpServerTool(Name = "get_my_activity_by_date_range")]
+    [McpServerTool(Name = "get_my_activity_by_date_range", Title = "Get Activity by Date Range", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("""
         📋 LIST: Get the current user's activity within a specific date range.
 
