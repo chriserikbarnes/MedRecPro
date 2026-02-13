@@ -137,7 +137,7 @@ export const MessageRenderer = (function () {
         // Determine message variant styling
         const isUser = message.role === 'user';
         const avatarClass = isUser ? 'avatar-user' : 'avatar-assistant';
-        const avatarText = isUser ? 'U' : 'AI';
+        const avatarText = isUser ? 'U' : '<img src="/favicon.svg" alt="AI" class="avatar-img" />';
         const bubbleClass = isUser ? 'bubble-user' : 'bubble-assistant';
 
         // Build thinking block HTML (assistant messages only)

@@ -126,28 +126,54 @@ When presenting inventory summary results:
 3. **Group by category** - Present TOP_LABELERS, TOP_PHARM_CLASSES, etc. as separate sections
 4. **Include specific numbers** - Users want to know exact counts
 
-**Example synthesis output:**
+**Example synthesis output (use tables for ALL sections):**
 
 ```markdown
-## MedRecPro Database Inventory
+## MedRecPro Drug Label Database Inventory
 
-### Totals
-- **Documents**: 12,345
-- **Products**: 8,765
-- **Labelers (Manufacturers)**: 432
-- **Active Ingredients**: 1,234
-- **Pharmacologic Classes**: 567
+The database contains a comprehensive collection of FDA drug label information:
+
+### Overall Totals
+
+| Category | Count |
+|---|---|
+| Documents | 12,345 |
+| Products | 8,765 |
+| Labelers (Manufacturers) | 432 |
+| Active Ingredients | 1,234 |
+| Pharmacologic Classes | 567 |
+
+### Top Dosage Forms
+
+| Form | Count |
+|---|---|
+| Tablet | 3,371 |
+| Tablet, Film Coated | 2,157 |
+| Capsule | 1,335 |
 
 ### Top Manufacturers
-1. Pfizer Inc - 523 products
-2. Novartis - 412 products
-3. Teva Pharmaceuticals - 389 products
-...
 
-### Top Drug Classes
-1. Beta-Adrenergic Blockers - 234 products
-2. ACE Inhibitors - 198 products
-...
+| Manufacturer | Products |
+|---|---|
+| Pfizer Inc | 523 |
+| Novartis | 412 |
+| Teva Pharmaceuticals | 389 |
+
+### Top Active Ingredients
+
+| Active Ingredient | Products |
+|---|---|
+| Oxygen | 313 |
+| Pregabalin | 210 |
+| Hydrochlorothiazide | 185 |
+
+### Top Pharmacologic Classes
+
+| Pharmacologic Class | Products |
+|---|---|
+| Decreased CNS Disorganized Electrical Activity | 638 |
+| Cytochrome P450 3A4 Inhibitors | 399 |
+| Opioid Agonist | 382 |
 ```
 
 ---

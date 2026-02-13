@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 95.11 71.96">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #5a3d2c;
+      }
+
+      .cls-2 {
+        fill: #f4a126;
+      }
+    </style>
+  </defs>
+  <g id="MP">
+    <g id="MxP_Round" data-name="MxP Round">
+      <path class="cls-1" d="M0,8l.03,63.93h14.15l-.09-71.93h-6.09C3.58,0,0,3.58,0,8Z"/>
+      <polygon class="cls-1" points="7.87 0 25.91 71.93 41.06 71.93 22.96 0 7.87 0"/>
+      <polygon class="cls-1" points="29.39 0 47.43 71.93 62.58 71.93 44.49 0 29.39 0"/>
+      <path class="cls-2" d="M51.22.03l18.04,71.93h4.89c5.21,0,9.03-4.9,7.76-9.95L66.31.03h-15.09Z"/>
+      <path class="cls-2" d="M95.11,27.68h-15.07L73.1.03h8.85c3.67,0,6.87,2.5,7.76,6.06l5.4,21.6Z"/>
+    </g>
+  </g>
+</svg>
