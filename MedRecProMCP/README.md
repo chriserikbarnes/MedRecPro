@@ -664,8 +664,20 @@ The registry metadata file is at `MedRecProMCP/server.json`:
   "name": "com.medrecpro/drug-label-server",
   "title": "MedRecPro Drug Label Server",
   "description": "Search and export FDA drug labels by brand name, generic ingredient, or UNII code.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "websiteUrl": "https://www.medrecpro.com",
+  "icons": [
+    {
+      "src": "https://www.medrecpro.com/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    },
+    {
+      "src": "https://www.medrecpro.com/favicon-96x96.png",
+      "mimeType": "image/png",
+      "sizes": ["96x96"]
+    }
+  ],
   "repository": {
     "url": "https://github.com/chriserikbarnes/MedRecPro",
     "source": "github",
@@ -682,6 +694,7 @@ The registry metadata file is at `MedRecProMCP/server.json`:
 
 Key points:
 - **`name`** uses the `com.medrecpro/` namespace (verified via DNS)
+- **`icons`** provides an SVG (scalable) and 96x96 PNG for client display
 - **`remotes`** declares this as a hosted server (not an npm/PyPI package)
 - **`packages`** is omitted since the server isn't distributed as a package
 

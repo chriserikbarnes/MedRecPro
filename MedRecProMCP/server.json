@@ -3,8 +3,20 @@
   "name": "com.medrecpro/drug-label-server",
   "title": "MedRecPro Drug Label Server",
   "description": "Search and export FDA drug labels by brand name, generic ingredient, or UNII code.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "websiteUrl": "https://www.medrecpro.com",
+  "icons": [
+    {
+      "src": "https://www.medrecpro.com/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    },
+    {
+      "src": "https://www.medrecpro.com/favicon-96x96.png",
+      "mimeType": "image/png",
+      "sizes": ["96x96"]
+    }
+  ],
   "repository": {
     "url": "https://github.com/chriserikbarnes/MedRecPro",
     "source": "github",
