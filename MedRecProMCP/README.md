@@ -41,7 +41,9 @@ All endpoints are externally prefixed with `/mcp` by the IIS virtual application
 |---|---|---|
 | `/mcp` | POST | MCP Streamable HTTP transport (JSON-RPC) |
 | `/mcp/health` | GET | Health check (returns JSON status) |
-| `/mcp/docs` | GET | HTML documentation page |
+| `/mcp/docs` | GET | HTML technical documentation page |
+| `/mcp/getting-started` | GET | HTML getting-started page (user-facing, for directory listing) |
+| `/mcp/docs/images/{filename}` | GET | Serves embedded screenshot images (PNG) |
 | `/mcp/.well-known/oauth-protected-resource` | GET | Protected Resource Metadata (RFC 9728) |
 | `/mcp/.well-known/oauth-authorization-server` | GET | Authorization Server Metadata (RFC 8414) |
 | `/mcp/oauth/authorize` | GET | OAuth authorization endpoint |
@@ -50,7 +52,7 @@ All endpoints are externally prefixed with `/mcp` by the IIS virtual application
 | `/mcp/oauth/callback/google` | GET | Google OAuth callback |
 | `/mcp/oauth/callback/microsoft` | GET | Microsoft OAuth callback |
 
-> **Note:** `GET /mcp` returns HTTP 405 (Method Not Allowed). This is correct behavior. The MCP transport only accepts POST requests.
+> **Note:** `GET /mcp` returns HTTP 405 (Method Not Allowed). This is correct behavior. The MCP transport only accepts POST requests. For browser-accessible pages, use `/mcp/docs` (technical documentation) or `/mcp/getting-started` (user-facing guide).
 
 ## Authentication Flow
 
@@ -104,12 +106,14 @@ Route paths use compiler directives to handle IIS virtual application path strip
 | MCP transport | `MapMcp("/mcp")` | `MapMcp("/")` |
 | Health check | `GET /` | `GET /health` |
 | Documentation | `GET /mcp/docs` | `GET /docs` |
+| Getting started | `GET /mcp/getting-started` | `GET /getting-started` |
+| Image serving | `GET /mcp/docs/images/{filename}` | `GET /docs/images/{filename}` |
 | OAuth group | `/mcp/oauth` | `/oauth` |
 | Well-known metadata | `/mcp/.well-known/*` | `/.well-known/*` |
 | PRM redirect | `/mcp/.well-known/oauth-protected-resource` redirects to SDK path | Not needed (IIS handles) |
 
 **Files with compiler directives:**
-- `Program.cs` - MCP transport, health check, docs, PRM redirect
+- `Program.cs` - MCP transport, health check, docs, getting-started, image serving, PRM redirect
 - `Endpoints/OAuthEndpoints.cs` - OAuth route group prefix
 - `Endpoints/OAuthMetadataEndpoints.cs` - Well-known metadata paths
 
@@ -170,6 +174,9 @@ dotnet run
 The server runs at `http://localhost:5233`. In DEBUG mode, endpoints include the `/mcp` prefix:
 - Health check: http://localhost:5233/
 - MCP transport: http://localhost:5233/mcp (POST only)
+- Documentation: http://localhost:5233/mcp/docs
+- Getting started: http://localhost:5233/mcp/getting-started
+- Screenshot images: http://localhost:5233/mcp/docs/images/{filename}
 - OAuth metadata: http://localhost:5233/mcp/.well-known/oauth-authorization-server
 
 ### 2. Azure App Service Setup
@@ -297,6 +304,12 @@ curl https://www.medrecpro.com/mcp/.well-known/oauth-protected-resource
 # Documentation page — should return HTML
 curl https://www.medrecpro.com/mcp/docs
 
+# Getting-started page — should return HTML with screenshots
+curl https://www.medrecpro.com/mcp/getting-started
+
+# Screenshot images — should return PNG image data
+curl -I https://www.medrecpro.com/mcp/docs/images/MCP-Adverse-Example.PNG
+
 # Main site still works
 curl https://www.medrecpro.com
 curl https://www.medrecpro.com/api
@@ -352,6 +365,7 @@ MedRecProMCP/
   MedRecProMCP.http                   # HTTP request test file
   web.config                          # IIS configuration (OutOfProcess hosting)
   server.json                         # MCP registry metadata (see MCP Registry below)
+  Documentation.md                    # Anthropic Connectors Directory submission doc
   appsettings.json                    # Base configuration
   appsettings.Development.json        # Local dev overrides
   appsettings.Production.json         # Azure production overrides
@@ -385,10 +399,17 @@ MedRecProMCP/
     AiAgentDtos.cs                    # AI/Claude integration models
     WorkPlanModels.cs                 # Work plan and execution models
   Tools/
-    DrugLabelTools.cs                 # MCP tools for drug label search and export
-    UserTools.cs                      # MCP tools for user/account operations
+    DrugLabelTools.cs                 # MCP tools for drug label search and export (annotated)
+    UserTools.cs                      # MCP tools for user/account operations (annotated)
   Templates/
-    McpDocumentation.html             # Embedded HTML documentation template
+    McpDocumentation.html             # Embedded HTML technical documentation template
+    McpGettingStarted.html            # Embedded HTML getting-started page (user-facing)
+    Images/
+      MCP-Adverse-Example.PNG         # Screenshot: warnings/adverse effects lookup
+      MCP-Authentication-Example.PNG  # Screenshot: user profile/authentication status
+      MCP-Full-Label-Example.PNG      # Screenshot: complete label export
+      MCP-Indication-Example.PNG      # Screenshot: drug indications lookup
+      MCP-Starting-Dose-Example.PNG   # Screenshot: dosage information lookup
   PowerShell/
     test-mcp.ps1                      # MCP endpoint test script
     test-mcp-detailed.ps1             # Detailed MCP test with verbose output
@@ -405,6 +426,14 @@ MedRecProMCP/
 
 This section documents the process of connecting the MCP server as a custom connector in Claude.ai's Settings > Connectors. This was a multi-session effort with numerous obstacles specific to the IIS virtual application + Cloudflare + Azure architecture.
 
+### Anthropic Connectors Directory Submission
+
+Submission materials for the [Anthropic Connectors Directory](https://claude.com/connectors):
+- **`Documentation.md`** — Submission document following Anthropic's template (description, features, setup, examples with screenshots)
+- **`/mcp/getting-started`** — User-facing HTML page linked from the directory listing
+- **Tool annotations** — All 5 tools include `ReadOnly`, `Destructive`, and `OpenWorld` safety annotations
+- **Authentication** — OAuth 2.1 with PKCE, supports Dynamic Client Registration (RFC 7591). No special account required — reviewers authenticate with any Google or Microsoft account and are auto-provisioned.
+
 ### Connection Status
 
 | Component | Status |
@@ -418,6 +447,23 @@ This section documents the process of connecting the MCP server as a custom conn
 | MCP user auto-provisioning (new users)       | Working |
 | JWT claim normalization (sub, name, email)   | Working |
 | UsersController [Authorize(Policy = "ApiAccess")] | Working |
+
+### Tool Safety Annotations
+
+All 5 tools have MCP safety annotations declared via `[McpServerTool]` attribute properties (supported in `ModelContextProtocol` SDK v0.7.0-preview.1):
+
+| Tool | Title | ReadOnly | Destructive | OpenWorld |
+|---|---|---|---|---|
+| `search_drug_labels` | Search Drug Labels | `true` | `false` | `true` |
+| `export_drug_label_markdown` | Export Drug Label | `true` | `false` | `true` |
+| `get_my_profile` | Get My Profile | `true` | `false` | `false` |
+| `get_my_activity` | Get My Activity | `true` | `false` | `false` |
+| `get_my_activity_by_date_range` | Get Activity by Date Range | `true` | `false` | `false` |
+
+**Annotation rationale:**
+- All tools are read-only — no data is modified by any tool
+- Drug label tools use `OpenWorld = true` because they query an external FDA SPL database (NIH National Library of Medicine DailyMed)
+- User tools use `OpenWorld = false` because they only access the authenticated user's own data within the closed MedRecPro system
 
 ### Issues Encountered and Fixes
 
