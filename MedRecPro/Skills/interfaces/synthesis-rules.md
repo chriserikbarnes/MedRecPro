@@ -435,6 +435,46 @@ When API returns multiple products, you MUST use proper array extraction syntax.
 
 ---
 
+## CRITICAL: Inventory Summary Responses MUST Use Markdown Tables - ENFORCEMENT
+
+**When the API results come from `/api/Label/inventory/summary`, ALL data sections MUST be formatted as markdown tables.** No exceptions.
+
+### FORBIDDEN Inventory Formats - DO NOT USE
+
+| FORBIDDEN Pattern | Why It's Wrong |
+|-------------------|----------------|
+| `1. **Pfizer Inc** - 523 products` | Numbered list - use a table instead |
+| `- **Oxygen** - 313 products` | Bulleted list - use a table instead |
+| `**Top Manufacturers:** Pfizer (523), Novartis (412)` | Inline prose - use a table instead |
+
+### Required Table Format Per Section
+
+| Section Category | Column 1 Header | Column 2 Header |
+|-----------------|-----------------|-----------------|
+| TOTALS | Category | Count |
+| BY_MARKETING_CATEGORY | Category | Products |
+| BY_DOSAGE_FORM | Form | Count |
+| TOP_LABELERS | Manufacturer | Products |
+| TOP_INGREDIENTS | Active Ingredient | Products |
+| TOP_PHARM_CLASSES | Pharmacologic Class | Products |
+
+### Example Inventory Table (CORRECT format)
+
+| Manufacturer | Products |
+|---|---|
+| RemedyRepack Inc. | 904 |
+| Bryant Ranch Prepack | 440 |
+| A-S Medication Solutions | 267 |
+
+### Self-Check Before Sending Inventory Responses
+
+- [ ] Every data section uses a markdown table with `| Header | Header |` format
+- [ ] ZERO numbered lists (`1.`, `2.`, `3.`) appear in data sections
+- [ ] ZERO bulleted lists (`-` or `*`) appear in data sections
+- [ ] Suggested follow-ups at the end may use bullets (this is the ONLY exception)
+
+---
+
 ## Related Documents
 
 - [Response Format Standards](./response-format.md) - JSON output structure
