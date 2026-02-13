@@ -126,7 +126,37 @@ When presenting inventory summary results:
 3. **Group by category** - Present TOP_LABELERS, TOP_PHARM_CLASSES, etc. as separate sections
 4. **Include specific numbers** - Users want to know exact counts
 
-**Example synthesis output (use tables for ALL sections):**
+### CRITICAL: ALL Inventory Sections MUST Use Markdown Tables - ENFORCEMENT
+
+**Every inventory summary section MUST be formatted as a markdown table.** No exceptions.
+
+#### FORBIDDEN Inventory Formats - DO NOT USE
+
+| FORBIDDEN Pattern | Why It's Wrong |
+|-------------------|----------------|
+| `1. **Pfizer Inc** - 523 products` | Numbered list - use a table instead |
+| `- **Oxygen** - 313 products` | Bulleted list - use a table instead |
+| `**Top Manufacturers:** Pfizer (523), Novartis (412)` | Inline prose - use a table instead |
+
+#### Required Table Format Per Section
+
+| Section Category | Column 1 Header | Column 2 Header |
+|-----------------|-----------------|-----------------|
+| TOTALS | Category | Count |
+| BY_MARKETING_CATEGORY | Category | Products |
+| BY_DOSAGE_FORM | Form | Count |
+| TOP_LABELERS | Manufacturer | Products |
+| TOP_INGREDIENTS | Active Ingredient | Products |
+| TOP_PHARM_CLASSES | Pharmacologic Class | Products |
+
+#### Self-Check Before Sending Inventory Responses
+
+- [ ] Every section uses a markdown table with `| Header | Header |` format
+- [ ] ZERO numbered lists (`1.`, `2.`, `3.`) appear in data sections
+- [ ] ZERO bulleted lists (`-` or `*`) appear in data sections
+- [ ] Suggested follow-ups at the end may use bullets (this is the ONLY exception)
+
+**Example synthesis output:**
 
 ```markdown
 ## MedRecPro Drug Label Database Inventory

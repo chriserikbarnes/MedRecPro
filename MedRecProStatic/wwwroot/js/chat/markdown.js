@@ -172,6 +172,15 @@ export const MarkdownRenderer = (function () {
 
         let html = `<div style="overflow-x:auto;margin:0.5rem 0;"><table style="${tableStyle}">`;
 
+        // Detect column count from header for fixed-width columns
+        const colCountCells = parseCells(tableLines[0]);
+        const columnCount = colCountCells.length;
+
+        // For 2-column tables, set fixed proportional widths for consistent alignment
+        if (columnCount === 2) {
+            html += '<colgroup><col style="width:70%"><col style="width:30%"></colgroup>';
+        }
+
         // Header rows (everything before separator)
         if (separatorIndex > 0) {
             html += '<thead><tr>';
