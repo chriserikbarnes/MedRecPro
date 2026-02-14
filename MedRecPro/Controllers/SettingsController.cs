@@ -91,14 +91,23 @@ namespace MedRecPro.Controllers
         /// GET /api/settings/demomode
         /// Response:
         /// {
-        ///   "enabled": true,
-        ///   "refreshIntervalMinutes": 60,
-        ///   "showBanner": true,
-        ///   "autoTruncateOnStartup": false
+        ///   "enabled": false,
+        ///   "refreshIntervalMinutes": 10800,
+        ///   "showBanner": false,
+        ///   "autoTruncateOnStartup": false,
+        ///   "isAzure": true,
+        ///   "siteName": "medrecpro-api",
+        ///   "environment": "Production",
+        ///   "currentTime": "2025-06-15T12:00:00Z",
+        ///   "note": "Running in Azure App Service"
         /// }
         /// </example>
+        /// <response code="200">Returns demo mode status and environment information.</response>
+        /// <response code="500">If an internal server error occurs.</response>
         /// <seealso cref="IConfiguration"/>
         [HttpGet("demomode")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public IActionResult GetDemoModeStatus()
         {
             #region implementation
@@ -149,11 +158,15 @@ namespace MedRecPro.Controllers
         /// {
         ///   "applicationName": "MedRecPro API",
         ///   "version": "1.0.0",
-        ///   "environment": "Development",
-        ///   "demoMode": true
+        ///   "environment": "Production",
+        ///   "demoMode": false
         /// }
         /// </example>
+        /// <response code="200">Returns application name, version, environment, and demo mode status.</response>
+        /// <response code="500">If an internal server error occurs.</response>
         [HttpGet("info")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public IActionResult GetApplicationInfo()
         {
             #region implementation
@@ -197,14 +210,31 @@ namespace MedRecPro.Controllers
         /// GET /api/settings/features
         /// Response:
         /// {
-        ///   "demoMode": true,
+        ///   "demoMode": false,
+        ///   "truncateAtStart": false,
         ///   "externalAuth": true,
         ///   "importEnabled": true,
         ///   "exportEnabled": true,
-        ///   "comparisonAnalysis": true
+        ///   "comparisonAnalysis": true,
+        ///   "backgroundProcessing": true,
+        ///   "databaseBulkProcessing": false,
+        ///   "databaseStaging": true,
+        ///   "databaseBatchSaving": true,
+        ///   "activityTracking": true,
+        ///   "enhancedDebugging": false,
+        ///   "caching": true,
+        ///   "fileStorage": true,
+        ///   "razorTemplates": true
         /// }
+        ///
+        /// Sources: DemoModeSettings, FeatureFlags, ComparisonSettings,
+        /// FileStorageSettings, and RazorLight sections in appsettings.json.
         /// </example>
+        /// <response code="200">Returns all feature flags and capability statuses.</response>
+        /// <response code="500">If an internal server error occurs.</response>
         [HttpGet("features")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public IActionResult GetFeatures()
         {
             #region implementation
@@ -278,19 +308,27 @@ namespace MedRecPro.Controllers
         ///   "initialDelaySeconds": 60,
         ///   "maxConsecutiveFailures": 5,
         ///   "thresholds": {
-        ///     "warning": 70,
-        ///     "moderate": 80,
-        ///     "aggressive": 90,
-        ///     "critical": 95
+        ///     "warning": 250,
+        ///     "moderate": 350,
+        ///     "aggressive": 400,
+        ///     "critical": 450
         ///   },
         ///   "costLimits": {
         ///     "maxMonthlyCostPercent": 500,
-        ///     "estimatedMaxOverageCost": 58.00
-        ///   }
+        ///     "estimatedMaxOverageCost": "$58.00"
+        ///   },
+        ///   "configured": true
         /// }
+        ///
+        /// Threshold values are configurable via the DatabaseUsageMonitor section in appsettings.json.
+        /// Code defaults (70/80/90/95) apply when the configuration section is absent.
         /// </example>
+        /// <response code="200">Returns database limit thresholds, cost limits, and configuration status.</response>
+        /// <response code="500">If an internal server error occurs.</response>
         /// <seealso cref="GetFeatures"/>
         [HttpGet("database-limits")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public IActionResult GetDatabaseLimits()
         {
             #region implementation
@@ -764,9 +802,17 @@ namespace MedRecPro.Controllers
         ///   "message": "Managed cache successfully cleared"
         /// }
         /// </example>
+        /// <response code="200">Cache was successfully cleared.</response>
+        /// <response code="400">If cache operation parameters are invalid.</response>
+        /// <response code="500">If the cache operation failed.</response>
+        /// <response code="503">If the cache service is not available.</response>
         /// <seealso cref="PerformanceHelper.ResetManagedCache"/>
         /// <seealso cref="IConfiguration"/>
         [HttpPost("clearmanagedcache")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public IActionResult ClearManagedCache()
         {
             #region implementation

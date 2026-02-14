@@ -1052,7 +1052,10 @@ namespace MedRecPro.Api.Controllers
         /// products organized by class, and label links.
         /// When using `classNameSearch`: Returns list of products matching the therapeutic class criteria.
         /// </returns>
-        /// <response code="200">Returns the search results with products and label links.</response>
+        /// <response code="200">
+        /// When using `query`: Returns <see cref="PharmacologicClassSearchResult"/> with matched classes, products, and label links.
+        /// When using `classNameSearch`: Returns <see cref="IEnumerable{ProductsByPharmacologicClassDto}"/> with raw product DTOs.
+        /// </response>
         /// <response code="400">If neither query nor classNameSearch is provided, or paging parameters are invalid.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
@@ -6053,10 +6056,10 @@ namespace MedRecPro.Api.Controllers
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("generate/{documentGuid:guid}/{minify:bool}")]
-        [ProducesResponseType(typeof(string), 200, "text/xml")]
-        [ProducesResponseType(404)]
-        [ProducesResponseType(500)]
-        [ProducesResponseType(503)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status200OK, "text/xml")]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> GenerateXmlDocument(Guid documentGuid, bool minify = false)
         {
             #region implementation
@@ -6151,14 +6154,20 @@ namespace MedRecPro.Api.Controllers
         /// **Limitation:** Only returns XML for documents that have SplData records. Documents
         /// imported before the SplData feature was implemented may not have original XML available.
         /// </remarks>
+        /// <response code="200">Returns the original XML document content.</response>
+        /// <response code="400">If the document GUID is invalid.</response>
+        /// <response code="404">If no original XML is found for the GUID.</response>
+        /// <response code="500">If an internal server error occurs.</response>
+        /// <response code="503">If export functionality is currently disabled.</response>
         /// <seealso cref="GenerateXmlDocument"/>
         /// <seealso cref="SplDataService.GetSplDataByGuidAsync"/>
         /// <seealso cref="SplData.SplXML"/>
         [HttpGet("original/{documentGuid:guid}/{minify:bool}")]
-        [ProducesResponseType(typeof(string), 200, "text/xml")]
-        [ProducesResponseType(404)]
-        [ProducesResponseType(500)]
-        [ProducesResponseType(503)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status200OK, "text/xml")]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> OriginalXmlDocument(Guid documentGuid, bool minify = false)
         {
             #region implementation

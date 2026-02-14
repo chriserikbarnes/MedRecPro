@@ -845,8 +845,12 @@ namespace MedRecPro.Controllers
         /// This endpoint signs the user out by clearing the authentication cookie.
         /// Only authenticated users can access this endpoint.
         /// </remarks>
+        /// <response code="200">Logout was successful.</response>
+        /// <response code="401">If the user is not authenticated.</response>
         [HttpPost("logout")]
         [Authorize] // Only logged-in users can log out
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> Logout()
         {
             #region implementation

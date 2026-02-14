@@ -503,22 +503,23 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Convenience endpoint that combines interpretation and immediate execution
-        /// for simple queries that don't require client-side API calls. This is useful
-        /// for informational queries like "what can you do?" or "how do I import data?".
+        /// Convenience GET wrapper around the POST /api/ai/interpret endpoint
+        /// for simple queries that don't require a request body or conversation history.
+        /// Useful for informational queries like "what can you do?" or "how do I import data?".
         /// </summary>
         /// <param name="message">The natural language query as a simple string.</param>
         /// <returns>
-        /// Either a direct response or interpretation with endpoint specifications.
+        /// An <see cref="AiAgentInterpretation"/> containing the interpretation and suggested endpoint specifications.
         /// </returns>
-        /// <response code="200">Returns interpretation or direct response.</response>
+        /// <response code="200">Returns an AI interpretation with suggested API endpoints.</response>
         /// <response code="400">If the message is empty.</response>
         /// <response code="500">If an internal server error occurs.</response>
         /// <remarks>
         /// GET /api/ai/chat?message=What can you do?
         ///
-        /// This is a simplified endpoint for quick queries. For full conversation
-        /// support with history, use the POST /api/ai/interpret endpoint.
+        /// This is a simplified GET endpoint for quick queries. It wraps the message
+        /// into an <see cref="AiAgentRequest"/> and delegates to the POST /api/ai/interpret endpoint.
+        /// For full conversation support with history, use POST /api/ai/interpret directly.
         /// </remarks>
         [HttpGet("chat")]
         [AllowAnonymous]

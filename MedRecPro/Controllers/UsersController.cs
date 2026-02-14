@@ -950,17 +950,16 @@ namespace MedRecPro.Controllers
         /// Example: `GET /api/users?skip=0&amp;take=50`
         /// Example: `GET /api/users?includeDeleted=true&amp;take=10`
         /// </remarks>
-        /// <response code="200">Returns a list of users.</response>
+        /// <response code="200">Returns a list of users (may be empty if no users match criteria).</response>
+        /// <response code="401">If the user is not authenticated.</response>
+        /// <response code="403">If the user does not have admin privileges.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet]
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [ProducesResponseType(typeof(IEnumerable<UserManagementDto>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetAllUsers([FromQuery] bool includeDeleted = false, [FromQuery] int skip = 0, [FromQuery] int take = 100)
         {
@@ -1157,7 +1156,7 @@ namespace MedRecPro.Controllers
         [AllowAnonymous]
         [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPost("signup")]
-        [ProducesResponseType(typeof(string), StatusCodes.Status201Created)] // Assuming encrypted ID is returned
+        [ProducesResponseType(typeof(object), StatusCodes.Status201Created)] // Returns { encryptedUserId: "..." }
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> SignUpUser([FromBody] UserSignUpRequestDto signUpRequest)
