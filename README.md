@@ -384,7 +384,6 @@ The main data controller with 40+ endpoints covering navigation views, search, C
 
 | Method | Route | Description |
 |---|---|---|
-| GET | `drug-safety/interactions` | Drug interaction data |
 | GET | `drug-safety/dea-schedule` | DEA schedule classification |
 
 **AI-Powered Endpoints:**

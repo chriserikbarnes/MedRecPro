@@ -380,3 +380,6 @@ FodyWeavers.xsd
 /MedRecProMCP/PowerShell
 /MedRecProMCP/mcp-cache/
 /MedRecProStatic/wwwroot/google*.html
+
+# Pending work - not ready for release
+/MedRecPro/Todo/
