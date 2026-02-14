@@ -613,7 +613,10 @@ namespace MedRecPro.Service
                 selectorsDocument,
                 systemContext);
 
-            if (!aiResult.Success || aiResult.SelectedSkills.Count == 0)
+            // Allow direct responses (help/capabilities questions) to pass through
+            // even when selectedSkills is empty — that's the expected format for direct responses.
+            // Only fall back to the default "label" skill on genuine failures.
+            if (!aiResult.Success || (aiResult.SelectedSkills.Count == 0 && !aiResult.IsDirectResponse))
             {
                 _logger.LogWarning("AI skill selection failed or returned empty, using default. Error: {Error}",
                     aiResult.Error);

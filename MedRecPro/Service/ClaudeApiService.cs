@@ -875,8 +875,38 @@ namespace MedRecPro.Service
                     conversation.ConversationId,
                     MaxConversationContextMessages);
 
-                // Build the interpretation prompt
-                var prompt = await buildInterpretationPromptAsync(request);
+                // Stage 1: Select relevant skills based on user message
+                var skillSelection = await _skillService.SelectSkillsAsync(
+                    request.UserMessage,
+                    request.SystemContext);
+
+                // Short-circuit for direct responses (help, capabilities, how-to questions).
+                // When the skill selector determines no API calls are needed, return the
+                // pre-built response immediately — skipping the second Claude API call.
+                if (skillSelection.IsDirectResponse
+                    && !string.IsNullOrWhiteSpace(skillSelection.DirectResponse))
+                {
+                    _logger.LogInformation(
+                        "[INTERPRET DEBUG] Direct response from skill selector, skipping interpretation API call");
+
+                    var directInterpretation = new AiAgentInterpretation
+                    {
+                        Success = true,
+                        IsDirectResponse = true,
+                        DirectResponse = skillSelection.DirectResponse,
+                        Explanation = skillSelection.Explanation ?? "Query answered directly",
+                        ConversationId = conversation.ConversationId
+                    };
+
+                    // Record the assistant response in conversation history
+                    _conversationStore.AddMessage(conversation.ConversationId, "assistant",
+                        skillSelection.DirectResponse);
+
+                    return directInterpretation;
+                }
+
+                // Stage 2: Build the full interpretation prompt with selected skills
+                var prompt = await buildInterpretationPromptAsync(request, skillSelection);
 
                 _logger.LogDebug("[INTERPRET DEBUG] Prompt built successfully, length: {Length}", prompt?.Length ?? 0);
 
@@ -1372,34 +1402,33 @@ namespace MedRecPro.Service
         /**************************************************************/
         /// <summary>
         /// Builds the prompt for Claude to interpret a user request.
-        /// Uses two-stage routing to minimize token usage by loading only relevant skills.
+        /// Uses the pre-resolved skill selection to load only relevant skill content.
         /// </summary>
         /// <param name="request">The user's request.</param>
+        /// <param name="skillSelection">Pre-resolved skill selection from the caller.
+        /// Skill selection is performed in <see cref="InterpretRequestAsync"/> to allow
+        /// short-circuiting for direct responses before building the full prompt.</param>
         /// <returns>The complete prompt string.</returns>
         /// <remarks>
-        /// Two-stage routing pattern:
-        /// Stage 1: Use keyword-based skill selection (fast, no API call)
-        /// Stage 2: Load only the selected skill(s) into the prompt
-        /// This reduces prompt size from ~10,000+ tokens to only what's needed.
+        /// The caller (<see cref="InterpretRequestAsync"/>) performs skill selection first,
+        /// checks for direct responses (help/capabilities questions), and only calls this
+        /// method when a full interpretation prompt is needed. This avoids building an
+        /// expensive prompt for queries that can be answered without API calls.
         /// </remarks>
         /// <seealso cref="IClaudeSkillService.SelectSkillsAsync"/>
         /// <seealso cref="IClaudeSkillService.GetSkillContentAsync"/>
-        private async Task<string> buildInterpretationPromptAsync(AiAgentRequest request)
+        private async Task<string> buildInterpretationPromptAsync(AiAgentRequest request, SkillSelection skillSelection)
         {
             #region implementation
 
             _logger.LogInformation("[INTERPRET DEBUG] Building interpretation prompt for: {Message}",
                 request.UserMessage.Length > 100 ? request.UserMessage[..100] + "..." : request.UserMessage);
 
-            // Stage 1: Select relevant skills based on user message
-            var skillSelection = await _skillService.SelectSkillsAsync(
-                request.UserMessage,
-                request.SystemContext);
-
+            // Skill selection already performed by caller (InterpretRequestAsync)
             _logger.LogInformation("[INTERPRET DEBUG] Skills selected: [{Skills}]",
                 string.Join(", ", skillSelection.SelectedSkills));
 
-            // Stage 2: Load only the selected skills
+            // Load only the selected skills content
             var skills = await _skillService.GetSkillContentAsync(skillSelection);
 
             _logger.LogInformation("[INTERPRET DEBUG] Skill content loaded: {Length} chars",
