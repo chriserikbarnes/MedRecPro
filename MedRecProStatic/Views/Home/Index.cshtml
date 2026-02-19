@@ -21,14 +21,20 @@
                               requestHost.StartsWith("192.168.") ||
                               requestHost.StartsWith("10.");
 
-    // Select appropriate auth URL based on environment
+    /**************************************************************/
+    // In production, build auth URLs from the current request so the domain
+    // always matches the address bar (www vs non-www). This eliminates the
+    // mismatch where authUrl used medrecpro.com but returnUrl used www.medrecpro.com.
+    // In local dev, the static site (5001) and API (5093) use different ports,
+    // so dev URLs must come from config.json.
+    /**************************************************************/
     var authBaseUrl = isLocalDevelopment
         ? config?.AuthUrlDev ?? "http://localhost:5093/api/auth/login"
-        : config?.AuthUrl ?? "https://medrecpro.com/api/auth/login/";
+        : $"{Context.Request.Scheme}://{Context.Request.Host}/api/auth/login";
 
     var returnUrl = isLocalDevelopment
         ? config?.ReturnUrlDev
-        : config?.ReturnUrl;
+        : $"{Context.Request.Scheme}://{Context.Request.Host}/Home/Chat";
 
     var encodedReturnUrl = System.Net.WebUtility.UrlEncode(returnUrl ?? "");
 }
@@ -221,13 +227,17 @@
 @* ============================================================
    CTA SECTION
    Final call to action with auth buttons
-   
+
    Login URLs include returnUrl parameter so the OAuth callback
    knows where to redirect after successful authentication.
-   
+
+   Auth URLs are built dynamically from the current request host
+   in production, ensuring domain consistency (www vs non-www).
+   Local development uses config.json values (different ports).
+
    Example URLs generated:
    - Local: http://localhost:5093/api/auth/login/Google?returnUrl=http%3A%2F%2Flocalhost%3A5001%2FHome%2FChat
-   - Prod:  https://medrecpro.com/api/auth/login/Google?returnUrl=https%3A%2F%2Fwww.medrecpro.com%2FHome%2FChat
+   - Prod:  https://www.medrecpro.com/api/auth/login/Google?returnUrl=https%3A%2F%2Fwww.medrecpro.com%2FHome%2FChat
    ============================================================ *@
 @if (Model.Cta != null)
 {

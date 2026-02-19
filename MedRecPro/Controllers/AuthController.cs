@@ -298,7 +298,7 @@ namespace MedRecPro.Controllers
                     // Sign in the user
                     await _signInManager.SignInAsync(user, isPersistent: false, info.LoginProvider);
                     await updateExternalAuthenticationTokensAsync(info);
-                    return LocalRedirect(returnUrl);
+                    return Redirect(returnUrl);
                 }
             }
             #endregion

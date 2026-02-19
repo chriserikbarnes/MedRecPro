@@ -4,7 +4,7 @@
   "tagline": "Pharmaceutical Labeling Management System",
   "apiUrl": "https://medrecpro.com/api",
   "apiUrlDev": "http://localhost:5093/api",
-  "authUrl": "https://medrecpro.com/api/auth/login/",
+  "authUrl": "https://www.medrecpro.com/api/auth/login",
   "authUrlDev": "http://localhost:5093/api/auth/login",
   "returnUrl": "https://www.medrecpro.com/Home/Chat",
   "returnUrlDev": "http://localhost:5001/Home/Chat",
@@ -13,10 +13,10 @@
   "contactEmail": "support@medrecpro.com",
   "lastUpdated": "2025-12-18",
   "_comments": {
-    "authUrl": "Production OAuth login endpoint",
-    "authUrlDev": "Local OAuth login endpoint",
-    "returnUrl": "Where to redirect after successful production authentication",
+    "authUrl": "Production OAuth login endpoint (documentation only; runtime builds URL from request host)",
+    "authUrlDev": "Local OAuth login endpoint (used at runtime for localhost development)",
+    "returnUrl": "Production post-auth redirect (documentation only; runtime builds URL from request host)",
     "returnUrlDev": "Where to redirect after successful local authentication",
-    "usage": "Index.cshtml automatically selects prod vs dev URLs based on request host"
+    "usage": "Index.cshtml builds production auth URLs dynamically from Context.Request; dev URLs come from this file"
   }
 }
