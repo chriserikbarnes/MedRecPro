@@ -146,6 +146,29 @@ namespace MedRecProImportClass.Data
                 }
             }
 
+            // Dynamically discover and register public nested
+            // classes from MedRecProImportClass.Models.OrangeBook as entities.
+            var orangeBookContainerType = typeof(MedRecProImportClass.Models.OrangeBook);
+
+            var nestedOrangeBookEntityTypes = orangeBookContainerType?.GetNestedTypes(BindingFlags.Public)
+                ?.Where(t => t.IsClass && !t.IsAbstract);
+
+            if (nestedOrangeBookEntityTypes != null)
+            {
+                foreach (var entityType in nestedOrangeBookEntityTypes)
+                {
+                    var entityBuilder = builder.Entity(entityType);
+
+                    // OrangeBook table names include the "OrangeBook" prefix
+                    // (e.g., "OrangeBookProduct"), so read [Table] attribute
+                    // rather than using the simple class name.
+                    var tableAttr = entityType.GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
+                    var tableName = tableAttr?.Name ?? entityType.Name;
+
+                    entityBuilder.ToTable(tableName);
+                }
+            }
+
             // CONFIGURE SPECIFIC ENTITIES AFTER REFLECTION REGISTRATION
             configureDocumentRelationshipIdentifier(builder);
             configureDecimalPrecision(builder);
