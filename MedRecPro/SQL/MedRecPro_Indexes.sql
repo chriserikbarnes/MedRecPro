@@ -2238,6 +2238,613 @@ GO
 
 /*******************************************************************************/
 /*                                                                             */
+/*  SECTION 16: ORANGE BOOK INDEXES                                            */
+/*  Indexes for FDA Orange Book tables (applicant, product, patent,            */
+/*  exclusivity) and cross-reference junction tables to existing SPL data.     */
+/*  Date Added: 2026-02-20                                                     */
+/*                                                                             */
+/*******************************************************************************/
+
+--#region OrangeBookApplicant Table Indexes
+
+/**************************************************************/
+-- Unique Index on OrangeBookApplicant.ApplicantName
+-- Purpose: Natural key for import deduplication
+-- Usage: Lookup by applicant short name during bulk import
+-- See also: OrangeBook.OrangeBookApplicant
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_OrangeBookApplicant_ApplicantName' AND object_id = OBJECT_ID('dbo.OrangeBookApplicant'))
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX UX_OrangeBookApplicant_ApplicantName
+    ON dbo.OrangeBookApplicant(ApplicantName);
+    PRINT 'Created index: UX_OrangeBookApplicant_ApplicantName';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: UX_OrangeBookApplicant_ApplicantName';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookApplicant')
+    AND name = 'UX_OrangeBookApplicant_ApplicantName_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'UX_OrangeBookApplicant_ApplicantName_Description',
+        @value = N'Unique natural key on applicant short name. Ensures no duplicate applicant entries during import and enables fast lookup by name.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookApplicant',
+        @level2type = N'INDEX', @level2name = N'UX_OrangeBookApplicant_ApplicantName';
+END
+GO
+
+--#endregion
+
+--#region OrangeBookProduct Table Indexes
+
+/**************************************************************/
+-- Unique Composite Index on OrangeBookProduct (ApplType, ApplNo, ProductNo)
+-- Purpose: Natural compound key ensuring uniqueness across all products
+-- Usage: Import deduplication, product lookup by application number
+-- See also: OrangeBook.OrangeBookProduct
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_OrangeBookProduct_ApplType_ApplNo_ProductNo' AND object_id = OBJECT_ID('dbo.OrangeBookProduct'))
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX UX_OrangeBookProduct_ApplType_ApplNo_ProductNo
+    ON dbo.OrangeBookProduct(ApplType, ApplNo, ProductNo);
+    PRINT 'Created index: UX_OrangeBookProduct_ApplType_ApplNo_ProductNo';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: UX_OrangeBookProduct_ApplType_ApplNo_ProductNo';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookProduct')
+    AND name = 'UX_OrangeBookProduct_ApplType_ApplNo_ProductNo_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'UX_OrangeBookProduct_ApplType_ApplNo_ProductNo_Description',
+        @value = N'Unique compound natural key (ApplType + ApplNo + ProductNo). Mirrors the FDA Orange Book composite identifier for each product.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookProduct',
+        @level2type = N'INDEX', @level2name = N'UX_OrangeBookProduct_ApplType_ApplNo_ProductNo';
+END
+GO
+
+/**************************************************************/
+-- Index on OrangeBookProduct.OrangeBookApplicantID
+-- Purpose: Fast applicant lookup with filtered null exclusion
+-- Usage: Join to OrangeBookApplicant for company information
+-- See also: OrangeBook.OrangeBookProduct.OrangeBookApplicantID
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookProduct_OrangeBookApplicantID' AND object_id = OBJECT_ID('dbo.OrangeBookProduct'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookProduct_OrangeBookApplicantID
+    ON dbo.OrangeBookProduct(OrangeBookApplicantID)
+    WHERE OrangeBookApplicantID IS NOT NULL;
+    PRINT 'Created index: IX_OrangeBookProduct_OrangeBookApplicantID';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookProduct_OrangeBookApplicantID';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookProduct')
+    AND name = 'IX_OrangeBookProduct_OrangeBookApplicantID_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookProduct_OrangeBookApplicantID_Description',
+        @value = N'Filtered index for applicant lookup. Excludes NULL values to optimize joins to OrangeBookApplicant table.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookProduct',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookProduct_OrangeBookApplicantID';
+END
+GO
+
+/**************************************************************/
+-- Index on OrangeBookProduct.TradeName
+-- Purpose: Fast brand name search
+-- Usage: Product search by trade/brand name
+-- See also: OrangeBook.OrangeBookProduct.TradeName
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookProduct_TradeName' AND object_id = OBJECT_ID('dbo.OrangeBookProduct'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookProduct_TradeName
+    ON dbo.OrangeBookProduct(TradeName);
+    PRINT 'Created index: IX_OrangeBookProduct_TradeName';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookProduct_TradeName';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookProduct')
+    AND name = 'IX_OrangeBookProduct_TradeName_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookProduct_TradeName_Description',
+        @value = N'Enables fast product search by brand/trade name. Supports user-facing drug name lookups.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookProduct',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookProduct_TradeName';
+END
+GO
+
+/**************************************************************/
+-- Index on OrangeBookProduct.ApplNo
+-- Purpose: Fast application number lookup
+-- Usage: Cross-reference with patent and exclusivity tables, junction matching
+-- See also: OrangeBook.OrangeBookProduct.ApplNo
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookProduct_ApplNo' AND object_id = OBJECT_ID('dbo.OrangeBookProduct'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookProduct_ApplNo
+    ON dbo.OrangeBookProduct(ApplNo);
+    PRINT 'Created index: IX_OrangeBookProduct_ApplNo';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookProduct_ApplNo';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookProduct')
+    AND name = 'IX_OrangeBookProduct_ApplNo_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookProduct_ApplNo_Description',
+        @value = N'Enables fast lookup by FDA application number. Supports cross-referencing with patent, exclusivity, and MarketingCategory tables.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookProduct',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookProduct_ApplNo';
+END
+GO
+
+--#endregion
+
+--#region OrangeBookPatent Table Indexes
+
+/**************************************************************/
+-- Index on OrangeBookPatent.OrangeBookProductID
+-- Purpose: Fast patent retrieval for a product with covering columns
+-- Usage: Product detail pages showing associated patents
+-- See also: OrangeBook.OrangeBookPatent.OrangeBookProductID
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookPatent_OrangeBookProductID' AND object_id = OBJECT_ID('dbo.OrangeBookPatent'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookPatent_OrangeBookProductID
+    ON dbo.OrangeBookPatent(OrangeBookProductID)
+    INCLUDE (PatentNo, PatentExpireDate)
+    WHERE OrangeBookProductID IS NOT NULL;
+    PRINT 'Created index: IX_OrangeBookPatent_OrangeBookProductID';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookPatent_OrangeBookProductID';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookPatent')
+    AND name = 'IX_OrangeBookPatent_OrangeBookProductID_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookPatent_OrangeBookProductID_Description',
+        @value = N'Filtered index for product-to-patent lookup. Includes PatentNo and PatentExpireDate to cover common query patterns without key lookups.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookPatent',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookPatent_OrangeBookProductID';
+END
+GO
+
+/**************************************************************/
+-- Composite Index on OrangeBookPatent (ApplType, ApplNo, ProductNo)
+-- Purpose: Import matching via natural key with covering PatentNo
+-- Usage: Bulk import FK resolution from patent.txt
+-- See also: OrangeBook.OrangeBookPatent
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookPatent_ApplType_ApplNo_ProductNo' AND object_id = OBJECT_ID('dbo.OrangeBookPatent'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookPatent_ApplType_ApplNo_ProductNo
+    ON dbo.OrangeBookPatent(ApplType, ApplNo, ProductNo)
+    INCLUDE (PatentNo);
+    PRINT 'Created index: IX_OrangeBookPatent_ApplType_ApplNo_ProductNo';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookPatent_ApplType_ApplNo_ProductNo';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookPatent')
+    AND name = 'IX_OrangeBookPatent_ApplType_ApplNo_ProductNo_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookPatent_ApplType_ApplNo_ProductNo_Description',
+        @value = N'Natural key index for import matching. Enables fast FK resolution when linking patent.txt rows to OrangeBookProduct via (ApplType, ApplNo, ProductNo).',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookPatent',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookPatent_ApplType_ApplNo_ProductNo';
+END
+GO
+
+/**************************************************************/
+-- Index on OrangeBookPatent.PatentNo
+-- Purpose: Fast patent number search with covering columns
+-- Usage: Patent lookup by number, generic drug Paragraph IV queries
+-- See also: OrangeBook.OrangeBookPatent.PatentNo
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookPatent_PatentNo' AND object_id = OBJECT_ID('dbo.OrangeBookPatent'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookPatent_PatentNo
+    ON dbo.OrangeBookPatent(PatentNo)
+    INCLUDE (OrangeBookProductID, PatentExpireDate);
+    PRINT 'Created index: IX_OrangeBookPatent_PatentNo';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookPatent_PatentNo';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookPatent')
+    AND name = 'IX_OrangeBookPatent_PatentNo_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookPatent_PatentNo_Description',
+        @value = N'Enables fast patent number search. Includes OrangeBookProductID and PatentExpireDate for covering patent queries.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookPatent',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookPatent_PatentNo';
+END
+GO
+
+--#endregion
+
+--#region OrangeBookExclusivity Table Indexes
+
+/**************************************************************/
+-- Index on OrangeBookExclusivity.OrangeBookProductID
+-- Purpose: Fast exclusivity retrieval for a product with covering columns
+-- Usage: Product detail pages showing exclusivity periods
+-- See also: OrangeBook.OrangeBookExclusivity.OrangeBookProductID
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookExclusivity_OrangeBookProductID' AND object_id = OBJECT_ID('dbo.OrangeBookExclusivity'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookExclusivity_OrangeBookProductID
+    ON dbo.OrangeBookExclusivity(OrangeBookProductID)
+    INCLUDE (ExclusivityCode, ExclusivityDate)
+    WHERE OrangeBookProductID IS NOT NULL;
+    PRINT 'Created index: IX_OrangeBookExclusivity_OrangeBookProductID';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookExclusivity_OrangeBookProductID';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookExclusivity')
+    AND name = 'IX_OrangeBookExclusivity_OrangeBookProductID_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookExclusivity_OrangeBookProductID_Description',
+        @value = N'Filtered index for product-to-exclusivity lookup. Includes ExclusivityCode and ExclusivityDate to cover common query patterns without key lookups.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookExclusivity',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookExclusivity_OrangeBookProductID';
+END
+GO
+
+/**************************************************************/
+-- Composite Index on OrangeBookExclusivity (ApplType, ApplNo, ProductNo)
+-- Purpose: Import matching via natural key with covering ExclusivityCode
+-- Usage: Bulk import FK resolution from exclusivity.txt
+-- See also: OrangeBook.OrangeBookExclusivity
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookExclusivity_ApplType_ApplNo_ProductNo' AND object_id = OBJECT_ID('dbo.OrangeBookExclusivity'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookExclusivity_ApplType_ApplNo_ProductNo
+    ON dbo.OrangeBookExclusivity(ApplType, ApplNo, ProductNo)
+    INCLUDE (ExclusivityCode);
+    PRINT 'Created index: IX_OrangeBookExclusivity_ApplType_ApplNo_ProductNo';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookExclusivity_ApplType_ApplNo_ProductNo';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookExclusivity')
+    AND name = 'IX_OrangeBookExclusivity_ApplType_ApplNo_ProductNo_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookExclusivity_ApplType_ApplNo_ProductNo_Description',
+        @value = N'Natural key index for import matching. Enables fast FK resolution when linking exclusivity.txt rows to OrangeBookProduct via (ApplType, ApplNo, ProductNo).',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookExclusivity',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookExclusivity_ApplType_ApplNo_ProductNo';
+END
+GO
+
+/**************************************************************/
+-- Index on OrangeBookExclusivity.ExclusivityCode
+-- Purpose: Fast exclusivity type analysis with covering columns
+-- Usage: Queries by exclusivity type (NCE, ODE, RTO, etc.)
+-- See also: OrangeBook.OrangeBookExclusivity.ExclusivityCode
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookExclusivity_ExclusivityCode' AND object_id = OBJECT_ID('dbo.OrangeBookExclusivity'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookExclusivity_ExclusivityCode
+    ON dbo.OrangeBookExclusivity(ExclusivityCode)
+    INCLUDE (OrangeBookProductID, ExclusivityDate);
+    PRINT 'Created index: IX_OrangeBookExclusivity_ExclusivityCode';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookExclusivity_ExclusivityCode';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookExclusivity')
+    AND name = 'IX_OrangeBookExclusivity_ExclusivityCode_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookExclusivity_ExclusivityCode_Description',
+        @value = N'Enables fast queries by exclusivity type code (NCE, ODE, RTO, etc.). Includes OrangeBookProductID and ExclusivityDate for covering query patterns.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookExclusivity',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookExclusivity_ExclusivityCode';
+END
+GO
+
+--#endregion
+
+--#region OrangeBookProductMarketingCategory Junction Indexes
+
+/**************************************************************/
+-- Unique Index on OrangeBookProductMarketingCategory (OrangeBookProductID, MarketingCategoryID)
+-- Purpose: Prevents duplicate links between OB products and marketing categories
+-- Usage: Junction integrity, import deduplication
+-- See also: OrangeBook.OrangeBookProductMarketingCategory
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_OBProductMarketingCategory_ProductID_MarketingCategoryID' AND object_id = OBJECT_ID('dbo.OrangeBookProductMarketingCategory'))
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX UX_OBProductMarketingCategory_ProductID_MarketingCategoryID
+    ON dbo.OrangeBookProductMarketingCategory(OrangeBookProductID, MarketingCategoryID);
+    PRINT 'Created index: UX_OBProductMarketingCategory_ProductID_MarketingCategoryID';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: UX_OBProductMarketingCategory_ProductID_MarketingCategoryID';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookProductMarketingCategory')
+    AND name = 'UX_OBProductMarketingCategory_ProductID_MarketingCategoryID_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'UX_OBProductMarketingCategory_ProductID_MarketingCategoryID_Description',
+        @value = N'Unique constraint preventing duplicate product-to-marketing-category links. Serves as the natural key for the junction table.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookProductMarketingCategory',
+        @level2type = N'INDEX', @level2name = N'UX_OBProductMarketingCategory_ProductID_MarketingCategoryID';
+END
+GO
+
+/**************************************************************/
+-- Index on OrangeBookProductMarketingCategory.MarketingCategoryID
+-- Purpose: Reverse lookup from MarketingCategory to OB products
+-- Usage: Finding OB products for a given SPL marketing category
+-- See also: OrangeBook.OrangeBookProductMarketingCategory.MarketingCategoryID
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OBProductMarketingCategory_MarketingCategoryID' AND object_id = OBJECT_ID('dbo.OrangeBookProductMarketingCategory'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OBProductMarketingCategory_MarketingCategoryID
+    ON dbo.OrangeBookProductMarketingCategory(MarketingCategoryID);
+    PRINT 'Created index: IX_OBProductMarketingCategory_MarketingCategoryID';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OBProductMarketingCategory_MarketingCategoryID';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookProductMarketingCategory')
+    AND name = 'IX_OBProductMarketingCategory_MarketingCategoryID_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OBProductMarketingCategory_MarketingCategoryID_Description',
+        @value = N'Reverse lookup index enabling efficient queries from MarketingCategory to associated Orange Book products.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookProductMarketingCategory',
+        @level2type = N'INDEX', @level2name = N'IX_OBProductMarketingCategory_MarketingCategoryID';
+END
+GO
+
+--#endregion
+
+--#region OrangeBookProductIngredientSubstance Junction Indexes
+
+/**************************************************************/
+-- Unique Index on OrangeBookProductIngredientSubstance (OrangeBookProductID, IngredientSubstanceID)
+-- Purpose: Prevents duplicate links between OB products and ingredient substances
+-- Usage: Junction integrity, import deduplication
+-- See also: OrangeBook.OrangeBookProductIngredientSubstance
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_OBProductIngredientSubstance_ProductID_SubstanceID' AND object_id = OBJECT_ID('dbo.OrangeBookProductIngredientSubstance'))
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX UX_OBProductIngredientSubstance_ProductID_SubstanceID
+    ON dbo.OrangeBookProductIngredientSubstance(OrangeBookProductID, IngredientSubstanceID);
+    PRINT 'Created index: UX_OBProductIngredientSubstance_ProductID_SubstanceID';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: UX_OBProductIngredientSubstance_ProductID_SubstanceID';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookProductIngredientSubstance')
+    AND name = 'UX_OBProductIngredientSubstance_ProductID_SubstanceID_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'UX_OBProductIngredientSubstance_ProductID_SubstanceID_Description',
+        @value = N'Unique constraint preventing duplicate product-to-ingredient links. Serves as the natural key for the junction table.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookProductIngredientSubstance',
+        @level2type = N'INDEX', @level2name = N'UX_OBProductIngredientSubstance_ProductID_SubstanceID';
+END
+GO
+
+/**************************************************************/
+-- Index on OrangeBookProductIngredientSubstance.IngredientSubstanceID
+-- Purpose: Reverse lookup from IngredientSubstance to OB products
+-- Usage: Finding OB products containing a given active ingredient
+-- See also: OrangeBook.OrangeBookProductIngredientSubstance.IngredientSubstanceID
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OBProductIngredientSubstance_IngredientSubstanceID' AND object_id = OBJECT_ID('dbo.OrangeBookProductIngredientSubstance'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OBProductIngredientSubstance_IngredientSubstanceID
+    ON dbo.OrangeBookProductIngredientSubstance(IngredientSubstanceID);
+    PRINT 'Created index: IX_OBProductIngredientSubstance_IngredientSubstanceID';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OBProductIngredientSubstance_IngredientSubstanceID';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookProductIngredientSubstance')
+    AND name = 'IX_OBProductIngredientSubstance_IngredientSubstanceID_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OBProductIngredientSubstance_IngredientSubstanceID_Description',
+        @value = N'Reverse lookup index enabling efficient queries from IngredientSubstance to associated Orange Book products.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookProductIngredientSubstance',
+        @level2type = N'INDEX', @level2name = N'IX_OBProductIngredientSubstance_IngredientSubstanceID';
+END
+GO
+
+--#endregion
+
+--#region OrangeBookApplicantOrganization Junction Indexes
+
+/**************************************************************/
+-- Unique Index on OrangeBookApplicantOrganization (OrangeBookApplicantID, OrganizationID)
+-- Purpose: Prevents duplicate links between OB applicants and SPL organizations
+-- Usage: Junction integrity, import deduplication
+-- See also: OrangeBook.OrangeBookApplicantOrganization
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_OBApplicantOrganization_ApplicantID_OrganizationID' AND object_id = OBJECT_ID('dbo.OrangeBookApplicantOrganization'))
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX UX_OBApplicantOrganization_ApplicantID_OrganizationID
+    ON dbo.OrangeBookApplicantOrganization(OrangeBookApplicantID, OrganizationID);
+    PRINT 'Created index: UX_OBApplicantOrganization_ApplicantID_OrganizationID';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: UX_OBApplicantOrganization_ApplicantID_OrganizationID';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookApplicantOrganization')
+    AND name = 'UX_OBApplicantOrganization_ApplicantID_OrganizationID_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'UX_OBApplicantOrganization_ApplicantID_OrganizationID_Description',
+        @value = N'Unique constraint preventing duplicate applicant-to-organization links. Serves as the natural key for the junction table.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookApplicantOrganization',
+        @level2type = N'INDEX', @level2name = N'UX_OBApplicantOrganization_ApplicantID_OrganizationID';
+END
+GO
+
+/**************************************************************/
+-- Index on OrangeBookApplicantOrganization.OrganizationID
+-- Purpose: Reverse lookup from Organization to OB applicants
+-- Usage: Finding OB applicant companies linked to a given SPL organization
+-- See also: OrangeBook.OrangeBookApplicantOrganization.OrganizationID
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OBApplicantOrganization_OrganizationID' AND object_id = OBJECT_ID('dbo.OrangeBookApplicantOrganization'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OBApplicantOrganization_OrganizationID
+    ON dbo.OrangeBookApplicantOrganization(OrganizationID);
+    PRINT 'Created index: IX_OBApplicantOrganization_OrganizationID';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OBApplicantOrganization_OrganizationID';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookApplicantOrganization')
+    AND name = 'IX_OBApplicantOrganization_OrganizationID_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OBApplicantOrganization_OrganizationID_Description',
+        @value = N'Reverse lookup index enabling efficient queries from Organization to associated Orange Book applicant companies.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookApplicantOrganization',
+        @level2type = N'INDEX', @level2name = N'IX_OBApplicantOrganization_OrganizationID';
+END
+GO
+
+--#endregion
+
+/*******************************************************************************/
+/*                                                                             */
 /*  SECTION: INDEX STATISTICS AND SUMMARY                                      */
 /*  Reports on created indexes for verification.                               */
 /*                                                                             */

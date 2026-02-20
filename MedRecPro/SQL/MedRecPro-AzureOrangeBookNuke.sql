@@ -1,31 +1,36 @@
-﻿/*
+/*
 ================================================================================
-    MedRecPro - Truncate All Tables Before Import
-    
+    MedRecPro - Truncate Orange Book Tables Before Import
+
     Target: Azure SQL Database (v12+)
-    
+
     Purpose:
-        Removes all data from MedRecPro tables to prepare for a clean bulk import.
+        Removes all data from Orange Book tables to prepare for a clean
+        Orange Book bulk import. All other MedRecPro tables are preserved.
         TRUNCATE is significantly faster than DELETE and resets identity columns.
-        
+
     Usage:
-        Run this script BEFORE the BCP import if you want to replace all data
-        rather than append to existing data.
-        
-    ⚠️  WARNING: This operation is IRREVERSIBLE and will delete ALL data!
-    
-    Excluded Tables (preserved during truncate):
-        - __EFMigrationsHistory       : Entity Framework Core migration tracking
-        - AspNet*                      : ASP.NET Identity tables (users, roles, claims, etc.)
-        - OrangeBook*                  : FDA Orange Book tables (independently managed import)
-        - PharmClassDosageFormExclusion : Pharmacologic class dosage form exclusion rules
-        
+        Run this script BEFORE the Orange Book import if you want to replace
+        all Orange Book data rather than append to existing data.
+
+    ⚠️  WARNING: This operation is IRREVERSIBLE and will delete ALL Orange Book data!
+
+    Targeted Tables (will be truncated):
+        - OrangeBookApplicant                      : Applicant lookup
+        - OrangeBookProduct                        : Product fact table
+        - OrangeBookPatent                         : Patent records
+        - OrangeBookExclusivity                    : Exclusivity periods
+        - OrangeBookProductMarketingCategory        : Junction to MarketingCategory
+        - OrangeBookProductIngredientSubstance      : Junction to IngredientSubstance
+        - OrangeBookApplicantOrganization           : Junction to Organization
+
     Notes:
         - TRUNCATE is DDL, not DML - it's not logged row-by-row
         - Identity columns are reset to their seed values
         - No foreign keys defined, so no dependency ordering required
         - Tables with indexed views cannot use TRUNCATE (will use DELETE)
-        
+        - Junction tables are truncated first to clear cross-references
+
     Author: MedRecPro Development Team
     Last Updated: 2026
 ================================================================================
@@ -34,7 +39,7 @@
 SET NOCOUNT ON;
 
 PRINT '================================================================================';
-PRINT '  MedRecPro - Truncate All Tables';
+PRINT '  MedRecPro - Truncate Orange Book Tables';
 PRINT '  Started: ' + CONVERT(VARCHAR(30), GETDATE(), 120);
 PRINT '================================================================================';
 PRINT '';
@@ -69,11 +74,11 @@ BEGIN
     PRINT '║                       DESTRUCTIVE MODE                           ║';
     PRINT '║                                                                  ║';
     PRINT '║  @ExecuteCommands is set to 1.                                   ║';
-    PRINT '║  ALL DATA WILL BE PERMANENTLY DELETED!                           ║';
+    PRINT '║  ALL ORANGE BOOK DATA WILL BE PERMANENTLY DELETED!               ║';
     PRINT '║                                                                  ║';
     PRINT '╚══════════════════════════════════════════════════════════════════╝';
     PRINT '';
-    
+
     -- Give user a chance to cancel
     WAITFOR DELAY '00:00:03';  -- 3 second pause
 END
@@ -95,89 +100,55 @@ DECLARE @TotalRowsCleared BIGINT = 0;
 -- Pre-Truncate Summary
 -- ============================================================================
 
-PRINT 'Current Data Summary (will be deleted):';
+PRINT 'Current Orange Book Data Summary (will be deleted):';
 PRINT '--------------------------------------------------------------------------------';
 
-SELECT 
+SELECT
     t.name AS TableName,
     FORMAT(SUM(p.rows), 'N0') AS [RowCount]
 FROM sys.tables t
 INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
 INNER JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0, 1)
 WHERE s.name = @SchemaName
-  AND t.type = 'U'                          -- User tables only
-  AND t.name <> '__EFMigrationsHistory'     -- Preserve EF Core migration history
-  AND t.name NOT LIKE 'AspNet%'             -- Preserve ASP.NET Identity tables
-  AND t.name NOT LIKE 'OrangeBook%'         -- Preserve Orange Book tables
-  AND t.name <> 'PharmClassDosageFormExclusion' -- Preserve exclusion rules
+  AND t.type = 'U'
+  AND t.name LIKE 'OrangeBook%'             -- Orange Book tables only
 GROUP BY t.name
 HAVING SUM(p.rows) > 0
 ORDER BY SUM(p.rows) DESC;
 
-SELECT @TotalRowsCleared = SUM(p.rows)
-FROM sys.tables t
-INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-INNER JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0, 1)
-WHERE s.name = @SchemaName
-  AND t.type = 'U'                          -- User tables only
-  AND t.name <> '__EFMigrationsHistory'     -- Preserve EF Core migration history
-  AND t.name NOT LIKE 'AspNet%'             -- Preserve ASP.NET Identity tables
-  AND t.name NOT LIKE 'OrangeBook%'         -- Preserve Orange Book tables
-  AND t.name <> 'PharmClassDosageFormExclusion'; -- Preserve exclusion rules
-
-PRINT '';
-PRINT 'Total rows to be deleted: ' + FORMAT(@TotalRowsCleared, 'N0');
-PRINT '';
-
--- Show preserved tables
-PRINT 'Preserved Tables (will NOT be truncated):';
-PRINT '--------------------------------------------------------------------------------';
-
-SELECT
-    t.name AS TableName,
-    FORMAT(SUM(p.rows), 'N0') AS [RowCount],
-    CASE
-        WHEN t.name = '__EFMigrationsHistory' THEN 'EF Core Migrations'
-        WHEN t.name LIKE 'AspNet%' THEN 'ASP.NET Identity'
-        WHEN t.name LIKE 'OrangeBook%' THEN 'Orange Book'
-        WHEN t.name = 'PharmClassDosageFormExclusion' THEN 'Exclusion Rules'
-        ELSE 'Other'
-    END AS Reason
+SELECT @TotalRowsCleared = ISNULL(SUM(p.rows), 0)
 FROM sys.tables t
 INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
 INNER JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0, 1)
 WHERE s.name = @SchemaName
   AND t.type = 'U'
-  AND (t.name = '__EFMigrationsHistory' OR t.name LIKE 'AspNet%' OR t.name LIKE 'OrangeBook%' OR t.name = 'PharmClassDosageFormExclusion')
-GROUP BY t.name
-ORDER BY t.name;
+  AND t.name LIKE 'OrangeBook%';            -- Orange Book tables only
 
+PRINT '';
+PRINT 'Total Orange Book rows to be deleted: ' + FORMAT(@TotalRowsCleared, 'N0');
 PRINT '';
 
 -- ============================================================================
--- Cursor: Truncate each table
+-- Cursor: Truncate each Orange Book table
 -- ============================================================================
 
 DECLARE table_cursor CURSOR LOCAL FAST_FORWARD FOR
-    SELECT 
+    SELECT
         t.name AS TableName,
         SUM(p.rows) AS [RowCount]
     FROM sys.tables t
     INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
     INNER JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0, 1)
     WHERE s.name = @SchemaName
-      AND t.type = 'U'                          -- User tables only
-      AND t.name <> '__EFMigrationsHistory'     -- Preserve EF Core migration history
-      AND t.name NOT LIKE 'AspNet%'             -- Preserve ASP.NET Identity tables
-      AND t.name NOT LIKE 'OrangeBook%'         -- Preserve Orange Book tables
-      AND t.name <> 'PharmClassDosageFormExclusion' -- Preserve exclusion rules
+      AND t.type = 'U'
+      AND t.name LIKE 'OrangeBook%'             -- Orange Book tables only
     GROUP BY t.name
     ORDER BY t.name;
 
 OPEN table_cursor;
 FETCH NEXT FROM table_cursor INTO @TableName, @RowCount;
 
-PRINT 'Processing tables...';
+PRINT 'Processing Orange Book tables...';
 PRINT '--------------------------------------------------------------------------------';
 PRINT 'Legend: [T] = Truncated, [D] = Deleted (fallback), [E] = Error, [S] = Skipped (empty)';
 PRINT '';
@@ -185,7 +156,7 @@ PRINT '';
 WHILE @@FETCH_STATUS = 0
 BEGIN
     SET @TotalTables = @TotalTables + 1;
-    
+
     -- Skip empty tables
     IF @RowCount = 0
     BEGIN
@@ -193,10 +164,10 @@ BEGIN
         FETCH NEXT FROM table_cursor INTO @TableName, @RowCount;
         CONTINUE;
     END
-    
+
     -- Try TRUNCATE first (faster, resets identity)
     SET @SQL = 'TRUNCATE TABLE ' + QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName) + ';';
-    
+
     IF @ExecuteCommands = 1
     BEGIN
         BEGIN TRY
@@ -225,7 +196,7 @@ BEGIN
         PRINT '-- PREVIEW: ' + @SQL + ' (' + FORMAT(@RowCount, 'N0') + ' rows)';
         SET @TruncatedCount = @TruncatedCount + 1;
     END
-    
+
     FETCH NEXT FROM table_cursor INTO @TableName, @RowCount;
 END
 
@@ -259,7 +230,7 @@ END
 ELSE
 BEGIN
     PRINT '';
-    PRINT '  ✓ Tables are now empty and ready for bulk import.';
+    PRINT '  ✓ Orange Book tables are now empty and ready for bulk import.';
     PRINT '';
 END
 
@@ -269,25 +240,22 @@ END
 
 IF @ExecuteCommands = 1
 BEGIN
-    PRINT 'Verification - Tables with remaining data (should be none):';
+    PRINT 'Verification - Orange Book tables with remaining data (should be none):';
     PRINT '--------------------------------------------------------------------------------';
-    
-    SELECT 
+
+    SELECT
         t.name AS TableName,
         FORMAT(SUM(p.rows), 'N0') AS [RowCount]
     FROM sys.tables t
     INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
     INNER JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0, 1)
     WHERE s.name = @SchemaName
-      AND t.type = 'U'                          -- User tables only
-      AND t.name <> '__EFMigrationsHistory'     -- Preserve EF Core migration history
-      AND t.name NOT LIKE 'AspNet%'             -- Preserve ASP.NET Identity tables
-      AND t.name NOT LIKE 'OrangeBook%'         -- Preserve Orange Book tables
-      AND t.name <> 'PharmClassDosageFormExclusion' -- Preserve exclusion rules
+      AND t.type = 'U'
+      AND t.name LIKE 'OrangeBook%'             -- Orange Book tables only
     GROUP BY t.name
     HAVING SUM(p.rows) > 0
     ORDER BY SUM(p.rows) DESC;
-    
+
     IF @@ROWCOUNT = 0
-        PRINT '   (All tables are empty - ready for import)';
+        PRINT '   (All Orange Book tables are empty - ready for import)';
 END
