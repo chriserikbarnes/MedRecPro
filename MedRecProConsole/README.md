@@ -1,21 +1,26 @@
 # MedRecPro Console
 
-A console application for bulk importing SPL (Structured Product Labeling) ZIP files into the MedRecPro database. Designed for high-volume import operations that are not suitable for a web interface.
+A console application for bulk importing SPL (Structured Product Labeling) ZIP files and FDA Orange Book data into the MedRecPro database. Designed for high-volume import operations that are not suitable for a web interface.
 
 ## Overview
 
-This application walks an entire directory tree, identifies ZIP files containing SPL XML data, and imports them into a specified database using the existing MedRecPro import infrastructure.
+This application supports two import modes:
+
+- **SPL Import**: Walks an entire directory tree, identifies ZIP files containing SPL XML data, and imports them into a specified database using the existing MedRecPro import infrastructure.
+- **Orange Book Import**: Imports FDA Orange Book `products.txt` data from a ZIP file, upserting applicants, products, and junction matches to existing SPL entities (organizations, ingredients, marketing categories).
 
 ## Features
 
-- **Bulk Import**: Process thousands of SPL ZIP files in a single operation
+- **SPL Bulk Import**: Process thousands of SPL ZIP files in a single operation
+- **Orange Book Import**: Import FDA Orange Book `products.txt` from ZIP with entity matching to existing SPL data
+- **Interactive Menu**: Command-driven menu (`import`, `orange-book`, `database`, `help`, `quit`) for selecting operations and switching databases at runtime
 - **Recursive Scanning**: Automatically discovers ZIP files in all subdirectories
-- **Progress Tracking**: Real-time progress bars for overall and per-file processing
-- **Crash Recovery**: Queue-based progress tracking persists import state to disk, enabling resume capability across application restarts, crashes, and timer expirations
-- **Multi-Session Import**: Resume imports from where you left off when restarting on the same folder
+- **Progress Tracking**: Real-time progress bars for overall and per-file processing, with concurrent task display for multi-phase Orange Book imports
+- **Crash Recovery**: Queue-based progress tracking persists SPL import state to disk, enabling resume capability across application restarts, crashes, and timer expirations
+- **Multi-Session Import**: Resume SPL imports from where you left off when restarting on the same folder
 - **Error Handling**: Failed imports are logged and skipped; processing continues
-- **Timeout Support**: Optional maximum runtime limit to control long-running imports
-- **Unattended Operation**: Full command-line support for Windows Task Scheduler automation
+- **Timeout Support**: Optional maximum runtime limit to control long-running SPL imports
+- **Unattended Operation**: Full command-line support for Windows Task Scheduler automation (SPL and Orange Book modes)
 - **Styled Console UI**: Uses Spectre.Console for rich, interactive terminal output
 
 ## Requirements
@@ -28,23 +33,24 @@ This application walks an entire directory tree, identifies ZIP files containing
 
 ```
 MedRecProConsole/
-├── Program.cs                      # Application entry point
+├── Program.cs                      # Application entry point (SPL, Orange Book, and interactive modes)
 ├── MedRecProConsole.csproj         # Project file
 ├── README.md                       # This file
 ├── appsettings.json                # Application configuration
 ├── automation-example.json         # Example automation config for Task Scheduler
 ├── Models/
 │   ├── AppSettings.cs              # Configuration model classes
-│   ├── CommandLineArgs.cs          # Command-line argument parsing
+│   ├── CommandLineArgs.cs          # Command-line argument parsing (--folder, --orange-book, --nuke)
 │   ├── ImportParameters.cs         # User input parameters
 │   ├── ImportResults.cs            # Import statistics and results
 │   ├── ImportQueueItem.cs          # Individual file tracking model
 │   └── ImportProgressFile.cs       # Queue file root model
 ├── Services/
-│   ├── ImportService.cs            # Import orchestration
-│   └── ImportProgressTracker.cs    # Async queue management service
+│   ├── ImportService.cs            # SPL import orchestration
+│   ├── ImportProgressTracker.cs    # Async queue management service
+│   └── OrangeBookImportService.cs  # Orange Book import orchestration
 └── Helpers/
-    ├── ConsoleHelper.cs            # Console UI operations
+    ├── ConsoleHelper.cs            # Console UI, interactive menu, and Orange Book prompts
     ├── ConfigurationHelper.cs      # Configuration management
     └── HelpDocumentation.cs        # Help and version display
 ```
@@ -58,12 +64,34 @@ cd MedRecProConsole
 dotnet run
 ```
 
-### User Prompts
+### Interactive Menu
 
-1. **Database Selection**: Choose between Local Database Dev or enter a custom connection string
+After startup, the application presents a command-driven menu:
+
+```
+Enter command (import, orange-book, database, help, quit):
+```
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `import` | | Start an SPL bulk import (prompts for folder, runtime limit) |
+| `orange-book` | `ob` | Start an Orange Book import (prompts for ZIP path, truncation) |
+| `database` | `db` | Switch the active database connection |
+| `help` | `h`, `?` | Display available commands |
+| `quit` | `q` | Exit the application |
+
+### SPL Import Prompts
+
+1. **Database Selection**: Choose between preconfigured databases or enter a custom connection string
 2. **Folder Path**: Enter the root folder containing ZIP files to import
 3. **Max Runtime** (Optional): Set a timeout limit in minutes (1-1440)
 4. **Confirmation**: Review settings and confirm before import begins
+
+### Orange Book Import Prompts
+
+1. **ZIP File Path**: Enter the path to an Orange Book ZIP file (e.g., `EOBZIP_2026_01.zip`)
+2. **Truncation**: Choose whether to truncate all Orange Book tables before import
+3. **Confirmation**: Review settings and confirm before import begins
 
 ### Example Session
 
@@ -74,28 +102,29 @@ dotnet run
  | |  | |  __/ (_| |  _ <  __/ (__|  __/| | | (_) |
  |_|  |_|\___|\__,_|_| \_\___|\___|_|   |_|  \___/
 
-─────────────────── SPL Bulk Import Console ───────────────────
+─────────────────── Bulk Import Console ───────────────────
+
+Enter command (import, orange-book, database, help, quit): database
 
 Select database connection:
 > Local Database Dev (MedRecLocal)
+  Local Database Test
   Custom Connection String
 
-Enter folder path to import (contains ZIP files): C:\SPL_Data\monthly
+Enter command (import, orange-book, database, help, quit): ob
 
-Set a maximum runtime limit? [y/n] (n): n
+Enter path to Orange Book ZIP file (or empty to cancel): C:\OrangeBook\EOBZIP_2026_01.zip
+Truncate all existing Orange Book data before import? [y/n] (n): y
 
-Found 150 ZIP file(s)
+┌──────────────────┬──────────────────────────────────────────────┐
+│ Setting          │ Value                                        │
+├──────────────────┼──────────────────────────────────────────────┤
+│ ZIP File         │ EOBZIP_2026_01.zip                           │
+│ Full Path        │ C:\OrangeBook\EOBZIP_2026_01.zip             │
+│ Truncate First   │ Yes - ALL Orange Book data will be deleted   │
+└──────────────────┴──────────────────────────────────────────────┘
 
-┌──────────────────┬─────────────────────────────────────────┐
-│ Setting          │ Value                                   │
-├──────────────────┼─────────────────────────────────────────┤
-│ Database         │ Data Source=(localdb)\MSSQLLocalDB;...  │
-│ Import Folder    │ C:\SPL_Data\monthly                     │
-│ ZIP Files Found  │ 150                                     │
-│ Max Runtime      │ No limit                                │
-└──────────────────┴─────────────────────────────────────────┘
-
-Proceed with import? [Y/n]: y
+Proceed with Orange Book import? [Y/n]: y
 ```
 
 ## Configuration
@@ -152,23 +181,33 @@ The application supports fully automated operation for Windows Task Scheduler or
 | `--version, -v` | Display application version |
 | `--verbose, -V` | Enable verbose output (debug messages) |
 | `--quiet, -q` | Minimal output mode - suppress non-essential messages |
-| `--folder <path>` | Import folder path - enables unattended mode |
+| `--folder <path>` | SPL import folder path - enables unattended SPL mode |
+| `--orange-book <path>` | Orange Book ZIP file path - enables Orange Book mode |
+| `--nuke` | Truncate all Orange Book tables before import (requires `--orange-book`) |
 | `--connection <name>` | Database connection name from appsettings.json |
-| `--time <minutes>` | Maximum runtime in minutes (1-1440) |
+| `--time <minutes>` | Maximum runtime in minutes (1-1440, SPL mode only) |
 | `--auto-quit` | Exit immediately after import completes |
 | `--config <path>` | Use alternate configuration file |
 
-### Example Task Scheduler Usage
+**Note:** `--folder` and `--orange-book` are mutually exclusive. Each selects a different import mode.
+
+### Example CLI Usage
 
 ```bash
-# Simple unattended import with default database
+# SPL: Simple unattended import with default database
 MedRecProConsole.exe --folder "C:\SPL\Imports" --auto-quit
 
-# Specify database connection and time limit
+# SPL: Specify database connection and time limit
 MedRecProConsole.exe --folder "C:\SPL\Imports" --connection "Local Database Dev (MedRecLocal)" --time 120 --auto-quit
 
-# Use a custom automation config file
+# SPL: Use a custom automation config file
 MedRecProConsole.exe --config "C:\Jobs\nightly-import.json" --folder "C:\SPL\NightlyImports" --auto-quit
+
+# Orange Book: Import with default database
+MedRecProConsole.exe --orange-book "C:\OrangeBook\EOBZIP_2026_01.zip" --auto-quit
+
+# Orange Book: Truncate tables first, specify database
+MedRecProConsole.exe --orange-book "C:\OrangeBook\EOBZIP_2026_01.zip" --nuke --connection "Local Database Dev" --auto-quit
 
 # Quiet mode for cleaner log output
 MedRecProConsole.exe --folder "C:\SPL\Imports" --auto-quit --quiet
@@ -246,7 +285,7 @@ See `automation-example.json` in the project root for a complete example.
 - **Graceful Timeout**: Completes current file before stopping on time limit
 - **Exit Codes**: Returns 0 for success, 1 for any failures (for Task Scheduler monitoring)
 
-## Import Behavior
+## SPL Import Behavior
 
 ### Success Handling
 
@@ -287,6 +326,25 @@ The application creates a `.medrecpro-import-queue.json` file at the import fold
 **Nested Folder Support:**
 - Queue files in subdirectories are respected when importing from a parent folder
 - This allows importing remaining files while honoring completed child folder progress
+
+## Orange Book Import Behavior
+
+The Orange Book import processes the FDA Orange Book `products.txt` file (tilde-delimited) from a ZIP archive.
+
+### Import Phases
+
+1. **Extraction**: Extracts `products.txt` from the ZIP file
+2. **Truncation** (optional): Truncates all Orange Book tables (junctions first, then fact tables) when `--nuke` is used
+3. **Applicant Upsert**: Creates or updates applicant records from the Applicant and Applicant_Full_Name columns
+4. **Product Upsert**: Creates or updates product records, processed in batches of 5,000
+5. **Entity Matching**: Links Orange Book entities to existing SPL data via junction tables:
+   - **Applicant → Organization**: Normalized exact match, then token-based similarity (Jaccard/containment) with corporate suffix and pharma noise-word stripping
+   - **Product → IngredientSubstance**: Exact name and regex-based matching
+   - **Product → MarketingCategory**: Exact name and regex-based matching
+
+### Idempotent Design
+
+The import is upsert-based, so running it multiple times on the same data is safe. Crash recovery queues are not needed since partial imports can simply be re-run.
 
 ## Output
 
@@ -333,7 +391,7 @@ After import completes:
 
 ### Project References
 
-- `MedRecPro` - Core application with import services, models, and data access
+- `MedRecProImportClass` - Import class library with SPL/Orange Book parsing services, models, and data access
 
 ## Building
 
@@ -380,5 +438,7 @@ The application uses Microsoft.Extensions.Logging with console output at Warning
 ## Related Documentation
 
 - MedRecPro main application
+- MedRecProImportClass library
 - SPL (Structured Product Labeling) FDA specification
+- FDA Orange Book: https://www.fda.gov/drugs/drug-approvals-and-databases/approved-drug-products-therapeutic-equivalence-evaluations-orange-book
 - Spectre.Console documentation: https://spectreconsole.net/

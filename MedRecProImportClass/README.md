@@ -1,6 +1,6 @@
 # MedRecProImportClass
 
-A standalone .NET 8 class library extracted from the MedRecPro web application to support SPL (Structured Product Labeling) import operations. This library is designed to be used by console applications and other non-web clients that need to import FDA SPL XML data.
+A standalone .NET 8 class library extracted from the MedRecPro web application to support SPL (Structured Product Labeling) and FDA Orange Book import operations. This library is designed to be used by console applications and other non-web clients that need to import FDA drug data.
 
 ## Purpose
 
@@ -9,13 +9,15 @@ This library was created to enable single-file publishing for the `MedRecProCons
 ## Features
 
 - **SPL XML Parsing**: Complete parsing infrastructure for FDA SPL documents
+- **FDA Orange Book Import**: Parses `products.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
-- **39 Specialized Parsers**: Covers all SPL document sections including:
+- **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
   - Organizations and licensing
   - Marketing status and regulatory information
   - REMS, warning letters, and compliance actions
+  - Orange Book applicants, products, and junction matching
 - **Background Task Processing**: Queue-based import worker service
 - **Encryption Support**: AES-256 encryption for sensitive data
 
@@ -28,7 +30,7 @@ MedRecProImportClass/
 │   ├── LocalFileSource.cs  # Local file system implementation
 │   └── ServiceInterfaces.cs # IEncryptionService, IDictionaryUtilityService
 ├── Attributes/             # Validation attributes for SPL entities
-├── Context/                # Entity Framework DbContext
+├── Context/                # Entity Framework DbContext (auto-registers OrangeBook entities via reflection)
 ├── DataAccess/             # Repository pattern implementation
 ├── Helpers/                # Utility classes
 │   ├── EncryptionHelper.cs # AES-256 encryption (StringCipher)
@@ -37,15 +39,18 @@ MedRecProImportClass/
 │   └── ...
 ├── Models/                 # Entity classes and DTOs
 │   ├── Labels.cs           # Main Label container with 50+ nested classes
+│   ├── OrangeBook.cs       # Orange Book entity classes (Applicant, Product, junctions)
 │   ├── Import.cs           # Import result types
 │   ├── ImportData.cs       # SplData entity
 │   └── ...
 └── Service/                # Business logic services
-    ├── SplImportService.cs       # Main import orchestration
+    ├── SplImportService.cs       # Main SPL import orchestration
     ├── SplDataService.cs         # SPL data storage/retrieval
     ├── SplParsingService.cs      # XML parsing orchestration
     ├── ZipImportWorkerService.cs # Background ZIP processing
-    ├── ParsingServices/          # 39 specialized parser files
+    ├── ParsingServices/          # 39+ specialized parser files
+    │   ├── OrangeBookProductParsingService.cs  # Orange Book products.txt parser
+    │   └── ...                   # SPL section parsers
     └── ParsingValidators/        # Validation services
 ```
 
@@ -104,6 +109,37 @@ var importService = provider.GetRequiredService<SplImportService>();
 var results = await importService.ProcessZipFilesAsync(files, cancellationToken);
 ```
 
+## Orange Book Import
+
+The `OrangeBookProductParsingService` handles importing the FDA Orange Book `products.txt` flat file into normalized database tables.
+
+### Entity Model
+
+The `OrangeBook` class contains nested entity classes mapped to database tables via `[Table]` attributes:
+
+| Entity | Table | Description |
+|--------|-------|-------------|
+| `Applicant` | `OrangeBookApplicant` | Pharmaceutical companies holding FDA approvals |
+| `Product` | `OrangeBookProduct` | Drug products from products.txt |
+| `ApplicantOrganization` | `OrangeBookApplicantOrganization` | Junction linking applicants to SPL organizations |
+| `ProductIngredientSubstance` | `OrangeBookProductIngredientSubstance` | Junction linking products to SPL ingredients |
+| `ProductMarketingCategory` | `OrangeBookProductMarketingCategory` | Junction linking products to SPL marketing categories |
+
+### Entity Matching Strategy
+
+The import links Orange Book data to existing SPL entities using multi-tier matching:
+
+- **Applicant → Organization**: Normalized exact match, then token-based similarity (Jaccard/containment) with a two-pass strategy — first pass uses full tokens for higher discrimination, fallback uses noise-stripped tokens. Corporate suffixes and pharma noise words are stripped before comparison.
+- **Product → IngredientSubstance**: Exact name match, then regex-based matching
+- **Product → MarketingCategory**: Exact name match, then regex-based matching
+
+### Design
+
+- **Idempotent**: Upsert-based — safe to re-run without duplication
+- **Batch processing**: Products are processed in batches of 5,000
+- **Progress callbacks**: Supports real-time progress reporting via callbacks to the console UI
+- **In-memory matching**: Pre-computes organization cache for fast similarity scoring
+
 ## Relationship to MedRecPro
 
 This library contains **copies** of files from the main MedRecPro project. The source MedRecPro project remains unchanged and can continue to function independently. Key differences:
@@ -113,6 +149,8 @@ This library contains **copies** of files from the main MedRecPro project. The s
 | SDK | Web SDK | Class Library SDK |
 | Namespace | `MedRecPro.*` | `MedRecProImportClass.*` |
 | Web Dependencies | Full ASP.NET Core | Minimal (IFormFile only) |
+| SPL Import | Full support | Full support |
+| Orange Book Import | Not included | Full support |
 | DTO Queries | Full support | Not included |
 | Rendering Services | Included | Not included |
 
