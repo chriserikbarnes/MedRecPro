@@ -1,5 +1,7 @@
 using MedRecProImportClass.Service;
+using MedRecProImportClass.Service.ParsingServices;
 using MedRecProConsole.Models;
+using ValidationResult = Spectre.Console.ValidationResult;
 using MedRecProConsole.Services;
 using Spectre.Console;
 
@@ -459,6 +461,22 @@ namespace MedRecProConsole.Helpers
             string? currentConnectionString = null;
             string? currentDatabaseName = null;
             ImportResults cumulativeResults = new ImportResults();
+
+            // Prompt for database selection upfront — it is a prerequisite for import operations
+            AnsiConsole.MarkupLine("[cyan]Select a database connection to get started.[/]");
+            var (initialDbName, initialConnString) = promptDatabaseSelection(settings);
+            if (initialConnString != null)
+            {
+                currentDatabaseName = initialDbName;
+                currentConnectionString = initialConnString;
+                AnsiConsole.MarkupLine($"[green]Database set to: {Markup.Escape(initialDbName ?? "Unknown")}[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]No database selected. Import features require a database connection.[/]");
+                AnsiConsole.MarkupLine("[grey]You can select a database later using the 'database' command.[/]");
+            }
+            AnsiConsole.WriteLine();
 
             while (true)
             {

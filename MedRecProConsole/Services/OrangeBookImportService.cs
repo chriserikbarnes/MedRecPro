@@ -2,6 +2,7 @@ using MedRecProImportClass.Data;
 using MedRecProImportClass.DataAccess;
 using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Service;
+using MedRecProImportClass.Service.ParsingServices;
 using MedRecProConsole.Helpers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -74,6 +75,28 @@ namespace MedRecProConsole.Services
         /// </summary>
         private static readonly Regex BatchProgressPattern = new(
             @"\((\d+)/(\d+) rows processed\)",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Regex pattern to extract ingredient substring query progress.
+        /// Matches strings like "Ingredients (substring): 25/100 names queried (5 matches)".
+        /// </summary>
+        /// <seealso cref="BatchProgressPattern"/>
+        /// <seealso cref="CategorySubstringPattern"/>
+        private static readonly Regex IngredientSubstringPattern = new(
+            @"Ingredients \(substring\): (\d+)/(\d+) names queried",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Regex pattern to extract category substring query progress.
+        /// Matches strings like "Categories (substring): 50/200 numbers queried (10 matches)".
+        /// </summary>
+        /// <seealso cref="BatchProgressPattern"/>
+        /// <seealso cref="IngredientSubstringPattern"/>
+        private static readonly Regex CategorySubstringPattern = new(
+            @"Categories \(substring\): (\d+)/(\d+) numbers queried",
             RegexOptions.Compiled);
 
         /// <summary>
@@ -334,17 +357,24 @@ namespace MedRecProConsole.Services
 
         /**************************************************************/
         /// <summary>
-        /// Executes the import via <see cref="OrangeBookProductParsingService"/> with a
-        /// Spectre.Console progress bar that parses batch progress messages for real-time
-        /// percentage tracking.
+        /// Executes the import via <see cref="OrangeBookProductParsingService"/> with
+        /// Spectre.Console multi-task progress bars that track each import phase independently:
+        /// product upsert, organization matching, ingredient matching, and category matching.
         /// </summary>
         /// <param name="serviceProvider">DI service provider for resolving the parsing service.</param>
         /// <param name="fileContent">The full text content of products.txt.</param>
-        /// <param name="totalDataRows">Total data rows for progress bar max value.</param>
+        /// <param name="totalDataRows">Total data rows for the product import progress bar max value.</param>
         /// <param name="cancellationToken">Cancellation token for cooperative cancellation.</param>
         /// <returns>An <see cref="OrangeBookImportResult"/> with import statistics.</returns>
+        /// <remarks>
+        /// Progress tasks are created lazily as each phase begins. Matching phases start as
+        /// indeterminate spinners and switch to determinate progress bars when the first
+        /// queried/total count message arrives.
+        /// </remarks>
         /// <seealso cref="OrangeBookProductParsingService.ProcessProductsFileAsync"/>
         /// <seealso cref="BatchProgressPattern"/>
+        /// <seealso cref="IngredientSubstringPattern"/>
+        /// <seealso cref="CategorySubstringPattern"/>
         private async Task<OrangeBookImportResult> executeImportWithProgressAsync(
             ServiceProvider serviceProvider,
             string fileContent,
@@ -372,25 +402,123 @@ namespace MedRecProConsole.Services
                 })
                 .StartAsync(async ctx =>
                 {
-                    // Create the progress task with row count as max value
-                    var importTask = ctx.AddTask(
-                        "[orange1]Orange Book Products Import[/]",
+                    // Create the primary product import task with row count as max value
+                    var productTask = ctx.AddTask(
+                        "[orange1]Importing products[/]",
                         maxValue: Math.Max(1, totalDataRows));
 
-                    // Progress callback: parse batch messages for row counts,
-                    // update description with current step
+                    // Matching phase tasks — created lazily when each phase begins
+                    ProgressTask? orgMatchTask = null;
+                    ProgressTask? ingredientMatchTask = null;
+                    ProgressTask? categoryMatchTask = null;
+
+                    // Progress callback: routes each message to the appropriate progress task
+                    // based on message prefix and regex pattern matching
                     Action<string> progressCallback = (message) =>
                     {
-                        // Try to parse batch progress: "(X/Y rows processed)"
-                        var match = BatchProgressPattern.Match(message);
-                        if (match.Success && int.TryParse(match.Groups[1].Value, out var currentRow))
+                        // Product batch progress: "(X/Y rows processed)"
+                        var batchMatch = BatchProgressPattern.Match(message);
+                        if (batchMatch.Success && int.TryParse(batchMatch.Groups[1].Value, out var currentRow))
                         {
-                            importTask.Value = currentRow;
+                            productTask.Value = currentRow;
+                            productTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
+                            return;
                         }
 
-                        // Update the description with the current step message
-                        var displayMessage = truncateForDisplay(message);
-                        importTask.Description = $"[orange1]{Markup.Escape(displayMessage)}[/]";
+                        // Organization matching phase start
+                        if (message.StartsWith("Matching applicants to organizations"))
+                        {
+                            // Complete the product task
+                            productTask.Value = productTask.MaxValue;
+                            productTask.Description = "[green]Products imported[/]";
+
+                            // Create org matching task (indeterminate — no progress count available)
+                            orgMatchTask = ctx.AddTask("[orange1]Matching organizations[/]", maxValue: 1);
+                            orgMatchTask.IsIndeterminate = true;
+                            return;
+                        }
+
+                        // Ingredient matching phase start
+                        if (message.StartsWith("Matching products to ingredient substances"))
+                        {
+                            // Complete org matching task
+                            if (orgMatchTask != null)
+                            {
+                                orgMatchTask.IsIndeterminate = false;
+                                orgMatchTask.Value = orgMatchTask.MaxValue;
+                                orgMatchTask.Description = "[green]Organizations matched[/]";
+                            }
+
+                            // Create ingredient matching task (indeterminate until first X/Y message)
+                            ingredientMatchTask = ctx.AddTask("[orange1]Matching ingredients[/]", maxValue: 100);
+                            ingredientMatchTask.IsIndeterminate = true;
+                            return;
+                        }
+
+                        // Ingredient exact results — update description only
+                        if (message.StartsWith("Ingredients (exact)") && ingredientMatchTask != null)
+                        {
+                            ingredientMatchTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
+                            return;
+                        }
+
+                        // Ingredient substring progress: "Ingredients (substring): X/Y names queried"
+                        var ingredientMatch = IngredientSubstringPattern.Match(message);
+                        if (ingredientMatch.Success && ingredientMatchTask != null)
+                        {
+                            if (int.TryParse(ingredientMatch.Groups[1].Value, out var queried) &&
+                                int.TryParse(ingredientMatch.Groups[2].Value, out var total))
+                            {
+                                ingredientMatchTask.IsIndeterminate = false;
+                                ingredientMatchTask.MaxValue = Math.Max(1, total);
+                                ingredientMatchTask.Value = queried;
+                            }
+                            ingredientMatchTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
+                            return;
+                        }
+
+                        // Category matching phase start
+                        if (message.StartsWith("Matching products to marketing categories"))
+                        {
+                            // Complete ingredient matching task
+                            if (ingredientMatchTask != null)
+                            {
+                                ingredientMatchTask.IsIndeterminate = false;
+                                ingredientMatchTask.Value = ingredientMatchTask.MaxValue;
+                                ingredientMatchTask.Description = "[green]Ingredients matched[/]";
+                            }
+
+                            // Create category matching task (indeterminate until first X/Y message)
+                            categoryMatchTask = ctx.AddTask("[orange1]Matching categories[/]", maxValue: 100);
+                            categoryMatchTask.IsIndeterminate = true;
+                            return;
+                        }
+
+                        // Category exact results — update description only
+                        if (message.StartsWith("Categories (exact)") && categoryMatchTask != null)
+                        {
+                            categoryMatchTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
+                            return;
+                        }
+
+                        // Category substring progress: "Categories (substring): X/Y numbers queried"
+                        var categoryMatch = CategorySubstringPattern.Match(message);
+                        if (categoryMatch.Success && categoryMatchTask != null)
+                        {
+                            if (int.TryParse(categoryMatch.Groups[1].Value, out var queried) &&
+                                int.TryParse(categoryMatch.Groups[2].Value, out var total))
+                            {
+                                categoryMatchTask.IsIndeterminate = false;
+                                categoryMatchTask.MaxValue = Math.Max(1, total);
+                                categoryMatchTask.Value = queried;
+                            }
+                            categoryMatchTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
+                            return;
+                        }
+
+                        // Default: update the product task description for early phase messages
+                        // (e.g., "Parsing products.txt lines...", "Upserting applicants...")
+                        productTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
                     };
 
                     // Resolve the parsing service and execute
@@ -401,11 +529,30 @@ namespace MedRecProConsole.Services
                     result = await parsingService.ProcessProductsFileAsync(
                         fileContent, cancellationToken, progressCallback);
 
-                    // Ensure progress bar shows 100% at completion
-                    importTask.Value = importTask.MaxValue;
-                    importTask.Description = result.Success
-                        ? "[green]Import complete[/]"
-                        : "[red]Import completed with errors[/]";
+                    // Ensure all tasks show completion
+                    productTask.Value = productTask.MaxValue;
+                    productTask.Description = "[green]Products imported[/]";
+
+                    if (orgMatchTask != null)
+                    {
+                        orgMatchTask.IsIndeterminate = false;
+                        orgMatchTask.Value = orgMatchTask.MaxValue;
+                        orgMatchTask.Description = "[green]Organizations matched[/]";
+                    }
+                    if (ingredientMatchTask != null)
+                    {
+                        ingredientMatchTask.IsIndeterminate = false;
+                        ingredientMatchTask.Value = ingredientMatchTask.MaxValue;
+                        ingredientMatchTask.Description = "[green]Ingredients matched[/]";
+                    }
+                    if (categoryMatchTask != null)
+                    {
+                        categoryMatchTask.IsIndeterminate = false;
+                        categoryMatchTask.Value = categoryMatchTask.MaxValue;
+                        categoryMatchTask.Description = result!.Success
+                            ? "[green]Categories matched[/]"
+                            : "[red]Import completed with errors[/]";
+                    }
 
                     // Small delay to ensure the final state is rendered
                     await Task.Delay(100);

@@ -22,10 +22,9 @@ namespace MedRecProImportClass.Service.ParsingServices
     /// The service runs on its own processing thread via a scoped
     /// <see cref="ApplicationDbContext"/> created from <see cref="IServiceScopeFactory"/>.
     /// Products are processed in batches of 5,000 to manage memory.
-    /// Entity-to-entity matching uses a three-tier strategy:
-    /// exact name, substring containment, and SOUNDEX/DIFFERENCE phonetic matching.
-    /// This applies to Applicant→Organization, Product→IngredientSubstance, and
-    /// Product→MarketingCategory junction tables.
+    /// Entity-to-entity matching uses a tiered strategy: exact name and substring
+    /// containment for Product→IngredientSubstance and Product→MarketingCategory,
+    /// plus SOUNDEX/DIFFERENCE phonetic matching for Applicant→Organization only.
     /// </remarks>
     /// <seealso cref="OrangeBook"/>
     /// <seealso cref="OrangeBook.Product"/>
@@ -203,7 +202,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Step 5: Match products to existing IngredientSubstance records
                 reportProgress?.Invoke("Matching products to ingredient substances...");
                 var productIngredientMap = buildProductIngredientMap(dataRows, productIdMap);
-                await matchProductsToIngredientSubstancesAsync(productIngredientMap, context, result, token);
+                await matchProductsToIngredientSubstancesAsync(productIngredientMap, context, result, token, reportProgress);
                 _logger.LogInformation("Ingredient substance matches: {Created} created, {Unmatched} ingredients unmatched",
                     result.IngredientSubstanceMatchesCreated, result.UnmatchedIngredients);
 
@@ -212,7 +211,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Step 6: Match products to existing MarketingCategory records
                 reportProgress?.Invoke("Matching products to marketing categories...");
                 var productAppNumberMap = buildProductAppNumberMap(dataRows, productIdMap);
-                await matchProductsToMarketingCategoriesAsync(productAppNumberMap, context, result, token);
+                await matchProductsToMarketingCategoriesAsync(productAppNumberMap, context, result, token, reportProgress);
                 _logger.LogInformation("Marketing category matches: {Created} created, {Unmatched} products unmatched",
                     result.MarketingCategoryMatchesCreated, result.UnmatchedProducts);
 
@@ -1141,7 +1140,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         /*************************************************************/
         /// <summary>
-        /// Orchestrates the three-tier matching of Orange Book product ingredients to existing
+        /// Orchestrates the tiered matching of Orange Book product ingredients to existing
         /// SPL <see cref="Label.IngredientSubstance"/> records. Matching is per-ingredient:
         /// each individual ingredient name within a product is tracked independently through
         /// the tiers. New matches are inserted into the
@@ -1151,15 +1150,16 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="context">The database context for the current import scope.</param>
         /// <param name="result">Import result to track match counts.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <seealso cref="matchIngredientsByExactNameAsync"/>
+        /// <param name="reportProgress">Optional progress callback.</param>
+        /// <seealso cref="matchIngredientsByExactName"/>
         /// <seealso cref="matchIngredientsBySubstringAsync"/>
-        /// <seealso cref="matchIngredientsByPhoneticAsync"/>
         /// <seealso cref="OrangeBook.ProductIngredientSubstance"/>
         private async Task matchProductsToIngredientSubstancesAsync(
             Dictionary<int, List<string>> productIngredientMap,
             ApplicationDbContext context,
             OrangeBookImportResult result,
-            CancellationToken token)
+            CancellationToken token,
+            Action<string>? reportProgress = null)
         {
             #region implementation
             var (existingPairs, substanceLookup, matchedPairs) =
@@ -1167,13 +1167,12 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             var newJunctions = new List<OrangeBook.ProductIngredientSubstance>();
 
-            // Run tiers in priority order — each tier only processes ingredient names not yet matched
+            // Run tiers in priority order (phonetic tier removed: SOUNDEX produces too many
+            // false positives for drug names, e.g., "metformin" matching "methadone")
             matchIngredientsByExactName(productIngredientMap, matchedPairs, substanceLookup,
-                existingPairs, newJunctions);
+                existingPairs, newJunctions, reportProgress);
             await matchIngredientsBySubstringAsync(productIngredientMap, matchedPairs,
-                existingPairs, newJunctions, context, token);
-            await matchIngredientsByPhoneticAsync(productIngredientMap, matchedPairs,
-                existingPairs, newJunctions, context, token);
+                existingPairs, newJunctions, context, token, reportProgress);
 
             await persistIngredientJunctionsAsync(newJunctions, context, result, token);
             logUnmatchedIngredients(productIngredientMap, matchedPairs, result);
@@ -1295,13 +1294,15 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="substanceLookup">Upper-cased SubstanceName → List of IngredientSubstanceID.</param>
         /// <param name="existingPairs">Set of existing junction pairs (mutated on new junction).</param>
         /// <param name="newJunctions">List of new junction entities to insert (mutated).</param>
+        /// <param name="reportProgress">Optional progress callback.</param>
         /// <seealso cref="Label.IngredientSubstance.SubstanceName"/>
         private void matchIngredientsByExactName(
             Dictionary<int, List<string>> productIngredientMap,
             HashSet<(int, string)> matchedPairs,
             Dictionary<string, List<int>> substanceLookup,
             HashSet<(int, int)> existingPairs,
-            List<OrangeBook.ProductIngredientSubstance> newJunctions)
+            List<OrangeBook.ProductIngredientSubstance> newJunctions,
+            Action<string>? reportProgress = null)
         {
             #region implementation
             var candidates = getUnmatchedProductIngredients(productIngredientMap, matchedPairs, _ => true);
@@ -1317,14 +1318,16 @@ namespace MedRecProImportClass.Service.ParsingServices
                     matchedPairs.Add((productId, ingredientNameUpper));
                 }
             }
+
+            reportProgress?.Invoke($"Ingredients (exact): {newJunctions.Count} matches from {candidates.Count} pairs");
             #endregion
         }
 
         /*************************************************************/
         /// <summary>
         /// Tier 2: Substring match where <see cref="Label.IngredientSubstance.SubstanceName"/>
-        /// contains the ingredient name. Each unmatched ingredient is queried individually.
-        /// Ingredient names under 3 characters are skipped to avoid false positives.
+        /// contains the ingredient name. Candidates are deduplicated by ingredient name before
+        /// querying. Ingredient names under 3 characters are skipped to avoid false positives.
         /// </summary>
         /// <param name="productIngredientMap">Product-to-ingredients map.</param>
         /// <param name="matchedPairs">Set of matched pairs (mutated on match).</param>
@@ -1332,6 +1335,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="newJunctions">List of new junction entities to insert (mutated).</param>
         /// <param name="context">The database context.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="reportProgress">Optional progress callback.</param>
         /// <seealso cref="Label.IngredientSubstance.SubstanceName"/>
         private async Task matchIngredientsBySubstringAsync(
             Dictionary<int, List<string>> productIngredientMap,
@@ -1339,7 +1343,8 @@ namespace MedRecProImportClass.Service.ParsingServices
             HashSet<(int, int)> existingPairs,
             List<OrangeBook.ProductIngredientSubstance> newJunctions,
             ApplicationDbContext context,
-            CancellationToken token)
+            CancellationToken token,
+            Action<string>? reportProgress = null)
         {
             #region implementation
             var candidates = getUnmatchedProductIngredients(productIngredientMap, matchedPairs,
@@ -1348,6 +1353,8 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Deduplicate by ingredient name to avoid redundant queries
             var distinctNames = candidates.Select(c => c.ingredientNameUpper).Distinct().ToList();
             var substringResults = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            var queried = 0;
+            var totalDistinct = distinctNames.Count;
 
             foreach (var ingredientName in distinctNames)
             {
@@ -1361,71 +1368,16 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (matches.Count > 0)
                     substringResults[ingredientName] = matches;
+
+                queried++;
+                if (queried % 25 == 0 || queried == totalDistinct)
+                    reportProgress?.Invoke($"Ingredients (substring): {queried}/{totalDistinct} names queried ({newJunctions.Count} matches)");
             }
 
             // Apply results to all product-ingredient pairs
             foreach (var (productId, ingredientNameUpper) in candidates)
             {
                 if (substringResults.TryGetValue(ingredientNameUpper, out var substanceIds))
-                {
-                    foreach (var substanceId in substanceIds)
-                    {
-                        addIngredientJunctionIfNew(productId, substanceId, existingPairs, newJunctions);
-                    }
-                    matchedPairs.Add((productId, ingredientNameUpper));
-                }
-            }
-            #endregion
-        }
-
-        /*************************************************************/
-        /// <summary>
-        /// Tier 3: SOUNDEX/DIFFERENCE phonetic matching for ingredient names not matched by
-        /// exact or substring tiers. Uses the <see cref="ApplicationDbContext.Difference"/>
-        /// function with a threshold score of 3 (out of 4).
-        /// </summary>
-        /// <param name="productIngredientMap">Product-to-ingredients map.</param>
-        /// <param name="matchedPairs">Set of matched pairs (mutated on match).</param>
-        /// <param name="existingPairs">Set of existing junction pairs (mutated on new junction).</param>
-        /// <param name="newJunctions">List of new junction entities to insert (mutated).</param>
-        /// <param name="context">The database context.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <seealso cref="ApplicationDbContext.Difference"/>
-        /// <seealso cref="Label.IngredientSubstance.SubstanceName"/>
-        private async Task matchIngredientsByPhoneticAsync(
-            Dictionary<int, List<string>> productIngredientMap,
-            HashSet<(int, string)> matchedPairs,
-            HashSet<(int, int)> existingPairs,
-            List<OrangeBook.ProductIngredientSubstance> newJunctions,
-            ApplicationDbContext context,
-            CancellationToken token)
-        {
-            #region implementation
-            var candidates = getUnmatchedProductIngredients(productIngredientMap, matchedPairs, _ => true);
-
-            // Deduplicate by ingredient name to avoid redundant queries
-            var distinctNames = candidates.Select(c => c.ingredientNameUpper).Distinct().ToList();
-            var phoneticResults = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var ingredientName in distinctNames)
-            {
-                token.ThrowIfCancellationRequested();
-
-                // Score >= 3 indicates strong phonetic similarity (0-4 scale)
-                var matches = await context.Set<Label.IngredientSubstance>()
-                    .Where(s => s.SubstanceName != null && s.IngredientSubstanceID != null
-                        && ApplicationDbContext.Difference(s.SubstanceName, ingredientName) >= 3)
-                    .Select(s => s.IngredientSubstanceID!.Value)
-                    .ToListAsync(token);
-
-                if (matches.Count > 0)
-                    phoneticResults[ingredientName] = matches;
-            }
-
-            // Apply results to all product-ingredient pairs
-            foreach (var (productId, ingredientNameUpper) in candidates)
-            {
-                if (phoneticResults.TryGetValue(ingredientNameUpper, out var substanceIds))
                 {
                     foreach (var substanceId in substanceIds)
                     {
@@ -1578,7 +1530,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         /*************************************************************/
         /// <summary>
-        /// Orchestrates the three-tier matching of Orange Book products to existing SPL
+        /// Orchestrates the tiered matching of Orange Book products to existing SPL
         /// <see cref="Label.MarketingCategory"/> records via application number. New matches
         /// are inserted into the <see cref="OrangeBook.ProductMarketingCategory"/> junction table.
         /// </summary>
@@ -1586,15 +1538,16 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="context">The database context for the current import scope.</param>
         /// <param name="result">Import result to track match counts.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="reportProgress">Optional progress callback.</param>
         /// <seealso cref="matchCategoriesByExactAppNumberAsync"/>
         /// <seealso cref="matchCategoriesBySubstringAsync"/>
-        /// <seealso cref="matchCategoriesByPhoneticAsync"/>
         /// <seealso cref="OrangeBook.ProductMarketingCategory"/>
         private async Task matchProductsToMarketingCategoriesAsync(
             Dictionary<int, string> productAppNumberMap,
             ApplicationDbContext context,
             OrangeBookImportResult result,
-            CancellationToken token)
+            CancellationToken token,
+            Action<string>? reportProgress = null)
         {
             #region implementation
             var (existingPairs, matchedProductIds) =
@@ -1602,13 +1555,12 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             var newJunctions = new List<OrangeBook.ProductMarketingCategory>();
 
-            // Run tiers in priority order
+            // Run tiers in priority order (phonetic tier removed: SOUNDEX on alphanumeric
+            // app numbers like "NDA020610" ignores digits, causing near-universal matches)
             await matchCategoriesByExactAppNumberAsync(productAppNumberMap, matchedProductIds,
-                existingPairs, newJunctions, context, token);
+                existingPairs, newJunctions, context, token, reportProgress);
             await matchCategoriesBySubstringAsync(productAppNumberMap, matchedProductIds,
-                existingPairs, newJunctions, context, token);
-            await matchCategoriesByPhoneticAsync(productAppNumberMap, matchedProductIds,
-                existingPairs, newJunctions, context, token);
+                existingPairs, newJunctions, context, token, reportProgress);
 
             await persistCategoryJunctionsAsync(newJunctions, context, result, token);
             logUnmatchedProducts(productAppNumberMap, matchedProductIds, result);
@@ -1676,6 +1628,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="newJunctions">List of new junction entities to insert (mutated).</param>
         /// <param name="context">The database context.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="reportProgress">Optional progress callback.</param>
         /// <seealso cref="Label.MarketingCategory.ApplicationOrMonographIDValue"/>
         private async Task matchCategoriesByExactAppNumberAsync(
             Dictionary<int, string> productAppNumberMap,
@@ -1683,7 +1636,8 @@ namespace MedRecProImportClass.Service.ParsingServices
             HashSet<(int, int)> existingPairs,
             List<OrangeBook.ProductMarketingCategory> newJunctions,
             ApplicationDbContext context,
-            CancellationToken token)
+            CancellationToken token,
+            Action<string>? reportProgress = null)
         {
             #region implementation
             var candidates = getUnmatchedProducts(productAppNumberMap, matchedProductIds);
@@ -1766,14 +1720,17 @@ namespace MedRecProImportClass.Service.ParsingServices
                     matchedProductIds.Add(productId);
                 }
             }
+
+            reportProgress?.Invoke($"Categories (exact): {newJunctions.Count} matches from {candidates.Count} products");
             #endregion
         }
 
         /*************************************************************/
         /// <summary>
         /// Tier 2: Substring match where <see cref="Label.MarketingCategory.ApplicationOrMonographIDValue"/>
-        /// contains the numeric application number. Each unmatched product is queried individually.
-        /// Application numbers under 3 characters are skipped.
+        /// contains the numeric application number. Candidates are deduplicated by numeric portion
+        /// before querying to avoid redundant database calls. Application numbers under 3
+        /// characters are skipped.
         /// </summary>
         /// <param name="productAppNumberMap">Product-to-app-number map.</param>
         /// <param name="matchedProductIds">Set of matched product IDs (mutated on match).</param>
@@ -1781,6 +1738,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="newJunctions">List of new junction entities to insert (mutated).</param>
         /// <param name="context">The database context.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="reportProgress">Optional progress callback.</param>
         /// <seealso cref="Label.MarketingCategory.ApplicationOrMonographIDValue"/>
         private async Task matchCategoriesBySubstringAsync(
             Dictionary<int, string> productAppNumberMap,
@@ -1788,84 +1746,60 @@ namespace MedRecProImportClass.Service.ParsingServices
             HashSet<(int, int)> existingPairs,
             List<OrangeBook.ProductMarketingCategory> newJunctions,
             ApplicationDbContext context,
-            CancellationToken token)
+            CancellationToken token,
+            Action<string>? reportProgress = null)
         {
             #region implementation
             var candidates = getUnmatchedProducts(productAppNumberMap, matchedProductIds);
 
-            foreach (var (productId, appNumber) in candidates)
+            // Extract the numeric portion of each candidate's app number
+            var candidatesWithNumeric = candidates
+                .Select(c =>
+                {
+                    var upper = c.appNumber.ToUpper();
+                    string numeric;
+                    if (upper.StartsWith("NDA")) numeric = upper.Substring(3);
+                    else if (upper.StartsWith("ANDA")) numeric = upper.Substring(4);
+                    else numeric = upper;
+                    return (c.productId, c.appNumber, numeric);
+                })
+                .Where(c => c.numeric.Length >= 3)
+                .ToList();
+
+            // Deduplicate by numeric portion to avoid redundant queries
+            var distinctNumerics = candidatesWithNumeric
+                .Select(c => c.numeric)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var substringResults = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            var queried = 0;
+            var totalDistinct = distinctNumerics.Count;
+
+            foreach (var numeric in distinctNumerics)
             {
                 token.ThrowIfCancellationRequested();
 
-                // Use the numeric portion for substring search
-                var upper = appNumber.ToUpper();
-                string numeric;
-                if (upper.StartsWith("NDA")) numeric = upper.Substring(3);
-                else if (upper.StartsWith("ANDA")) numeric = upper.Substring(4);
-                else numeric = upper;
-
-                if (numeric.Length < 3)
-                    continue;
-
-                var substringMatches = await context.Set<Label.MarketingCategory>()
+                var matches = await context.Set<Label.MarketingCategory>()
                     .Where(mc => mc.ApplicationOrMonographIDValue != null && mc.MarketingCategoryID != null
                         && mc.ApplicationOrMonographIDValue.ToUpper().Contains(numeric))
                     .Select(mc => mc.MarketingCategoryID!.Value)
                     .ToListAsync(token);
 
-                if (substringMatches.Count > 0)
-                {
-                    foreach (var categoryId in substringMatches)
-                    {
-                        addCategoryJunctionIfNew(productId, categoryId, existingPairs, newJunctions);
-                    }
-                    matchedProductIds.Add(productId);
-                }
+                if (matches.Count > 0)
+                    substringResults[numeric] = matches;
+
+                queried++;
+                if (queried % 25 == 0 || queried == totalDistinct)
+                    reportProgress?.Invoke($"Categories (substring): {queried}/{totalDistinct} numbers queried ({newJunctions.Count} matches)");
             }
-            #endregion
-        }
 
-        /*************************************************************/
-        /// <summary>
-        /// Tier 3: SOUNDEX/DIFFERENCE phonetic matching for products not matched by exact
-        /// or substring tiers. Uses the <see cref="ApplicationDbContext.Difference"/> function
-        /// with a threshold score of 3 (out of 4) against the full application number string.
-        /// </summary>
-        /// <param name="productAppNumberMap">Product-to-app-number map.</param>
-        /// <param name="matchedProductIds">Set of matched product IDs (mutated on match).</param>
-        /// <param name="existingPairs">Set of existing junction pairs (mutated on new junction).</param>
-        /// <param name="newJunctions">List of new junction entities to insert (mutated).</param>
-        /// <param name="context">The database context.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <seealso cref="ApplicationDbContext.Difference"/>
-        /// <seealso cref="Label.MarketingCategory.ApplicationOrMonographIDValue"/>
-        private async Task matchCategoriesByPhoneticAsync(
-            Dictionary<int, string> productAppNumberMap,
-            HashSet<int> matchedProductIds,
-            HashSet<(int, int)> existingPairs,
-            List<OrangeBook.ProductMarketingCategory> newJunctions,
-            ApplicationDbContext context,
-            CancellationToken token)
-        {
-            #region implementation
-            var candidates = getUnmatchedProducts(productAppNumberMap, matchedProductIds);
-
-            foreach (var (productId, appNumber) in candidates)
+            // Apply cached results to all product-app-number pairs
+            foreach (var (productId, appNumber, numeric) in candidatesWithNumeric)
             {
-                token.ThrowIfCancellationRequested();
-
-                var fullAppNumber = appNumber.Trim();
-
-                // Score >= 3 indicates strong phonetic similarity (0-4 scale)
-                var phoneticMatches = await context.Set<Label.MarketingCategory>()
-                    .Where(mc => mc.ApplicationOrMonographIDValue != null && mc.MarketingCategoryID != null
-                        && ApplicationDbContext.Difference(mc.ApplicationOrMonographIDValue, fullAppNumber) >= 3)
-                    .Select(mc => mc.MarketingCategoryID!.Value)
-                    .ToListAsync(token);
-
-                if (phoneticMatches.Count > 0)
+                if (substringResults.TryGetValue(numeric, out var categoryIds))
                 {
-                    foreach (var categoryId in phoneticMatches)
+                    foreach (var categoryId in categoryIds)
                     {
                         addCategoryJunctionIfNew(productId, categoryId, existingPairs, newJunctions);
                     }
