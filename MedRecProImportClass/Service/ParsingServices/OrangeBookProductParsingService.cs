@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 using System.Globalization;
 using static MedRecProImportClass.Models.Label;
 
-namespace MedRecProImportClass.Service
+namespace MedRecProImportClass.Service.ParsingServices
 {
     /*************************************************************/
     /// <summary>
