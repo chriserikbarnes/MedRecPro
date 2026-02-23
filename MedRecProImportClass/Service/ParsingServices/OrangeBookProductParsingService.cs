@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using static MedRecProImportClass.Models.Label;
 
 namespace MedRecProImportClass.Service.ParsingServices
@@ -24,7 +25,8 @@ namespace MedRecProImportClass.Service.ParsingServices
     /// Products are processed in batches of 5,000 to manage memory.
     /// Entity-to-entity matching uses a tiered strategy: exact name and substring
     /// containment for Product→IngredientSubstance and Product→MarketingCategory,
-    /// plus SOUNDEX/DIFFERENCE phonetic matching for Applicant→Organization only.
+    /// and normalized exact + token-based Jaccard/containment similarity for
+    /// Applicant→Organization (with corporate suffix and pharma noise-word stripping).
     /// </remarks>
     /// <seealso cref="OrangeBook"/>
     /// <seealso cref="OrangeBook.Product"/>
@@ -77,6 +79,47 @@ namespace MedRecProImportClass.Service.ParsingServices
         private const int COL_RS = 11;
         private const int COL_TYPE = 12;
         private const int COL_APPLICANT_FULL_NAME = 13;
+
+        // Token-similarity thresholds for Applicant→Organization matching
+        private const double TOKEN_SIMILARITY_THRESHOLD = 0.67;
+        private const int MIN_TOKEN_LENGTH_FOR_FUZZY = 3;
+
+        // Compiled regex patterns for company name normalization
+        private static readonly Regex _corporateSuffixPattern = new Regex(
+            @"\b(INCORPORATED|CORPORATION|INTERNATIONAL|COMPANY|LIMITED|INC|CORP|LLC|LTD|CO|LP|LLP|AG|GMBH|SA|NV|PLC|SE|SRL|BV|SARL|PTY|USA|US|INTL|LC)\b",
+            RegexOptions.Compiled);
+
+        private static readonly Regex _pharmaNoisePattern = new Regex(
+            @"\b(PHARMACEUTICALS|PHARMACEUTICAL|PHARMA|PHARMS|PHARM|LABORATORIES|LABORATORY|LABS|LAB|PRODUCTS|PRODUCT|HOLDINGS|HOLDING|GROUP|ENTERPRISES|ENTERPRISE|INDUSTRIES|INDUSTRY|SCIENCES|SCIENCE|THERAPEUTICS|BIOSCIENCES|BIOTECH|BIOTECHNOLOGY)\b",
+            RegexOptions.Compiled);
+
+        private static readonly Regex _nonAlphanumericPattern = new Regex(
+            @"[^A-Z0-9 ]", RegexOptions.Compiled);
+
+        private static readonly Regex _multiSpacePattern = new Regex(
+            @"\s{2,}", RegexOptions.Compiled);
+
+        #endregion
+
+        #region types
+
+        /*************************************************************/
+        /// <summary>
+        /// Pre-computed cache entry for an <see cref="Organization"/> record, holding
+        /// the normalized name forms and tokenized representation used during
+        /// applicant-to-organization matching.
+        /// </summary>
+        /// <param name="OrganizationID">The organization's primary key.</param>
+        /// <param name="NormalizedName">Upper-cased name with corporate suffixes and punctuation stripped.</param>
+        /// <param name="NormalizedNameStripped">Like <paramref name="NormalizedName"/> but also stripped of pharma noise words.</param>
+        /// <param name="Tokens">Word tokens derived from <paramref name="NormalizedNameStripped"/>.</param>
+        /// <seealso cref="Organization"/>
+        /// <seealso cref="normalizeCompanyName"/>
+        private readonly record struct OrgCacheEntry(
+            int OrganizationID,
+            string NormalizedName,
+            string NormalizedNameStripped,
+            HashSet<string> Tokens);
 
         #endregion
 
@@ -734,7 +777,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         /*************************************************************/
         /// <summary>
-        /// Orchestrates the three-tier matching of Orange Book applicants to existing SPL
+        /// Orchestrates the two-tier matching of Orange Book applicants to existing SPL
         /// <see cref="Organization"/> records. New matches are inserted into the
         /// <see cref="OrangeBook.ApplicantOrganization"/> junction table;
         /// existing junction rows are preserved.
@@ -743,9 +786,8 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="context">The database context for the current import scope.</param>
         /// <param name="result">Import result to track match counts.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <seealso cref="matchByExactNameAsync"/>
-        /// <seealso cref="matchBySubstringAsync"/>
-        /// <seealso cref="matchByPhoneticAsync"/>
+        /// <seealso cref="matchByNormalizedExact"/>
+        /// <seealso cref="matchByTokenSimilarity"/>
         /// <seealso cref="OrangeBook.ApplicantOrganization"/>
         private async Task matchApplicantsToOrganizationsAsync(
             Dictionary<string, int> applicantMap,
@@ -757,12 +799,16 @@ namespace MedRecProImportClass.Service.ParsingServices
             var (existingPairs, applicants, matchedApplicantIds) =
                 await loadMatchingStateAsync(context, token);
 
+            // Load all organizations into memory for efficient in-memory matching
+            var orgCache = await loadOrganizationCacheAsync(context, token);
+
             var newJunctions = new List<OrangeBook.ApplicantOrganization>();
 
-            // Run tiers in priority order — each tier only processes applicants not yet matched
-            await matchByExactNameAsync(applicants, matchedApplicantIds, existingPairs, newJunctions, context, token);
-            await matchBySubstringAsync(applicants, matchedApplicantIds, existingPairs, newJunctions, context, token);
-            await matchByPhoneticAsync(applicants, matchedApplicantIds, existingPairs, newJunctions, context, token);
+            // Tier 1: normalized exact match (suffix-stripped, case-insensitive)
+            matchByNormalizedExact(applicants, matchedApplicantIds, existingPairs, newJunctions, orgCache);
+
+            // Tier 2: token-based similarity (best-match-only, noise-word stripped)
+            matchByTokenSimilarity(applicants, matchedApplicantIds, existingPairs, newJunctions, orgCache);
 
             await persistJunctionsAsync(newJunctions, context, result, token);
             logUnmatchedApplicants(applicants, matchedApplicantIds, result);
@@ -829,164 +875,199 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         /*************************************************************/
         /// <summary>
-        /// Tier 1: Exact case-insensitive match of ApplicantFullName against OrganizationName.
-        /// Uses a batch query to match all unmatched full names in a single round trip.
+        /// Tier 1: Normalized exact match of applicant names against organization names.
+        /// Corporate suffixes and punctuation are stripped before comparison so that
+        /// "Pfizer Inc." matches "PFIZER LABS" when both normalize to the same string.
+        /// Operates entirely in-memory against the pre-loaded organization cache.
+        /// Tries both <see cref="OrangeBook.Applicant.ApplicantFullName"/> and
+        /// <see cref="OrangeBook.Applicant.ApplicantName"/> for each applicant.
         /// </summary>
         /// <param name="applicants">All applicant entities.</param>
         /// <param name="matchedIds">Set of already-matched applicant IDs (mutated on match).</param>
         /// <param name="existingPairs">Set of existing junction pairs (mutated on new junction).</param>
         /// <param name="newJunctions">List of new junction entities to insert (mutated).</param>
-        /// <param name="context">The database context.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <seealso cref="Organization"/>
-        /// <seealso cref="OrangeBook.Applicant.ApplicantFullName"/>
-        private async Task matchByExactNameAsync(
+        /// <param name="orgCache">Pre-computed organization cache from <see cref="loadOrganizationCacheAsync"/>.</param>
+        /// <seealso cref="normalizeCompanyName"/>
+        /// <seealso cref="OrgCacheEntry"/>
+        private void matchByNormalizedExact(
             List<OrangeBook.Applicant> applicants,
             HashSet<int> matchedIds,
             HashSet<(int, int)> existingPairs,
             List<OrangeBook.ApplicantOrganization> newJunctions,
-            ApplicationDbContext context,
-            CancellationToken token)
+            List<OrgCacheEntry> orgCache)
         {
             #region implementation
             var candidates = getUnmatchedApplicants(applicants, matchedIds,
-                a => !string.IsNullOrWhiteSpace(a.ApplicantFullName));
+                a => !string.IsNullOrWhiteSpace(a.ApplicantFullName)
+                    || !string.IsNullOrWhiteSpace(a.ApplicantName));
 
             if (candidates.Count == 0)
                 return;
 
-            // Batch query: collect distinct upper-cased full names
-            var fullNames = candidates
-                .Select(a => a.ApplicantFullName!.ToUpper())
-                .Distinct()
-                .ToList();
+            // Build lookup: normalized org name (without noise stripping) → list of org IDs
+            var orgNameLookup = new Dictionary<string, List<int>>();
+            foreach (var entry in orgCache)
+            {
+                if (string.IsNullOrEmpty(entry.NormalizedName))
+                    continue;
 
-            var exactMatchOrgs = await context.Set<Organization>()
-                .Where(o => o.OrganizationName != null && o.OrganizationID != null
-                    && fullNames.Contains(o.OrganizationName.ToUpper()))
-                .Select(o => new { o.OrganizationID, o.OrganizationName })
-                .ToListAsync(token);
-
-            // Build lookup: upper-cased org name → list of org IDs
-            var orgNameLookup = exactMatchOrgs
-                .Where(o => o.OrganizationName != null && o.OrganizationID.HasValue)
-                .GroupBy(o => o.OrganizationName!.ToUpper())
-                .ToDictionary(g => g.Key, g => g.Select(o => o.OrganizationID!.Value).ToList());
+                if (!orgNameLookup.TryGetValue(entry.NormalizedName, out var ids))
+                {
+                    ids = new List<int>();
+                    orgNameLookup[entry.NormalizedName] = ids;
+                }
+                ids.Add(entry.OrganizationID);
+            }
 
             foreach (var applicant in candidates)
             {
-                var upperFullName = applicant.ApplicantFullName!.ToUpper();
-                if (orgNameLookup.TryGetValue(upperFullName, out var orgIds))
+                // Try the full name first, then fall back to the short name
+                var normalizedFull = !string.IsNullOrWhiteSpace(applicant.ApplicantFullName)
+                    ? normalizeCompanyName(applicant.ApplicantFullName!)
+                    : string.Empty;
+
+                var normalizedShort = !string.IsNullOrWhiteSpace(applicant.ApplicantName)
+                    ? normalizeCompanyName(applicant.ApplicantName!)
+                    : string.Empty;
+
+                bool matched = false;
+
+                // Check full name first
+                if (!string.IsNullOrEmpty(normalizedFull)
+                    && orgNameLookup.TryGetValue(normalizedFull, out var orgIds))
                 {
                     foreach (var orgId in orgIds)
                     {
                         addJunctionIfNew(applicant.OrangeBookApplicantID!.Value, orgId,
                             existingPairs, newJunctions);
                     }
-                    matchedIds.Add(applicant.OrangeBookApplicantID!.Value);
+                    matched = true;
                 }
-            }
-            #endregion
-        }
 
-        /*************************************************************/
-        /// <summary>
-        /// Tier 2: Substring match where OrganizationName contains the applicant's short name.
-        /// Each unmatched applicant is queried individually to leverage SQL Server's string
-        /// containment. Short names under 3 characters are skipped to avoid false positives.
-        /// </summary>
-        /// <param name="applicants">All applicant entities.</param>
-        /// <param name="matchedIds">Set of already-matched applicant IDs (mutated on match).</param>
-        /// <param name="existingPairs">Set of existing junction pairs (mutated on new junction).</param>
-        /// <param name="newJunctions">List of new junction entities to insert (mutated).</param>
-        /// <param name="context">The database context.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <seealso cref="Organization"/>
-        /// <seealso cref="OrangeBook.Applicant.ApplicantName"/>
-        private async Task matchBySubstringAsync(
-            List<OrangeBook.Applicant> applicants,
-            HashSet<int> matchedIds,
-            HashSet<(int, int)> existingPairs,
-            List<OrangeBook.ApplicantOrganization> newJunctions,
-            ApplicationDbContext context,
-            CancellationToken token)
-        {
-            #region implementation
-            var candidates = getUnmatchedApplicants(applicants, matchedIds,
-                a => !string.IsNullOrWhiteSpace(a.ApplicantName));
-
-            foreach (var applicant in candidates)
-            {
-                token.ThrowIfCancellationRequested();
-
-                var shortName = applicant.ApplicantName!.Trim().ToUpper();
-
-                // Skip very short names (< 3 chars) to avoid excessive false positives
-                if (shortName.Length < 3)
-                    continue;
-
-                var substringMatches = await context.Set<Organization>()
-                    .Where(o => o.OrganizationName != null && o.OrganizationID != null
-                        && o.OrganizationName.ToUpper().Contains(shortName))
-                    .Select(o => o.OrganizationID!.Value)
-                    .ToListAsync(token);
-
-                if (substringMatches.Count > 0)
+                // Also check short name (may link to additional orgs)
+                if (!string.IsNullOrEmpty(normalizedShort) && normalizedShort != normalizedFull
+                    && orgNameLookup.TryGetValue(normalizedShort, out var shortOrgIds))
                 {
-                    foreach (var orgId in substringMatches)
+                    foreach (var orgId in shortOrgIds)
                     {
                         addJunctionIfNew(applicant.OrangeBookApplicantID!.Value, orgId,
                             existingPairs, newJunctions);
                     }
-                    matchedIds.Add(applicant.OrangeBookApplicantID!.Value);
+                    matched = true;
                 }
+
+                if (matched)
+                    matchedIds.Add(applicant.OrangeBookApplicantID!.Value);
             }
             #endregion
         }
 
         /*************************************************************/
         /// <summary>
-        /// Tier 3: SOUNDEX/DIFFERENCE phonetic matching for applicants not matched by exact
-        /// or substring tiers. Uses the <see cref="ApplicationDbContext.Difference"/> function
-        /// with a threshold score of 3 (out of 4) for strong phonetic similarity.
+        /// Tier 2: Token-based similarity matching for applicants not matched by
+        /// <see cref="matchByNormalizedExact"/>. Company names are normalized with noise-word
+        /// stripping, tokenized, and scored using a combination of Jaccard coefficient and
+        /// asymmetric containment. Only the best-scoring organization(s) per applicant are
+        /// linked, preventing runaway false positives.
         /// </summary>
         /// <param name="applicants">All applicant entities.</param>
         /// <param name="matchedIds">Set of already-matched applicant IDs (mutated on match).</param>
         /// <param name="existingPairs">Set of existing junction pairs (mutated on new junction).</param>
         /// <param name="newJunctions">List of new junction entities to insert (mutated).</param>
-        /// <param name="context">The database context.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <seealso cref="ApplicationDbContext.Difference"/>
-        /// <seealso cref="Organization"/>
-        /// <seealso cref="OrangeBook.Applicant.ApplicantFullName"/>
-        private async Task matchByPhoneticAsync(
+        /// <param name="orgCache">Pre-computed organization cache from <see cref="loadOrganizationCacheAsync"/>.</param>
+        /// <remarks>
+        /// The similarity score is <c>Max(jaccard, containment)</c> where containment is asymmetric
+        /// (fraction of applicant tokens found in the org name). This ensures that an applicant
+        /// named "PFIZER" scores 1.0 against an organization named "PFIZER CONSUMER HEALTHCARE"
+        /// even though the Jaccard coefficient would be low (1/3).
+        /// Only organizations at the single highest score are linked (best-match-only policy),
+        /// provided that score meets <see cref="TOKEN_SIMILARITY_THRESHOLD"/>.
+        /// </remarks>
+        /// <seealso cref="normalizeCompanyName"/>
+        /// <seealso cref="tokenize"/>
+        /// <seealso cref="calculateTokenSimilarity"/>
+        /// <seealso cref="TOKEN_SIMILARITY_THRESHOLD"/>
+        private void matchByTokenSimilarity(
             List<OrangeBook.Applicant> applicants,
             HashSet<int> matchedIds,
             HashSet<(int, int)> existingPairs,
             List<OrangeBook.ApplicantOrganization> newJunctions,
-            ApplicationDbContext context,
-            CancellationToken token)
+            List<OrgCacheEntry> orgCache)
         {
             #region implementation
             var candidates = getUnmatchedApplicants(applicants, matchedIds,
-                a => !string.IsNullOrWhiteSpace(a.ApplicantFullName));
+                a => !string.IsNullOrWhiteSpace(a.ApplicantFullName)
+                    || !string.IsNullOrWhiteSpace(a.ApplicantName));
+
+            if (candidates.Count == 0)
+                return;
 
             foreach (var applicant in candidates)
             {
-                token.ThrowIfCancellationRequested();
+                // Normalize and tokenize both name forms with noise-word stripping
+                var fullStripped = !string.IsNullOrWhiteSpace(applicant.ApplicantFullName)
+                    ? normalizeCompanyName(applicant.ApplicantFullName!, stripNoiseWords: true)
+                    : string.Empty;
 
-                var fullName = applicant.ApplicantFullName!.Trim();
+                var shortStripped = !string.IsNullOrWhiteSpace(applicant.ApplicantName)
+                    ? normalizeCompanyName(applicant.ApplicantName!, stripNoiseWords: true)
+                    : string.Empty;
 
-                // Score >= 3 indicates strong phonetic similarity (0-4 scale)
-                var phoneticMatches = await context.Set<Organization>()
-                    .Where(o => o.OrganizationName != null && o.OrganizationID != null
-                        && ApplicationDbContext.Difference(o.OrganizationName, fullName) >= 3)
-                    .Select(o => o.OrganizationID!.Value)
-                    .ToListAsync(token);
+                var fullTokens = tokenize(fullStripped);
+                var shortTokens = tokenize(shortStripped);
 
-                if (phoneticMatches.Count > 0)
+                // Skip if both forms are empty or reduce to a single very short token
+                bool fullViable = fullTokens.Count > 0
+                    && !(fullTokens.Count == 1 && fullStripped.Length < MIN_TOKEN_LENGTH_FOR_FUZZY);
+                bool shortViable = shortTokens.Count > 0
+                    && !(shortTokens.Count == 1 && shortStripped.Length < MIN_TOKEN_LENGTH_FOR_FUZZY);
+
+                if (!fullViable && !shortViable)
+                    continue;
+
+                // Score against every organization in the cache — track best score and org IDs
+                double bestScore = 0.0;
+                var bestOrgIds = new List<int>();
+
+                foreach (var org in orgCache)
                 {
-                    foreach (var orgId in phoneticMatches)
+                    if (org.Tokens.Count == 0)
+                        continue;
+
+                    double score = 0.0;
+
+                    // Score against full name tokens
+                    if (fullViable)
+                    {
+                        var (jaccard, containment) = calculateTokenSimilarity(fullTokens, org.Tokens);
+                        score = Math.Max(jaccard, containment);
+                    }
+
+                    // Score against short name tokens — take the better result
+                    if (shortViable)
+                    {
+                        var (jaccard, containment) = calculateTokenSimilarity(shortTokens, org.Tokens);
+                        double shortScore = Math.Max(jaccard, containment);
+                        score = Math.Max(score, shortScore);
+                    }
+
+                    // Track best-match-only
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestOrgIds.Clear();
+                        bestOrgIds.Add(org.OrganizationID);
+                    }
+                    else if (score == bestScore && score > 0.0)
+                    {
+                        bestOrgIds.Add(org.OrganizationID);
+                    }
+                }
+
+                // Only link if the best score meets the threshold
+                if (bestScore >= TOKEN_SIMILARITY_THRESHOLD)
+                {
+                    foreach (var orgId in bestOrgIds)
                     {
                         addJunctionIfNew(applicant.OrangeBookApplicantID!.Value, orgId,
                             existingPairs, newJunctions);
@@ -1081,6 +1162,176 @@ namespace MedRecProImportClass.Service.ParsingServices
                 OrangeBookApplicantID = applicantId,
                 OrganizationID = organizationId
             });
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Normalizes a company name for matching by stripping corporate suffixes,
+        /// punctuation, and optionally pharmaceutical industry noise words. The result
+        /// is an upper-cased, whitespace-collapsed string suitable for exact or
+        /// token-based comparison.
+        /// </summary>
+        /// <param name="name">Raw company name (e.g., "Pfizer Inc." or "MYLAN PHARMACEUTICALS INC").</param>
+        /// <param name="stripNoiseWords">
+        /// When <c>true</c>, also strips common pharma noise words such as
+        /// "PHARMACEUTICALS", "LABS", "THERAPEUTICS", etc. Use for Tier 2 (token similarity)
+        /// after Tier 1 (exact) has been attempted without noise stripping.
+        /// </param>
+        /// <returns>Normalized upper-case name, or empty string if the name reduces to nothing.</returns>
+        /// <example>
+        /// <code>
+        /// normalizeCompanyName("Pfizer Inc.")                     // "PFIZER"
+        /// normalizeCompanyName("MYLAN PHARMACEUTICALS INC")       // "MYLAN PHARMACEUTICALS"
+        /// normalizeCompanyName("MYLAN PHARMACEUTICALS INC", true) // "MYLAN"
+        /// normalizeCompanyName("G&amp;G MEDICAL")                 // "GG MEDICAL"
+        /// </code>
+        /// </example>
+        /// <seealso cref="_corporateSuffixPattern"/>
+        /// <seealso cref="_pharmaNoisePattern"/>
+        private static string normalizeCompanyName(string name, bool stripNoiseWords = false)
+        {
+            #region implementation
+            if (string.IsNullOrWhiteSpace(name))
+                return string.Empty;
+
+            // Upper-case for case-insensitive comparison
+            var result = name.ToUpperInvariant();
+
+            // Strip HTML-encoded and literal ampersands
+            result = result.Replace("&AMP;", " ").Replace("&", " ");
+
+            // Strip corporate suffixes (Inc, LLC, Corp, AG, Ltd, etc.)
+            result = _corporateSuffixPattern.Replace(result, " ");
+
+            // Strip punctuation — keep only letters, digits, spaces
+            result = _nonAlphanumericPattern.Replace(result, " ");
+
+            // Collapse runs of whitespace and trim
+            result = _multiSpacePattern.Replace(result, " ").Trim();
+
+            // Optionally strip pharmaceutical noise words (Labs, Pharma, etc.)
+            if (stripNoiseWords)
+            {
+                result = _pharmaNoisePattern.Replace(result, " ");
+                result = _multiSpacePattern.Replace(result, " ").Trim();
+            }
+
+            // Strip leading/trailing "THE"
+            if (result.StartsWith("THE "))
+                result = result.Substring(4);
+            if (result.EndsWith(" THE"))
+                result = result.Substring(0, result.Length - 4);
+
+            return result.Trim();
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Splits a normalized company name into a set of unique word tokens.
+        /// </summary>
+        /// <param name="normalizedName">A name previously processed by <see cref="normalizeCompanyName"/>.</param>
+        /// <returns>A <see cref="HashSet{T}"/> of word tokens, or an empty set if the name is blank.</returns>
+        /// <seealso cref="normalizeCompanyName"/>
+        /// <seealso cref="calculateTokenSimilarity"/>
+        private static HashSet<string> tokenize(string normalizedName)
+        {
+            #region implementation
+            if (string.IsNullOrWhiteSpace(normalizedName))
+                return new HashSet<string>();
+
+            return new HashSet<string>(
+                normalizedName.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Calculates token-based similarity between an applicant name and an organization name.
+        /// Returns both the symmetric Jaccard coefficient and the asymmetric containment score
+        /// (fraction of applicant tokens found in the organization name).
+        /// </summary>
+        /// <param name="applicantTokens">Word tokens from the normalized applicant name.</param>
+        /// <param name="orgTokens">Word tokens from the normalized organization name.</param>
+        /// <returns>
+        /// A tuple of (jaccard, containment) where both are in [0.0, 1.0].
+        /// Returns (0.0, 0.0) if either set is empty.
+        /// </returns>
+        /// <remarks>
+        /// Jaccard = |A ∩ B| / |A ∪ B| — symmetric measure of set overlap.
+        /// Containment = |A ∩ B| / |A| — asymmetric; 1.0 means all applicant tokens appear in the org name.
+        /// The caller should use Max(jaccard, containment) so that "PFIZER" fully contained in
+        /// "PFIZER CONSUMER HEALTHCARE" scores 1.0 despite low Jaccard.
+        /// </remarks>
+        /// <seealso cref="tokenize"/>
+        /// <seealso cref="matchByTokenSimilarity"/>
+        private static (double jaccard, double containment) calculateTokenSimilarity(
+            HashSet<string> applicantTokens, HashSet<string> orgTokens)
+        {
+            #region implementation
+            if (applicantTokens.Count == 0 || orgTokens.Count == 0)
+                return (0.0, 0.0);
+
+            // Count intersection without allocating a new set
+            int intersectionCount = 0;
+            foreach (var token in applicantTokens)
+            {
+                if (orgTokens.Contains(token))
+                    intersectionCount++;
+            }
+
+            int unionCount = applicantTokens.Count + orgTokens.Count - intersectionCount;
+
+            double jaccard = (double)intersectionCount / unionCount;
+            double containment = (double)intersectionCount / applicantTokens.Count;
+
+            return (jaccard, containment);
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Loads all <see cref="Organization"/> records from the database and pre-computes
+        /// normalized name forms and token sets for efficient in-memory matching.
+        /// </summary>
+        /// <param name="context">The database context.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A list of <see cref="OrgCacheEntry"/> records ready for matching.</returns>
+        /// <seealso cref="OrgCacheEntry"/>
+        /// <seealso cref="normalizeCompanyName"/>
+        /// <seealso cref="tokenize"/>
+        private async Task<List<OrgCacheEntry>> loadOrganizationCacheAsync(
+            ApplicationDbContext context, CancellationToken token)
+        {
+            #region implementation
+            var orgs = await context.Set<Organization>()
+                .Where(o => o.OrganizationName != null && o.OrganizationID != null)
+                .Select(o => new { o.OrganizationID, o.OrganizationName })
+                .ToListAsync(token);
+
+            var cache = new List<OrgCacheEntry>(orgs.Count);
+
+            foreach (var org in orgs)
+            {
+                var normalized = normalizeCompanyName(org.OrganizationName!);
+                var stripped = normalizeCompanyName(org.OrganizationName!, stripNoiseWords: true);
+                var tokens = tokenize(stripped);
+
+                // Skip organizations that normalize to empty (e.g., name is just "Inc.")
+                if (string.IsNullOrEmpty(normalized))
+                    continue;
+
+                cache.Add(new OrgCacheEntry(
+                    org.OrganizationID!.Value,
+                    normalized,
+                    stripped,
+                    tokens));
+            }
+
+            _logger.LogInformation("Loaded {Count} organizations into matching cache", cache.Count);
+
+            return cache;
             #endregion
         }
 
