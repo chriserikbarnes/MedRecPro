@@ -216,11 +216,18 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.MarkupLine("    [grey]Run without arguments for menu-driven interface[/]");
             AnsiConsole.WriteLine();
 
-            AnsiConsole.MarkupLine("  [bold]Unattended Mode[/] (for Task Scheduler):");
+            AnsiConsole.MarkupLine("  [bold]SPL Unattended Mode[/] (for Task Scheduler):");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [green]--folder[/] [cyan]<path>[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [green]--folder[/] [cyan]<path>[/] [green]--connection[/] [cyan]<name>[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [green]--folder[/] [cyan]<path>[/] [green]--time[/] [cyan]120[/] [green]--auto-quit[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [green]--config[/] [cyan]<path>[/] [green]--folder[/] [cyan]<path>[/]");
+            AnsiConsole.WriteLine();
+
+            AnsiConsole.MarkupLine("  [bold]Orange Book Import[/]:");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [orange1]--orange-book[/] [cyan]<zippath>[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [orange1]--orange-book[/] [cyan]<zippath>[/] [red]--nuke[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [orange1]--orange-book[/] [cyan]<zippath>[/] [green]--connection[/] [cyan]<name>[/] [red]--nuke[/]");
+            AnsiConsole.MarkupLine("    [grey]Import Orange Book products.txt from ZIP file[/]");
             AnsiConsole.WriteLine();
 
             #endregion

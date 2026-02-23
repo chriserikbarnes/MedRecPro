@@ -1,3 +1,4 @@
+using MedRecProImportClass.Service;
 using MedRecProConsole.Models;
 using MedRecProConsole.Services;
 using Spectre.Console;
@@ -466,7 +467,7 @@ namespace MedRecProConsole.Helpers
 
                 // Show main menu prompt
                 var command = AnsiConsole.Prompt(
-                    new TextPrompt<string>("[grey]Enter command ([green]import[/], [cyan]database[/], [blue]help[/], [yellow]quit[/]):[/]")
+                    new TextPrompt<string>("[grey]Enter command ([green]import[/], [orange1]orange-book[/], [cyan]database[/], [blue]help[/], [yellow]quit[/]):[/]")
                         .PromptStyle("white")
                         .AllowEmpty());
 
@@ -528,6 +529,21 @@ namespace MedRecProConsole.Helpers
                             cumulativeResults.Errors.AddRange(importResult.Errors);
                             cumulativeResults.FailedZipNames.AddRange(importResult.FailedZipNames);
                         }
+                        break;
+
+                    case "orange-book":
+                    case "ob":
+                        // Must have a database selected first
+                        if (string.IsNullOrEmpty(currentConnectionString))
+                        {
+                            AnsiConsole.MarkupLine("[yellow]Please select a database first using 'database' command.[/]");
+                            break;
+                        }
+
+                        await runOrangeBookImportFromMenuAsync(
+                            settings,
+                            currentConnectionString,
+                            verboseMode);
                         break;
 
                     case "summary":
@@ -983,7 +999,8 @@ namespace MedRecProConsole.Helpers
                 .AddColumn("[bold]Description[/]")
                 .Expand();
 
-            table.AddRow("[green]import, i[/]", "Import ZIP files from a folder");
+            table.AddRow("[green]import, i[/]", "Import SPL ZIP files from a folder");
+            table.AddRow("[orange1]orange-book, ob[/]", "Import Orange Book ZIP file (products.txt)");
             table.AddRow("[cyan]database, db, d[/]", "Select or change database connection");
             table.AddRow("[magenta]summary, s[/]", "Display cumulative import summary");
             table.AddRow("[yellow]errors, e[/]", "Display error details from imports");
@@ -1591,6 +1608,170 @@ namespace MedRecProConsole.Helpers
             }
 
             return results;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Orange Book methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Runs an interactive Orange Book import from the main menu.
+        /// Prompts for ZIP file path, truncation preference, and confirmation before executing.
+        /// </summary>
+        /// <param name="settings">Application settings for display configuration.</param>
+        /// <param name="connectionString">Database connection string for the target database.</param>
+        /// <param name="verboseMode">Whether verbose output is enabled.</param>
+        /// <returns>Task representing the asynchronous operation.</returns>
+        /// <seealso cref="OrangeBookImportService"/>
+        /// <seealso cref="OrangeBookImportResult"/>
+        private static async Task runOrangeBookImportFromMenuAsync(
+            ConsoleAppSettings settings,
+            string connectionString,
+            bool verboseMode)
+        {
+            #region implementation
+
+            AnsiConsole.WriteLine();
+
+            // Prompt for ZIP file path
+            var zipPath = AnsiConsole.Prompt(
+                new TextPrompt<string>("[orange1]Enter path to Orange Book ZIP file[/] [grey](or empty to cancel):[/]")
+                    .PromptStyle("white")
+                    .AllowEmpty()
+                    .Validate(path =>
+                    {
+                        if (string.IsNullOrWhiteSpace(path))
+                            return ValidationResult.Success();
+                        if (!File.Exists(path))
+                            return ValidationResult.Error($"[red]File does not exist: {path}[/]");
+                        if (!path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                            return ValidationResult.Error("[red]File must be a .zip file[/]");
+                        return ValidationResult.Success();
+                    }));
+
+            if (string.IsNullOrWhiteSpace(zipPath))
+            {
+                AnsiConsole.MarkupLine("[grey]Orange Book import cancelled.[/]");
+                return;
+            }
+
+            // Ask about truncation
+            var truncate = AnsiConsole.Confirm(
+                "[yellow]Truncate all existing Orange Book data before import?[/]", false);
+
+            // Show confirmation summary
+            AnsiConsole.WriteLine();
+            var confirmTable = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn(new TableColumn("[bold]Setting[/]").NoWrap())
+                .AddColumn(new TableColumn("[bold]Value[/]"));
+
+            confirmTable.AddRow("ZIP File", Markup.Escape(Path.GetFileName(zipPath)));
+            confirmTable.AddRow("Full Path", Markup.Escape(zipPath));
+            confirmTable.AddRow("Truncate First", truncate
+                ? "[red]Yes - ALL Orange Book data will be deleted[/]"
+                : "[green]No[/]");
+
+            AnsiConsole.Write(confirmTable);
+            AnsiConsole.WriteLine();
+
+            if (!AnsiConsole.Confirm("[yellow]Proceed with Orange Book import?[/]", true))
+            {
+                AnsiConsole.MarkupLine("[grey]Orange Book import cancelled.[/]");
+                return;
+            }
+
+            // Execute the import
+            var importService = new OrangeBookImportService();
+            var result = await importService.ExecuteImportAsync(
+                connectionString, zipPath, truncate, verboseMode);
+
+            // Display results
+            DisplayOrangeBookResults(result, settings);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Displays the results of an Orange Book import operation with styled Spectre.Console output.
+        /// Shows counts for applicants, products, junction matches, and errors.
+        /// </summary>
+        /// <param name="result">The <see cref="OrangeBookImportResult"/> to display.</param>
+        /// <param name="settings">Application settings for display configuration (error limits).</param>
+        /// <seealso cref="OrangeBookImportResult"/>
+        /// <seealso cref="OrangeBookImportService"/>
+        public static void DisplayOrangeBookResults(OrangeBookImportResult result, ConsoleAppSettings settings)
+        {
+            #region implementation
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule(result.Success
+                ? "[bold green]Orange Book Import Complete[/]"
+                : "[bold red]Orange Book Import Completed with Errors[/]").RuleStyle("grey"));
+            AnsiConsole.WriteLine();
+
+            // Entity counts table
+            var entityTable = new Table()
+                .Border(TableBorder.Rounded)
+                .Title("[bold orange1]Import Results[/]")
+                .AddColumn(new TableColumn("[bold]Metric[/]").NoWrap())
+                .AddColumn(new TableColumn("[bold]Count[/]").NoWrap());
+
+            entityTable.AddRow("Applicants Created", result.ApplicantsCreated.ToString("N0"));
+            entityTable.AddRow("Applicants Updated", result.ApplicantsUpdated.ToString("N0"));
+            entityTable.AddRow("Products Created", result.ProductsCreated.ToString("N0"));
+            entityTable.AddRow("Products Updated", result.ProductsUpdated.ToString("N0"));
+            entityTable.AddRow("Organization Matches", result.OrganizationMatchesCreated.ToString("N0"));
+            entityTable.AddRow("Ingredient Matches", result.IngredientSubstanceMatchesCreated.ToString("N0"));
+            entityTable.AddRow("Marketing Category Matches", result.MarketingCategoryMatchesCreated.ToString("N0"));
+
+            AnsiConsole.Write(entityTable);
+
+            // Quality metrics table
+            if (result.MalformedRowsSkipped > 0 || result.UnmatchedApplicants > 0 ||
+                result.UnmatchedIngredients > 0 || result.UnmatchedProducts > 0)
+            {
+                AnsiConsole.WriteLine();
+
+                var qualityTable = new Table()
+                    .Border(TableBorder.Rounded)
+                    .Title("[bold yellow]Quality Metrics[/]")
+                    .AddColumn(new TableColumn("[bold]Metric[/]").NoWrap())
+                    .AddColumn(new TableColumn("[bold]Count[/]").NoWrap());
+
+                if (result.MalformedRowsSkipped > 0)
+                    qualityTable.AddRow("[yellow]Malformed Rows Skipped[/]", result.MalformedRowsSkipped.ToString("N0"));
+                if (result.UnmatchedApplicants > 0)
+                    qualityTable.AddRow("[yellow]Unmatched Applicants[/]", result.UnmatchedApplicants.ToString("N0"));
+                if (result.UnmatchedIngredients > 0)
+                    qualityTable.AddRow("[yellow]Unmatched Ingredients[/]", result.UnmatchedIngredients.ToString("N0"));
+                if (result.UnmatchedProducts > 0)
+                    qualityTable.AddRow("[yellow]Unmatched Products[/]", result.UnmatchedProducts.ToString("N0"));
+
+                AnsiConsole.Write(qualityTable);
+            }
+
+            // Display errors if any
+            if (result.Errors.Count > 0)
+            {
+                displayErrors(result.Errors, settings.ImportSettings.MaxDisplayedErrors);
+            }
+
+            // Final status message
+            AnsiConsole.WriteLine();
+
+            if (result.Success)
+            {
+                AnsiConsole.MarkupLine($"[bold green]{Markup.Escape(result.Message ?? "Import completed successfully.")}[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[bold red]{Markup.Escape(result.Message ?? "Import failed.")}[/]");
+            }
 
             #endregion
         }

@@ -7,8 +7,8 @@ namespace MedRecProConsole
     /**************************************************************/
     /// <summary>
     /// Console application for bulk importing SPL (Structured Product Labeling) ZIP files
-    /// into the MedRecPro database. This application is designed for high-volume import
-    /// operations that are not suitable for a web interface.
+    /// and FDA Orange Book data into the MedRecPro database. This application is designed
+    /// for high-volume import operations that are not suitable for a web interface.
     /// </summary>
     /// <remarks>
     /// Uses Spectre.Console for styled console output and user parameter input.
@@ -16,9 +16,11 @@ namespace MedRecProConsole
     /// Supports both interactive and unattended (Task Scheduler) operation modes.
     ///
     /// Interactive mode: Run without arguments for menu-driven interface.
-    /// Unattended mode: Use --folder argument to enable automated processing.
+    /// SPL unattended mode: Use --folder argument to enable automated SPL processing.
+    /// Orange Book mode: Use --orange-book argument to import products.txt from ZIP.
     /// </remarks>
     /// <seealso cref="ImportService"/>
+    /// <seealso cref="OrangeBookImportService"/>
     /// <seealso cref="ConsoleHelper"/>
     /// <seealso cref="ConfigurationHelper"/>
     /// <seealso cref="HelpDocumentation"/>
@@ -38,7 +40,9 @@ namespace MedRecProConsole
         /// --version, -v: Display version information
         /// --verbose, -V: Enable verbose output
         /// --quiet, -q: Minimal output mode
-        /// --folder path: Import folder (enables unattended mode)
+        /// --folder path: Import folder (enables SPL unattended mode)
+        /// --orange-book path: Orange Book ZIP file (enables Orange Book mode)
+        /// --nuke: Truncate Orange Book tables before import (use with --orange-book)
         /// --connection name: Database connection name
         /// --time minutes: Maximum runtime in minutes
         /// --auto-quit: Exit immediately after import
@@ -90,7 +94,7 @@ namespace MedRecProConsole
             }
 
             // If only help/version requested, exit
-            if ((cmdArgs.ShowHelp || cmdArgs.ShowVersion) && !cmdArgs.IsUnattendedMode)
+            if ((cmdArgs.ShowHelp || cmdArgs.ShowVersion) && !cmdArgs.IsUnattendedMode && !cmdArgs.IsOrangeBookMode)
             {
                 return 0;
             }
@@ -103,9 +107,14 @@ namespace MedRecProConsole
             }
 
             // Determine operation mode
-            if (cmdArgs.IsUnattendedMode)
+            if (cmdArgs.IsOrangeBookMode)
             {
-                // Unattended mode - process folder and exit
+                // Orange Book mode - import products.txt from ZIP
+                return await runOrangeBookModeAsync(settings, cmdArgs);
+            }
+            else if (cmdArgs.IsUnattendedMode)
+            {
+                // SPL unattended mode - process folder and exit
                 return await runUnattendedModeAsync(settings, cmdArgs);
             }
             else
@@ -227,6 +236,119 @@ namespace MedRecProConsole
                 cmdArgs.QuietMode);
 
             return exitCode;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Runs the application in Orange Book import mode.
+        /// Imports products.txt from the specified ZIP file with optional table truncation.
+        /// </summary>
+        /// <param name="settings">Application settings</param>
+        /// <param name="cmdArgs">Parsed command-line arguments</param>
+        /// <returns>Exit code: 0 for success, 1 for failure</returns>
+        /// <remarks>
+        /// In Orange Book mode:
+        /// - Uses --orange-book as the ZIP file path
+        /// - Uses --nuke to truncate tables before import
+        /// - Uses --connection or default database connection
+        /// - Suppresses user prompts (unattended operation)
+        /// </remarks>
+        /// <seealso cref="OrangeBookImportService"/>
+        /// <seealso cref="CommandLineArgs"/>
+        private static async Task<int> runOrangeBookModeAsync(ConsoleAppSettings settings, CommandLineArgs cmdArgs)
+        {
+            #region implementation
+
+            // Display header (respect quiet mode)
+            if (!cmdArgs.QuietMode)
+            {
+                ConsoleHelper.DisplayHeader(settings);
+            }
+
+            // Resolve database connection (same pattern as runUnattendedModeAsync)
+            string? connectionString = null;
+            string connectionName = "Unknown";
+
+            if (!string.IsNullOrEmpty(cmdArgs.ConnectionName))
+            {
+                // Use specified connection name
+                var conn = settings.DatabaseConnections.FirstOrDefault(
+                    c => c.Name.Equals(cmdArgs.ConnectionName, StringComparison.OrdinalIgnoreCase));
+
+                if (conn == null)
+                {
+                    Spectre.Console.AnsiConsole.MarkupLine(
+                        $"[red]Error: Database connection not found: {cmdArgs.ConnectionName}[/]");
+                    Spectre.Console.AnsiConsole.MarkupLine("[grey]Available connections:[/]");
+                    foreach (var db in settings.DatabaseConnections)
+                    {
+                        Spectre.Console.AnsiConsole.MarkupLine($"  [cyan]{db.Name}[/]");
+                    }
+                    return 1;
+                }
+
+                connectionString = conn.ConnectionString;
+                connectionName = conn.Name;
+            }
+            else if (!string.IsNullOrEmpty(settings.Automation.DefaultConnectionName))
+            {
+                // Use automation default connection
+                var conn = settings.DatabaseConnections.FirstOrDefault(
+                    c => c.Name.Equals(settings.Automation.DefaultConnectionName, StringComparison.OrdinalIgnoreCase));
+
+                if (conn != null)
+                {
+                    connectionString = conn.ConnectionString;
+                    connectionName = conn.Name;
+                }
+            }
+
+            // Fall back to default database if not found
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                var defaultConn = settings.DatabaseConnections.FirstOrDefault(c => c.IsDefault)
+                    ?? settings.DatabaseConnections.FirstOrDefault();
+
+                if (defaultConn == null)
+                {
+                    Spectre.Console.AnsiConsole.MarkupLine(
+                        "[red]Error: No database connection configured[/]");
+                    return 1;
+                }
+
+                connectionString = defaultConn.ConnectionString;
+                connectionName = defaultConn.Name;
+            }
+
+            // Display mode info (unless quiet)
+            if (!cmdArgs.QuietMode)
+            {
+                Spectre.Console.AnsiConsole.MarkupLine($"[grey]Database: {Spectre.Console.Markup.Escape(connectionName)}[/]");
+                Spectre.Console.AnsiConsole.MarkupLine($"[grey]ZIP File: {Spectre.Console.Markup.Escape(cmdArgs.OrangeBookZipPath!)}[/]");
+                if (cmdArgs.OrangeBookNuke)
+                {
+                    Spectre.Console.AnsiConsole.MarkupLine("[red]Truncation: Enabled (--nuke)[/]");
+                }
+                Spectre.Console.AnsiConsole.WriteLine();
+            }
+
+            // Execute the import
+            var importService = new OrangeBookImportService();
+            var result = await importService.ExecuteImportAsync(
+                connectionString,
+                cmdArgs.OrangeBookZipPath!,
+                cmdArgs.OrangeBookNuke,
+                cmdArgs.VerboseMode);
+
+            // Display results (unless quiet)
+            if (!cmdArgs.QuietMode)
+            {
+                ConsoleHelper.DisplayOrangeBookResults(result, settings);
+            }
+
+            return result.Success ? 0 : 1;
 
             #endregion
         }

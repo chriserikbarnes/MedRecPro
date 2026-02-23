@@ -6,7 +6,7 @@ namespace MedRecProConsole.Models
     /// Supports both interactive and unattended operation modes.
     /// </summary>
     /// <remarks>
-    /// Unattended mode is triggered when --folder is specified.
+    /// Unattended mode is triggered when --folder or --orange-book is specified.
     /// In unattended mode, the application processes imports without user interaction
     /// and exits when complete (if --auto-quit or settings specify).
     /// </remarks>
@@ -16,11 +16,16 @@ namespace MedRecProConsole.Models
     ///   MedRecProConsole.exe --help
     ///   MedRecProConsole.exe --verbose
     ///
-    /// Unattended mode (for Task Scheduler):
+    /// Unattended SPL mode (for Task Scheduler):
     ///   MedRecProConsole.exe --folder "C:\SPL\Imports"
     ///   MedRecProConsole.exe --folder "C:\SPL\Imports" --connection "Local Database Dev"
     ///   MedRecProConsole.exe --folder "C:\SPL\Imports" --time 120 --auto-quit
     ///   MedRecProConsole.exe --config "C:\Jobs\daily-import.json" --folder "C:\SPL\Imports"
+    ///
+    /// Orange Book mode:
+    ///   MedRecProConsole.exe --orange-book "C:\OrangeBook\EOBZIP_2026_01.zip"
+    ///   MedRecProConsole.exe --orange-book "C:\OrangeBook\EOBZIP_2026_01.zip" --nuke
+    ///   MedRecProConsole.exe --orange-book "C:\OrangeBook\EOBZIP_2026_01.zip" --connection "Local Database Dev" --nuke
     /// </example>
     /// <seealso cref="Helpers.HelpDocumentation"/>
     /// <seealso cref="ConsoleAppSettings"/>
@@ -89,10 +94,34 @@ namespace MedRecProConsole.Models
 
         /**************************************************************/
         /// <summary>
-        /// Gets whether unattended mode is enabled.
+        /// Gets or sets the Orange Book ZIP file path (--orange-book).
+        /// When set, enables Orange Book import mode instead of SPL import.
+        /// </summary>
+        /// <seealso cref="IsOrangeBookMode"/>
+        public string? OrangeBookZipPath { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether to truncate all Orange Book tables before import (--nuke).
+        /// Only valid when <see cref="OrangeBookZipPath"/> is specified.
+        /// </summary>
+        /// <seealso cref="OrangeBookZipPath"/>
+        public bool OrangeBookNuke { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets whether unattended SPL mode is enabled.
         /// True when --folder is specified.
         /// </summary>
         public bool IsUnattendedMode => !string.IsNullOrEmpty(FolderPath);
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets whether Orange Book import mode is enabled.
+        /// True when --orange-book is specified.
+        /// </summary>
+        /// <seealso cref="OrangeBookZipPath"/>
+        public bool IsOrangeBookMode => !string.IsNullOrEmpty(OrangeBookZipPath);
 
         /**************************************************************/
         /// <summary>
@@ -213,6 +242,20 @@ namespace MedRecProConsole.Models
                     continue;
                 }
 
+                // Handle orange-book argument
+                if (lowerArg.StartsWith("--orange-book"))
+                {
+                    result.OrangeBookZipPath = extractArgumentValue(args, ref i, arg, "--orange-book", result.Errors);
+                    continue;
+                }
+
+                // Handle nuke flag (truncate Orange Book tables before import)
+                if (lowerArg is "--nuke")
+                {
+                    result.OrangeBookNuke = true;
+                    continue;
+                }
+
                 // Unknown argument
                 if (arg.StartsWith("-") || arg.StartsWith("/"))
                 {
@@ -230,6 +273,24 @@ namespace MedRecProConsole.Models
             if (!string.IsNullOrEmpty(result.ConfigPath) && !File.Exists(result.ConfigPath))
             {
                 result.Errors.Add($"Config file does not exist: {result.ConfigPath}");
+            }
+
+            // Validate Orange Book ZIP file exists if specified
+            if (!string.IsNullOrEmpty(result.OrangeBookZipPath) && !File.Exists(result.OrangeBookZipPath))
+            {
+                result.Errors.Add($"Orange Book ZIP file does not exist: {result.OrangeBookZipPath}");
+            }
+
+            // Validate --orange-book and --folder are mutually exclusive
+            if (!string.IsNullOrEmpty(result.OrangeBookZipPath) && !string.IsNullOrEmpty(result.FolderPath))
+            {
+                result.Errors.Add("Cannot use --orange-book and --folder together. Choose one import type.");
+            }
+
+            // Validate --nuke requires --orange-book
+            if (result.OrangeBookNuke && string.IsNullOrEmpty(result.OrangeBookZipPath))
+            {
+                result.Errors.Add("--nuke can only be used with --orange-book.");
             }
 
             return result;
