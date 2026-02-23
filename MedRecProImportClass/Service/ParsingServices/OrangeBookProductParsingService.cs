@@ -112,14 +112,16 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="OrganizationID">The organization's primary key.</param>
         /// <param name="NormalizedName">Upper-cased name with corporate suffixes and punctuation stripped.</param>
         /// <param name="NormalizedNameStripped">Like <paramref name="NormalizedName"/> but also stripped of pharma noise words.</param>
-        /// <param name="Tokens">Word tokens derived from <paramref name="NormalizedNameStripped"/>.</param>
+        /// <param name="Tokens">Word tokens derived from <paramref name="NormalizedNameStripped"/> (noise-word stripped).</param>
+        /// <param name="NonStrippedTokens">Word tokens derived from <paramref name="NormalizedName"/> (suffix-stripped only, preserves noise words).</param>
         /// <seealso cref="Organization"/>
         /// <seealso cref="normalizeCompanyName"/>
         private readonly record struct OrgCacheEntry(
             int OrganizationID,
             string NormalizedName,
             string NormalizedNameStripped,
-            HashSet<string> Tokens);
+            HashSet<string> Tokens,
+            HashSet<string> NonStrippedTokens);
 
         #endregion
 
@@ -965,10 +967,17 @@ namespace MedRecProImportClass.Service.ParsingServices
         /*************************************************************/
         /// <summary>
         /// Tier 2: Token-based similarity matching for applicants not matched by
-        /// <see cref="matchByNormalizedExact"/>. Company names are normalized with noise-word
-        /// stripping, tokenized, and scored using a combination of Jaccard coefficient and
-        /// asymmetric containment. Only the best-scoring organization(s) per applicant are
-        /// linked, preventing runaway false positives.
+        /// <see cref="matchByNormalizedExact"/>. Uses only <see cref="OrangeBook.Applicant.ApplicantFullName"/>
+        /// (the short <see cref="OrangeBook.Applicant.ApplicantName"/> is too abbreviated for fuzzy matching).
+        /// Runs a two-pass scoring strategy per applicant:
+        /// <list type="number">
+        /// <item>Pass 1 — score non-noise-stripped tokens against <see cref="OrgCacheEntry.NonStrippedTokens"/>.
+        /// This preserves discriminating words like "THERAPEUTICS" and "LABORATORIES".</item>
+        /// <item>Pass 2 (fallback) — if Pass 1 finds no match, score noise-stripped tokens against
+        /// <see cref="OrgCacheEntry.Tokens"/>, but only when the stripped form has ≥ 2 tokens
+        /// (prevents single generic tokens like "AMERICAN" from matching everything).</item>
+        /// </list>
+        /// Only the best-scoring organization(s) per applicant are linked (best-match-only policy).
         /// </summary>
         /// <param name="applicants">All applicant entities.</param>
         /// <param name="matchedIds">Set of already-matched applicant IDs (mutated on match).</param>
@@ -980,8 +989,6 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// (fraction of applicant tokens found in the org name). This ensures that an applicant
         /// named "PFIZER" scores 1.0 against an organization named "PFIZER CONSUMER HEALTHCARE"
         /// even though the Jaccard coefficient would be low (1/3).
-        /// Only organizations at the single highest score are linked (best-match-only policy),
-        /// provided that score meets <see cref="TOKEN_SIMILARITY_THRESHOLD"/>.
         /// </remarks>
         /// <seealso cref="normalizeCompanyName"/>
         /// <seealso cref="tokenize"/>
@@ -995,61 +1002,37 @@ namespace MedRecProImportClass.Service.ParsingServices
             List<OrgCacheEntry> orgCache)
         {
             #region implementation
+            // Only use ApplicantFullName — the short ApplicantName is too abbreviated for fuzzy matching
             var candidates = getUnmatchedApplicants(applicants, matchedIds,
-                a => !string.IsNullOrWhiteSpace(a.ApplicantFullName)
-                    || !string.IsNullOrWhiteSpace(a.ApplicantName));
+                a => !string.IsNullOrWhiteSpace(a.ApplicantFullName));
 
             if (candidates.Count == 0)
                 return;
 
             foreach (var applicant in candidates)
             {
-                // Normalize and tokenize both name forms with noise-word stripping
-                var fullStripped = !string.IsNullOrWhiteSpace(applicant.ApplicantFullName)
-                    ? normalizeCompanyName(applicant.ApplicantFullName!, stripNoiseWords: true)
-                    : string.Empty;
+                // Non-stripped form (corporate suffixes removed, noise words preserved)
+                var fullNormalized = normalizeCompanyName(applicant.ApplicantFullName!);
+                var fullTokens = tokenize(fullNormalized);
 
-                var shortStripped = !string.IsNullOrWhiteSpace(applicant.ApplicantName)
-                    ? normalizeCompanyName(applicant.ApplicantName!, stripNoiseWords: true)
-                    : string.Empty;
-
-                var fullTokens = tokenize(fullStripped);
-                var shortTokens = tokenize(shortStripped);
-
-                // Skip if both forms are empty or reduce to a single very short token
+                // Skip names that reduce to nothing or a single very short token
                 bool fullViable = fullTokens.Count > 0
-                    && !(fullTokens.Count == 1 && fullStripped.Length < MIN_TOKEN_LENGTH_FOR_FUZZY);
-                bool shortViable = shortTokens.Count > 0
-                    && !(shortTokens.Count == 1 && shortStripped.Length < MIN_TOKEN_LENGTH_FOR_FUZZY);
+                    && !(fullTokens.Count == 1 && fullNormalized.Length < MIN_TOKEN_LENGTH_FOR_FUZZY);
 
-                if (!fullViable && !shortViable)
+                if (!fullViable)
                     continue;
 
-                // Score against every organization in the cache — track best score and org IDs
+                // ── Pass 1: score non-stripped applicant tokens against non-stripped org tokens ──
                 double bestScore = 0.0;
                 var bestOrgIds = new List<int>();
 
                 foreach (var org in orgCache)
                 {
-                    if (org.Tokens.Count == 0)
+                    if (org.NonStrippedTokens.Count == 0)
                         continue;
 
-                    double score = 0.0;
-
-                    // Score against full name tokens
-                    if (fullViable)
-                    {
-                        var (jaccard, containment) = calculateTokenSimilarity(fullTokens, org.Tokens);
-                        score = Math.Max(jaccard, containment);
-                    }
-
-                    // Score against short name tokens — take the better result
-                    if (shortViable)
-                    {
-                        var (jaccard, containment) = calculateTokenSimilarity(shortTokens, org.Tokens);
-                        double shortScore = Math.Max(jaccard, containment);
-                        score = Math.Max(score, shortScore);
-                    }
+                    var (jaccard, containment) = calculateTokenSimilarity(fullTokens, org.NonStrippedTokens);
+                    double score = Math.Max(jaccard, containment);
 
                     // Track best-match-only
                     if (score > bestScore)
@@ -1064,7 +1047,50 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                 }
 
-                // Only link if the best score meets the threshold
+                // If Pass 1 found a match above threshold, use it
+                if (bestScore >= TOKEN_SIMILARITY_THRESHOLD)
+                {
+                    foreach (var orgId in bestOrgIds)
+                    {
+                        addJunctionIfNew(applicant.OrangeBookApplicantID!.Value, orgId,
+                            existingPairs, newJunctions);
+                    }
+                    matchedIds.Add(applicant.OrangeBookApplicantID!.Value);
+                    continue;
+                }
+
+                // ── Pass 2 (fallback): noise-strip and re-score, but require ≥ 2 tokens ──
+                var fullStripped = normalizeCompanyName(applicant.ApplicantFullName!, stripNoiseWords: true);
+                var strippedTokens = tokenize(fullStripped);
+
+                // Guard: noise stripping must leave ≥ 2 meaningful tokens to prevent
+                // single generic tokens like "AMERICAN" from matching everything
+                if (strippedTokens.Count < 2)
+                    continue;
+
+                bestScore = 0.0;
+                bestOrgIds.Clear();
+
+                foreach (var org in orgCache)
+                {
+                    if (org.Tokens.Count == 0)
+                        continue;
+
+                    var (jaccard, containment) = calculateTokenSimilarity(strippedTokens, org.Tokens);
+                    double score = Math.Max(jaccard, containment);
+
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestOrgIds.Clear();
+                        bestOrgIds.Add(org.OrganizationID);
+                    }
+                    else if (score == bestScore && score > 0.0)
+                    {
+                        bestOrgIds.Add(org.OrganizationID);
+                    }
+                }
+
                 if (bestScore >= TOKEN_SIMILARITY_THRESHOLD)
                 {
                     foreach (var orgId in bestOrgIds)
@@ -1317,6 +1343,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var normalized = normalizeCompanyName(org.OrganizationName!);
                 var stripped = normalizeCompanyName(org.OrganizationName!, stripNoiseWords: true);
                 var tokens = tokenize(stripped);
+                var nonStrippedTokens = tokenize(normalized);
 
                 // Skip organizations that normalize to empty (e.g., name is just "Inc.")
                 if (string.IsNullOrEmpty(normalized))
@@ -1326,7 +1353,8 @@ namespace MedRecProImportClass.Service.ParsingServices
                     org.OrganizationID!.Value,
                     normalized,
                     stripped,
-                    tokens));
+                    tokens,
+                    nonStrippedTokens));
             }
 
             _logger.LogInformation("Loaded {Count} organizations into matching cache", cache.Count);
