@@ -421,126 +421,14 @@ namespace MedRecProConsole.Services
                 })
                 .StartAsync(async ctx =>
                 {
-                    // Create the primary product import task with row count as max value
+                    // ── Phase A: Products + Matching ──
                     var productTask = ctx.AddTask(
                         "[orange1]Importing products[/]",
                         maxValue: Math.Max(1, totalProductRows));
 
-                    // Matching phase tasks — created lazily when each phase begins
-                    ProgressTask? orgMatchTask = null;
-                    ProgressTask? ingredientMatchTask = null;
-                    ProgressTask? categoryMatchTask = null;
+                    var matchingTasks = new ProductMatchingTasks();
+                    var productProgressCallback = buildProductProgressCallback(ctx, productTask, matchingTasks);
 
-                    // Progress callback for products: routes each message to the appropriate
-                    // progress task based on message prefix and regex pattern matching
-                    Action<string> productProgressCallback = (message) =>
-                    {
-                        // Product batch progress: "(X/Y rows processed)"
-                        var batchMatch = BatchProgressPattern.Match(message);
-                        if (batchMatch.Success && int.TryParse(batchMatch.Groups[1].Value, out var currentRow))
-                        {
-                            productTask.Value = currentRow;
-                            productTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
-                            return;
-                        }
-
-                        // Organization matching phase start
-                        if (message.StartsWith("Matching applicants to organizations"))
-                        {
-                            // Complete the product task
-                            productTask.Value = productTask.MaxValue;
-                            productTask.Description = "[green]Products imported[/]";
-
-                            // Create org matching task (indeterminate — no progress count available)
-                            orgMatchTask = ctx.AddTask("[orange1]Matching organizations[/]", maxValue: 1);
-                            orgMatchTask.IsIndeterminate = true;
-                            return;
-                        }
-
-                        // Ingredient matching phase start
-                        if (message.StartsWith("Matching products to ingredient substances"))
-                        {
-                            // Complete org matching task
-                            if (orgMatchTask != null)
-                            {
-                                orgMatchTask.IsIndeterminate = false;
-                                orgMatchTask.Value = orgMatchTask.MaxValue;
-                                orgMatchTask.Description = "[green]Organizations matched[/]";
-                            }
-
-                            // Create ingredient matching task (indeterminate until first X/Y message)
-                            ingredientMatchTask = ctx.AddTask("[orange1]Matching ingredients[/]", maxValue: 100);
-                            ingredientMatchTask.IsIndeterminate = true;
-                            return;
-                        }
-
-                        // Ingredient exact results — update description only
-                        if (message.StartsWith("Ingredients (exact)") && ingredientMatchTask != null)
-                        {
-                            ingredientMatchTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
-                            return;
-                        }
-
-                        // Ingredient substring progress: "Ingredients (substring): X/Y names queried"
-                        var ingredientMatch = IngredientSubstringPattern.Match(message);
-                        if (ingredientMatch.Success && ingredientMatchTask != null)
-                        {
-                            if (int.TryParse(ingredientMatch.Groups[1].Value, out var queried) &&
-                                int.TryParse(ingredientMatch.Groups[2].Value, out var total))
-                            {
-                                ingredientMatchTask.IsIndeterminate = false;
-                                ingredientMatchTask.MaxValue = Math.Max(1, total);
-                                ingredientMatchTask.Value = queried;
-                            }
-                            ingredientMatchTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
-                            return;
-                        }
-
-                        // Category matching phase start
-                        if (message.StartsWith("Matching products to marketing categories"))
-                        {
-                            // Complete ingredient matching task
-                            if (ingredientMatchTask != null)
-                            {
-                                ingredientMatchTask.IsIndeterminate = false;
-                                ingredientMatchTask.Value = ingredientMatchTask.MaxValue;
-                                ingredientMatchTask.Description = "[green]Ingredients matched[/]";
-                            }
-
-                            // Create category matching task (indeterminate until first X/Y message)
-                            categoryMatchTask = ctx.AddTask("[orange1]Matching categories[/]", maxValue: 100);
-                            categoryMatchTask.IsIndeterminate = true;
-                            return;
-                        }
-
-                        // Category exact results — update description only
-                        if (message.StartsWith("Categories (exact)") && categoryMatchTask != null)
-                        {
-                            categoryMatchTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
-                            return;
-                        }
-
-                        // Category substring progress: "Categories (substring): X/Y numbers queried"
-                        var categoryMatch = CategorySubstringPattern.Match(message);
-                        if (categoryMatch.Success && categoryMatchTask != null)
-                        {
-                            if (int.TryParse(categoryMatch.Groups[1].Value, out var queried) &&
-                                int.TryParse(categoryMatch.Groups[2].Value, out var total))
-                            {
-                                categoryMatchTask.IsIndeterminate = false;
-                                categoryMatchTask.MaxValue = Math.Max(1, total);
-                                categoryMatchTask.Value = queried;
-                            }
-                            categoryMatchTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
-                            return;
-                        }
-
-                        // Default: update the product task description for early phase messages
-                        // (e.g., "Parsing products.txt lines...", "Upserting applicants...")
-                        productTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
-                    };
-
-                    // ── Phase A: Products + Matching ──
                     using var scope = serviceProvider.CreateScope();
                     var productParsingService = scope.ServiceProvider
                         .GetRequiredService<OrangeBookProductParsingService>();
@@ -548,48 +436,18 @@ namespace MedRecProConsole.Services
                     result = await productParsingService.ProcessProductsFileAsync(
                         productsContent, cancellationToken, productProgressCallback);
 
-                    // Ensure all product phase tasks show completion
-                    productTask.Value = productTask.MaxValue;
-                    productTask.Description = "[green]Products imported[/]";
-
-                    if (orgMatchTask != null)
-                    {
-                        orgMatchTask.IsIndeterminate = false;
-                        orgMatchTask.Value = orgMatchTask.MaxValue;
-                        orgMatchTask.Description = "[green]Organizations matched[/]";
-                    }
-                    if (ingredientMatchTask != null)
-                    {
-                        ingredientMatchTask.IsIndeterminate = false;
-                        ingredientMatchTask.Value = ingredientMatchTask.MaxValue;
-                        ingredientMatchTask.Description = "[green]Ingredients matched[/]";
-                    }
-                    if (categoryMatchTask != null)
-                    {
-                        categoryMatchTask.IsIndeterminate = false;
-                        categoryMatchTask.Value = categoryMatchTask.MaxValue;
-                        categoryMatchTask.Description = "[green]Categories matched[/]";
-                    }
+                    // Ensure all product-phase tasks show completion
+                    completeProgressTask(productTask, "Products imported");
+                    completeProgressTask(matchingTasks.OrgMatchTask, "Organizations matched");
+                    completeProgressTask(matchingTasks.IngredientMatchTask, "Ingredients matched");
+                    completeProgressTask(matchingTasks.CategoryMatchTask, "Categories matched");
 
                     // ── Phase B: Patents ──
                     var patentTask = ctx.AddTask(
                         "[orange1]Importing patents[/]",
                         maxValue: Math.Max(1, totalPatentRows));
 
-                    // Progress callback for patents: routes batch messages to the patent task
-                    Action<string> patentProgressCallback = (message) =>
-                    {
-                        var batchMatch = BatchProgressPattern.Match(message);
-                        if (batchMatch.Success && int.TryParse(batchMatch.Groups[1].Value, out var currentRow))
-                        {
-                            patentTask.Value = currentRow;
-                            patentTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
-                            return;
-                        }
-
-                        // Default: update patent task description for non-batch messages
-                        patentTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
-                    };
+                    var patentProgressCallback = buildPatentProgressCallback(patentTask);
 
                     var patentParsingService = scope.ServiceProvider
                         .GetRequiredService<OrangeBookPatentParsingService>();
@@ -597,17 +455,135 @@ namespace MedRecProConsole.Services
                     result = await patentParsingService.ProcessPatentsFileAsync(
                         patentContent, result!, cancellationToken, patentProgressCallback);
 
-                    // Ensure patent task shows completion
-                    patentTask.Value = patentTask.MaxValue;
-                    patentTask.Description = result!.Success
-                        ? "[green]Patents imported[/]"
-                        : "[red]Import completed with errors[/]";
+                    // Finalize patent task
+                    completeProgressTask(patentTask,
+                        result!.Success ? "Patents imported" : "Import completed with errors",
+                        result!.Success ? "green" : "red");
 
                     // Small delay to ensure the final state is rendered
                     await Task.Delay(100);
                 });
 
             return result!;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the progress callback for the product import phase. Routes each progress
+        /// message from <see cref="OrangeBookProductParsingService"/> to the appropriate
+        /// Spectre.Console progress task based on message prefix and regex pattern matching.
+        /// </summary>
+        /// <param name="ctx">The Spectre.Console progress context for creating new tasks.</param>
+        /// <param name="productTask">The primary product import progress task.</param>
+        /// <param name="matchingTasks">Mutable holder for lazily-created matching-phase tasks.</param>
+        /// <returns>An <see cref="Action{String}"/> callback to pass to the product parsing service.</returns>
+        /// <remarks>
+        /// The callback handles five distinct message types:
+        /// <list type="bullet">
+        /// <item><description>Batch progress ("X/Y rows processed") — updates product task value</description></item>
+        /// <item><description>Phase transitions ("Matching applicants...") — completes previous task, creates next</description></item>
+        /// <item><description>Exact match results ("Ingredients (exact)") — updates description only</description></item>
+        /// <item><description>Substring progress ("Ingredients (substring): X/Y") — updates progress bar</description></item>
+        /// <item><description>Default messages — updates product task description</description></item>
+        /// </list>
+        /// </remarks>
+        /// <seealso cref="tryUpdateBatchProgress"/>
+        /// <seealso cref="tryUpdateSubstringProgress"/>
+        /// <seealso cref="completeProgressTask"/>
+        /// <seealso cref="ProductMatchingTasks"/>
+        private Action<string> buildProductProgressCallback(
+            ProgressContext ctx,
+            ProgressTask productTask,
+            ProductMatchingTasks matchingTasks)
+        {
+            #region implementation
+
+            return (message) =>
+            {
+                // Product batch progress: "(X/Y rows processed)"
+                if (tryUpdateBatchProgress(productTask, message))
+                    return;
+
+                // Organization matching phase start
+                if (message.StartsWith("Matching applicants to organizations"))
+                {
+                    completeProgressTask(productTask, "Products imported");
+                    matchingTasks.OrgMatchTask = ctx.AddTask("[orange1]Matching organizations[/]", maxValue: 1);
+                    matchingTasks.OrgMatchTask.IsIndeterminate = true;
+                    return;
+                }
+
+                // Ingredient matching phase start
+                if (message.StartsWith("Matching products to ingredient substances"))
+                {
+                    completeProgressTask(matchingTasks.OrgMatchTask, "Organizations matched");
+                    matchingTasks.IngredientMatchTask = ctx.AddTask("[orange1]Matching ingredients[/]", maxValue: 100);
+                    matchingTasks.IngredientMatchTask.IsIndeterminate = true;
+                    return;
+                }
+
+                // Ingredient exact results — update description only
+                if (message.StartsWith("Ingredients (exact)") && matchingTasks.IngredientMatchTask != null)
+                {
+                    matchingTasks.IngredientMatchTask.Description = formatActiveDescription(message);
+                    return;
+                }
+
+                // Ingredient substring progress
+                if (tryUpdateSubstringProgress(matchingTasks.IngredientMatchTask, IngredientSubstringPattern, message))
+                    return;
+
+                // Category matching phase start
+                if (message.StartsWith("Matching products to marketing categories"))
+                {
+                    completeProgressTask(matchingTasks.IngredientMatchTask, "Ingredients matched");
+                    matchingTasks.CategoryMatchTask = ctx.AddTask("[orange1]Matching categories[/]", maxValue: 100);
+                    matchingTasks.CategoryMatchTask.IsIndeterminate = true;
+                    return;
+                }
+
+                // Category exact results — update description only
+                if (message.StartsWith("Categories (exact)") && matchingTasks.CategoryMatchTask != null)
+                {
+                    matchingTasks.CategoryMatchTask.Description = formatActiveDescription(message);
+                    return;
+                }
+
+                // Category substring progress
+                if (tryUpdateSubstringProgress(matchingTasks.CategoryMatchTask, CategorySubstringPattern, message))
+                    return;
+
+                // Default: update product task for early-phase messages
+                // (e.g., "Parsing products.txt lines...", "Upserting applicants...")
+                productTask.Description = formatActiveDescription(message);
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the progress callback for the patent import phase. Routes batch progress
+        /// messages to the patent progress task.
+        /// </summary>
+        /// <param name="patentTask">The patent import progress task.</param>
+        /// <returns>An <see cref="Action{String}"/> callback to pass to the patent parsing service.</returns>
+        /// <seealso cref="tryUpdateBatchProgress"/>
+        /// <seealso cref="buildProductProgressCallback"/>
+        private Action<string> buildPatentProgressCallback(ProgressTask patentTask)
+        {
+            #region implementation
+
+            return (message) =>
+            {
+                if (tryUpdateBatchProgress(patentTask, message))
+                    return;
+
+                // Default: update patent task description for non-batch messages
+                patentTask.Description = formatActiveDescription(message);
+            };
 
             #endregion
         }
@@ -750,6 +726,151 @@ namespace MedRecProConsole.Services
             return message[..(MaxDescriptionLength - 3)] + "...";
 
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Formats a progress message as an active (in-progress) Spectre.Console markup description.
+        /// Truncates the message for display and wraps it in orange1 markup tags.
+        /// </summary>
+        /// <param name="message">The raw progress message from the parsing service.</param>
+        /// <returns>A Spectre.Console markup string with orange1 styling.</returns>
+        /// <seealso cref="truncateForDisplay"/>
+        /// <seealso cref="completeProgressTask"/>
+        private string formatActiveDescription(string message)
+        {
+            #region implementation
+
+            return $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Marks a Spectre.Console progress task as completed by setting it to determinate mode,
+        /// advancing its value to the maximum, and applying a completed-state description.
+        /// Safely handles null tasks (no-op when task is null).
+        /// </summary>
+        /// <param name="task">The progress task to complete, or null if the phase was never started.</param>
+        /// <param name="completedLabel">The label to display (e.g., "Products imported").</param>
+        /// <param name="color">The markup color for the completed label. Defaults to "green".</param>
+        /// <remarks>
+        /// Used to finalize progress tasks for both normal completion (callback-driven phase transitions)
+        /// and forced completion (ensuring all tasks show completed after the parsing service returns).
+        /// </remarks>
+        /// <seealso cref="formatActiveDescription"/>
+        /// <seealso cref="executeImportWithProgressAsync"/>
+        private void completeProgressTask(ProgressTask? task, string completedLabel, string color = "green")
+        {
+            #region implementation
+
+            if (task == null)
+                return;
+
+            task.IsIndeterminate = false;
+            task.Value = task.MaxValue;
+            task.Description = $"[{color}]{completedLabel}[/]";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Attempts to parse a batch progress message (e.g., "(10000/15000 rows processed)")
+        /// and update the given progress task's value and description accordingly.
+        /// </summary>
+        /// <param name="task">The progress task to update.</param>
+        /// <param name="message">The progress message to parse.</param>
+        /// <returns>True if the message was a batch progress message and the task was updated; false otherwise.</returns>
+        /// <seealso cref="BatchProgressPattern"/>
+        /// <seealso cref="formatActiveDescription"/>
+        private bool tryUpdateBatchProgress(ProgressTask task, string message)
+        {
+            #region implementation
+
+            var batchMatch = BatchProgressPattern.Match(message);
+            if (batchMatch.Success && int.TryParse(batchMatch.Groups[1].Value, out var currentRow))
+            {
+                task.Value = currentRow;
+                task.Description = formatActiveDescription(message);
+                return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Attempts to parse a substring-matching progress message (e.g., "Ingredients (substring): 25/100 names queried")
+        /// and update the given progress task's value, max value, and description.
+        /// Transitions the task from indeterminate to determinate mode on the first successful parse.
+        /// </summary>
+        /// <param name="task">The progress task to update, or null if the matching phase has not started.</param>
+        /// <param name="pattern">The compiled regex pattern to match against the message (must have two capture groups for queried/total).</param>
+        /// <param name="message">The progress message to parse.</param>
+        /// <returns>True if the message matched the pattern and the task was updated; false otherwise.</returns>
+        /// <seealso cref="IngredientSubstringPattern"/>
+        /// <seealso cref="CategorySubstringPattern"/>
+        /// <seealso cref="formatActiveDescription"/>
+        private bool tryUpdateSubstringProgress(ProgressTask? task, Regex pattern, string message)
+        {
+            #region implementation
+
+            if (task == null)
+                return false;
+
+            var match = pattern.Match(message);
+            if (!match.Success)
+                return false;
+
+            if (int.TryParse(match.Groups[1].Value, out var queried) &&
+                int.TryParse(match.Groups[2].Value, out var total))
+            {
+                task.IsIndeterminate = false;
+                task.MaxValue = Math.Max(1, total);
+                task.Value = queried;
+            }
+
+            task.Description = formatActiveDescription(message);
+            return true;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region private types
+
+        /**************************************************************/
+        /// <summary>
+        /// Holds references to the lazily-created matching-phase progress tasks
+        /// so they can be accessed by both the progress callback and the post-import
+        /// completion logic. Tasks are null until their respective phase begins.
+        /// </summary>
+        /// <seealso cref="buildProductProgressCallback"/>
+        /// <seealso cref="completeProgressTask"/>
+        private class ProductMatchingTasks
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Progress task for the organization matching phase.
+            /// </summary>
+            public ProgressTask? OrgMatchTask { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Progress task for the ingredient matching phase.
+            /// </summary>
+            public ProgressTask? IngredientMatchTask { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Progress task for the category matching phase.
+            /// </summary>
+            public ProgressTask? CategoryMatchTask { get; set; }
         }
 
         #endregion
