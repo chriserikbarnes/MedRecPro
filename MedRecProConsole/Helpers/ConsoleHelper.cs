@@ -1746,12 +1746,19 @@ namespace MedRecProConsole.Helpers
             entityTable.AddRow("Organization Matches", result.OrganizationMatchesCreated.ToString("N0"));
             entityTable.AddRow("Ingredient Matches", result.IngredientSubstanceMatchesCreated.ToString("N0"));
             entityTable.AddRow("Marketing Category Matches", result.MarketingCategoryMatchesCreated.ToString("N0"));
+            entityTable.AddRow("Patents Created", result.PatentsCreated.ToString("N0"));
+            entityTable.AddRow("Patents Updated", result.PatentsUpdated.ToString("N0"));
+            entityTable.AddRow("Patents Linked", result.PatentsLinkedToProduct.ToString("N0"));
+            entityTable.AddRow("Exclusivity Created", result.ExclusivityCreated.ToString("N0"));
+            entityTable.AddRow("Exclusivity Updated", result.ExclusivityUpdated.ToString("N0"));
+            entityTable.AddRow("Exclusivity Linked", result.ExclusivityLinkedToProduct.ToString("N0"));
 
             AnsiConsole.Write(entityTable);
 
             // Quality metrics table
             if (result.MalformedRowsSkipped > 0 || result.UnmatchedApplicants > 0 ||
-                result.UnmatchedIngredients > 0 || result.UnmatchedProducts > 0)
+                result.UnmatchedIngredients > 0 || result.UnmatchedProducts > 0 ||
+                result.UnlinkedPatents > 0 || result.UnlinkedExclusivity > 0)
             {
                 AnsiConsole.WriteLine();
 
@@ -1769,6 +1776,10 @@ namespace MedRecProConsole.Helpers
                     qualityTable.AddRow("[yellow]Unmatched Ingredients[/]", result.UnmatchedIngredients.ToString("N0"));
                 if (result.UnmatchedProducts > 0)
                     qualityTable.AddRow("[yellow]Unmatched Products[/]", result.UnmatchedProducts.ToString("N0"));
+                if (result.UnlinkedPatents > 0)
+                    qualityTable.AddRow("[yellow]Unlinked Patents[/]", result.UnlinkedPatents.ToString("N0"));
+                if (result.UnlinkedExclusivity > 0)
+                    qualityTable.AddRow("[yellow]Unlinked Exclusivity[/]", result.UnlinkedExclusivity.ToString("N0"));
 
                 AnsiConsole.Write(qualityTable);
             }

@@ -17,23 +17,25 @@ namespace MedRecProConsole.Services
 {
     /**************************************************************/
     /// <summary>
-    /// Service responsible for orchestrating the import of FDA Orange Book products.txt
-    /// and patent.txt from a ZIP file. Manages dependency injection setup, ZIP extraction,
-    /// optional table truncation, and progress-tracked import via
-    /// <see cref="OrangeBookProductParsingService"/> and <see cref="OrangeBookPatentParsingService"/>.
+    /// Service responsible for orchestrating the import of FDA Orange Book products.txt,
+    /// patent.txt, and exclusivity.txt from a ZIP file. Manages dependency injection setup,
+    /// ZIP extraction, optional table truncation, and progress-tracked import via
+    /// <see cref="OrangeBookProductParsingService"/>, <see cref="OrangeBookPatentParsingService"/>,
+    /// and <see cref="OrangeBookExclusivityParsingService"/>.
     /// </summary>
     /// <remarks>
     /// Follows the same orchestrator pattern as <see cref="ImportService"/> but tailored for
     /// the Orange Book multi-file import workflow. Products are imported first, then patents
-    /// are imported and linked to products via natural key (ApplType, ApplNo, ProductNo).
-    /// The import is idempotent (upsert-based), so crash recovery via
-    /// <see cref="ImportProgressTracker"/> is not needed.
+    /// and exclusivity records are imported and linked to products via natural key
+    /// (ApplType, ApplNo, ProductNo). The import is idempotent (upsert-based), so crash
+    /// recovery via <see cref="ImportProgressTracker"/> is not needed.
     ///
     /// Uses Spectre.Console for styled progress display. Console output from EF Core and
     /// logging is suppressed unless verbose mode is enabled.
     /// </remarks>
     /// <seealso cref="OrangeBookProductParsingService"/>
     /// <seealso cref="OrangeBookPatentParsingService"/>
+    /// <seealso cref="OrangeBookExclusivityParsingService"/>
     /// <seealso cref="OrangeBookImportResult"/>
     /// <seealso cref="ImportService"/>
     public class OrangeBookImportService
@@ -133,6 +135,7 @@ namespace MedRecProConsole.Services
         /// </example>
         /// <seealso cref="OrangeBookProductParsingService.ProcessProductsFileAsync"/>
         /// <seealso cref="OrangeBookPatentParsingService.ProcessPatentsFileAsync"/>
+        /// <seealso cref="OrangeBookExclusivityParsingService.ProcessExclusivityFileAsync"/>
         /// <seealso cref="OrangeBookImportResult"/>
         public async Task<OrangeBookImportResult> ExecuteImportAsync(
             string connectionString,
@@ -182,15 +185,21 @@ namespace MedRecProConsole.Services
                 var patentContent = extractFileFromZip(zipFilePath, "patent.txt");
                 var totalPatentRows = countDataRows(patentContent);
                 AnsiConsole.MarkupLine($"[grey]Found {totalPatentRows:N0} patent data rows to process.[/]");
+
+                AnsiConsole.MarkupLine("[grey]Extracting exclusivity.txt from ZIP...[/]");
+                var exclusivityContent = extractFileFromZip(zipFilePath, "exclusivity.txt");
+                var totalExclusivityRows = countDataRows(exclusivityContent);
+                AnsiConsole.MarkupLine($"[grey]Found {totalExclusivityRows:N0} exclusivity data rows to process.[/]");
                 AnsiConsole.WriteLine();
 
                 // Suppress console again during import processing
                 suppressConsoleOutput();
 
-                // Phase 5: Import with progress tracking (products, matching, then patents)
+                // Phase 5: Import with progress tracking (products, matching, patents, exclusivity)
                 var result = await executeImportWithProgressAsync(
                     serviceProvider, productsContent, totalProductRows,
-                    patentContent, totalPatentRows, cancellationToken);
+                    patentContent, totalPatentRows,
+                    exclusivityContent, totalExclusivityRows, cancellationToken);
 
                 // Phase 6: Finalize
                 restoreConsoleOutput();
@@ -369,16 +378,20 @@ namespace MedRecProConsole.Services
 
         /**************************************************************/
         /// <summary>
-        /// Executes the import via <see cref="OrangeBookProductParsingService"/> and
-        /// <see cref="OrangeBookPatentParsingService"/> with Spectre.Console multi-task
+        /// Executes the import via <see cref="OrangeBookProductParsingService"/>,
+        /// <see cref="OrangeBookPatentParsingService"/>, and
+        /// <see cref="OrangeBookExclusivityParsingService"/> with Spectre.Console multi-task
         /// progress bars that track each import phase independently: product upsert,
-        /// organization matching, ingredient matching, category matching, and patent upsert.
+        /// organization matching, ingredient matching, category matching, patent upsert,
+        /// and exclusivity upsert.
         /// </summary>
         /// <param name="serviceProvider">DI service provider for resolving the parsing services.</param>
         /// <param name="productsContent">The full text content of products.txt.</param>
         /// <param name="totalProductRows">Total data rows for the product import progress bar max value.</param>
         /// <param name="patentContent">The full text content of patent.txt.</param>
         /// <param name="totalPatentRows">Total data rows for the patent import progress bar max value.</param>
+        /// <param name="exclusivityContent">The full text content of exclusivity.txt.</param>
+        /// <param name="totalExclusivityRows">Total data rows for the exclusivity import progress bar max value.</param>
         /// <param name="cancellationToken">Cancellation token for cooperative cancellation.</param>
         /// <returns>An <see cref="OrangeBookImportResult"/> with import statistics.</returns>
         /// <remarks>
@@ -389,6 +402,7 @@ namespace MedRecProConsole.Services
         /// </remarks>
         /// <seealso cref="OrangeBookProductParsingService.ProcessProductsFileAsync"/>
         /// <seealso cref="OrangeBookPatentParsingService.ProcessPatentsFileAsync"/>
+        /// <seealso cref="OrangeBookExclusivityParsingService.ProcessExclusivityFileAsync"/>
         /// <seealso cref="BatchProgressPattern"/>
         /// <seealso cref="IngredientSubstringPattern"/>
         /// <seealso cref="CategorySubstringPattern"/>
@@ -398,6 +412,8 @@ namespace MedRecProConsole.Services
             int totalProductRows,
             string patentContent,
             int totalPatentRows,
+            string exclusivityContent,
+            int totalExclusivityRows,
             CancellationToken cancellationToken)
         {
             #region implementation
@@ -456,8 +472,24 @@ namespace MedRecProConsole.Services
                         patentContent, result!, cancellationToken, patentProgressCallback);
 
                     // Finalize patent task
-                    completeProgressTask(patentTask,
-                        result!.Success ? "Patents imported" : "Import completed with errors",
+                    completeProgressTask(patentTask, "Patents imported");
+
+                    // ── Phase C: Exclusivity ──
+                    var exclusivityTask = ctx.AddTask(
+                        "[orange1]Importing exclusivity[/]",
+                        maxValue: Math.Max(1, totalExclusivityRows));
+
+                    var exclusivityProgressCallback = buildExclusivityProgressCallback(exclusivityTask);
+
+                    var exclusivityParsingService = scope.ServiceProvider
+                        .GetRequiredService<OrangeBookExclusivityParsingService>();
+
+                    result = await exclusivityParsingService.ProcessExclusivityFileAsync(
+                        exclusivityContent, result!, cancellationToken, exclusivityProgressCallback);
+
+                    // Finalize exclusivity task
+                    completeProgressTask(exclusivityTask,
+                        result!.Success ? "Exclusivity imported" : "Import completed with errors",
                         result!.Success ? "green" : "red");
 
                     // Small delay to ensure the final state is rendered
@@ -588,6 +620,32 @@ namespace MedRecProConsole.Services
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Builds the progress callback for the exclusivity import phase. Routes batch progress
+        /// messages to the exclusivity progress task.
+        /// </summary>
+        /// <param name="exclusivityTask">The exclusivity import progress task.</param>
+        /// <returns>An <see cref="Action{String}"/> callback to pass to the exclusivity parsing service.</returns>
+        /// <seealso cref="tryUpdateBatchProgress"/>
+        /// <seealso cref="buildPatentProgressCallback"/>
+        /// <seealso cref="buildProductProgressCallback"/>
+        private Action<string> buildExclusivityProgressCallback(ProgressTask exclusivityTask)
+        {
+            #region implementation
+
+            return (message) =>
+            {
+                if (tryUpdateBatchProgress(exclusivityTask, message))
+                    return;
+
+                // Default: update exclusivity task description for non-batch messages
+                exclusivityTask.Description = formatActiveDescription(message);
+            };
+
+            #endregion
+        }
+
         #endregion
 
         #region private methods - service configuration
@@ -595,7 +653,8 @@ namespace MedRecProConsole.Services
         /**************************************************************/
         /// <summary>
         /// Builds the dependency injection service provider with all required services
-        /// for <see cref="OrangeBookProductParsingService"/> and <see cref="OrangeBookPatentParsingService"/>.
+        /// for <see cref="OrangeBookProductParsingService"/>, <see cref="OrangeBookPatentParsingService"/>,
+        /// and <see cref="OrangeBookExclusivityParsingService"/>.
         /// </summary>
         /// <param name="connectionString">Database connection string.</param>
         /// <param name="configuration">Application configuration.</param>
@@ -609,6 +668,7 @@ namespace MedRecProConsole.Services
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="OrangeBookProductParsingService"/>
         /// <seealso cref="OrangeBookPatentParsingService"/>
+        /// <seealso cref="OrangeBookExclusivityParsingService"/>
         private ServiceProvider buildServiceProvider(string connectionString, IConfiguration configuration, bool verboseMode)
         {
             #region implementation
@@ -657,6 +717,7 @@ namespace MedRecProConsole.Services
             services.AddTransient<StringCipher>();
             services.AddScoped<OrangeBookProductParsingService>();
             services.AddScoped<OrangeBookPatentParsingService>();
+            services.AddScoped<OrangeBookExclusivityParsingService>();
 
             return services.BuildServiceProvider();
 

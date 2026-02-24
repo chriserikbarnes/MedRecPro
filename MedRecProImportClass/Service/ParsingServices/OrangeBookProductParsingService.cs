@@ -2262,6 +2262,38 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         /*************************************************************/
         /// <summary>
+        /// Number of new exclusivity records inserted into OrangeBookExclusivity.
+        /// </summary>
+        /// <seealso cref="OrangeBook.Exclusivity"/>
+        public int ExclusivityCreated { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Number of existing exclusivity records updated with new field values.
+        /// </summary>
+        /// <seealso cref="OrangeBook.Exclusivity"/>
+        public int ExclusivityUpdated { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Number of exclusivity records successfully linked to a parent product
+        /// via the composite natural key (ApplType, ApplNo, ProductNo).
+        /// </summary>
+        /// <seealso cref="OrangeBook.Exclusivity.OrangeBookProductID"/>
+        /// <seealso cref="OrangeBook.Product"/>
+        public int ExclusivityLinkedToProduct { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Number of exclusivity records where no matching product was found for the
+        /// natural key (ApplType, ApplNo, ProductNo). These records have
+        /// OrangeBookProductID set to null.
+        /// </summary>
+        /// <seealso cref="OrangeBook.Exclusivity.OrangeBookProductID"/>
+        public int UnlinkedExclusivity { get; set; }
+
+        /*************************************************************/
+        /// <summary>
         /// Number of new ApplicantOrganization junction rows created.
         /// </summary>
         /// <seealso cref="OrangeBook.ApplicantOrganization"/>

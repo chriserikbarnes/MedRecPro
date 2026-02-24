@@ -329,11 +329,11 @@ The application creates a `.medrecpro-import-queue.json` file at the import fold
 
 ## Orange Book Import Behavior
 
-The Orange Book import processes the FDA Orange Book `products.txt` file (tilde-delimited) from a ZIP archive.
+The Orange Book import processes the FDA Orange Book `products.txt`, `patent.txt`, and `exclusivity.txt` files (tilde-delimited) from a ZIP archive.
 
 ### Import Phases
 
-1. **Extraction**: Extracts `products.txt` from the ZIP file
+1. **Extraction**: Extracts `products.txt`, `patent.txt`, and `exclusivity.txt` from the ZIP file
 2. **Truncation** (optional): Truncates all Orange Book tables (junctions first, then fact tables) when `--nuke` is used
 3. **Applicant Upsert**: Creates or updates applicant records from the Applicant and Applicant_Full_Name columns
 4. **Product Upsert**: Creates or updates product records, processed in batches of 5,000
@@ -341,6 +341,8 @@ The Orange Book import processes the FDA Orange Book `products.txt` file (tilde-
    - **Applicant → Organization**: Normalized exact match, then token-based similarity (Jaccard/containment) with corporate suffix and pharma noise-word stripping
    - **Product → IngredientSubstance**: Exact name and regex-based matching
    - **Product → MarketingCategory**: Exact name and regex-based matching
+6. **Patent Upsert**: Creates or updates patent records from `patent.txt`, processed in batches of 5,000. Each patent is linked to its parent product via the composite natural key (ApplType, ApplNo, ProductNo). Patent fields include expiration date, substance/product flags, use codes, delist flag, and submission date.
+7. **Exclusivity Upsert**: Creates or updates exclusivity records from `exclusivity.txt`, processed in batches of 5,000. Each exclusivity record is linked to its parent product via the composite natural key (ApplType, ApplNo, ProductNo). Common exclusivity codes include NCE (New Chemical Entity), ODE (Orphan Drug), RTO (Rare Therapeutic Orphan), and M (Method of Use).
 
 ### Idempotent Design
 

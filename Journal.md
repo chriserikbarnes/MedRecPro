@@ -34,3 +34,25 @@ Refactored `executeImportWithProgressAsync()` in `OrangeBookImportService.cs`. T
 
 **File modified:** `MedRecProConsole/Services/OrangeBookImportService.cs`
 ---
+
+---
+### 2026-02-24 10:45 PM EST — Orange Book Exclusivity Import Service
+Created `OrangeBookExclusivityParsingService.cs` for importing FDA Orange Book exclusivity.txt data. Follows the same patterns as `OrangeBookPatentParsingService`: tilde-delimited file parsing (5 columns), batch upsert (5,000 rows) with ChangeTracker.Clear(), dictionary-based product lookup for FK resolution, and progress reporting via callbacks.
+
+Key decisions:
+- **Upsert natural key:** (ApplType, ApplNo, ProductNo, ExclusivityCode) — one product can have multiple exclusivity codes simultaneously (e.g., ODE-417, ODE-420, ODE-421 on the same product)
+- **FK resolution:** Same product lookup pattern as patent service — Dictionary<(ApplType, ApplNo, ProductNo), int> for O(1) resolution
+- **Shared result class:** Extended `OrangeBookImportResult` with 4 exclusivity fields (ExclusivityCreated, ExclusivityUpdated, ExclusivityLinkedToProduct, UnlinkedExclusivity)
+- **Simpler than patents:** Only 5 columns (no boolean flags, no use codes) — just natural key + code + date
+- **Console display:** Added patent AND exclusivity rows to `DisplayOrangeBookResults` (patents were previously missing from display output)
+- **Quality metrics:** Added UnlinkedPatents and UnlinkedExclusivity to the quality metrics table
+
+Files:
+- **Created:** `MedRecProImportClass/Service/ParsingServices/OrangeBookExclusivityParsingService.cs`
+- **Edited:** `MedRecProImportClass/Service/ParsingServices/OrangeBookProductParsingService.cs` (extended OrangeBookImportResult with exclusivity counters)
+- **Edited:** `MedRecProConsole/Services/OrangeBookImportService.cs` (DI registration, exclusivity.txt extraction, Phase C progress tracking, buildExclusivityProgressCallback)
+- **Edited:** `MedRecProConsole/Helpers/ConsoleHelper.cs` (added patent + exclusivity rows to import results and quality metrics)
+- **Edited:** `MedRecProConsole/README.md` (documented patent and exclusivity import phases)
+
+Both projects build with 0 errors.
+---
