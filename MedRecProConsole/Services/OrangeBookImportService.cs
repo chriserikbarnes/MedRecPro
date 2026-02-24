@@ -71,6 +71,7 @@ namespace MedRecProConsole.Services
             "OrangeBookProductMarketingCategory",
             "OrangeBookExclusivity",
             "OrangeBookPatent",
+            "OrangeBookPatentUseCode",
             "OrangeBookProduct",
             "OrangeBookApplicant"
         };
@@ -488,8 +489,25 @@ namespace MedRecProConsole.Services
                         exclusivityContent, result!, cancellationToken, exclusivityProgressCallback);
 
                     // Finalize exclusivity task
-                    completeProgressTask(exclusivityTask,
-                        result!.Success ? "Exclusivity imported" : "Import completed with errors",
+                    completeProgressTask(exclusivityTask, "Exclusivity imported");
+
+                    // ── Phase D: Patent Use Codes ──
+                    var useCodeTask = ctx.AddTask(
+                        "[orange1]Loading patent use codes[/]",
+                        maxValue: 1);
+                    useCodeTask.IsIndeterminate = true;
+
+                    var useCodeProgressCallback = buildUseCodeProgressCallback(useCodeTask);
+
+                    var useCodeParsingService = scope.ServiceProvider
+                        .GetRequiredService<OrangeBookPatentUseCodeParsingService>();
+
+                    result = await useCodeParsingService.ProcessPatentUseCodesAsync(
+                        result!, cancellationToken, useCodeProgressCallback);
+
+                    // Finalize use code task
+                    completeProgressTask(useCodeTask,
+                        result!.Success ? "Patent use codes loaded" : "Import completed with errors",
                         result!.Success ? "green" : "red");
 
                     // Small delay to ensure the final state is rendered
@@ -646,6 +664,32 @@ namespace MedRecProConsole.Services
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Builds the progress callback for the patent use code import phase. Since the
+        /// use code dataset is loaded in a single batch from an embedded JSON resource,
+        /// the progress task transitions from indeterminate to complete on the first message.
+        /// </summary>
+        /// <param name="useCodeTask">The patent use code import progress task.</param>
+        /// <returns>An <see cref="Action{String}"/> callback to pass to the use code parsing service.</returns>
+        /// <seealso cref="buildExclusivityProgressCallback"/>
+        /// <seealso cref="OrangeBookPatentUseCodeParsingService"/>
+        private Action<string> buildUseCodeProgressCallback(ProgressTask useCodeTask)
+        {
+            #region implementation
+
+            return (message) =>
+            {
+                // Transition from indeterminate to determinate on first progress message
+                useCodeTask.IsIndeterminate = false;
+                useCodeTask.MaxValue = 1;
+                useCodeTask.Value = 1;
+                useCodeTask.Description = formatActiveDescription(message);
+            };
+
+            #endregion
+        }
+
         #endregion
 
         #region private methods - service configuration
@@ -718,6 +762,7 @@ namespace MedRecProConsole.Services
             services.AddScoped<OrangeBookProductParsingService>();
             services.AddScoped<OrangeBookPatentParsingService>();
             services.AddScoped<OrangeBookExclusivityParsingService>();
+            services.AddScoped<OrangeBookPatentUseCodeParsingService>();
 
             return services.BuildServiceProvider();
 

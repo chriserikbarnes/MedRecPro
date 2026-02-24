@@ -1752,6 +1752,7 @@ namespace MedRecProConsole.Helpers
             entityTable.AddRow("Exclusivity Created", result.ExclusivityCreated.ToString("N0"));
             entityTable.AddRow("Exclusivity Updated", result.ExclusivityUpdated.ToString("N0"));
             entityTable.AddRow("Exclusivity Linked", result.ExclusivityLinkedToProduct.ToString("N0"));
+            entityTable.AddRow("Patent Use Codes", result.PatentUseCodesLoaded.ToString("N0"));
 
             AnsiConsole.Write(entityTable);
 

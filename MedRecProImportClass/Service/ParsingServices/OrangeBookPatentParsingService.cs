@@ -202,9 +202,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Critical error during Orange Book patent import.");
+                var fullMessage = getFullExceptionMessage(ex);
+                _logger.LogError(ex, "Critical error during Orange Book patent import: {FullMessage}", fullMessage);
                 result.Success = false;
-                result.Errors.Add($"Patent import critical error: {ex.Message}");
+                result.Errors.Add($"Patent import critical error: {fullMessage}");
             }
             finally
             {
@@ -311,6 +312,52 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             return !string.IsNullOrWhiteSpace(value)
                 && value.Trim().Equals("Y", StringComparison.OrdinalIgnoreCase);
+            #endregion
+        }
+
+        #endregion
+
+        #region exception helpers
+
+        /*************************************************************/
+        /// <summary>
+        /// Walks the <see cref="Exception.InnerException"/> chain and concatenates all
+        /// messages into a single string separated by " → ". This is critical for
+        /// <see cref="Microsoft.EntityFrameworkCore.DbUpdateException"/> which wraps
+        /// the actual SQL Server error in one or more inner exceptions.
+        /// </summary>
+        /// <param name="ex">The outermost exception.</param>
+        /// <returns>
+        /// A concatenated string of all exception messages in the chain,
+        /// e.g., "An error occurred while saving... → String or binary data would be truncated."
+        /// </returns>
+        /// <example>
+        /// <code>
+        /// catch (Exception ex)
+        /// {
+        ///     var fullMessage = getFullExceptionMessage(ex);
+        ///     // "An error occurred... → String or binary data would be truncated. Table 'OrangeBookPatent', column 'PatentNo'."
+        /// }
+        /// </code>
+        /// </example>
+        /// <seealso cref="ProcessPatentsFileAsync"/>
+        /// <seealso cref="upsertPatentsAsync"/>
+        private static string getFullExceptionMessage(Exception ex)
+        {
+            #region implementation
+
+            var messages = new List<string>();
+            var current = ex;
+
+            while (current != null)
+            {
+                if (!string.IsNullOrWhiteSpace(current.Message))
+                    messages.Add(current.Message);
+                current = current.InnerException;
+            }
+
+            return string.Join(" → ", messages);
+
             #endregion
         }
 
@@ -489,8 +536,140 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                 }
 
-                // Save the batch
-                await context.SaveChangesAsync(token);
+                // Save the batch — with row-level retry on failure
+                try
+                {
+                    await context.SaveChangesAsync(token);
+                }
+                catch (Exception batchEx)
+                {
+                    // Log the batch-level failure with full exception chain
+                    var batchMessage = getFullExceptionMessage(batchEx);
+                    _logger.LogError(batchEx, "Patent batch {Batch} failed (rows {Start}-{End}): {Message}",
+                        batchNumber, offset + 1, batchEnd, batchMessage);
+                    reportProgress?.Invoke($"Batch {batchNumber} failed, retrying rows individually...");
+
+                    // Discard the failed batch state and retry one row at a time
+                    context.ChangeTracker.Clear();
+
+                    // Re-load existing patents after clearing tracker
+                    existingPatents = await context.Set<OrangeBook.Patent>()
+                        .ToDictionaryAsync(
+                            p => (p.ApplType ?? string.Empty, p.ApplNo ?? string.Empty,
+                                  p.ProductNo ?? string.Empty, p.PatentNo ?? string.Empty),
+                            p => p,
+                            token);
+
+                    // Reset batch counts — will be re-accumulated during row-by-row retry
+                    batchCreated = 0;
+                    batchUpdated = 0;
+
+                    // Rewind linked/unlinked counts that were incremented during the failed batch
+                    // by replaying the batch from scratch
+                    int replayLinked = 0;
+                    int replayUnlinked = 0;
+
+                    for (int i = offset; i < batchEnd; i++)
+                    {
+                        token.ThrowIfCancellationRequested();
+
+                        var row = dataRows[i];
+                        var applType = row[COL_APPL_TYPE]?.Trim() ?? string.Empty;
+                        var applNo = row[COL_APPL_NO]?.Trim() ?? string.Empty;
+                        var productNo = row[COL_PRODUCT_NO]?.Trim() ?? string.Empty;
+                        var patentNo = row[COL_PATENT_NO]?.Trim() ?? string.Empty;
+                        var naturalKey = (applType, applNo, productNo, patentNo);
+                        var productKey = (applType, applNo, productNo);
+
+                        int? productId = productLookup.TryGetValue(productKey, out var pid) ? pid : null;
+
+                        var patentExpireDate = parseDate(row[COL_PATENT_EXPIRE_DATE]);
+                        var drugSubstanceFlag = parseYFlag(row[COL_DRUG_SUBSTANCE_FLAG]);
+                        var drugProductFlag = parseYFlag(row[COL_DRUG_PRODUCT_FLAG]);
+                        var patentUseCode = row[COL_PATENT_USE_CODE]?.Trim();
+                        var delistFlag = parseYFlag(row[COL_DELIST_FLAG]);
+                        var submissionDate = parseDate(row[COL_SUBMISSION_DATE]);
+
+                        try
+                        {
+                            if (existingPatents.TryGetValue(naturalKey, out var existing))
+                            {
+                                existing.OrangeBookProductID = productId;
+                                existing.PatentExpireDate = patentExpireDate;
+                                existing.DrugSubstanceFlag = drugSubstanceFlag;
+                                existing.DrugProductFlag = drugProductFlag;
+                                existing.PatentUseCode = string.IsNullOrWhiteSpace(patentUseCode) ? null : patentUseCode;
+                                existing.DelistFlag = delistFlag;
+                                existing.SubmissionDate = submissionDate;
+
+                                await context.SaveChangesAsync(token);
+                                batchUpdated++;
+                            }
+                            else
+                            {
+                                var newPatent = new OrangeBook.Patent
+                                {
+                                    ApplType = applType,
+                                    ApplNo = applNo,
+                                    ProductNo = productNo,
+                                    PatentNo = patentNo,
+                                    OrangeBookProductID = productId,
+                                    PatentExpireDate = patentExpireDate,
+                                    DrugSubstanceFlag = drugSubstanceFlag,
+                                    DrugProductFlag = drugProductFlag,
+                                    PatentUseCode = string.IsNullOrWhiteSpace(patentUseCode) ? null : patentUseCode,
+                                    DelistFlag = delistFlag,
+                                    SubmissionDate = submissionDate
+                                };
+
+                                context.Set<OrangeBook.Patent>().Add(newPatent);
+                                await context.SaveChangesAsync(token);
+
+                                existingPatents[naturalKey] = newPatent;
+                                batchCreated++;
+                            }
+
+                            if (productId.HasValue)
+                                replayLinked++;
+                            else
+                                replayUnlinked++;
+                        }
+                        catch (Exception rowEx)
+                        {
+                            // Log the specific failing row with all field values
+                            var rowMessage = getFullExceptionMessage(rowEx);
+                            var rowDetail = $"Row {i + 1}: ApplType={applType}, ApplNo={applNo}, " +
+                                $"ProductNo={productNo}, PatentNo={patentNo}, " +
+                                $"PatentUseCode={patentUseCode ?? "(null)"}, " +
+                                $"ExpireDate={row[COL_PATENT_EXPIRE_DATE]?.Trim()}, " +
+                                $"SubstFlag={row[COL_DRUG_SUBSTANCE_FLAG]?.Trim()}, " +
+                                $"ProdFlag={row[COL_DRUG_PRODUCT_FLAG]?.Trim()}, " +
+                                $"DelistFlag={row[COL_DELIST_FLAG]?.Trim()}, " +
+                                $"SubmDate={row[COL_SUBMISSION_DATE]?.Trim()}";
+
+                            _logger.LogError(rowEx, "Patent row failed: {RowDetail} — {Message}", rowDetail, rowMessage);
+                            result.Errors.Add($"Patent row failed ({applType}/{applNo}/{productNo}/{patentNo}): {rowMessage}");
+
+                            // Detach the failed entity so subsequent rows are not blocked
+                            context.ChangeTracker.Clear();
+
+                            // Re-load for remaining rows in the retry loop
+                            existingPatents = await context.Set<OrangeBook.Patent>()
+                                .ToDictionaryAsync(
+                                    p => (p.ApplType ?? string.Empty, p.ApplNo ?? string.Empty,
+                                          p.ProductNo ?? string.Empty, p.PatentNo ?? string.Empty),
+                                    p => p,
+                                    token);
+                        }
+                    }
+
+                    // Correct the linked/unlinked counts: subtract the original batch accumulation,
+                    // add back only what succeeded during the retry
+                    result.PatentsLinkedToProduct -= countBatchLinked(dataRows, offset, batchEnd, productLookup);
+                    result.UnlinkedPatents -= countBatchUnlinked(dataRows, offset, batchEnd, productLookup);
+                    result.PatentsLinkedToProduct += replayLinked;
+                    result.UnlinkedPatents += replayUnlinked;
+                }
 
                 result.PatentsCreated += batchCreated;
                 result.PatentsUpdated += batchUpdated;
@@ -512,6 +691,76 @@ namespace MedRecProImportClass.Service.ParsingServices
                             token);
                 }
             }
+
+            #endregion
+        }
+
+        #endregion
+
+        #region batch counting helpers
+
+        /*************************************************************/
+        /// <summary>
+        /// Counts how many rows in a batch range have a matching product in the lookup
+        /// (i.e., would have incremented <see cref="OrangeBookImportResult.PatentsLinkedToProduct"/>).
+        /// Used to correct the linked count after a batch retry.
+        /// </summary>
+        /// <param name="dataRows">The full list of parsed data rows.</param>
+        /// <param name="offset">Start index (inclusive) of the batch range.</param>
+        /// <param name="batchEnd">End index (exclusive) of the batch range.</param>
+        /// <param name="productLookup">Product natural key lookup dictionary.</param>
+        /// <returns>The number of rows in the range that matched a product.</returns>
+        /// <seealso cref="upsertPatentsAsync"/>
+        private int countBatchLinked(
+            List<string[]> dataRows, int offset, int batchEnd,
+            Dictionary<(string, string, string), int> productLookup)
+        {
+            #region implementation
+
+            int count = 0;
+            for (int i = offset; i < batchEnd; i++)
+            {
+                var row = dataRows[i];
+                var key = (row[COL_APPL_TYPE]?.Trim() ?? string.Empty,
+                           row[COL_APPL_NO]?.Trim() ?? string.Empty,
+                           row[COL_PRODUCT_NO]?.Trim() ?? string.Empty);
+                if (productLookup.ContainsKey(key))
+                    count++;
+            }
+            return count;
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Counts how many rows in a batch range do NOT have a matching product in the lookup
+        /// (i.e., would have incremented <see cref="OrangeBookImportResult.UnlinkedPatents"/>).
+        /// Used to correct the unlinked count after a batch retry.
+        /// </summary>
+        /// <param name="dataRows">The full list of parsed data rows.</param>
+        /// <param name="offset">Start index (inclusive) of the batch range.</param>
+        /// <param name="batchEnd">End index (exclusive) of the batch range.</param>
+        /// <param name="productLookup">Product natural key lookup dictionary.</param>
+        /// <returns>The number of rows in the range that did not match a product.</returns>
+        /// <seealso cref="upsertPatentsAsync"/>
+        private int countBatchUnlinked(
+            List<string[]> dataRows, int offset, int batchEnd,
+            Dictionary<(string, string, string), int> productLookup)
+        {
+            #region implementation
+
+            int count = 0;
+            for (int i = offset; i < batchEnd; i++)
+            {
+                var row = dataRows[i];
+                var key = (row[COL_APPL_TYPE]?.Trim() ?? string.Empty,
+                           row[COL_APPL_NO]?.Trim() ?? string.Empty,
+                           row[COL_PRODUCT_NO]?.Trim() ?? string.Empty);
+                if (!productLookup.ContainsKey(key))
+                    count++;
+            }
+            return count;
 
             #endregion
         }

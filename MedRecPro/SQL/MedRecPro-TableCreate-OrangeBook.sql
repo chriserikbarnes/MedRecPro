@@ -12,6 +12,7 @@
  * - OrangeBookProductMarketingCategory    Junction: OB Product <-> MarketingCategory
  * - OrangeBookProductIngredientSubstance  Junction: OB Product <-> IngredientSubstance
  * - OrangeBookApplicantOrganization       Junction: OB Applicant <-> Organization
+ * - OrangeBookPatentUseCode    Lookup for patent use code definitions
  *
  * Normalization:
  * - Applicant short name + full name extracted to lookup table
@@ -313,7 +314,7 @@ BEGIN TRY
             [ProductNo]  CHAR(3)    NOT NULL,
 
             -- Patent Information
-            [PatentNo]         VARCHAR(11) NOT NULL,
+            [PatentNo]         VARCHAR(17) NOT NULL,
             [PatentExpireDate] DATE        NULL,
             [PatentUseCode]    VARCHAR(20) NULL,
 
@@ -844,6 +845,76 @@ BEGIN TRY
     DEALLOCATE column_cursor;
 
     PRINT '    - Added extended properties for all columns';
+    PRINT '';
+
+    ---------------------------------------------------------------------------
+    -- 8. OrangeBookPatentUseCode (Lookup)
+    ---------------------------------------------------------------------------
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'OrangeBookPatentUseCode' AND schema_id = SCHEMA_ID('dbo'))
+    BEGIN
+        PRINT ' -> Creating [dbo].[OrangeBookPatentUseCode] table...';
+
+        CREATE TABLE [dbo].[OrangeBookPatentUseCode] (
+            -- Natural Primary Key
+            [PatentUseCode] VARCHAR(6)    NOT NULL,
+
+            -- Definition
+            [Definition]    VARCHAR(1000) NOT NULL,
+
+            -- Constraints
+            CONSTRAINT [PK_OrangeBookPatentUseCode] PRIMARY KEY CLUSTERED ([PatentUseCode] ASC)
+        );
+
+        PRINT '    - Table created successfully.';
+    END
+    ELSE
+    BEGIN
+        PRINT ' -> Table already exists: [dbo].[OrangeBookPatentUseCode]';
+        PRINT '    - Skipping table creation.';
+    END
+
+    -- Extended properties for OrangeBookPatentUseCode
+    SET @TableName = N'OrangeBookPatentUseCode';
+
+    SET @PropValue = N'Lookup table for FDA Orange Book patent use code definitions. Maps each Patent_Use_Code value (e.g., "U-141") to its human-readable description of the approved indication covered by the patent. Populated from an embedded JSON resource in MedRecProImportClass. Data sourced from the FDA Orange Book website Patent Use Codes and Definitions page.';
+    IF NOT EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, NULL, NULL))
+    BEGIN
+        EXEC sp_addextendedproperty
+            @name = N'MS_Description',
+            @value = @PropValue,
+            @level0type = N'SCHEMA', @level0name = @SchemaName,
+            @level1type = N'TABLE', @level1name = @TableName;
+        PRINT '    - Added table description';
+    END
+
+    DELETE FROM @ColumnDescriptions;
+    INSERT INTO @ColumnDescriptions (ColumnName, Description) VALUES
+        (N'PatentUseCode', N'Patent use code identifier (e.g., "U-1", "U-141", "U-4412"). Serves as the natural primary key. Matches Patent_Use_Code values in patent.txt and the OrangeBookPatent.PatentUseCode column.'),
+        (N'Definition', N'Human-readable description of the approved indication or method of use covered by the patent (e.g., "PREVENTION OF PREGNANCY", "TREATMENT OF HYPERTENSION"). Sourced from the FDA Patent Use Codes and Definitions publication.');
+
+    DECLARE column_cursor CURSOR FOR SELECT ColumnName, Description FROM @ColumnDescriptions;
+
+    OPEN column_cursor;
+    FETCH NEXT FROM column_cursor INTO @ColumnName, @Description;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', 'SCHEMA', @SchemaName, 'TABLE', @TableName, 'COLUMN', @ColumnName))
+        BEGIN
+            EXEC sp_addextendedproperty
+                @name = N'MS_Description',
+                @value = @Description,
+                @level0type = N'SCHEMA', @level0name = @SchemaName,
+                @level1type = N'TABLE', @level1name = @TableName,
+                @level2type = N'COLUMN', @level2name = @ColumnName;
+        END
+        FETCH NEXT FROM column_cursor INTO @ColumnName, @Description;
+    END
+
+    CLOSE column_cursor;
+    DEALLOCATE column_cursor;
+
+    PRINT '    - Added extended properties for all columns';
 
     ---------------------------------------------------------------------------
     -- Summary
@@ -861,6 +932,7 @@ BEGIN TRY
     PRINT ' - OrangeBookProductMarketingCategory junction created (if not exists)';
     PRINT ' - OrangeBookProductIngredientSubstance junction created (if not exists)';
     PRINT ' - OrangeBookApplicantOrganization junction created (if not exists)';
+    PRINT ' - OrangeBookPatentUseCode lookup created (if not exists)';
     PRINT ' - Indexes created for optimal query performance';
     PRINT ' - Extended properties added for documentation';
     PRINT ' - No foreign key constraints (managed by import module)';
@@ -891,5 +963,6 @@ GO
 
 PRINT '';
 PRINT 'Orange Book tables are ready for data import.';
-PRINT 'Source files: products.txt, patent.txt, exclusivity.txt (tilde-delimited).';
+PRINT 'Source files: products.txt, patent.txt, exclusivity.txt (tilde-delimited)';
+PRINT '              + embedded JSON resource for patent use code definitions.';
 PRINT '';

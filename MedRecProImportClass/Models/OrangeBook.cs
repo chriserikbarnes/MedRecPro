@@ -263,7 +263,10 @@ namespace MedRecProImportClass.Models
 
             /*************************************************************/
             /// <summary>
-            /// U.S. patent number (7 to 11 digits). Maps to the Patent_No column in patent.txt.
+            /// U.S. patent number. Typically 7–8 digits but may include an exclusivity code
+            /// suffix such as *PED (pediatric), *ODE (orphan drug), *NCE (new chemical entity),
+            /// *GAIN (antibiotic incentive), *PC (patent challenge), or *CGT (competitive generic).
+            /// Example: "11931377*PED". VARCHAR(17) in SQL. Maps to Patent_No in patent.txt.
             /// </summary>
             public string? PatentNo { get; set; }
 
@@ -491,6 +494,60 @@ namespace MedRecProImportClass.Models
             /// </summary>
             /// <seealso cref="Label.Organization"/>
             public int? OrganizationID { get; set; }
+
+            #endregion properties
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Lookup table for FDA Orange Book patent use code definitions.
+        /// Maps each Patent_Use_Code value (e.g., "U-141") to its human-readable
+        /// description of the approved therapeutic indication covered by the patent.
+        /// </summary>
+        /// <remarks>
+        /// The FDA Orange Book ZIP file (patent.txt) contains use code values but NOT
+        /// their definitions. Definitions are published separately on the FDA website
+        /// and maintained as an embedded JSON resource in MedRecProImportClass.
+        /// This lookup table is populated from that JSON during Orange Book import.
+        ///
+        /// Uses PatentUseCode as the natural primary key (no surrogate IDENTITY column).
+        /// The class is named <c>PatentUseCodeDefinition</c> rather than <c>PatentUseCode</c>
+        /// to avoid the C# "Color Color" ambiguity where the class name would collide
+        /// with the primary key property name.
+        ///
+        /// The <see cref="Code"/> property maps to the <c>PatentUseCode</c> database column
+        /// via <see cref="ColumnAttribute"/>.
+        /// </remarks>
+        /// <seealso cref="Patent"/>
+        /// <seealso cref="Patent.PatentUseCode"/>
+        [Table("OrangeBookPatentUseCode")]
+        public class PatentUseCodeDefinition
+        {
+            #region properties
+
+            /*************************************************************/
+            /// <summary>
+            /// The patent use code identifier (e.g., "U-1", "U-141", "U-4412").
+            /// Serves as the natural primary key. Matches Patent_Use_Code values
+            /// in patent.txt and the <see cref="Patent.PatentUseCode"/> column.
+            /// </summary>
+            /// <remarks>
+            /// Mapped to the <c>PatentUseCode</c> column in the database via
+            /// <see cref="ColumnAttribute"/>. Named <c>Code</c> in the C# model to
+            /// avoid shadowing the enclosing <see cref="PatentUseCodeDefinition"/> type name.
+            /// </remarks>
+            [Key]
+            [Column("PatentUseCode")]
+            public string? Code { get; set; }
+
+            /*************************************************************/
+            /// <summary>
+            /// Human-readable description of the approved indication or method of use
+            /// covered by the patent (e.g., "PREVENTION OF PREGNANCY",
+            /// "TREATMENT OF HYPERTENSION"). Sourced from the FDA Patent Use Codes
+            /// and Definitions publication.
+            /// </summary>
+            public string? Definition { get; set; }
 
             #endregion properties
         }

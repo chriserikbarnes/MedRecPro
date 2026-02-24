@@ -48,4 +48,8 @@
     <PackageReference Include="Microsoft.AspNetCore.Http.Features" Version="5.0.17" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\OrangeBookPatentUseCodes.json" />
+  </ItemGroup>
+
 </Project>

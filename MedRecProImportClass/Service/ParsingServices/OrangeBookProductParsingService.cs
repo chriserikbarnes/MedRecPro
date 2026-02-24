@@ -2341,6 +2341,14 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         /*************************************************************/
         /// <summary>
+        /// Number of patent use code definitions loaded from the embedded JSON resource.
+        /// Includes both new inserts and updates to existing definitions.
+        /// </summary>
+        /// <seealso cref="OrangeBook.PatentUseCodeDefinition"/>
+        public int PatentUseCodesLoaded { get; set; }
+
+        /*************************************************************/
+        /// <summary>
         /// List of error messages encountered during import.
         /// </summary>
         public List<string> Errors { get; set; } = new();
