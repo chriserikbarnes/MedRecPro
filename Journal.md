@@ -1,5 +1,7 @@
+# Journal
+
 ---
-### 2026-02-24 7:30 PM EST — Orange Book Patent Import Service
+### 2026-02-24 12:25 PM EST — Orange Book Patent Import Service
 Created `OrangeBookPatentParsingService.cs` for importing FDA Orange Book patent.txt data. The service follows the same patterns as `OrangeBookProductParsingService`: tilde-delimited file parsing, batch upsert (5,000 rows) with ChangeTracker.Clear(), dictionary-based natural key lookup, and progress reporting via callbacks.
 
 Key decisions:
@@ -18,7 +20,7 @@ Both projects build with 0 errors.
 ---
 
 ---
-### 2026-02-24 9:15 PM EST — Refactored OrangeBookImportService: Extract Private Methods from Monolithic Lambda
+### 2026-02-24 12:45 PM EST — Refactored OrangeBookImportService: Extract Private Methods from Monolithic Lambda
 Refactored `executeImportWithProgressAsync()` in `OrangeBookImportService.cs`. The `.StartAsync` lambda was ~185 lines mixing progress callback construction, message routing, phase transitions, and import orchestration. Broke it into focused private methods to eliminate duplication (DRY).
 
 **New members added (7):**
@@ -36,7 +38,7 @@ Refactored `executeImportWithProgressAsync()` in `OrangeBookImportService.cs`. T
 ---
 
 ---
-### 2026-02-24 10:45 PM EST — Orange Book Exclusivity Import Service
+### 2026-02-24 1:10 PM EST — Orange Book Exclusivity Import Service
 Created `OrangeBookExclusivityParsingService.cs` for importing FDA Orange Book exclusivity.txt data. Follows the same patterns as `OrangeBookPatentParsingService`: tilde-delimited file parsing (5 columns), batch upsert (5,000 rows) with ChangeTracker.Clear(), dictionary-based product lookup for FK resolution, and progress reporting via callbacks.
 
 Key decisions:
@@ -58,7 +60,7 @@ Both projects build with 0 errors.
 ---
 
 ---
-### 2026-02-24 11:45 PM EST — Patent Import Error Diagnostics & Row-Level Retry
+### 2026-02-24 2:30 PM EST — Patent Import Error Diagnostics & Row-Level Retry
 Fixed the Orange Book patent import error handling. The import was failing on batch 4 (rows 15001-20000) with the generic EF Core message "An error occurred while saving the entity changes. See the inner exception for details." — the actual SQL Server error was buried in `ex.InnerException` but the catch block only captured `ex.Message`.
 
 **Changes made to `OrangeBookPatentParsingService.cs`:**
@@ -78,7 +80,7 @@ Both projects build with 0 errors.
 ---
 
 ---
-### 2026-02-25 12:15 AM EST — Widen PatentNo Column for Exclusivity Code Suffixes
+### 2026-02-24 3:15 PM EST — Widen PatentNo Column for Exclusivity Code Suffixes
 The row-level retry diagnostics from the previous session pinpointed the root cause: FDA patent.txt includes patent numbers with exclusivity code suffixes (e.g., `11931377*PED` = 12 chars). The `PatentNo` column was `VARCHAR(11)`, truncating at `11931377*PE` — ~50+ rows affected.
 
 **Fix:** Widened `PatentNo` from `VARCHAR(11)` to `VARCHAR(17)`. Chose 17 to accommodate all known exclusivity suffixes (*NCE, *ODE, *PED, *GAIN, *PC, *CGT) plus future 9-digit patent numbers — worst case: 9 digits + `*` + 5-char code (*GAIN) = 15, with 2 chars buffer.
@@ -92,7 +94,7 @@ No C# logic changes needed — the entity uses `string?` with no `[MaxLength]` a
 ---
 
 ---
-### 2026-02-25 1:00 AM EST — Orange Book Patent Use Code Lookup Table (Phase D)
+### 2026-02-24 3:45 PM EST — Orange Book Patent Use Code Lookup Table (Phase D)
 Added a patent use code lookup table to the Orange Book import pipeline. The FDA `patent.txt` file contains use code values (e.g., `U-141`) in the `PatentUseCode` column but does NOT include their definitions — those are only published separately on the FDA website. Created a new embedded JSON resource + parsing service to upsert 4,409 code-to-definition mappings during import.
 
 **Approach:** Embedded JSON resource (no new NuGet dependencies — Newtonsoft.Json already available). The user had already converted the FDA Excel data to JSON. Natural PK (`PatentUseCode` VARCHAR(6)) since the code IS the key and no FK references point to this table.
