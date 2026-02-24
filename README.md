@@ -6,7 +6,8 @@ MedRecPro is a pharmaceutical structured product label (SPL) management platform
 
 - **HL7 Version**: HL7 Dec 2023 https://www.fda.gov/media/84201/download
 - **Info**: https://www.fda.gov/industry/fda-data-standards-advisory-board/structured-product-labeling-resources
-- **Data Source**: https://dailymed.nlm.nih.gov/dailymed/spl-resources-all-drug-labels.cfm
+- **SPL Data Source**: https://dailymed.nlm.nih.gov/dailymed/spl-resources-all-drug-labels.cfm
+- **Orange Book Data Source**: https://www.fda.gov/drugs/drug-approvals-and-databases/approved-drug-products-therapeutic-equivalence-evaluations-orange-book
 
 ## Technology Stack
 
@@ -47,7 +48,8 @@ The solution consists of five projects deployed to a single Azure App Service us
 | `/` | **MedRecProStatic** | Static site, marketing pages, AI chat UI, OAuth/MCP discovery metadata |
 | `/api` | **MedRecPro** | REST API: SPL parsing, label CRUD, authentication, AI interpret/synthesize |
 | `/mcp` | **MedRecProMCP** | MCP server: OAuth 2.1 gateway for Claude.ai integration |
-| _(CLI)_ | **MedRecProConsole** | Standalone bulk SPL import utility |
+| _(CLI)_ | **MedRecProConsole** | Standalone bulk import utility (SPL labels and FDA Orange Book) |
+| _(library)_ | **MedRecProImportClass** | Shared class library: entity models, parsing services, and EF Core context for SPL and Orange Book import |
 | _(test)_ | **MedRecProTest** | Unit and integration tests |
 
 ### How the Projects Relate
@@ -192,6 +194,8 @@ MedRecPro/                          # Root repository
       MedRecPro-TableNames.sql
       MedRecPro-TableTruncate.sql
       MedRecPro-TableMissingIndexes.sql
+      MedRecPro-TableCreate-OrangeBook.sql  # Orange Book table definitions (7 tables)
+      MedRecPro-AzureOrangeBookNuke.sql     # Orange Book targeted truncation
 
   MedRecProStatic/                  # Static site and AI chat interface
     Program.cs                      # Startup, middleware, OAuth discovery endpoints
@@ -269,22 +273,34 @@ MedRecPro/                          # Root repository
     Templates/
       McpDocumentation.html         # Embedded docs page
 
-  MedRecProConsole/                 # Bulk import CLI tool
-    Program.cs                      # Entry point
+  MedRecProConsole/                 # Bulk import CLI tool (SPL + Orange Book)
+    Program.cs                      # Entry point, interactive menu, CLI argument dispatch
     Services/
-      ImportService.cs              # Import orchestration
-      ImportProgressTracker.cs      # Progress tracking
+      ImportService.cs              # SPL import orchestration
+      ImportProgressTracker.cs      # SPL progress tracking
+      OrangeBookImportService.cs    # Orange Book import orchestration (ZIP extraction, truncation, progress)
     Models/
       AppSettings.cs
-      CommandLineArgs.cs
+      CommandLineArgs.cs            # CLI args: --orange-book, --nuke, --connection, --auto-quit, --verbose
       ImportParameters.cs
       ImportQueueItem.cs
       ImportResults.cs
       ImportProgressFile.cs
     Helpers/
       ConfigurationHelper.cs
-      ConsoleHelper.cs
+      ConsoleHelper.cs              # Interactive menu (import, orange-book/ob, database/db, help, quit)
       HelpDocumentation.cs
+
+  MedRecProImportClass/             # Shared class library for import operations
+    Models/
+      OrangeBook.cs                 # Orange Book entity classes (Applicant, Product, Patent, Exclusivity, junctions)
+      ... (SPL models)
+    Service/
+      ParsingServices/
+        OrangeBookProductParsingService.cs  # Orange Book products.txt parsing, batch upserts, entity matching
+        ... (20+ SPL parsers)
+    Context/
+      ApplicationDbContext.cs       # EF Core context (auto-registers OrangeBook entities via reflection)
 
   MedRecProTest/                    # Unit and integration tests
     SplImportServiceTests.cs
@@ -495,6 +511,8 @@ Database schema definitions and maintenance scripts are maintained in `MedRecPro
 | `MedRecPro-TableNames.sql` | List all table names |
 | `MedRecPro-TableTruncate.sql` | Truncate tables for reimport |
 | `MedRecPro-TableMissingIndexes.sql` | Identify missing indexes |
+| `MedRecPro-TableCreate-OrangeBook.sql` | Orange Book table definitions (7 tables, indexes, extended properties) |
+| `MedRecPro-AzureOrangeBookNuke.sql` | Targeted Orange Book truncation with safety preview mode |
 
 When updating database schemas or views, modify the scripts in `MedRecPro/SQL/` and run them against the target database. The `MedRecPro_Views.sql` file is particularly important as the navigation view queries (ingredient search, labeler search, pharmacologic class hierarchy, etc.) are defined there and power many of the API search endpoints.
 
@@ -515,6 +533,65 @@ AI skills are defined as markdown prompt files in `MedRecPro/Skills/`. Key skill
 - **Pharmacologic Class Matching** - Map drugs to pharmacologic classifications
 - **Label Content** - Retrieve and synthesize label sections
 - **Data Rescue** - Fallback strategies for missing or incomplete data
+
+## FDA Orange Book Integration
+
+The platform imports and cross-references data from the FDA's [Approved Drug Products with Therapeutic Equivalence Evaluations (Orange Book)](https://www.fda.gov/drugs/drug-approvals-and-databases/approved-drug-products-therapeutic-equivalence-evaluations-orange-book), linking FDA approval records to existing SPL label data.
+
+### Orange Book Database Schema
+
+Seven normalized tables store Orange Book data, with three junction tables linking to existing SPL entities:
+
+| Table | Purpose |
+|---|---|
+| `OrangeBookApplicant` | Pharmaceutical companies holding FDA approvals |
+| `OrangeBookProduct` | Drug products (natural key: ApplType + ApplNo + ProductNo) |
+| `OrangeBookPatent` | Patent records per product with expiration dates |
+| `OrangeBookExclusivity` | Marketing exclusivity periods (NCE, ODE, RTO, etc.) |
+| `OrangeBookProductMarketingCategory` | Junction: OB Product → SPL MarketingCategory (by application number) |
+| `OrangeBookProductIngredientSubstance` | Junction: OB Product → SPL IngredientSubstance |
+| `OrangeBookApplicantOrganization` | Junction: OB Applicant → SPL Organization |
+
+No foreign key constraints are enforced; relationships are managed by the import module. The main nuke script (`MedRecPro-AzureNuke.sql`) excludes Orange Book tables, which have their own dedicated truncation script.
+
+### Orange Book Import Process
+
+The console application (`MedRecProConsole`) imports Orange Book data from FDA-published ZIP archives containing tilde-delimited text files. The import pipeline:
+
+1. **Extract** `products.txt` from the ZIP archive
+2. **Parse** tilde-delimited rows (14 columns) into normalized entities
+3. **Upsert** applicants and products in batches (5,000 rows per batch)
+4. **Match applicants to SPL organizations** using a two-tier strategy:
+   - **Tier 1 (Normalized Exact)**: Strips corporate suffixes (INC, LLC, CORP, LTD, GMBH, etc.), punctuation, and whitespace; case-insensitive exact match
+   - **Tier 2 (Token Similarity)**: Two-pass fuzzy matching using Jaccard/containment scoring with a 0.67 threshold; strips pharma noise words on the second pass only when sufficient tokens remain
+5. **Match ingredients** to SPL IngredientSubstance records (semicolon-delimited ingredient lists parsed and matched individually)
+6. **Match products to SPL MarketingCategory** records via application number
+
+The import is idempotent (upsert-based), so re-running is safe without crash recovery queues. Real-time multi-phase progress is displayed via Spectre.Console.
+
+### Orange Book CLI Usage
+
+**Interactive mode:**
+
+```bash
+cd MedRecProConsole
+dotnet run
+# Select "orange-book" or "ob" from the menu
+```
+
+**Unattended mode:**
+
+```bash
+MedRecProConsole.exe --orange-book "path/to/EOBZIP_2026_01.zip" --nuke --auto-quit
+```
+
+| Argument | Description |
+|---|---|
+| `--orange-book <path>` | Path to Orange Book ZIP file |
+| `--nuke` | Truncate all Orange Book tables before import |
+| `--connection <name>` | Database connection name from appsettings.json |
+| `--auto-quit` | Exit after completion |
+| `--verbose` | Enable debug logging |
 
 ## Getting Started
 
@@ -585,7 +662,7 @@ cd MedRecProMCP
 dotnet run
 ```
 
-### 5. Import SPL data
+### 5. Import data
 
 Upload SPL ZIP files through the API import endpoint or use the console importer:
 
@@ -595,6 +672,8 @@ dotnet run -- --help
 ```
 
 SPL ZIP files can be downloaded from the [DailyMed SPL Resources](https://dailymed.nlm.nih.gov/dailymed/spl-resources-all-drug-labels.cfm) page.
+
+Orange Book ZIP files can be downloaded from the [FDA Orange Book Data Files](https://www.fda.gov/drugs/drug-approvals-and-databases/approved-drug-products-therapeutic-equivalence-evaluations-orange-book) page. See the [FDA Orange Book Integration](#fda-orange-book-integration) section for import details.
 
 ## Setup Pitfalls and Fixes
 

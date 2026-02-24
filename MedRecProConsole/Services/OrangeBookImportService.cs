@@ -18,18 +18,22 @@ namespace MedRecProConsole.Services
     /**************************************************************/
     /// <summary>
     /// Service responsible for orchestrating the import of FDA Orange Book products.txt
-    /// from a ZIP file. Manages dependency injection setup, ZIP extraction, optional
-    /// table truncation, and progress-tracked import via <see cref="OrangeBookProductParsingService"/>.
+    /// and patent.txt from a ZIP file. Manages dependency injection setup, ZIP extraction,
+    /// optional table truncation, and progress-tracked import via
+    /// <see cref="OrangeBookProductParsingService"/> and <see cref="OrangeBookPatentParsingService"/>.
     /// </summary>
     /// <remarks>
     /// Follows the same orchestrator pattern as <see cref="ImportService"/> but tailored for
-    /// the Orange Book single-file import workflow. The import is idempotent (upsert-based),
-    /// so crash recovery via <see cref="ImportProgressTracker"/> is not needed.
+    /// the Orange Book multi-file import workflow. Products are imported first, then patents
+    /// are imported and linked to products via natural key (ApplType, ApplNo, ProductNo).
+    /// The import is idempotent (upsert-based), so crash recovery via
+    /// <see cref="ImportProgressTracker"/> is not needed.
     ///
     /// Uses Spectre.Console for styled progress display. Console output from EF Core and
     /// logging is suppressed unless verbose mode is enabled.
     /// </remarks>
     /// <seealso cref="OrangeBookProductParsingService"/>
+    /// <seealso cref="OrangeBookPatentParsingService"/>
     /// <seealso cref="OrangeBookImportResult"/>
     /// <seealso cref="ImportService"/>
     public class OrangeBookImportService
@@ -128,6 +132,7 @@ namespace MedRecProConsole.Services
         /// </code>
         /// </example>
         /// <seealso cref="OrangeBookProductParsingService.ProcessProductsFileAsync"/>
+        /// <seealso cref="OrangeBookPatentParsingService.ProcessPatentsFileAsync"/>
         /// <seealso cref="OrangeBookImportResult"/>
         public async Task<OrangeBookImportResult> ExecuteImportAsync(
             string connectionString,
@@ -167,19 +172,25 @@ namespace MedRecProConsole.Services
                     await executeTruncationAsync(serviceProvider);
                 }
 
-                // Phase 4: Extract products.txt from ZIP
+                // Phase 4: Extract products.txt and patent.txt from ZIP
                 AnsiConsole.MarkupLine("[grey]Extracting products.txt from ZIP...[/]");
-                var fileContent = extractProductsFileFromZip(zipFilePath);
-                var totalDataRows = countDataRows(fileContent);
-                AnsiConsole.MarkupLine($"[grey]Found {totalDataRows:N0} data rows to process.[/]");
+                var productsContent = extractFileFromZip(zipFilePath, "products.txt");
+                var totalProductRows = countDataRows(productsContent);
+                AnsiConsole.MarkupLine($"[grey]Found {totalProductRows:N0} product data rows to process.[/]");
+
+                AnsiConsole.MarkupLine("[grey]Extracting patent.txt from ZIP...[/]");
+                var patentContent = extractFileFromZip(zipFilePath, "patent.txt");
+                var totalPatentRows = countDataRows(patentContent);
+                AnsiConsole.MarkupLine($"[grey]Found {totalPatentRows:N0} patent data rows to process.[/]");
                 AnsiConsole.WriteLine();
 
                 // Suppress console again during import processing
                 suppressConsoleOutput();
 
-                // Phase 5: Import with progress tracking
+                // Phase 5: Import with progress tracking (products, matching, then patents)
                 var result = await executeImportWithProgressAsync(
-                    serviceProvider, fileContent, totalDataRows, cancellationToken);
+                    serviceProvider, productsContent, totalProductRows,
+                    patentContent, totalPatentRows, cancellationToken);
 
                 // Phase 6: Finalize
                 restoreConsoleOutput();
@@ -303,25 +314,26 @@ namespace MedRecProConsole.Services
 
         /**************************************************************/
         /// <summary>
-        /// Extracts the contents of products.txt from the Orange Book ZIP file.
+        /// Extracts the contents of a named file from the Orange Book ZIP archive.
         /// </summary>
         /// <param name="zipFilePath">Full path to the Orange Book ZIP archive.</param>
-        /// <returns>The full text content of products.txt.</returns>
-        /// <exception cref="FileNotFoundException">Thrown when products.txt is not found in the ZIP archive.</exception>
+        /// <param name="fileName">Name of the file to extract (e.g., "products.txt", "patent.txt").</param>
+        /// <returns>The full text content of the requested file.</returns>
+        /// <exception cref="FileNotFoundException">Thrown when the named file is not found in the ZIP archive.</exception>
         /// <seealso cref="ZipFile"/>
         /// <seealso cref="ZipArchive"/>
-        private string extractProductsFileFromZip(string zipFilePath)
+        private string extractFileFromZip(string zipFilePath, string fileName)
         {
             #region implementation
 
             using var archive = ZipFile.OpenRead(zipFilePath);
             var entry = archive.Entries.FirstOrDefault(e =>
-                e.Name.Equals("products.txt", StringComparison.OrdinalIgnoreCase));
+                e.Name.Equals(fileName, StringComparison.OrdinalIgnoreCase));
 
             if (entry == null)
             {
                 throw new FileNotFoundException(
-                    "products.txt not found in ZIP file. " +
+                    $"{fileName} not found in ZIP file. " +
                     $"Archive contains: {string.Join(", ", archive.Entries.Select(e => e.Name))}");
             }
 
@@ -357,28 +369,35 @@ namespace MedRecProConsole.Services
 
         /**************************************************************/
         /// <summary>
-        /// Executes the import via <see cref="OrangeBookProductParsingService"/> with
-        /// Spectre.Console multi-task progress bars that track each import phase independently:
-        /// product upsert, organization matching, ingredient matching, and category matching.
+        /// Executes the import via <see cref="OrangeBookProductParsingService"/> and
+        /// <see cref="OrangeBookPatentParsingService"/> with Spectre.Console multi-task
+        /// progress bars that track each import phase independently: product upsert,
+        /// organization matching, ingredient matching, category matching, and patent upsert.
         /// </summary>
-        /// <param name="serviceProvider">DI service provider for resolving the parsing service.</param>
-        /// <param name="fileContent">The full text content of products.txt.</param>
-        /// <param name="totalDataRows">Total data rows for the product import progress bar max value.</param>
+        /// <param name="serviceProvider">DI service provider for resolving the parsing services.</param>
+        /// <param name="productsContent">The full text content of products.txt.</param>
+        /// <param name="totalProductRows">Total data rows for the product import progress bar max value.</param>
+        /// <param name="patentContent">The full text content of patent.txt.</param>
+        /// <param name="totalPatentRows">Total data rows for the patent import progress bar max value.</param>
         /// <param name="cancellationToken">Cancellation token for cooperative cancellation.</param>
         /// <returns>An <see cref="OrangeBookImportResult"/> with import statistics.</returns>
         /// <remarks>
         /// Progress tasks are created lazily as each phase begins. Matching phases start as
         /// indeterminate spinners and switch to determinate progress bars when the first
-        /// queried/total count message arrives.
+        /// queried/total count message arrives. Patents are imported after all product phases
+        /// complete, using a separate progress task.
         /// </remarks>
         /// <seealso cref="OrangeBookProductParsingService.ProcessProductsFileAsync"/>
+        /// <seealso cref="OrangeBookPatentParsingService.ProcessPatentsFileAsync"/>
         /// <seealso cref="BatchProgressPattern"/>
         /// <seealso cref="IngredientSubstringPattern"/>
         /// <seealso cref="CategorySubstringPattern"/>
         private async Task<OrangeBookImportResult> executeImportWithProgressAsync(
             ServiceProvider serviceProvider,
-            string fileContent,
-            int totalDataRows,
+            string productsContent,
+            int totalProductRows,
+            string patentContent,
+            int totalPatentRows,
             CancellationToken cancellationToken)
         {
             #region implementation
@@ -405,16 +424,16 @@ namespace MedRecProConsole.Services
                     // Create the primary product import task with row count as max value
                     var productTask = ctx.AddTask(
                         "[orange1]Importing products[/]",
-                        maxValue: Math.Max(1, totalDataRows));
+                        maxValue: Math.Max(1, totalProductRows));
 
                     // Matching phase tasks — created lazily when each phase begins
                     ProgressTask? orgMatchTask = null;
                     ProgressTask? ingredientMatchTask = null;
                     ProgressTask? categoryMatchTask = null;
 
-                    // Progress callback: routes each message to the appropriate progress task
-                    // based on message prefix and regex pattern matching
-                    Action<string> progressCallback = (message) =>
+                    // Progress callback for products: routes each message to the appropriate
+                    // progress task based on message prefix and regex pattern matching
+                    Action<string> productProgressCallback = (message) =>
                     {
                         // Product batch progress: "(X/Y rows processed)"
                         var batchMatch = BatchProgressPattern.Match(message);
@@ -521,15 +540,15 @@ namespace MedRecProConsole.Services
                         productTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
                     };
 
-                    // Resolve the parsing service and execute
+                    // ── Phase A: Products + Matching ──
                     using var scope = serviceProvider.CreateScope();
-                    var parsingService = scope.ServiceProvider
+                    var productParsingService = scope.ServiceProvider
                         .GetRequiredService<OrangeBookProductParsingService>();
 
-                    result = await parsingService.ProcessProductsFileAsync(
-                        fileContent, cancellationToken, progressCallback);
+                    result = await productParsingService.ProcessProductsFileAsync(
+                        productsContent, cancellationToken, productProgressCallback);
 
-                    // Ensure all tasks show completion
+                    // Ensure all product phase tasks show completion
                     productTask.Value = productTask.MaxValue;
                     productTask.Description = "[green]Products imported[/]";
 
@@ -549,10 +568,40 @@ namespace MedRecProConsole.Services
                     {
                         categoryMatchTask.IsIndeterminate = false;
                         categoryMatchTask.Value = categoryMatchTask.MaxValue;
-                        categoryMatchTask.Description = result!.Success
-                            ? "[green]Categories matched[/]"
-                            : "[red]Import completed with errors[/]";
+                        categoryMatchTask.Description = "[green]Categories matched[/]";
                     }
+
+                    // ── Phase B: Patents ──
+                    var patentTask = ctx.AddTask(
+                        "[orange1]Importing patents[/]",
+                        maxValue: Math.Max(1, totalPatentRows));
+
+                    // Progress callback for patents: routes batch messages to the patent task
+                    Action<string> patentProgressCallback = (message) =>
+                    {
+                        var batchMatch = BatchProgressPattern.Match(message);
+                        if (batchMatch.Success && int.TryParse(batchMatch.Groups[1].Value, out var currentRow))
+                        {
+                            patentTask.Value = currentRow;
+                            patentTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
+                            return;
+                        }
+
+                        // Default: update patent task description for non-batch messages
+                        patentTask.Description = $"[orange1]{Markup.Escape(truncateForDisplay(message))}[/]";
+                    };
+
+                    var patentParsingService = scope.ServiceProvider
+                        .GetRequiredService<OrangeBookPatentParsingService>();
+
+                    result = await patentParsingService.ProcessPatentsFileAsync(
+                        patentContent, result!, cancellationToken, patentProgressCallback);
+
+                    // Ensure patent task shows completion
+                    patentTask.Value = patentTask.MaxValue;
+                    patentTask.Description = result!.Success
+                        ? "[green]Patents imported[/]"
+                        : "[red]Import completed with errors[/]";
 
                     // Small delay to ensure the final state is rendered
                     await Task.Delay(100);
@@ -570,7 +619,7 @@ namespace MedRecProConsole.Services
         /**************************************************************/
         /// <summary>
         /// Builds the dependency injection service provider with all required services
-        /// for <see cref="OrangeBookProductParsingService"/>.
+        /// for <see cref="OrangeBookProductParsingService"/> and <see cref="OrangeBookPatentParsingService"/>.
         /// </summary>
         /// <param name="connectionString">Database connection string.</param>
         /// <param name="configuration">Application configuration.</param>
@@ -578,11 +627,12 @@ namespace MedRecProConsole.Services
         /// <returns>Configured <see cref="ServiceProvider"/> with all required registrations.</returns>
         /// <remarks>
         /// Registers the same base services as <see cref="ImportService"/> (ApplicationDbContext,
-        /// Repository, StringCipher) but replaces SPL-specific services with
-        /// <see cref="OrangeBookProductParsingService"/>.
+        /// Repository, StringCipher) but replaces SPL-specific services with the Orange Book
+        /// parsing services.
         /// </remarks>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="OrangeBookProductParsingService"/>
+        /// <seealso cref="OrangeBookPatentParsingService"/>
         private ServiceProvider buildServiceProvider(string connectionString, IConfiguration configuration, bool verboseMode)
         {
             #region implementation
@@ -626,10 +676,11 @@ namespace MedRecProConsole.Services
             // Add generic logger for Repository
             services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
 
-            // Add MedRecPro services required by OrangeBookProductParsingService
+            // Add MedRecPro services required by Orange Book parsing services
             services.AddScoped(typeof(Repository<>), typeof(Repository<>));
             services.AddTransient<StringCipher>();
             services.AddScoped<OrangeBookProductParsingService>();
+            services.AddScoped<OrangeBookPatentParsingService>();
 
             return services.BuildServiceProvider();
 

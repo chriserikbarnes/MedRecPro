@@ -2178,11 +2178,14 @@ namespace MedRecProImportClass.Service.ParsingServices
 
     /*************************************************************/
     /// <summary>
-    /// Result of an Orange Book products.txt import operation, tracking counts of
-    /// created, updated, and unmatched entities along with any errors encountered.
+    /// Result of an Orange Book import operation, tracking counts of created, updated,
+    /// and unmatched entities across all import phases (products, patents, matching)
+    /// along with any errors encountered.
     /// </summary>
     /// <seealso cref="OrangeBookProductParsingService"/>
+    /// <seealso cref="OrangeBookPatentParsingService"/>
     /// <seealso cref="OrangeBook.Product"/>
+    /// <seealso cref="OrangeBook.Patent"/>
     /// <seealso cref="OrangeBook.Applicant"/>
     /// <seealso cref="OrangeBook.ApplicantOrganization"/>
     /// <seealso cref="OrangeBook.ProductIngredientSubstance"/>
@@ -2224,6 +2227,38 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// </summary>
         /// <seealso cref="OrangeBook.Product"/>
         public int ProductsUpdated { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Number of new patent records inserted into OrangeBookPatent.
+        /// </summary>
+        /// <seealso cref="OrangeBook.Patent"/>
+        public int PatentsCreated { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Number of existing patent records updated with new field values.
+        /// </summary>
+        /// <seealso cref="OrangeBook.Patent"/>
+        public int PatentsUpdated { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Number of patent records successfully linked to a parent product
+        /// via the composite natural key (ApplType, ApplNo, ProductNo).
+        /// </summary>
+        /// <seealso cref="OrangeBook.Patent.OrangeBookProductID"/>
+        /// <seealso cref="OrangeBook.Product"/>
+        public int PatentsLinkedToProduct { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Number of patent records where no matching product was found for the
+        /// natural key (ApplType, ApplNo, ProductNo). These patents have
+        /// OrangeBookProductID set to null.
+        /// </summary>
+        /// <seealso cref="OrangeBook.Patent.OrangeBookProductID"/>
+        public int UnlinkedPatents { get; set; }
 
         /*************************************************************/
         /// <summary>
