@@ -86,7 +86,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         // Compiled regex patterns for company name normalization
         private static readonly Regex _corporateSuffixPattern = new Regex(
-            @"\b(INCORPORATED|CORPORATION|INTERNATIONAL|COMPANY|LIMITED|INC|CORP|LLC|LTD|CO|LP|LLP|AG|GMBH|SA|NV|PLC|SE|SRL|BV|SARL|PTY|USA|US|INTL|LC)\b",
+            @"\b(INCORPORATED|CORPORATION|INTERNATIONAL|COMPANY|LIMITED|INC|CORP|LLC|LTD|CO|LP|LLP|AG|GMBH|SA|NV|PLC|SE|SRL|BV|SARL|PTY|USA|US|INTL|LC|SPA|SL|KGAA)\b",
             RegexOptions.Compiled);
 
         private static readonly Regex _pharmaNoisePattern = new Regex(
@@ -99,6 +99,50 @@ namespace MedRecProImportClass.Service.ParsingServices
         private static readonly Regex _multiSpacePattern = new Regex(
             @"\s{2,}", RegexOptions.Compiled);
 
+        /*************************************************************/
+        /// <summary>
+        /// Maps corporate entity-type suffixes to their country/jurisdiction group code.
+        /// Used by <see cref="detectEntityJurisdiction"/> to identify the legal incorporation
+        /// jurisdiction from a company name's trailing suffix. Suffixes from the same jurisdiction
+        /// (e.g., INC and LLC, both US) are considered compatible during fuzzy matching;
+        /// suffixes from different jurisdictions (e.g., SPA/IT vs KGAA/DE) trigger rejection.
+        /// Suffixes not in this dictionary (CO, COMPANY, SA, PTY, USA, US, INTL, INTERNATIONAL)
+        /// are treated as jurisdiction-neutral and never trigger cross-jurisdiction rejection.
+        /// </summary>
+        /// <remarks>
+        /// Group codes: US = United States, UK = United Kingdom, DE = Germany,
+        /// IT = Italy, ES = Spain, FR = France, NL = Netherlands, EU = Societas Europaea.
+        /// </remarks>
+        /// <seealso cref="detectEntityJurisdiction"/>
+        /// <seealso cref="_corporateSuffixPattern"/>
+        private static readonly Dictionary<string, string> _entityJurisdictionGroups = new(StringComparer.Ordinal)
+        {
+            // US entity types
+            ["INC"] = "US", ["INCORPORATED"] = "US", ["CORP"] = "US", ["CORPORATION"] = "US",
+            ["LLC"] = "US", ["LP"] = "US", ["LLP"] = "US", ["LC"] = "US",
+
+            // UK / Commonwealth entity types
+            ["LTD"] = "UK", ["LIMITED"] = "UK", ["PLC"] = "UK",
+
+            // DE (German) entity types
+            ["GMBH"] = "DE", ["AG"] = "DE", ["KGAA"] = "DE",
+
+            // IT (Italian) entity types
+            ["SPA"] = "IT", ["SRL"] = "IT",
+
+            // ES (Spanish) entity type
+            ["SL"] = "ES",
+
+            // FR (French) entity type
+            ["SARL"] = "FR",
+
+            // NL (Dutch) entity types
+            ["NV"] = "NL", ["BV"] = "NL",
+
+            // EU (Societas Europaea)
+            ["SE"] = "EU"
+        };
+
         #endregion
 
         #region types
@@ -106,22 +150,29 @@ namespace MedRecProImportClass.Service.ParsingServices
         /*************************************************************/
         /// <summary>
         /// Pre-computed cache entry for an <see cref="Organization"/> record, holding
-        /// the normalized name forms and tokenized representation used during
-        /// applicant-to-organization matching.
+        /// the normalized name forms, tokenized representation, and entity jurisdiction
+        /// group used during applicant-to-organization matching.
         /// </summary>
         /// <param name="OrganizationID">The organization's primary key.</param>
         /// <param name="NormalizedName">Upper-cased name with corporate suffixes and punctuation stripped.</param>
         /// <param name="NormalizedNameStripped">Like <paramref name="NormalizedName"/> but also stripped of pharma noise words.</param>
         /// <param name="Tokens">Word tokens derived from <paramref name="NormalizedNameStripped"/> (noise-word stripped).</param>
         /// <param name="NonStrippedTokens">Word tokens derived from <paramref name="NormalizedName"/> (suffix-stripped only, preserves noise words).</param>
+        /// <param name="EntityJurisdiction">
+        /// Country/jurisdiction group code (e.g., "US", "DE", "IT") detected from the rightmost
+        /// corporate suffix in the raw organization name, or <c>null</c> if no mapped suffix was found.
+        /// Used to prevent cross-jurisdiction false positives in token-based fuzzy matching.
+        /// </param>
         /// <seealso cref="Organization"/>
         /// <seealso cref="normalizeCompanyName"/>
+        /// <seealso cref="detectEntityJurisdiction"/>
         private readonly record struct OrgCacheEntry(
             int OrganizationID,
             string NormalizedName,
             string NormalizedNameStripped,
             HashSet<string> Tokens,
-            HashSet<string> NonStrippedTokens);
+            HashSet<string> NonStrippedTokens,
+            string? EntityJurisdiction);
 
         #endregion
 
@@ -1015,12 +1066,20 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var fullNormalized = normalizeCompanyName(applicant.ApplicantFullName!);
                 var fullTokens = tokenize(fullNormalized);
 
-                // Skip names that reduce to nothing or a single very short token
+                // Skip names that reduce to nothing, a single very short token,
+                // or only pharma noise words after single-char filtering
+                // (e.g., "I 3 PHARMACEUTICALS LLC" → {"PHARMACEUTICALS"} would match everything)
                 bool fullViable = fullTokens.Count > 0
-                    && !(fullTokens.Count == 1 && fullNormalized.Length < MIN_TOKEN_LENGTH_FOR_FUZZY);
+                    && !(fullTokens.Count == 1 && fullNormalized.Length < MIN_TOKEN_LENGTH_FOR_FUZZY)
+                    && fullTokens.Any(t => !_pharmaNoisePattern.IsMatch(t));
 
                 if (!fullViable)
                     continue;
+
+                // Detect the applicant's jurisdiction group from the raw full name's rightmost
+                // entity suffix. Computed once and used as a filter in both Pass 1 and Pass 2.
+                // null = no mapped suffix found → jurisdiction-neutral → never rejected.
+                var applicantJurisdiction = detectEntityJurisdiction(applicant.ApplicantFullName!);
 
                 // ── Pass 1: score non-stripped applicant tokens against non-stripped org tokens ──
                 double bestScore = 0.0;
@@ -1029,6 +1088,14 @@ namespace MedRecProImportClass.Service.ParsingServices
                 foreach (var org in orgCache)
                 {
                     if (org.NonStrippedTokens.Count == 0)
+                        continue;
+
+                    // Cross-jurisdiction rejection: if BOTH sides have a detected jurisdiction
+                    // group and they differ, skip this org (e.g., SPA/IT vs KGAA/DE → reject).
+                    // If either side is null (neutral/no suffix), matching proceeds normally.
+                    if (applicantJurisdiction != null
+                        && org.EntityJurisdiction != null
+                        && applicantJurisdiction != org.EntityJurisdiction)
                         continue;
 
                     var (jaccard, containment) = calculateTokenSimilarity(fullTokens, org.NonStrippedTokens);
@@ -1074,6 +1141,12 @@ namespace MedRecProImportClass.Service.ParsingServices
                 foreach (var org in orgCache)
                 {
                     if (org.Tokens.Count == 0)
+                        continue;
+
+                    // Cross-jurisdiction rejection: same logic as Pass 1
+                    if (applicantJurisdiction != null
+                        && org.EntityJurisdiction != null
+                        && applicantJurisdiction != org.EntityJurisdiction)
                         continue;
 
                     var (jaccard, containment) = calculateTokenSimilarity(strippedTokens, org.Tokens);
@@ -1193,12 +1266,13 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         /*************************************************************/
         /// <summary>
-        /// Normalizes a company name for matching by stripping corporate suffixes,
+        /// Normalizes a company name for matching by collapsing dotted abbreviations,
+        /// stripping corporate suffixes (including international forms like S.P.A., S.L.),
         /// punctuation, and optionally pharmaceutical industry noise words. The result
         /// is an upper-cased, whitespace-collapsed string suitable for exact or
         /// token-based comparison.
         /// </summary>
-        /// <param name="name">Raw company name (e.g., "Pfizer Inc." or "MYLAN PHARMACEUTICALS INC").</param>
+        /// <param name="name">Raw company name (e.g., "Pfizer Inc." or "COSMA S.p.A.").</param>
         /// <param name="stripNoiseWords">
         /// When <c>true</c>, also strips common pharma noise words such as
         /// "PHARMACEUTICALS", "LABS", "THERAPEUTICS", etc. Use for Tier 2 (token similarity)
@@ -1211,6 +1285,8 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// normalizeCompanyName("MYLAN PHARMACEUTICALS INC")       // "MYLAN PHARMACEUTICALS"
         /// normalizeCompanyName("MYLAN PHARMACEUTICALS INC", true) // "MYLAN"
         /// normalizeCompanyName("G&amp;G MEDICAL")                 // "GG MEDICAL"
+        /// normalizeCompanyName("COSMA S.p.A.")                    // "COSMA"
+        /// normalizeCompanyName("Laboratorios Espana S.L.")        // "LABORATORIOS ESPANA"
         /// </code>
         /// </example>
         /// <seealso cref="_corporateSuffixPattern"/>
@@ -1227,7 +1303,13 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Strip HTML-encoded and literal ampersands
             result = result.Replace("&AMP;", " ").Replace("&", " ");
 
-            // Strip corporate suffixes (Inc, LLC, Corp, AG, Ltd, etc.)
+            // Collapse dotted abbreviations so the suffix regex can match them
+            // (e.g., "S.P.A." → "SPA", "S.L." → "SL"). Dots are stripped later
+            // anyway in the non-alphanumeric pass, but removing them here first
+            // lets \b word-boundary matching work on forms like S.P.A.
+            result = result.Replace(".", "");
+
+            // Strip corporate suffixes (Inc, LLC, Corp, AG, Ltd, SPA, etc.)
             result = _corporateSuffixPattern.Replace(result, " ");
 
             // Strip punctuation — keep only letters, digits, spaces
@@ -1255,10 +1337,12 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         /*************************************************************/
         /// <summary>
-        /// Splits a normalized company name into a set of unique word tokens.
+        /// Splits a normalized company name into a set of unique word tokens,
+        /// filtering out single-character tokens that carry no discriminating value
+        /// for company name matching (e.g., stray letters from abbreviations).
         /// </summary>
         /// <param name="normalizedName">A name previously processed by <see cref="normalizeCompanyName"/>.</param>
-        /// <returns>A <see cref="HashSet{T}"/> of word tokens, or an empty set if the name is blank.</returns>
+        /// <returns>A <see cref="HashSet{T}"/> of word tokens (length ≥ 2), or an empty set if the name is blank.</returns>
         /// <seealso cref="normalizeCompanyName"/>
         /// <seealso cref="calculateTokenSimilarity"/>
         private static HashSet<string> tokenize(string normalizedName)
@@ -1267,8 +1351,12 @@ namespace MedRecProImportClass.Service.ParsingServices
             if (string.IsNullOrWhiteSpace(normalizedName))
                 return new HashSet<string>();
 
+            // Skip single-character tokens — they inflate similarity scores without
+            // adding meaningful discrimination (e.g., "S", "P", "A" from un-collapsed
+            // dotted abbreviations or stray initials)
             return new HashSet<string>(
-                normalizedName.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+                normalizedName.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(t => t.Length >= 2));
             #endregion
         }
 
@@ -1318,6 +1406,63 @@ namespace MedRecProImportClass.Service.ParsingServices
 
         /*************************************************************/
         /// <summary>
+        /// Detects the jurisdiction group code from the rightmost corporate entity-type suffix
+        /// in a raw company name. Entity types appear at the end of names (e.g., "MERCK KGAA",
+        /// "COSMA S.p.A."), so the last match in <see cref="_corporateSuffixPattern"/> is used.
+        /// The suffix is looked up in <see cref="_entityJurisdictionGroups"/> to determine the
+        /// country group.
+        /// </summary>
+        /// <param name="rawName">
+        /// The original, unprocessed company name (e.g., "MERCK SERONO S.p.A." or "PFIZER INC").
+        /// Dots are collapsed and the string is upper-cased before regex matching.
+        /// </param>
+        /// <returns>
+        /// A jurisdiction group code (e.g., "US", "DE", "IT") if a mapped suffix is found;
+        /// <c>null</c> if no suffix is found or the suffix is jurisdiction-neutral
+        /// (e.g., CO, SA, COMPANY).
+        /// </returns>
+        /// <example>
+        /// <code>
+        /// detectEntityJurisdiction("MERCK KGAA")           // "DE"
+        /// detectEntityJurisdiction("COSMA S.p.A.")         // "IT"
+        /// detectEntityJurisdiction("PFIZER INC")           // "US"
+        /// detectEntityJurisdiction("ACME COMPANY")         // null (neutral)
+        /// detectEntityJurisdiction("SOME PHARMA")          // null (no suffix)
+        /// </code>
+        /// </example>
+        /// <seealso cref="_entityJurisdictionGroups"/>
+        /// <seealso cref="_corporateSuffixPattern"/>
+        /// <seealso cref="matchByTokenSimilarity"/>
+        private static string? detectEntityJurisdiction(string rawName)
+        {
+            #region implementation
+            if (string.IsNullOrWhiteSpace(rawName))
+                return null;
+
+            // Upper-case and strip dots so "S.p.A." becomes "SPA", "K.G.a.A." becomes "KGAA"
+            // — same normalization as normalizeCompanyName before suffix regex matching
+            var prepared = rawName.ToUpperInvariant().Replace(".", "");
+
+            // Find all suffix matches; the rightmost (last) one is the entity type
+            // because corporate suffixes appear at the end of names
+            var matches = _corporateSuffixPattern.Matches(prepared);
+
+            if (matches.Count == 0)
+                return null;
+
+            // Take the last match — rightmost suffix is the entity type
+            var lastSuffix = matches[matches.Count - 1].Value;
+
+            // Look up in the jurisdiction groups; returns null for neutral suffixes
+            // (CO, COMPANY, SA, PTY, USA, US, INTL, INTERNATIONAL — not in the dictionary)
+            return _entityJurisdictionGroups.TryGetValue(lastSuffix, out var jurisdiction)
+                ? jurisdiction
+                : null;
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
         /// Loads all <see cref="Organization"/> records from the database and pre-computes
         /// normalized name forms and token sets for efficient in-memory matching.
         /// </summary>
@@ -1349,12 +1494,17 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (string.IsNullOrEmpty(normalized))
                     continue;
 
+                // Detect jurisdiction group from the raw org name's rightmost entity suffix
+                // (e.g., "COSMA S.p.A." → "IT", "PFIZER INC" → "US", "ACME CO" → null)
+                var entityJurisdiction = detectEntityJurisdiction(org.OrganizationName!);
+
                 cache.Add(new OrgCacheEntry(
                     org.OrganizationID!.Value,
                     normalized,
                     stripped,
                     tokens,
-                    nonStrippedTokens));
+                    nonStrippedTokens,
+                    entityJurisdiction));
             }
 
             _logger.LogInformation("Loaded {Count} organizations into matching cache", cache.Count);
