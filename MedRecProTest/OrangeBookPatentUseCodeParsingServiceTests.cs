@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 
 namespace MedRecPro.Service.Test
@@ -21,6 +22,9 @@ namespace MedRecPro.Service.Test
     /// and result count tracking. The service reads from an embedded
     /// resource (no file content parameter), so tests exercise the
     /// full pipeline including resource loading.
+    ///
+    /// Pipeline tests use shared-cache named SQLite in-memory databases with a sentinel
+    /// connection so the DB survives the service's finally { connection.CloseAsync() } block.
     /// </remarks>
     /// <seealso cref="OrangeBookPatentUseCodeParsingService"/>
     /// <seealso cref="OrangeBook.PatentUseCodeDefinition"/>
@@ -71,6 +75,7 @@ namespace MedRecPro.Service.Test
                 catch (Microsoft.Data.Sqlite.SqliteException)
                 {
                     // Skip statements with unsupported SQL Server constructs
+                    // or already-existing objects on re-import calls
                 }
             }
 
@@ -102,6 +107,34 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Creates a shared named in-memory SQLite database that survives connection close/reopen.
+        /// The service's finally block calls connection.CloseAsync(), which destroys a regular
+        /// DataSource=:memory: database. A shared named DB + sentinel connection keeps it alive.
+        /// </summary>
+        /// <returns>
+        /// A tuple of (sentinelConnection, serviceConnection).
+        /// The sentinel must stay open for the DB's lifetime. Caller must dispose both connections.
+        /// </returns>
+        private (SqliteConnection sentinel, SqliteConnection connection) createSharedMemoryDb()
+        {
+            #region implementation
+            var dbName = $"file:test_{Guid.NewGuid():N}?mode=memory&cache=shared";
+            var connStr = $"DataSource={dbName}";
+
+            // Sentinel keeps the DB alive even when service closes its connection
+            var sentinel = new SqliteConnection(connStr);
+            sentinel.Open();
+
+            // Service connection — will be closed/reopened by service and tests
+            var connection = new SqliteConnection(connStr);
+            connection.Open();
+
+            return (sentinel, connection);
+            #endregion
+        }
+
         #endregion
 
         #region Test Methods — ProcessPatentUseCodesAsync
@@ -117,28 +150,52 @@ namespace MedRecPro.Service.Test
         public async Task ProcessPatentUseCodesAsync_InsertsAllCodes()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var result = new OrangeBookImportResult();
 
-            // Act
-            result = await service.ProcessPatentUseCodesAsync(result, CancellationToken.None);
-
-            // Assert
-            var records = await context.Set<OrangeBook.PatentUseCodeDefinition>().ToListAsync();
-            Assert.IsTrue(records.Count > 0, "Should insert at least one patent use code definition");
-            Assert.AreEqual(records.Count, result.PatentUseCodesLoaded, "PatentUseCodesLoaded should match inserted count");
-            Assert.IsTrue(result.Success, "Import should succeed");
-
-            // Verify a known use code exists with a non-empty definition
-            var u141 = records.FirstOrDefault(r => r.Code == "U-141");
-            if (u141 != null)
+            try
             {
-                Assert.IsFalse(string.IsNullOrWhiteSpace(u141.Definition),
-                    "U-141 should have a non-empty definition");
+                // Act
+                result = await service.ProcessPatentUseCodesAsync(result, CancellationToken.None);
+
+                // Debug trace
+                Debug.WriteLine($"[InsertsAllCodes] Success={result.Success}, " +
+                    $"PatentUseCodesLoaded={result.PatentUseCodesLoaded}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var records = await context.Set<OrangeBook.PatentUseCodeDefinition>().ToListAsync();
+                Assert.IsTrue(records.Count > 0, "Should insert at least one patent use code definition");
+                Assert.AreEqual(records.Count, result.PatentUseCodesLoaded, "PatentUseCodesLoaded should match inserted count");
+                Assert.IsTrue(result.Success, "Import should succeed");
+
+                // Verify a known use code exists with a non-empty definition
+                var u141 = records.FirstOrDefault(r => r.Code == "U-141");
+                if (u141 != null)
+                {
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(u141.Definition),
+                        "U-141 should have a non-empty definition");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[InsertsAllCodes] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
             }
             #endregion
         }
@@ -153,27 +210,57 @@ namespace MedRecPro.Service.Test
         public async Task ProcessPatentUseCodesAsync_UpdatesExistingDefinition()
         {
             #region implementation
-            // Arrange — first import
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — first import using shared-cache DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var result1 = new OrangeBookImportResult();
-            await service.ProcessPatentUseCodesAsync(result1, CancellationToken.None);
-            var countAfterFirst = await context.Set<OrangeBook.PatentUseCodeDefinition>().CountAsync();
 
-            // Arrange — second import (should update, not duplicate)
-            using var context2 = createTestContext(connection);
-            var service2 = createService(context2);
-            var result2 = new OrangeBookImportResult();
+            try
+            {
+                await service.ProcessPatentUseCodesAsync(result1, CancellationToken.None);
 
-            // Act
-            await service2.ProcessPatentUseCodesAsync(result2, CancellationToken.None);
+                // Reopen connection after first import
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+                var countAfterFirst = await context.Set<OrangeBook.PatentUseCodeDefinition>().CountAsync();
 
-            // Assert
-            var countAfterSecond = await context2.Set<OrangeBook.PatentUseCodeDefinition>().CountAsync();
-            Assert.AreEqual(countAfterFirst, countAfterSecond,
-                "Re-import should not create duplicate records (same count as first import)");
+                Debug.WriteLine($"[UpdatesExistingDefinition] First import: countAfterFirst={countAfterFirst}");
+
+                // Arrange — second import (should update, not duplicate)
+                using var context2 = createTestContext(connection);
+                var service2 = createService(context2);
+                var result2 = new OrangeBookImportResult();
+
+                // Act
+                await service2.ProcessPatentUseCodesAsync(result2, CancellationToken.None);
+
+                // Debug trace
+                Debug.WriteLine($"[UpdatesExistingDefinition] Success={result2.Success}, " +
+                    $"PatentUseCodesLoaded={result2.PatentUseCodesLoaded}, " +
+                    $"Errors=[{string.Join("; ", result2.Errors)}]");
+
+                // Reopen connection after second import
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var countAfterSecond = await context2.Set<OrangeBook.PatentUseCodeDefinition>().CountAsync();
+                Assert.AreEqual(countAfterFirst, countAfterSecond,
+                    "Re-import should not create duplicate records (same count as first import)");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[UpdatesExistingDefinition] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -186,19 +273,40 @@ namespace MedRecPro.Service.Test
         public async Task ProcessPatentUseCodesAsync_SetsResultCount()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var result = new OrangeBookImportResult();
 
-            // Act
-            result = await service.ProcessPatentUseCodesAsync(result, CancellationToken.None);
+            try
+            {
+                // Act
+                result = await service.ProcessPatentUseCodesAsync(result, CancellationToken.None);
 
-            // Assert
-            Assert.IsTrue(result.PatentUseCodesLoaded > 0,
-                "PatentUseCodesLoaded should be positive after successful import");
+                // Debug trace
+                Debug.WriteLine($"[SetsResultCount] Success={result.Success}, " +
+                    $"PatentUseCodesLoaded={result.PatentUseCodesLoaded}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Assert
+                Assert.IsTrue(result.PatentUseCodesLoaded > 0,
+                    "PatentUseCodesLoaded should be positive after successful import");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SetsResultCount] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 

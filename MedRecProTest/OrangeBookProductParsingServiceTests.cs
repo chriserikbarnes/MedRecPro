@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using LabelContainer = MedRecProImportClass.Models.Label;
 
@@ -24,6 +25,9 @@ namespace MedRecPro.Service.Test
     /// - Token similarity calculation (Jaccard and containment)
     /// - Jurisdiction detection from corporate suffixes
     /// - Full pipeline: applicant/product upsert, org/ingredient/category matching
+    ///
+    /// Pipeline tests use shared-cache named SQLite in-memory databases with a sentinel
+    /// connection so the DB survives the service's finally { connection.CloseAsync() } block.
     /// </remarks>
     /// <seealso cref="OrangeBookProductParsingService"/>
     /// <seealso cref="OrangeBook.Product"/>
@@ -150,6 +154,34 @@ namespace MedRecPro.Service.Test
             var lines = new List<string> { ProductHeader };
             lines.AddRange(rows);
             return string.Join("\n", lines);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a shared named in-memory SQLite database that survives connection close/reopen.
+        /// The service's finally block calls connection.CloseAsync(), which destroys a regular
+        /// DataSource=:memory: database. A shared named DB + sentinel connection keeps it alive.
+        /// </summary>
+        /// <returns>
+        /// A tuple of (sentinelConnection, serviceConnection).
+        /// The sentinel must stay open for the DB's lifetime. Caller must dispose both connections.
+        /// </returns>
+        private (SqliteConnection sentinel, SqliteConnection connection) createSharedMemoryDb()
+        {
+            #region implementation
+            var dbName = $"file:test_{Guid.NewGuid():N}?mode=memory&cache=shared";
+            var connStr = $"DataSource={dbName}";
+
+            // Sentinel keeps the DB alive even when service closes its connection
+            var sentinel = new SqliteConnection(connStr);
+            sentinel.Open();
+
+            // Service connection — will be closed/reopened by service and tests
+            var connection = new SqliteConnection(connStr);
+            connection.Open();
+
+            return (sentinel, connection);
             #endregion
         }
 
@@ -707,26 +739,49 @@ namespace MedRecPro.Service.Test
         public async Task ProcessProductsFileAsync_NewProducts_CreatesApplicantsAndProducts()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            var applicants = await context.Set<OrangeBook.Applicant>().ToListAsync();
-            Assert.AreEqual(1, applicants.Count, "Should create 1 applicant");
-            Assert.AreEqual("SALIX", applicants[0].ApplicantName, "Applicant short name should be 'SALIX'");
-            Assert.AreEqual("SALIX PHARMACEUTICALS INC", applicants[0].ApplicantFullName, "Full name should be preserved");
+                // Debug trace
+                Debug.WriteLine($"[NewProducts_CreatesApplicantsAndProducts] Success={result.Success}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
 
-            var products = await context.Set<OrangeBook.Product>().ToListAsync();
-            Assert.AreEqual(1, products.Count, "Should create 1 product");
-            Assert.AreEqual(1, result.ApplicantsCreated, "ApplicantsCreated should be 1");
-            Assert.AreEqual(1, result.ProductsCreated, "ProductsCreated should be 1");
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var applicants = await context.Set<OrangeBook.Applicant>().ToListAsync();
+                Assert.AreEqual(1, applicants.Count, "Should create 1 applicant");
+                Assert.AreEqual("SALIX", applicants[0].ApplicantName, "Applicant short name should be 'SALIX'");
+                Assert.AreEqual("SALIX PHARMACEUTICALS INC", applicants[0].ApplicantFullName, "Full name should be preserved");
+
+                var products = await context.Set<OrangeBook.Product>().ToListAsync();
+                Assert.AreEqual(1, products.Count, "Should create 1 product");
+                Assert.AreEqual(1, result.ApplicantsCreated, "ApplicantsCreated should be 1");
+                Assert.AreEqual(1, result.ProductsCreated, "ProductsCreated should be 1");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NewProducts_CreatesApplicantsAndProducts] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -740,32 +795,55 @@ namespace MedRecPro.Service.Test
         public async Task ProcessProductsFileAsync_ParsesFieldsCorrectly()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            var product = await context.Set<OrangeBook.Product>().FirstAsync();
-            Assert.AreEqual("BUDESONIDE", product.Ingredient, "Ingredient should be 'BUDESONIDE'");
-            Assert.AreEqual("AEROSOL, FOAM", product.DosageForm, "DosageForm should be 'AEROSOL, FOAM' (split on last semicolon)");
-            Assert.AreEqual("RECTAL", product.Route, "Route should be 'RECTAL'");
-            Assert.AreEqual("UCERIS", product.TradeName, "TradeName should be 'UCERIS'");
-            Assert.AreEqual("2MG/ACTUATION", product.Strength, "Strength should be '2MG/ACTUATION'");
-            Assert.AreEqual("N", product.ApplType, "ApplType should be 'N'");
-            Assert.AreEqual("205613", product.ApplNo, "ApplNo should be '205613'");
-            Assert.AreEqual("001", product.ProductNo, "ProductNo should be '001'");
-            Assert.AreEqual("AB", product.TECode, "TECode should be 'AB'");
-            Assert.AreEqual(new DateTime(2023, 4, 12), product.ApprovalDate, "ApprovalDate should be Apr 12, 2023");
-            Assert.AreEqual(true, product.IsRLD, "IsRLD should be true");
-            Assert.AreEqual(true, product.IsRS, "IsRS should be true");
-            Assert.AreEqual("RX", product.Type, "Type should be 'RX'");
-            Assert.AreEqual(false, product.ApprovalDateIsPremarket, "Should not be pre-market");
+                // Debug trace
+                Debug.WriteLine($"[ParsesFieldsCorrectly] Success={result.Success}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var product = await context.Set<OrangeBook.Product>().FirstAsync();
+                Assert.AreEqual("BUDESONIDE", product.Ingredient, "Ingredient should be 'BUDESONIDE'");
+                Assert.AreEqual("AEROSOL, FOAM", product.DosageForm, "DosageForm should be 'AEROSOL, FOAM' (split on last semicolon)");
+                Assert.AreEqual("RECTAL", product.Route, "Route should be 'RECTAL'");
+                Assert.AreEqual("UCERIS", product.TradeName, "TradeName should be 'UCERIS'");
+                Assert.AreEqual("2MG/ACTUATION", product.Strength, "Strength should be '2MG/ACTUATION'");
+                Assert.AreEqual("N", product.ApplType, "ApplType should be 'N'");
+                Assert.AreEqual("205613", product.ApplNo, "ApplNo should be '205613'");
+                Assert.AreEqual("001", product.ProductNo, "ProductNo should be '001'");
+                Assert.AreEqual("AB", product.TECode, "TECode should be 'AB'");
+                Assert.AreEqual(new DateTime(2023, 4, 12), product.ApprovalDate, "ApprovalDate should be Apr 12, 2023");
+                Assert.AreEqual(true, product.IsRLD, "IsRLD should be true");
+                Assert.AreEqual(true, product.IsRS, "IsRS should be true");
+                Assert.AreEqual("RX", product.Type, "Type should be 'RX'");
+                Assert.AreEqual(false, product.ApprovalDateIsPremarket, "Should not be pre-market");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ParsesFieldsCorrectly] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -778,26 +856,53 @@ namespace MedRecPro.Service.Test
         public async Task ProcessProductsFileAsync_ExistingProduct_UpdatesFields()
         {
             #region implementation
-            // Arrange — first import
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — first import using shared-cache DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
-            await service.ProcessProductsFileAsync(buildFileContent(ValidRow1), CancellationToken.None);
 
-            // Arrange — re-import with updated strength
-            var updatedRow = "BUDESONIDE~AEROSOL, FOAM;RECTAL~UCERIS~SALIX~4MG/ACTUATION~N~205613~001~AB~Apr 12, 2023~Yes~Yes~RX~SALIX PHARMACEUTICALS INC";
-            using var context2 = createTestContext(connection);
-            var service2 = createService(context2);
+            try
+            {
+                await service.ProcessProductsFileAsync(buildFileContent(ValidRow1), CancellationToken.None);
 
-            // Act
-            var result = await service2.ProcessProductsFileAsync(buildFileContent(updatedRow), CancellationToken.None);
+                // Arrange — re-import with updated strength
+                var updatedRow = "BUDESONIDE~AEROSOL, FOAM;RECTAL~UCERIS~SALIX~4MG/ACTUATION~N~205613~001~AB~Apr 12, 2023~Yes~Yes~RX~SALIX PHARMACEUTICALS INC";
 
-            // Assert
-            var products = await context2.Set<OrangeBook.Product>().ToListAsync();
-            Assert.AreEqual(1, products.Count, "Should still have 1 product (updated, not duplicated)");
-            Assert.AreEqual("4MG/ACTUATION", products[0].Strength, "Strength should be updated to '4MG/ACTUATION'");
-            Assert.AreEqual(1, result.ProductsUpdated, "ProductsUpdated should be 1");
+                // Reopen connection and create fresh context for re-import
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+                using var context2 = createTestContext(connection);
+                var service2 = createService(context2);
+
+                // Act
+                var result = await service2.ProcessProductsFileAsync(buildFileContent(updatedRow), CancellationToken.None);
+
+                // Debug trace
+                Debug.WriteLine($"[ExistingProduct_UpdatesFields] Success={result.Success}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var products = await context2.Set<OrangeBook.Product>().ToListAsync();
+                Assert.AreEqual(1, products.Count, "Should still have 1 product (updated, not duplicated)");
+                Assert.AreEqual("4MG/ACTUATION", products[0].Strength, "Strength should be updated to '4MG/ACTUATION'");
+                Assert.AreEqual(1, result.ProductsUpdated, "ProductsUpdated should be 1");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ExistingProduct_UpdatesFields] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -810,20 +915,44 @@ namespace MedRecPro.Service.Test
         public async Task ProcessProductsFileAsync_TracksResultCounts()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1, ValidRow2);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            Assert.AreEqual(2, result.ApplicantsCreated, "Should create 2 applicants (SALIX and RANBAXY)");
-            Assert.AreEqual(2, result.ProductsCreated, "Should create 2 products");
-            Assert.IsTrue(result.Success, "Import should succeed");
+                // Debug trace
+                Debug.WriteLine($"[TracksResultCounts] Success={result.Success}, " +
+                    $"ApplicantsCreated={result.ApplicantsCreated}, ProductsCreated={result.ProductsCreated}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                Assert.AreEqual(2, result.ApplicantsCreated, "Should create 2 applicants (SALIX and RANBAXY)");
+                Assert.AreEqual(2, result.ProductsCreated, "Should create 2 products");
+                Assert.IsTrue(result.Success, "Import should succeed");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[TracksResultCounts] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -841,22 +970,46 @@ namespace MedRecPro.Service.Test
         public async Task ProcessProductsFileAsync_OrgMatchExact_CreatesJunction()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             await seedOrganization(context, "SALIX PHARMACEUTICALS INC");
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            var junctions = await context.Set<OrangeBook.ApplicantOrganization>().ToListAsync();
-            Assert.IsTrue(junctions.Count > 0, "Should create at least one applicant-organization junction");
-            Assert.AreEqual(result.OrganizationMatchesCreated, junctions.Count,
-                "OrganizationMatchesCreated should match junction count");
+                // Debug trace
+                Debug.WriteLine($"[OrgMatchExact] Success={result.Success}, " +
+                    $"OrganizationMatchesCreated={result.OrganizationMatchesCreated}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var junctions = await context.Set<OrangeBook.ApplicantOrganization>().ToListAsync();
+                Assert.IsTrue(junctions.Count > 0, "Should create at least one applicant-organization junction");
+                Assert.AreEqual(result.OrganizationMatchesCreated, junctions.Count,
+                    "OrganizationMatchesCreated should match junction count");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[OrgMatchExact] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -871,8 +1024,9 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange — seed org with similar but not identical name
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             // "SALIX PHARMACEUTICALS" shares enough tokens with "SALIX PHARMACEUTICALS INC"
             // after normalization to exceed the 0.67 threshold
@@ -880,13 +1034,36 @@ namespace MedRecPro.Service.Test
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            var junctions = await context.Set<OrangeBook.ApplicantOrganization>().ToListAsync();
-            Assert.IsTrue(junctions.Count > 0,
-                "Fuzzy matching should create a junction when token similarity exceeds threshold");
+                // Debug trace
+                Debug.WriteLine($"[OrgMatchTokenSimilarity] Success={result.Success}, " +
+                    $"OrganizationMatchesCreated={result.OrganizationMatchesCreated}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var junctions = await context.Set<OrangeBook.ApplicantOrganization>().ToListAsync();
+                Assert.IsTrue(junctions.Count > 0,
+                    "Fuzzy matching should create a junction when token similarity exceeds threshold");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[OrgMatchTokenSimilarity] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -902,20 +1079,44 @@ namespace MedRecPro.Service.Test
             #region implementation
             // Arrange — seed org with UK suffix (LTD) that shares name tokens with
             // the ValidRow1 applicant (SALIX PHARMACEUTICALS INC = US)
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             await seedOrganization(context, "SALIX PHARMACEUTICALS LTD");
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            var junctions = await context.Set<OrangeBook.ApplicantOrganization>().ToListAsync();
-            Assert.AreEqual(0, junctions.Count,
-                "Cross-jurisdiction match (US INC vs UK LTD) should be rejected");
+                // Debug trace
+                Debug.WriteLine($"[OrgMatchCrossJurisdiction] Success={result.Success}, " +
+                    $"OrganizationMatchesCreated={result.OrganizationMatchesCreated}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var junctions = await context.Set<OrangeBook.ApplicantOrganization>().ToListAsync();
+                Assert.AreEqual(0, junctions.Count,
+                    "Cross-jurisdiction match (US INC vs UK LTD) should be rejected");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[OrgMatchCrossJurisdiction] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -929,23 +1130,47 @@ namespace MedRecPro.Service.Test
         public async Task ProcessProductsFileAsync_IngredientExactMatch_CreatesJunction()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             await seedIngredientSubstance(context, "BUDESONIDE");
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            var junctions = await context.Set<OrangeBook.ProductIngredientSubstance>().ToListAsync();
-            Assert.IsTrue(junctions.Count > 0,
-                "Exact ingredient name match should create a junction");
-            Assert.AreEqual(result.IngredientSubstanceMatchesCreated, junctions.Count,
-                "IngredientSubstanceMatchesCreated should match junction count");
+                // Debug trace
+                Debug.WriteLine($"[IngredientExactMatch] Success={result.Success}, " +
+                    $"IngredientSubstanceMatchesCreated={result.IngredientSubstanceMatchesCreated}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var junctions = await context.Set<OrangeBook.ProductIngredientSubstance>().ToListAsync();
+                Assert.IsTrue(junctions.Count > 0,
+                    "Exact ingredient name match should create a junction");
+                Assert.AreEqual(result.IngredientSubstanceMatchesCreated, junctions.Count,
+                    "IngredientSubstanceMatchesCreated should match junction count");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[IngredientExactMatch] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -960,21 +1185,45 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange — seed a substance whose name contains the product ingredient
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             // "BUDESONIDE" should substring-match against "BUDESONIDE EXTENDED RELEASE"
             await seedIngredientSubstance(context, "BUDESONIDE EXTENDED RELEASE");
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            var junctions = await context.Set<OrangeBook.ProductIngredientSubstance>().ToListAsync();
-            Assert.IsTrue(junctions.Count > 0,
-                "Substring containment match should create a junction");
+                // Debug trace
+                Debug.WriteLine($"[IngredientSubstringMatch] Success={result.Success}, " +
+                    $"IngredientSubstanceMatchesCreated={result.IngredientSubstanceMatchesCreated}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var junctions = await context.Set<OrangeBook.ProductIngredientSubstance>().ToListAsync();
+                Assert.IsTrue(junctions.Count > 0,
+                    "Substring containment match should create a junction");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[IngredientSubstringMatch] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -988,23 +1237,47 @@ namespace MedRecPro.Service.Test
         public async Task ProcessProductsFileAsync_CategoryExactMatch_CreatesJunction()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             await seedMarketingCategory(context, "NDA205613");
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            var junctions = await context.Set<OrangeBook.ProductMarketingCategory>().ToListAsync();
-            Assert.IsTrue(junctions.Count > 0,
-                "Exact app number match should create a junction");
-            Assert.AreEqual(result.MarketingCategoryMatchesCreated, junctions.Count,
-                "MarketingCategoryMatchesCreated should match junction count");
+                // Debug trace
+                Debug.WriteLine($"[CategoryExactMatch] Success={result.Success}, " +
+                    $"MarketingCategoryMatchesCreated={result.MarketingCategoryMatchesCreated}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var junctions = await context.Set<OrangeBook.ProductMarketingCategory>().ToListAsync();
+                Assert.IsTrue(junctions.Count > 0,
+                    "Exact app number match should create a junction");
+                Assert.AreEqual(result.MarketingCategoryMatchesCreated, junctions.Count,
+                    "MarketingCategoryMatchesCreated should match junction count");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CategoryExactMatch] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -1019,20 +1292,44 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange — seed with just the numeric portion
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             await seedMarketingCategory(context, "205613");
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert
-            var junctions = await context.Set<OrangeBook.ProductMarketingCategory>().ToListAsync();
-            Assert.IsTrue(junctions.Count > 0,
-                "Numeric-only fallback should create a junction when full prefix doesn't match");
+                // Debug trace
+                Debug.WriteLine($"[CategoryNumericFallback] Success={result.Success}, " +
+                    $"MarketingCategoryMatchesCreated={result.MarketingCategoryMatchesCreated}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var junctions = await context.Set<OrangeBook.ProductMarketingCategory>().ToListAsync();
+                Assert.IsTrue(junctions.Count > 0,
+                    "Numeric-only fallback should create a junction when full prefix doesn't match");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CategoryNumericFallback] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -1046,28 +1343,54 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange — no organizations, ingredients, or categories seeded
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
+            try
+            {
+                // Act
+                var result = await service.ProcessProductsFileAsync(fileContent, CancellationToken.None);
 
-            // Assert — with nothing to match against, all entities should be unmatched
-            Assert.IsTrue(result.UnmatchedApplicants >= 0,
-                "UnmatchedApplicants should be tracked (0 or more depending on matching logic)");
-            Assert.IsTrue(result.UnmatchedIngredients >= 0,
-                "UnmatchedIngredients should be tracked");
-            Assert.IsTrue(result.UnmatchedProducts >= 0,
-                "UnmatchedProducts should be tracked");
-            Assert.AreEqual(0, result.OrganizationMatchesCreated,
-                "No org junctions should be created without seeded organizations");
-            Assert.AreEqual(0, result.IngredientSubstanceMatchesCreated,
-                "No ingredient junctions without seeded substances");
-            Assert.AreEqual(0, result.MarketingCategoryMatchesCreated,
-                "No category junctions without seeded categories");
+                // Debug trace
+                Debug.WriteLine($"[UnmatchedEntities] Success={result.Success}, " +
+                    $"UnmatchedApplicants={result.UnmatchedApplicants}, " +
+                    $"UnmatchedIngredients={result.UnmatchedIngredients}, " +
+                    $"UnmatchedProducts={result.UnmatchedProducts}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert — with nothing to match against, all entities should be unmatched
+                Assert.IsTrue(result.UnmatchedApplicants >= 0,
+                    "UnmatchedApplicants should be tracked (0 or more depending on matching logic)");
+                Assert.IsTrue(result.UnmatchedIngredients >= 0,
+                    "UnmatchedIngredients should be tracked");
+                Assert.IsTrue(result.UnmatchedProducts >= 0,
+                    "UnmatchedProducts should be tracked");
+                Assert.AreEqual(0, result.OrganizationMatchesCreated,
+                    "No org junctions should be created without seeded organizations");
+                Assert.AreEqual(0, result.IngredientSubstanceMatchesCreated,
+                    "No ingredient junctions without seeded substances");
+                Assert.AreEqual(0, result.MarketingCategoryMatchesCreated,
+                    "No category junctions without seeded categories");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[UnmatchedEntities] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 

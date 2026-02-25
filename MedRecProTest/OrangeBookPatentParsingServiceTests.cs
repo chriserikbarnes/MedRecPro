@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 
 namespace MedRecPro.Service.Test
@@ -19,6 +20,9 @@ namespace MedRecPro.Service.Test
     /// Tests cover line parsing (10-column validation), date parsing,
     /// Y-flag boolean parsing, exception message chain walking,
     /// full pipeline upsert with FK linking, and result count tracking.
+    ///
+    /// Pipeline tests use shared-cache named SQLite in-memory databases with a sentinel
+    /// connection so the DB survives the service's finally { connection.CloseAsync() } block.
     /// </remarks>
     /// <seealso cref="OrangeBookPatentParsingService"/>
     /// <seealso cref="OrangeBook.Patent"/>
@@ -98,6 +102,7 @@ namespace MedRecPro.Service.Test
                 catch (Microsoft.Data.Sqlite.SqliteException)
                 {
                     // Skip statements with unsupported SQL Server constructs
+                    // or already-existing objects on re-import calls
                 }
             }
 
@@ -146,6 +151,34 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Creates a shared named in-memory SQLite database that survives connection close/reopen.
+        /// The service's finally block calls connection.CloseAsync(), which destroys a regular
+        /// DataSource=:memory: database. A shared named DB + sentinel connection keeps it alive.
+        /// </summary>
+        /// <returns>
+        /// A tuple of (sentinelConnection, serviceConnection).
+        /// The sentinel must stay open for the DB's lifetime. Caller must dispose both connections.
+        /// </returns>
+        private (SqliteConnection sentinel, SqliteConnection connection) createSharedMemoryDb()
+        {
+            #region implementation
+            var dbName = $"file:test_{Guid.NewGuid():N}?mode=memory&cache=shared";
+            var connStr = $"DataSource={dbName}";
+
+            // Sentinel keeps the DB alive even when service closes its connection
+            var sentinel = new SqliteConnection(connStr);
+            sentinel.Open();
+
+            // Service connection — will be closed/reopened by service and tests
+            var connection = new SqliteConnection(connStr);
+            connection.Open();
+
+            return (sentinel, connection);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Seeds an OrangeBook.Product record for FK resolution tests.
         /// </summary>
         /// <param name="context">The test database context.</param>
@@ -171,9 +204,17 @@ namespace MedRecPro.Service.Test
 
         #endregion
 
+        #region Diagnostic
+
+        /**************************************************************/
+        /// <summary>
+        /// Diagnostic test that lists any DDL failures during schema creation.
+        /// Useful for identifying SQLite compatibility issues with the EF Core model.
+        /// </summary>
         [TestMethod]
         public void DiagnoseDdlFailures()
         {
+            #region implementation
             using var connection = new SqliteConnection("DataSource=:memory:");
             connection.Open();
             var options = new DbContextOptionsBuilder<ApplicationDbContext>()
@@ -213,7 +254,10 @@ namespace MedRecPro.Service.Test
 
             if (failures.Count > 0)
                 Assert.Fail($"DDL failures ({failures.Count}):\n{string.Join("\n", failures)}\n\nExisting OrangeBook tables: {string.Join(", ", tables)}");
+            #endregion
         }
+
+        #endregion
 
         #region Test Methods — ParseLines
 
@@ -387,33 +431,56 @@ namespace MedRecPro.Service.Test
         public async Task ProcessPatentsFileAsync_NewRecords_InsertsAll()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var result = new OrangeBookImportResult();
             var fileContent = buildFileContent(ValidRow1);
 
-            // Act
-            result = await service.ProcessPatentsFileAsync(fileContent, result, CancellationToken.None);
+            try
+            {
+                // Act
+                result = await service.ProcessPatentsFileAsync(fileContent, result, CancellationToken.None);
 
-            // Assert
-            var records = await context.Set<OrangeBook.Patent>().ToListAsync();
-            Assert.AreEqual(1, records.Count, "Should insert 1 patent record");
-            Assert.AreEqual(1, result.PatentsCreated, "PatentsCreated should be 1");
+                // Debug trace
+                Debug.WriteLine($"[NewRecords_InsertsAll] Success={result.Success}, " +
+                    $"PatentsCreated={result.PatentsCreated}, Errors=[{string.Join("; ", result.Errors)}]");
 
-            var patent = records[0];
-            Assert.AreEqual("N", patent.ApplType, "ApplType should be 'N'");
-            Assert.AreEqual("020610", patent.ApplNo, "ApplNo should be '020610'");
-            Assert.AreEqual("001", patent.ProductNo, "ProductNo should be '001'");
-            Assert.AreEqual("7625884", patent.PatentNo, "PatentNo should be '7625884'");
-            Assert.AreEqual(new DateTime(2026, 8, 24), patent.PatentExpireDate, "PatentExpireDate should be Aug 24, 2026");
-            Assert.AreEqual(true, patent.DrugSubstanceFlag, "DrugSubstanceFlag should be true (source: 'Y')");
-            Assert.AreEqual(false, patent.DrugProductFlag, "DrugProductFlag should be false (source: empty)");
-            Assert.AreEqual("U-141", patent.PatentUseCode, "PatentUseCode should be 'U-141'");
-            Assert.AreEqual(false, patent.DelistFlag, "DelistFlag should be false (source: empty)");
-            Assert.AreEqual(new DateTime(2013, 6, 27), patent.SubmissionDate, "SubmissionDate should be Jun 27, 2013");
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var records = await context.Set<OrangeBook.Patent>().ToListAsync();
+                Assert.AreEqual(1, records.Count, "Should insert 1 patent record");
+                Assert.AreEqual(1, result.PatentsCreated, "PatentsCreated should be 1");
+
+                var patent = records[0];
+                Assert.AreEqual("N", patent.ApplType, "ApplType should be 'N'");
+                Assert.AreEqual("020610", patent.ApplNo, "ApplNo should be '020610'");
+                Assert.AreEqual("001", patent.ProductNo, "ProductNo should be '001'");
+                Assert.AreEqual("7625884", patent.PatentNo, "PatentNo should be '7625884'");
+                Assert.AreEqual(new DateTime(2026, 8, 24), patent.PatentExpireDate, "PatentExpireDate should be Aug 24, 2026");
+                Assert.AreEqual(true, patent.DrugSubstanceFlag, "DrugSubstanceFlag should be true (source: 'Y')");
+                Assert.AreEqual(false, patent.DrugProductFlag, "DrugProductFlag should be false (source: empty)");
+                Assert.AreEqual("U-141", patent.PatentUseCode, "PatentUseCode should be 'U-141'");
+                Assert.AreEqual(false, patent.DelistFlag, "DelistFlag should be false (source: empty)");
+                Assert.AreEqual(new DateTime(2013, 6, 27), patent.SubmissionDate, "SubmissionDate should be Jun 27, 2013");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NewRecords_InsertsAll] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -426,29 +493,57 @@ namespace MedRecPro.Service.Test
         public async Task ProcessPatentsFileAsync_ExistingRecords_UpdatesFields()
         {
             #region implementation
-            // Arrange — first import
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — first import using shared-cache DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var result1 = new OrangeBookImportResult();
-            await service.ProcessPatentsFileAsync(buildFileContent(ValidRow1), result1, CancellationToken.None);
 
-            // Arrange — re-import with updated expire date
-            var updatedRow = "N~020610~001~7625884~Dec 31, 2030~Y~~U-141~~Jun 27, 2013";
-            using var context2 = createTestContext(connection);
-            var service2 = createService(context2);
-            var result2 = new OrangeBookImportResult();
+            try
+            {
+                await service.ProcessPatentsFileAsync(buildFileContent(ValidRow1), result1, CancellationToken.None);
 
-            // Act
-            await service2.ProcessPatentsFileAsync(buildFileContent(updatedRow), result2, CancellationToken.None);
+                // Arrange — re-import with updated expire date
+                var updatedRow = "N~020610~001~7625884~Dec 31, 2030~Y~~U-141~~Jun 27, 2013";
 
-            // Assert
-            var records = await context2.Set<OrangeBook.Patent>().ToListAsync();
-            Assert.AreEqual(1, records.Count, "Should still have 1 record (updated, not duplicated)");
-            Assert.AreEqual(0, result2.PatentsCreated, "No new patents created");
-            Assert.AreEqual(1, result2.PatentsUpdated, "One patent should be updated");
-            Assert.AreEqual(new DateTime(2030, 12, 31), records[0].PatentExpireDate, "Expire date should be updated");
+                // Reopen connection and create fresh context for re-import
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+                using var context2 = createTestContext(connection);
+                var service2 = createService(context2);
+                var result2 = new OrangeBookImportResult();
+
+                // Act
+                await service2.ProcessPatentsFileAsync(buildFileContent(updatedRow), result2, CancellationToken.None);
+
+                // Debug trace
+                Debug.WriteLine($"[ExistingRecords_UpdatesFields] Success={result2.Success}, " +
+                    $"PatentsCreated={result2.PatentsCreated}, PatentsUpdated={result2.PatentsUpdated}, " +
+                    $"Errors=[{string.Join("; ", result2.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var records = await context2.Set<OrangeBook.Patent>().ToListAsync();
+                Assert.AreEqual(1, records.Count, "Should still have 1 record (updated, not duplicated)");
+                Assert.AreEqual(0, result2.PatentsCreated, "No new patents created");
+                Assert.AreEqual(1, result2.PatentsUpdated, "One patent should be updated");
+                Assert.AreEqual(new DateTime(2030, 12, 31), records[0].PatentExpireDate, "Expire date should be updated");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ExistingRecords_UpdatesFields] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -461,21 +556,45 @@ namespace MedRecPro.Service.Test
         public async Task ProcessPatentsFileAsync_WithProductMatch_SetsProductId()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var productId = await seedProduct(context, "N", "020610", "001");
             var service = createService(context);
             var result = new OrangeBookImportResult();
 
-            // Act
-            result = await service.ProcessPatentsFileAsync(buildFileContent(ValidRow1), result, CancellationToken.None);
+            try
+            {
+                // Act
+                result = await service.ProcessPatentsFileAsync(buildFileContent(ValidRow1), result, CancellationToken.None);
 
-            // Assert
-            var records = await context.Set<OrangeBook.Patent>().ToListAsync();
-            Assert.AreEqual(productId, records[0].OrangeBookProductID, "Should link to the seeded product");
-            Assert.AreEqual(1, result.PatentsLinkedToProduct, "Should count 1 linked patent");
+                // Debug trace
+                Debug.WriteLine($"[WithProductMatch_SetsProductId] Success={result.Success}, " +
+                    $"PatentsLinkedToProduct={result.PatentsLinkedToProduct}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var records = await context.Set<OrangeBook.Patent>().ToListAsync();
+                Assert.AreEqual(productId, records[0].OrangeBookProductID, "Should link to the seeded product");
+                Assert.AreEqual(1, result.PatentsLinkedToProduct, "Should count 1 linked patent");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WithProductMatch_SetsProductId] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -488,20 +607,43 @@ namespace MedRecPro.Service.Test
         public async Task ProcessPatentsFileAsync_NullPatentUseCode_StoredAsNull()
         {
             #region implementation
-            // Arrange
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — shared-cache prevents connection.CloseAsync() from destroying the DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             var service = createService(context);
             var result = new OrangeBookImportResult();
 
-            // Act
-            result = await service.ProcessPatentsFileAsync(buildFileContent(ValidRowWhitespaceUseCode), result, CancellationToken.None);
+            try
+            {
+                // Act
+                result = await service.ProcessPatentsFileAsync(buildFileContent(ValidRowWhitespaceUseCode), result, CancellationToken.None);
 
-            // Assert
-            var records = await context.Set<OrangeBook.Patent>().ToListAsync();
-            Assert.AreEqual(1, records.Count, "Should insert 1 patent record");
-            Assert.IsNull(records[0].PatentUseCode, "Whitespace-only PatentUseCode should be stored as null");
+                // Debug trace
+                Debug.WriteLine($"[NullPatentUseCode_StoredAsNull] Success={result.Success}, " +
+                    $"PatentsCreated={result.PatentsCreated}, Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                var records = await context.Set<OrangeBook.Patent>().ToListAsync();
+                Assert.AreEqual(1, records.Count, "Should insert 1 patent record");
+                Assert.IsNull(records[0].PatentUseCode, "Whitespace-only PatentUseCode should be stored as null");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NullPatentUseCode_StoredAsNull] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
@@ -514,22 +656,47 @@ namespace MedRecPro.Service.Test
         public async Task ProcessPatentsFileAsync_TracksResultCounts()
         {
             #region implementation
-            // Arrange — seed one matching product
-            using var connection = new SqliteConnection("DataSource=:memory:");
-            await connection.OpenAsync();
+            // Arrange — seed one matching product, shared-cache DB
+            var (sentinel, connection) = createSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
             using var context = createTestContext(connection);
             await seedProduct(context, "N", "020610", "001");
             var service = createService(context);
             var result = new OrangeBookImportResult();
 
-            // Act — import 2 rows, only one matching a product
-            result = await service.ProcessPatentsFileAsync(buildFileContent(ValidRow1, ValidRow2), result, CancellationToken.None);
+            try
+            {
+                // Act — import 2 rows, only one matching a product
+                result = await service.ProcessPatentsFileAsync(buildFileContent(ValidRow1, ValidRow2), result, CancellationToken.None);
 
-            // Assert
-            Assert.AreEqual(2, result.PatentsCreated, "Should create 2 patent records");
-            Assert.AreEqual(0, result.PatentsUpdated, "No updates on first import");
-            Assert.AreEqual(1, result.PatentsLinkedToProduct, "Only ValidRow1 matches the seeded product");
-            Assert.AreEqual(1, result.UnlinkedPatents, "ValidRow2 has no matching product");
+                // Debug trace
+                Debug.WriteLine($"[TracksResultCounts] Success={result.Success}, " +
+                    $"PatentsCreated={result.PatentsCreated}, PatentsUpdated={result.PatentsUpdated}, " +
+                    $"PatentsLinkedToProduct={result.PatentsLinkedToProduct}, UnlinkedPatents={result.UnlinkedPatents}, " +
+                    $"Errors=[{string.Join("; ", result.Errors)}]");
+
+                // Reopen connection after service's finally block
+                if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+
+                // Assert
+                Assert.AreEqual(2, result.PatentsCreated, "Should create 2 patent records");
+                Assert.AreEqual(0, result.PatentsUpdated, "No updates on first import");
+                Assert.AreEqual(1, result.PatentsLinkedToProduct, "Only ValidRow1 matches the seeded product");
+                Assert.AreEqual(1, result.UnlinkedPatents, "ValidRow2 has no matching product");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[TracksResultCounts] FAILED: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"  Stack: {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Debug.WriteLine($"  Inner: {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                throw;
+            }
             #endregion
         }
 
