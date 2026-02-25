@@ -357,7 +357,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="result">Import result to track malformed row count.</param>
         /// <returns>A list of string arrays, each representing one valid data row.</returns>
         /// <seealso cref="OrangeBookImportResult"/>
-        private List<string[]> parseLines(string fileContent, OrangeBookImportResult result)
+        internal List<string[]> parseLines(string fileContent, OrangeBookImportResult result)
         {
             #region implementation
             var dataRows = new List<string[]>();
@@ -409,7 +409,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// </example>
         /// <seealso cref="OrangeBook.Product.DosageForm"/>
         /// <seealso cref="OrangeBook.Product.Route"/>
-        private (string? dosageForm, string? route) splitDfRoute(string dfRouteValue)
+        internal (string? dosageForm, string? route) splitDfRoute(string dfRouteValue)
         {
             #region implementation
             if (string.IsNullOrWhiteSpace(dfRouteValue))
@@ -449,7 +449,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <returns>The parsed date, or null if the text is empty, pre-market, or unparseable.</returns>
         /// <seealso cref="OrangeBook.Product.ApprovalDate"/>
         /// <seealso cref="OrangeBook.Product.ApprovalDateIsPremarket"/>
-        private DateTime? parseApprovalDate(string dateText, out bool isPremarket)
+        internal DateTime? parseApprovalDate(string dateText, out bool isPremarket)
         {
             #region implementation
             isPremarket = false;
@@ -489,7 +489,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <returns>True if the value is "Yes"; false otherwise.</returns>
         /// <seealso cref="OrangeBook.Product.IsRLD"/>
         /// <seealso cref="OrangeBook.Product.IsRS"/>
-        private bool parseYesNo(string value)
+        internal bool parseYesNo(string value)
         {
             #region implementation
             return !string.IsNullOrWhiteSpace(value)
@@ -505,7 +505,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="applType">The ApplType code: "N" (NDA) or "A" (ANDA).</param>
         /// <returns>The full prefix string (e.g., "NDA", "ANDA") or the raw value if unknown.</returns>
         /// <seealso cref="Label.MarketingCategory.ApplicationOrMonographIDValue"/>
-        private string mapApplTypeToPrefix(string applType)
+        internal string mapApplTypeToPrefix(string applType)
         {
             #region implementation
             return applType?.Trim().ToUpper() switch
@@ -1315,7 +1315,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// </example>
         /// <seealso cref="_corporateSuffixPattern"/>
         /// <seealso cref="_pharmaNoisePattern"/>
-        private static string normalizeCompanyName(string name, bool stripNoiseWords = false)
+        internal static string normalizeCompanyName(string name, bool stripNoiseWords = false)
         {
             #region implementation
             if (string.IsNullOrWhiteSpace(name))
@@ -1369,7 +1369,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <returns>A <see cref="HashSet{T}"/> of word tokens (length ≥ 2), or an empty set if the name is blank.</returns>
         /// <seealso cref="normalizeCompanyName"/>
         /// <seealso cref="calculateTokenSimilarity"/>
-        private static HashSet<string> tokenize(string normalizedName)
+        internal static HashSet<string> tokenize(string normalizedName)
         {
             #region implementation
             if (string.IsNullOrWhiteSpace(normalizedName))
@@ -1404,7 +1404,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// </remarks>
         /// <seealso cref="tokenize"/>
         /// <seealso cref="matchByTokenSimilarity"/>
-        private static (double jaccard, double containment) calculateTokenSimilarity(
+        internal static (double jaccard, double containment) calculateTokenSimilarity(
             HashSet<string> applicantTokens, HashSet<string> orgTokens)
         {
             #region implementation
@@ -1457,7 +1457,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <seealso cref="_entityJurisdictionGroups"/>
         /// <seealso cref="_corporateSuffixPattern"/>
         /// <seealso cref="matchByTokenSimilarity"/>
-        private static string? detectEntityJurisdiction(string rawName)
+        internal static string? detectEntityJurisdiction(string rawName)
         {
             #region implementation
             if (string.IsNullOrWhiteSpace(rawName))

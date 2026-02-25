@@ -228,7 +228,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="result">Import result to track malformed row count.</param>
         /// <returns>A list of string arrays, each representing one valid data row.</returns>
         /// <seealso cref="OrangeBookImportResult"/>
-        private List<string[]> parseLines(string fileContent, OrangeBookImportResult result)
+        internal List<string[]> parseLines(string fileContent, OrangeBookImportResult result)
         {
             #region implementation
             var dataRows = new List<string[]>();
@@ -273,7 +273,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <returns>The parsed date, or null if the text is empty or unparseable.</returns>
         /// <seealso cref="OrangeBook.Patent.PatentExpireDate"/>
         /// <seealso cref="OrangeBook.Patent.SubmissionDate"/>
-        private DateTime? parseDate(string dateText)
+        internal DateTime? parseDate(string dateText)
         {
             #region implementation
 
@@ -307,7 +307,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <seealso cref="OrangeBook.Patent.DrugSubstanceFlag"/>
         /// <seealso cref="OrangeBook.Patent.DrugProductFlag"/>
         /// <seealso cref="OrangeBook.Patent.DelistFlag"/>
-        private bool parseYFlag(string value)
+        internal bool parseYFlag(string value)
         {
             #region implementation
             return !string.IsNullOrWhiteSpace(value)
@@ -342,7 +342,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// </example>
         /// <seealso cref="ProcessPatentsFileAsync"/>
         /// <seealso cref="upsertPatentsAsync"/>
-        private static string getFullExceptionMessage(Exception ex)
+        internal static string getFullExceptionMessage(Exception ex)
         {
             #region implementation
 

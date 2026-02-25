@@ -237,7 +237,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="result">Import result to track malformed row count.</param>
         /// <returns>A list of string arrays, each representing one valid data row.</returns>
         /// <seealso cref="OrangeBookImportResult"/>
-        private List<string[]> parseLines(string fileContent, OrangeBookImportResult result)
+        internal List<string[]> parseLines(string fileContent, OrangeBookImportResult result)
         {
             #region implementation
             var dataRows = new List<string[]>();
@@ -281,7 +281,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="dateText">The raw date string from exclusivity.txt.</param>
         /// <returns>The parsed date, or null if the text is empty or unparseable.</returns>
         /// <seealso cref="OrangeBook.Exclusivity.ExclusivityDate"/>
-        private DateTime? parseDate(string dateText)
+        internal DateTime? parseDate(string dateText)
         {
             #region implementation
 
