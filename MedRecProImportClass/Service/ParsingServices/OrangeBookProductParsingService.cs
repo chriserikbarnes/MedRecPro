@@ -957,6 +957,11 @@ namespace MedRecProImportClass.Service.ParsingServices
             if (candidates.Count == 0)
                 return;
 
+            // Build jurisdiction lookup: org ID → jurisdiction code (null = neutral)
+            var orgJurisdictionLookup = new Dictionary<int, string?>();
+            foreach (var entry in orgCache)
+                orgJurisdictionLookup[entry.OrganizationID] = entry.EntityJurisdiction;
+
             // Build lookup: normalized org name (without noise stripping) → list of org IDs
             var orgNameLookup = new Dictionary<string, List<int>>();
             foreach (var entry in orgCache)
@@ -983,6 +988,11 @@ namespace MedRecProImportClass.Service.ParsingServices
                     ? normalizeCompanyName(applicant.ApplicantName!)
                     : string.Empty;
 
+                // Detect applicant jurisdiction from raw name (before normalization strips the suffix)
+                var applicantJurisdiction = !string.IsNullOrWhiteSpace(applicant.ApplicantFullName)
+                    ? detectEntityJurisdiction(applicant.ApplicantFullName!)
+                    : detectEntityJurisdiction(applicant.ApplicantName!);
+
                 bool matched = false;
 
                 // Check full name first
@@ -991,6 +1001,13 @@ namespace MedRecProImportClass.Service.ParsingServices
                 {
                     foreach (var orgId in orgIds)
                     {
+                        // Jurisdiction guard: reject cross-jurisdiction matches (e.g., DE vs IT)
+                        if (applicantJurisdiction != null
+                            && orgJurisdictionLookup.TryGetValue(orgId, out var orgJuris)
+                            && orgJuris != null
+                            && applicantJurisdiction != orgJuris)
+                            continue;
+
                         addJunctionIfNew(applicant.OrangeBookApplicantID!.Value, orgId,
                             existingPairs, newJunctions);
                     }
@@ -1003,6 +1020,13 @@ namespace MedRecProImportClass.Service.ParsingServices
                 {
                     foreach (var orgId in shortOrgIds)
                     {
+                        // Jurisdiction guard: reject cross-jurisdiction matches (e.g., DE vs IT)
+                        if (applicantJurisdiction != null
+                            && orgJurisdictionLookup.TryGetValue(orgId, out var orgJurisShort)
+                            && orgJurisShort != null
+                            && applicantJurisdiction != orgJurisShort)
+                            continue;
+
                         addJunctionIfNew(applicant.OrangeBookApplicantID!.Value, orgId,
                             existingPairs, newJunctions);
                     }
