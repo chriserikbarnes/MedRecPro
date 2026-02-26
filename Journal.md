@@ -222,3 +222,57 @@ Created the full C# data access layer for the `vw_OrangeBookPatent` database vie
 Build verified: 0 errors.
 
 ---
+
+### 2026-02-26 — DtoLabelAccess Document Tests (DtoLabelAccessDocumentTests.cs)
+Created `MedRecProTest/DtoLabelAccessDocumentTests.cs` — 14 MSTest unit tests covering the three Document-related public methods of `DtoLabelAccess`: `BuildDocumentsAsync` (paginated overload), `BuildDocumentsAsync` (GUID overload), and `GetPackageIdentifierAsync`.
+
+**Tests written (14):**
+- **Paginated overload (7):** empty database, single document, multiple documents, first page pagination, second page pagination, batch loading flag, sequential loading flag
+- **GUID overload (4):** empty database, non-existent GUID, valid GUID with filtering, batch loading with GUID
+- **GetPackageIdentifierAsync (3):** null packaging level ID returns null, non-existent ID returns null, valid ID returns DTO with full hierarchy seeded (Document -> StructuredBody -> Section -> Product -> PackagingLevel -> PackageIdentifier)
+
+Uses shared `DtoLabelAccessTestHelper` infrastructure: `CreateSharedMemoryDb()` sentinel pattern, `CreateTestContext()`, `ClearCache()` in `[TestInitialize]`, and `SeedFullDocumentHierarchyAsync` / individual seed methods. Follows all project conventions: `#region implementation` blocks, `/**************************************************************/` separators, XML doc with `<seealso cref>`, `{Method}_{Condition}_{Expected}` naming.
+
+Build verified: 0 errors (6 pre-existing warnings in other files).
+
+---
+
+### 2026-02-26 3:08 PM EST — Orange Book Patent Search Tests
+
+Created `MedRecProTest/DtoLabelAccessOrangeBookTests.cs` with 12 MSTest tests for `DtoLabelAccess.SearchOrangeBookPatentsAsync`. Tests cover the complete filter surface: empty database, no-filter return-all, individual filters (ApplicationNumber exact match, Ingredient partial match via FilterBySearchTerms, TradeName partial match, PatentNo exact match, DocumentGuid, HasPediatricFlag, HasWithdrawnCommercialReasonFlag), non-matching patent number returning empty, pagination (page 1 size 2 of 3 seeded), and multi-filter AND intersection (ApplicationNumber + HasPediatricFlag).
+
+Used `DtoLabelAccessTestHelper.SeedOrangeBookPatentView` for all seeding. Each test creates an isolated shared-cache SQLite in-memory database with sentinel connection. Asserts verify count, and spot-check DTO properties (TradeName, Ingredient) via the convenience accessors on `OrangeBookPatentDto`.
+
+Follows all project conventions: `[TestInitialize]` calls `ClearCache()`, `#region implementation` blocks, `/**************************************************************/` separators, XML doc with `<seealso cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/>`, `{Method}_{Condition}_{Expected}` naming. Build verified: 0 errors.
+
+---
+
+### 2026-02-26 3:30 PM EST — DtoLabelAccess View Navigation Tests
+
+Created `MedRecProTest/DtoLabelAccessViewNavigationTests.cs` with 67 MSTest tests covering all View Navigation methods (#4-#22) of `DtoLabelAccess`. Methods tested: SearchByApplicationNumberAsync (5 tests: empty DB, mapped DTO, numeric-only search, no match, partial/prefix match), GetApplicationNumberSummariesAsync (4 tests: empty DB, mapped DTO, marketingCategory filter, no filter returns all), SearchByPharmacologicClassAsync (3 tests: empty DB, mapped DTO, partial match), SearchByPharmacologicClassExactAsync (3 tests: empty DB, exact match, partial does NOT match), GetPharmacologicClassHierarchyAsync (3 tests: empty DB, mapped DTO, multiple rows), GetPharmacologicClassSummariesAsync (3 tests: empty DB, mapped DTO, ordering by ProductCount desc), GetIngredientActiveSummariesAsync (4 tests: empty DB, mapped DTO, minProductCount filter, ingredient name filter), GetIngredientInactiveSummariesAsync (3 tests: empty DB, mapped DTO, minProductCount filter), SearchByIngredientAsync (4 tests: empty DB, UNII exact match, substance name search, no match), GetIngredientSummariesAsync (3 tests: empty DB, mapped DTO, ingredient filter), SearchIngredientsAdvancedAsync (3 tests: empty DB, UNII search, activeOnly filter), FindProductsByApplicationNumberWithSameIngredientAsync (3 tests: empty DB, with data, no match), FindRelatedIngredientsAsync (3 tests: empty DB, active ingredient, inactive ingredient), SearchByNDCAsync (4 tests: empty DB, mapped DTO, partial match, no match), SearchByPackageNDCAsync (3 tests: empty DB, mapped DTO, partial match), SearchByLabelerAsync (3 tests: empty DB, mapped DTO, no match), GetLabelerSummariesAsync (3 tests: empty DB, mapped DTO, ordering by ProductCount desc), GetDocumentNavigationAsync (5 tests: empty DB, mapped DTO, latestOnly filter, setGuid filter, all versions), GetDocumentVersionHistoryAsync (5 tests: empty DB, by SetGUID, by DocumentGUID, no match, ordering by VersionNumber desc).
+
+All tests use isolated shared-cache SQLite in-memory databases with sentinel connections via `DtoLabelAccessTestHelper`. Follows all conventions: `[TestInitialize]` calls `ClearCache()`, `#region implementation` blocks, `/**************************************************************/` separators, XML doc with `<seealso cref>`, `{Method}_{Condition}_{Expected}` naming. Build verified: 0 errors.
+
+---
+
+### 2026-02-26 3:45 PM EST — DtoLabelAccess Content Tests (#23-#36)
+
+Created `MedRecProTest/DtoLabelAccessContentTests.cs` with 48 MSTest tests covering all content-oriented methods (#23-#36) of `DtoLabelAccess`. Methods tested: SearchBySectionCodeAsync (3 tests: empty DB, mapped DTO, non-matching code), GetSectionTypeSummariesAsync (3 tests: empty DB, mapped DTO, ordering by DocumentCount descending), GetSectionContentAsync (4 tests: empty DB, by documentGuid, by documentGuid + sectionCode filter, different documentGuid returns empty), GetDrugInteractionsAsync (3 tests: empty DB, matching UNII, no matching UNII), GetDEAScheduleProductsAsync (3 tests: empty DB, no filter returns all, scheduleCode filter), SearchProductSummaryAsync (3 tests: empty DB, mapped DTO, non-matching name), GetRelatedProductsAsync (4 tests: empty DB, by sourceProductId, by sourceDocumentGuid, by relationshipType), GetAPIEndpointGuideAsync (3 tests: empty DB, no category returns all, category filter), GetInventorySummaryAsync (3 tests: empty DB, no category returns all, category filter -- note: no pkSecret parameter), GetProductLatestLabelsAsync (4 tests: empty DB, mapped DTO, UNII filter, productName filter), GetProductIndicationsAsync (5 tests: empty DB, mapped DTO, UNII filter, productName filter, indicationSearch text filter), GetLabelSectionMarkdownAsync (4 tests: empty DB, all sections, sectionCode filter, different documentGuid), GenerateLabelMarkdownAsync (3 tests: empty export, assembled markdown with metadata, metadata extraction from first section), GenerateCleanLabelMarkdownAsync (3 tests: empty DB returns empty string + Claude API NOT called, with data returns cleaned markdown + Claude API called once, passes document title to service via Moq callback capture).
+
+All tests use isolated shared-cache SQLite in-memory databases with sentinel connections via `DtoLabelAccessTestHelper`. GenerateCleanLabelMarkdownAsync tests use Moq to mock `IClaudeApiService.GenerateCleanMarkdownAsync(string, string?)`. Build verified: 0 errors.
+
+---
+
+### 2026-02-26 3:45 PM EST — DtoLabelAccess Test Fixes (4 Failures Resolved)
+
+Fixed 4 failing tests out of 141 total DtoLabelAccess tests:
+
+**Root cause 1 — GUID format mismatch (3 tests):** EF Core 8.0 SQLite sends Guid parameters as uppercase TEXT (`'AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA'`), but our seed methods stored GUIDs as lowercase via `.ToString()`. SQLite text comparison is case-sensitive, so the WHERE clause never matched. Fix: Changed all GUID seed parameters from `.ToString()` to `.ToString("D").ToUpper()` in `DtoLabelAccessTestHelper.cs`.
+
+**Root cause 2 — LIKE overlap in DEA schedule test (1 test):** `FilterBySearchTerms("CII")` generates `LIKE '%CII%'` which matched both "CII" and "CIII" rows. Fix: Changed the non-target seed row from "CIII" to "CV" so it doesn't contain "CII".
+
+**Diagnostic approach:** Wrote a temporary test that checked `typeof(SetGUID)`, `hex(SetGUID)`, raw SQL matches (BLOB/TEXT/uppercase), EF Core's `ToQueryString()` output, and EF Core query results. This revealed that EF Core DDL uses TEXT for Guid columns and sends parameters as uppercase TEXT strings — not BLOB as initially assumed from EF Core 8.0 breaking change docs.
+
+Final results: 342 total tests (141 new DtoLabelAccess + 201 existing), all passing, zero regressions.
+
+---
