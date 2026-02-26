@@ -2531,4 +2531,102 @@ namespace MedRecPro.Models
     }
 
     #endregion Inventory Summary DTOs
+
+    #region Orange Book Patent DTOs
+
+    /**************************************************************/
+    /// <summary>
+    /// DTO for OrangeBookPatent view results.
+    /// Provides Orange Book NDA patent data with SPL label cross-references.
+    /// Includes a computed LabelLink for navigating to the FDA label when a DocumentGUID is available.
+    /// </summary>
+    /// <remarks>
+    /// The OrangeBookPatent dictionary contains all view columns with encrypted IDs.
+    /// The LabelLink property is a separate serialized field computed at runtime —
+    /// it is NOT inside the dictionary.
+    /// </remarks>
+    /// <seealso cref="LabelView.OrangeBookPatent"/>
+    /// <seealso cref="DataAccess.DtoLabelAccess"/>
+    public class OrangeBookPatentDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary containing all view columns with encrypted IDs.
+        /// </summary>
+        public required Dictionary<string, object?> OrangeBookPatent { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Relative URL to view the FDA label in a browser via XSL stylesheet transformation.
+        /// Null when no DocumentGUID is available for the patent row.
+        /// </summary>
+        /// <remarks>
+        /// Format: /api/Label/original/{DocumentGUID}/false
+        /// Consumers should prepend the base URL (scheme + host) to form an absolute URL.
+        /// </remarks>
+        /// <example>/api/Label/original/052493C7-89A3-452E-8140-04DD95F0D9E2/false</example>
+        public string? LabelLink { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Document GUID for the cross-referenced SPL label.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public Guid? DocumentGUID =>
+            OrangeBookPatent.TryGetValue(nameof(DocumentGUID), out var value)
+                ? value as Guid?
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Trade/brand name of the product.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? TradeName =>
+            OrangeBookPatent.TryGetValue(nameof(TradeName), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Active ingredient name(s) for the product.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? Ingredient =>
+            OrangeBookPatent.TryGetValue(nameof(Ingredient), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// NDA application number.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ApplicationNumber =>
+            OrangeBookPatent.TryGetValue(nameof(ApplicationNumber), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Patent number assigned by the USPTO.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? PatentNo =>
+            OrangeBookPatent.TryGetValue(nameof(PatentNo), out var value)
+                ? value as string
+                : null;
+
+        /**************************************************************/
+        /// <summary>
+        /// Patent expiration date.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public DateTime? PatentExpireDate =>
+            OrangeBookPatent.TryGetValue(nameof(PatentExpireDate), out var value)
+                ? value as DateTime?
+                : null;
+    }
+
+    #endregion Orange Book Patent DTOs
 }

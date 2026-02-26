@@ -3046,5 +3046,163 @@ namespace MedRecPro.Models
         }
 
         #endregion Inventory Summary Views
+
+        #region Orange Book Patent Views
+
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_OrangeBookPatent.
+        /// Joins Orange Book NDA product and patent data with SPL label cross-references.
+        /// Provides patent expiration tracking, use code definitions, and links to FDA labels
+        /// via DocumentGUID.
+        /// </summary>
+        /// <remarks>
+        /// Source view joins OrangeBookProduct, OrangeBookPatent, OrangeBookPatentUseCode,
+        /// and vw_ActiveIngredients. Filtered to NDA products (ApplType = 'N') with
+        /// non-null patent expiration dates.
+        ///
+        /// All rows are read-only and should be queried with AsNoTracking() for optimal performance.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var patents = await db.Set&lt;LabelView.OrangeBookPatent&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(p => p.PatentExpireDate &gt;= DateTime.Today
+        ///              &amp;&amp; p.PatentExpireDate &lt;= DateTime.Today.AddMonths(6))
+        ///     .OrderBy(p => p.PatentExpireDate)
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="Label.Product"/>
+        /// <seealso cref="Label.Document"/>
+        [Table("vw_OrangeBookPatent")]
+        public class OrangeBookPatent
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Document GUID for the cross-referenced SPL label, if available.
+            /// Used to construct label viewing URLs.
+            /// </summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Application type code. Always 'N' (NDA) for this view.
+            /// </summary>
+            public string? ApplicationType { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// NDA application number (e.g., "020702").
+            /// </summary>
+            public string? ApplicationNumber { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Product number within the application (e.g., "001").
+            /// </summary>
+            public string? ProductNo { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Active ingredient name(s) for the product.
+            /// Sourced from vw_ActiveIngredients cross-reference.
+            /// </summary>
+            public string? Ingredient { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Trade/brand name of the product (e.g., "LIPITOR").
+            /// </summary>
+            public string? TradeName { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Product strength (e.g., "10MG", "20MG;40MG").
+            /// </summary>
+            public string? Strength { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Dosage form (e.g., "TABLET", "CAPSULE").
+            /// </summary>
+            public string? DosageForm { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Route of administration (e.g., "ORAL", "INTRAVENOUS").
+            /// </summary>
+            public string? Route { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Patent number assigned by the USPTO (e.g., "RE37314").
+            /// </summary>
+            public string? PatentNo { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Patent expiration date. Always non-null in this view
+            /// (filtered by the source view definition).
+            /// </summary>
+            public DateTime? PatentExpireDate { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Patent use code identifying the type of patent claim
+            /// (e.g., "U-1", "U-2", "U-3").
+            /// </summary>
+            public string? PatentUseCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Human-readable definition of the patent use code.
+            /// Sourced from OrangeBookPatentUseCode lookup.
+            /// </summary>
+            public string? Definition { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Indicates whether the patent covers the drug substance itself.
+            /// </summary>
+            public bool? DrugSubstanceFlag { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Indicates whether the patent covers the drug product formulation.
+            /// </summary>
+            public bool? DrugProductFlag { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Indicates whether the patent has been delisted from the Orange Book.
+            /// </summary>
+            public bool? DelistFlag { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Indicates whether the product has been withdrawn for commercial reasons
+            /// (not safety-related).
+            /// </summary>
+            public bool? HasWithdrawnCommercialReasonFlag { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Indicates whether the product has pediatric exclusivity.
+            /// </summary>
+            public bool? HasPediatricFlag { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Indicates whether the product is a levothyroxine sodium product.
+            /// </summary>
+            public bool? HasLevothyroxineFlag { get; set; }
+
+            #endregion properties
+        }
+
+        #endregion Orange Book Patent Views
     }
 }
