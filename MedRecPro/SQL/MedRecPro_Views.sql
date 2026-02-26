@@ -3289,6 +3289,121 @@ GO
 
 --#endregion
 
+--#region vw_OrangeBookPatent
+
+/**************************************************************/
+-- View: vw_OrangeBookPatent
+-- Purpose: Joins Orange Book NDA products with their patent records and
+--          cross-references to SPL label DocumentGUIDs via vw_ActiveIngredients.
+--          Computes derived flags for withdrawn, pediatric, and levothyroxine cases.
+-- Usage: Patent expiration analysis, NDA-to-label cross-reference, drug substance/product
+--        patent filtering, pediatric patent detection
+-- Returns: One row per distinct product-patent combination with flags and use code definitions
+-- Indexes Used: IX_OrangeBookPatent_PatentExpireDate_Covering,
+--               IX_OrangeBookPatent_Flags_Covering,
+--               IX_OrangeBookPatent_OrangeBookProductID,
+--               IX_OrangeBookProduct_ApplNo,
+--               UX_OrangeBookProduct_ApplType_ApplNo_ProductNo
+-- See also: vw_ActiveIngredients, OrangeBookProduct, OrangeBookPatent, OrangeBookPatentUseCode
+
+IF OBJECT_ID('dbo.vw_OrangeBookPatent', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_OrangeBookPatent;
+GO
+
+CREATE VIEW dbo.vw_OrangeBookPatent
+AS
+/**************************************************************/
+-- Joins OrangeBookProduct (NDA only) with OrangeBookPatent and resolves
+-- to SPL label DocumentGUIDs via vw_ActiveIngredients. Computes flags:
+--   HasWithdrawnCommercialReasonFlag: Strength contains Federal Register note
+--   HasPediatricFlag: Matching *PED patent row exists
+--   HasLevothyroxineFlag: Strength contains Levothyroxine special note
+-- Filters: ApplType = 'N' (NDA) and PatentExpireDate IS NOT NULL
+/**************************************************************/
+SELECT DISTINCT
+    dbo.vw_ActiveIngredients.DocumentGUID,
+    dbo.OrangeBookProduct.ApplType AS ApplicationType,
+    dbo.OrangeBookProduct.ApplNo AS ApplicationNumber,
+    dbo.OrangeBookProduct.ProductNo,
+    dbo.OrangeBookProduct.Ingredient,
+    dbo.OrangeBookProduct.TradeName,
+    REPLACE(
+        REPLACE(dbo.OrangeBookProduct.Strength,
+            ' **Federal Register determination that product was not discontinued or withdrawn for safety or effectiveness reasons**',
+            ''),
+        ' **See current Annual Edition, 1.8 Description of Special Situations, Levothyroxine Sodium',
+        '') AS Strength,
+    dbo.OrangeBookProduct.DosageForm,
+    dbo.OrangeBookProduct.Route,
+    dbo.OrangeBookPatent.PatentNo,
+    dbo.OrangeBookPatent.PatentExpireDate,
+    dbo.OrangeBookPatent.PatentUseCode,
+    dbo.OrangeBookPatentUseCode.Definition,
+    dbo.OrangeBookPatent.DrugSubstanceFlag,
+    dbo.OrangeBookPatent.DrugProductFlag,
+    dbo.OrangeBookPatent.DelistFlag,
+    CASE
+        WHEN dbo.OrangeBookProduct.Strength LIKE '%**Federal Register determination%'
+        THEN CAST(1 AS BIT)
+        ELSE CAST(0 AS BIT)
+    END AS HasWithdrawnCommercialReasonFlag,
+    CASE
+        WHEN PedCheck.HasPediatric = 1 THEN CAST(1 AS BIT)
+        ELSE CAST(0 AS BIT)
+    END AS HasPediatricFlag,
+    CASE
+        WHEN dbo.OrangeBookProduct.Strength LIKE '%Special Situations, Levothyroxine Sodium'
+        THEN CAST(1 AS BIT)
+        ELSE CAST(0 AS BIT)
+    END AS HasLevothyroxineFlag
+FROM dbo.OrangeBookProduct
+LEFT OUTER JOIN dbo.OrangeBookPatent
+    ON dbo.OrangeBookProduct.ProductNo = dbo.OrangeBookPatent.ProductNo
+    AND dbo.OrangeBookPatent.OrangeBookProductID = dbo.OrangeBookProduct.OrangeBookProductID
+LEFT OUTER JOIN dbo.vw_ActiveIngredients
+    ON dbo.OrangeBookProduct.ApplNo = dbo.vw_ActiveIngredients.ApplicationNumber
+    AND dbo.OrangeBookProduct.ApplType = CASE dbo.vw_ActiveIngredients.ApplicationType
+        WHEN 'NDA' THEN 'N'
+        WHEN 'ANDA' THEN 'A'
+        WHEN 'BLA' THEN 'B'
+        ELSE LEFT(dbo.vw_ActiveIngredients.ApplicationType, 1)
+    END
+LEFT OUTER JOIN dbo.OrangeBookPatentUseCode
+    ON dbo.OrangeBookPatent.PatentUseCode = dbo.OrangeBookPatentUseCode.PatentUseCode
+OUTER APPLY (
+    SELECT TOP 1 1 AS HasPediatric
+    FROM dbo.OrangeBookPatent ped
+    WHERE ped.OrangeBookProductID = dbo.OrangeBookPatent.OrangeBookProductID
+        AND ped.ProductNo = dbo.OrangeBookPatent.ProductNo
+        AND (
+            ped.PatentNo = dbo.OrangeBookPatent.PatentNo + '*PED'
+            OR ped.PatentNo = REPLACE(dbo.OrangeBookPatent.PatentNo, '*PED', '')
+        )
+        AND ped.PatentNo <> dbo.OrangeBookPatent.PatentNo
+) PedCheck
+WHERE dbo.OrangeBookProduct.ApplType = 'N'
+    AND dbo.OrangeBookPatent.PatentExpireDate IS NOT NULL;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_OrangeBookPatent')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Joins NDA Orange Book products with patent records and cross-references to SPL label DocumentGUIDs. Includes drug substance/product/delist flags, computed withdrawn/pediatric/levothyroxine flags, and patent use code definitions.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_OrangeBookPatent';
+END
+GO
+
+PRINT 'Created view: vw_OrangeBookPatent';
+GO
+
+--#endregion
+
 PRINT '';
 PRINT '=================================================================';
 PRINT 'Additional Views and Indexes Creation Complete';
@@ -3303,6 +3418,7 @@ PRINT '  - vw_InactiveIngredients: Inactive ingredients (IACT) with normalized a
 PRINT '  - vw_ActiveIngredients: Active ingredients (non-IACT) with normalized app numbers';
 PRINT '  - vw_ProductLatestLabel: Latest label per UNII/ProductName combination';
 PRINT '  - vw_InventorySummary: Comprehensive inventory summary for AI discovery';
+PRINT '  - vw_OrangeBookPatent: NDA patent data with SPL label cross-reference and flags';
 PRINT '';
 
 GO

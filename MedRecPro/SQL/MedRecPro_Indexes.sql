@@ -2843,6 +2843,81 @@ GO
 
 --#endregion
 
+--#region vw_OrangeBookPatent View Covering Indexes
+
+/**************************************************************/
+-- Index on OrangeBookPatent.PatentExpireDate (covering for vw_OrangeBookPatent)
+-- Purpose: Supports date range queries on patent expiration through vw_OrangeBookPatent
+-- Usage: Filtering patents by expiration date, upcoming expirations, expired patents
+-- Includes: Flag columns, PatentNo, ProductNo, OrangeBookProductID, PatentUseCode
+-- See also: vw_OrangeBookPatent, OrangeBookPatent
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookPatent_PatentExpireDate_Covering' AND object_id = OBJECT_ID('dbo.OrangeBookPatent'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookPatent_PatentExpireDate_Covering
+    ON dbo.OrangeBookPatent(PatentExpireDate)
+    INCLUDE (OrangeBookProductID, ProductNo, PatentNo, PatentUseCode, DrugSubstanceFlag, DrugProductFlag, DelistFlag)
+    WHERE PatentExpireDate IS NOT NULL;
+    PRINT 'Created index: IX_OrangeBookPatent_PatentExpireDate_Covering';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookPatent_PatentExpireDate_Covering';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookPatent')
+    AND name = 'IX_OrangeBookPatent_PatentExpireDate_Covering_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookPatent_PatentExpireDate_Covering_Description',
+        @value = N'Filtered covering index for patent expiration date queries through vw_OrangeBookPatent. Excludes NULL expiration dates. Includes flag columns and join keys to avoid key lookups.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookPatent',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookPatent_PatentExpireDate_Covering';
+END
+GO
+
+/**************************************************************/
+-- Index on OrangeBookPatent flag columns (covering for vw_OrangeBookPatent)
+-- Purpose: Supports flag-based filtering through vw_OrangeBookPatent
+-- Usage: Querying by DrugSubstanceFlag, DrugProductFlag, DelistFlag combinations
+-- Includes: PatentNo, PatentExpireDate, OrangeBookProductID, ProductNo, PatentUseCode
+-- See also: vw_OrangeBookPatent, OrangeBookPatent
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrangeBookPatent_Flags_Covering' AND object_id = OBJECT_ID('dbo.OrangeBookPatent'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_OrangeBookPatent_Flags_Covering
+    ON dbo.OrangeBookPatent(DrugSubstanceFlag, DrugProductFlag, DelistFlag)
+    INCLUDE (OrangeBookProductID, ProductNo, PatentNo, PatentExpireDate, PatentUseCode);
+    PRINT 'Created index: IX_OrangeBookPatent_Flags_Covering';
+END
+ELSE
+BEGIN
+    PRINT 'Index already exists: IX_OrangeBookPatent_Flags_Covering';
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('OrangeBookPatent')
+    AND name = 'IX_OrangeBookPatent_Flags_Covering_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'IX_OrangeBookPatent_Flags_Covering_Description',
+        @value = N'Composite index on drug substance, drug product, and delist flag columns. Covers flag-based filtering queries through vw_OrangeBookPatent without key lookups.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'TABLE', @level1name = N'OrangeBookPatent',
+        @level2type = N'INDEX', @level2name = N'IX_OrangeBookPatent_Flags_Covering';
+END
+GO
+
+--#endregion
+
 /*******************************************************************************/
 /*                                                                             */
 /*  SECTION: INDEX STATISTICS AND SUMMARY                                      */
