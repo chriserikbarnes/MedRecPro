@@ -306,3 +306,11 @@ Created a new `OrangeBookController` with a `GET /api/OrangeBook/expiring` endpo
 **Files created:** `Controllers/OrangeBookController.cs`. **Files modified:** `Controllers/ApiControllerBase.cs` (pagination promotion), `Controllers/LabelController.cs` (removed private duplicates), `Models/LabelViewDto.cs` (added `OrangeBookPatentExpirationResponseDto`). Build clean, 79 Orange Book tests pass.
 
 ---
+
+### 2026-02-27 11:44 AM EST — OrangeBookController: Trade Name & Ingredient Filters
+
+Added optional `tradeName` and `ingredient` query parameters to `GET /api/OrangeBook/expiring` so users can ask questions like "when will there be a generic Ozempic?" Both use partial matching (PartialMatchAny) — "Ozem" matches "Ozempic", "semaglut" matches "semaglutide". Parameters are passed through to `SearchOrangeBookPatentsAsync` (which already supported them) and to the updated `countExpiringPatentsAsync` (which now applies `EF.Functions.Like` with `%term%` wrapping for accurate total counts).
+
+Made `expiringInMonths` optional (`int?`). When omitted with a `tradeName` or `ingredient`, the date range scopes from today through all future patents using `MaxExpirationMonths` (2880 months / 240 years). This supports open-ended queries where the caller doesn't know the expiration timeframe. At least one search parameter (`expiringInMonths`, `tradeName`, or `ingredient`) is required — returns 400 if all are blank. Build clean, 342 tests pass.
+
+---

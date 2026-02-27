@@ -33,6 +33,24 @@ namespace MedRecPro.Api.Controllers
     [ApiController]
     public class OrangeBookController : ApiControllerBase
     {
+        #region Private Constants
+
+        /**************************************************************/
+        /// <summary>
+        /// Maximum month horizon used when <c>expiringInMonths</c> is omitted.
+        /// Scopes the date range from today through ~240 years, covering all realistic
+        /// patent expiration dates. Patents typically expire within 20 years of filing,
+        /// so this provides an effectively open-ended search while still applying a
+        /// <c>&gt;= today</c> floor to exclude already-expired patents.
+        /// </summary>
+        /// <remarks>
+        /// Value of 2880 months (240 years) is safely within <see cref="DateTime.MaxValue"/>
+        /// when added to any date in the 21st century.
+        /// </remarks>
+        private const int MaxExpirationMonths = 2880;
+
+        #endregion
+
         #region Private Properties
 
         /**************************************************************/
@@ -107,7 +125,18 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         /// <param name="expiringInMonths">
         /// Number of months from today to search for expiring patents.
-        /// Must be greater than 0. Example: 6 returns patents expiring between today and 6 months from now.
+        /// Must be greater than 0 when provided. Example: 6 returns patents expiring between today and
+        /// 6 months from now. When omitted and a `tradeName` or `ingredient` is provided, the date range
+        /// defaults to today through all future dates — useful when the caller doesn't know how far out
+        /// the patent expires (e.g., "when will there be a generic Ozempic?").
+        /// </param>
+        /// <param name="tradeName">
+        /// Optional trade/brand name filter. Supports partial matching (e.g., "Ozempic", "Lipitor").
+        /// Use this to discover when patent protection expires for a specific branded drug.
+        /// </param>
+        /// <param name="ingredient">
+        /// Optional active ingredient filter. Supports partial matching (e.g., "semaglutide", "atorvastatin").
+        /// Use this when the brand name is unknown but the generic ingredient is known.
         /// </param>
         /// <param name="pageNumber">Page number (1-based). Defaults to 1 when pageSize is provided.</param>
         /// <param name="pageSize">Results per page. Defaults to 10 when pageNumber is provided.</param>
@@ -115,9 +144,22 @@ namespace MedRecPro.Api.Controllers
         /// JSON response containing:
         /// - **Patents**: filtered list of matching patent DTOs (base rows removed when *PED companion exists)
         /// - **Markdown**: pre-rendered markdown table with pediatric warnings and label links
-        /// - **TotalCount**: count of results in the current page after pediatric deduplication
+        /// - **TotalCount**: total count across all pages after filtering
+        /// - **TotalPages**: total number of pages available
         /// </returns>
         /// <remarks>
+        /// ## Open-Ended Date Range
+        /// When `expiringInMonths` is omitted and `tradeName` or `ingredient` is provided,
+        /// the search returns all future-expiring patents for the matching product (today through
+        /// `DateTime.MaxValue`). This supports questions like "when will there be a generic Ozempic?"
+        /// where the caller doesn't know the expiration timeframe. At least one search parameter
+        /// (`expiringInMonths`, `tradeName`, or `ingredient`) must be provided.
+        ///
+        /// ## Trade Name and Ingredient Filtering
+        /// Both `tradeName` and `ingredient` use partial matching — "Ozem" matches "Ozempic",
+        /// "semaglut" matches "semaglutide". These can be combined with `expiringInMonths`
+        /// to answer questions like "when will there be a generic Ozempic?"
+        ///
         /// ## Pediatric Deduplication
         /// When a patent has a `*PED` companion (pediatric exclusivity), only the `*PED` row
         /// is returned — it carries the extended expiration date. The base patent row is filtered
@@ -135,7 +177,10 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         /// <example>
         /// <code>
+        /// GET /api/OrangeBook/expiring?tradeName=Ozempic
+        /// GET /api/OrangeBook/expiring?ingredient=semaglutide
         /// GET /api/OrangeBook/expiring?expiringInMonths=6
+        /// GET /api/OrangeBook/expiring?expiringInMonths=12&amp;tradeName=Lipitor
         /// GET /api/OrangeBook/expiring?expiringInMonths=12&amp;pageNumber=2&amp;pageSize=25
         /// </code>
         /// </example>
@@ -147,16 +192,25 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<OrangeBookPatentExpirationResponseDto>> GetExpiringPatents(
-            [FromQuery] int expiringInMonths,
+            [FromQuery] int? expiringInMonths,
+            [FromQuery] string? tradeName,
+            [FromQuery] string? ingredient,
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
         {
             #region implementation
 
-            // Validate expiringInMonths
-            if (expiringInMonths <= 0)
+            // At least one search parameter must be provided
+            var hasTextFilter = !string.IsNullOrWhiteSpace(tradeName) || !string.IsNullOrWhiteSpace(ingredient);
+            if (!expiringInMonths.HasValue && !hasTextFilter)
             {
-                return BadRequest("ExpiringInMonths must be greater than 0.");
+                return BadRequest("At least one search parameter is required: expiringInMonths, tradeName, or ingredient.");
+            }
+
+            // Validate expiringInMonths when explicitly provided
+            if (expiringInMonths.HasValue && expiringInMonths.Value <= 0)
+            {
+                return BadRequest($"Invalid expiringInMonths: {expiringInMonths.Value}. Must be greater than 0 when provided.");
             }
 
             // Validate pagination parameters (inherited from ApiControllerBase)
@@ -173,20 +227,24 @@ namespace MedRecPro.Api.Controllers
             try
             {
                 _logger.LogInformation(
-                    "Searching expiring patents: months={Months}, page={Page}, size={Size}",
-                    expiringInMonths, pageNumber, pageSize);
+                    "Searching expiring patents: months={Months}, tradeName={TradeName}, ingredient={Ingredient}, page={Page}, size={Size}",
+                    expiringInMonths, tradeName, ingredient, pageNumber, pageSize);
 
                 // 1. Get the total count of matching patents (before pagination)
-                var totalCount = await countExpiringPatentsAsync(expiringInMonths);
+                var totalCount = await countExpiringPatentsAsync(expiringInMonths, tradeName, ingredient);
 
                 // 2. Retrieve paginated patent data (includes both base and *PED rows)
+                //    When expiringInMonths is null (open-ended search by tradeName/ingredient),
+                //    use MaxExpirationMonths to scope from today through all future patents.
+                //    This ensures already-expired patents are excluded since the view has no date floor.
+                var effectiveMonths = expiringInMonths ?? MaxExpirationMonths;
                 var rawPatents = await DtoLabelAccess.SearchOrangeBookPatentsAsync(
                     _dbContext,
-                    expiringInMonths: expiringInMonths,
+                    expiringInMonths: effectiveMonths,
                     documentGuid: null,
                     applicationNumber: null,
-                    ingredient: null,
-                    tradeName: null,
+                    ingredient: ingredient,
+                    tradeName: tradeName,
                     patentNo: null,
                     patentExpireDate: null,
                     hasPediatricFlag: null,
@@ -240,26 +298,48 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Counts the total number of patents expiring within the specified month horizon.
+        /// Counts the total number of patents expiring within the specified month horizon,
+        /// optionally filtered by trade name and/or ingredient.
         /// Used to compute <see cref="OrangeBookPatentExpirationResponseDto.TotalPages"/>.
         /// </summary>
-        /// <param name="expiringInMonths">Number of months from today to search.</param>
+        /// <param name="expiringInMonths">
+        /// Number of months from today to search. When null, uses <see cref="MaxExpirationMonths"/>
+        /// to scope from today through all future patents.
+        /// </param>
+        /// <param name="tradeName">Optional trade name partial match filter.</param>
+        /// <param name="ingredient">Optional ingredient partial match filter.</param>
         /// <returns>Total count of matching patent records in the view.</returns>
         /// <remarks>
         /// Runs a lightweight COUNT(*) query against vw_OrangeBookPatent with the same
-        /// date range filter used by <see cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/>.
+        /// date range and text filters used by <see cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/>.
+        /// Text filters use EF.Functions.Like with '%term%' to match the PartialMatchAny
+        /// behavior of <see cref="EntitySearchHelper.FilterBySearchTerms{T}"/>.
         /// </remarks>
-        private async Task<int> countExpiringPatentsAsync(int expiringInMonths)
+        /// <seealso cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/>
+        private async Task<int> countExpiringPatentsAsync(int? expiringInMonths, string? tradeName, string? ingredient)
         {
             #region implementation
 
             var rangeStart = DateTime.Today;
-            var rangeEnd = DateTime.Today.AddMonths(expiringInMonths);
+            var rangeEnd = DateTime.Today.AddMonths(expiringInMonths ?? MaxExpirationMonths);
 
-            return await _dbContext.Set<OrangeBookPatent>()
+            var query = _dbContext.Set<OrangeBookPatent>()
                 .AsNoTracking()
-                .Where(p => p.PatentExpireDate >= rangeStart && p.PatentExpireDate <= rangeEnd)
-                .CountAsync();
+                .Where(p => p.PatentExpireDate >= rangeStart && p.PatentExpireDate <= rangeEnd);
+
+            // Apply tradeName partial match filter (mirrors SearchOrangeBookPatentsAsync behavior)
+            if (!string.IsNullOrWhiteSpace(tradeName))
+            {
+                query = query.Where(p => EF.Functions.Like(p.TradeName, $"%{tradeName}%"));
+            }
+
+            // Apply ingredient partial match filter (mirrors SearchOrangeBookPatentsAsync behavior)
+            if (!string.IsNullOrWhiteSpace(ingredient))
+            {
+                query = query.Where(p => EF.Functions.Like(p.Ingredient, $"%{ingredient}%"));
+            }
+
+            return await query.CountAsync();
 
             #endregion
         }
