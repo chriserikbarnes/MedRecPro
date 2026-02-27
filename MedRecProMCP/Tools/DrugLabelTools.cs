@@ -761,7 +761,9 @@ public class DrugLabelTools
 
     📋 PURPOSE: Discover patent expiration dates and generic drug availability.
     ├── Returns: Patents (structured list), Markdown (pre-rendered table), TotalCount, TotalPages
-    ├── Markdown table includes clickable FDA label links when available
+    ├── 🔗 LINKS: Trade names appear as clickable FDA label links when a cross-referenced
+    │   SPL label exists (DocumentGUID available). Not all rows have links.
+    │   When links ARE present, they let users jump directly to the official FDA label.
     └── Pediatric exclusivity dates marked with ⚠️ emoji
 
     🎯 PARAMETER SELECTION - Choose based on user's query:
@@ -786,8 +788,10 @@ public class DrugLabelTools
     Conversely, if ingredient returns zero results, retry with tradeName.
 
     📊 RESULT FORMATTING REQUIREMENTS:
-    • Render the Markdown field directly — it is a pre-formatted table ready for display
-    • Trade names with FDA labels appear as clickable links in the table
+    • Render the Markdown field directly — it is a pre-rendered table ready for display
+    • 🔗 When a trade name has an associated FDA label, it appears as a clickable markdown
+      link in the table (e.g., [OZEMPIC](url)). Always preserve these links in your output
+      so users can navigate to the official FDA label. Not every row will have a link.
     • ⚠️ marks pediatric exclusivity expiration dates (extended beyond base patent)
     • A legend row is appended when pediatric rows exist
     • Include TotalCount and TotalPages when presenting paginated results

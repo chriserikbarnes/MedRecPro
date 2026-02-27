@@ -51,7 +51,7 @@
         </div>
 
         <h2>What You Can Do</h2>
-        <p>MedRecPro connects Claude to the FDA's Structured Product Labeling (SPL) database, giving you instant access to comprehensive drug label information. Ask Claude about any FDA-approved medication &mdash; side effects, dosage, warnings, drug interactions, indications &mdash; and get accurate, sourced answers pulled directly from official FDA labeling data.</p>
+        <p>MedRecPro connects Claude to the FDA's Structured Product Labeling (SPL) database, giving you instant access to comprehensive drug label information. Ask Claude about any FDA-approved medication &mdash; side effects, dosage, warnings, drug interactions, indications &mdash; and get accurate, sourced answers pulled directly from official FDA labeling data. You can also search Orange Book patent expiration dates to discover when generic versions of brand-name drugs may become available.</p>
 
         <div class="feature-grid">
             <div class="feature-item">
@@ -77,6 +77,10 @@
             <div class="feature-item">
                 <h4>Activity Tracking</h4>
                 <p>View your search history and activity within MedRecPro to keep track of your research.</p>
+            </div>
+            <div class="feature-item">
+                <h4>Patent &amp; Generic Availability</h4>
+                <p>Search Orange Book patent expiration dates to find out when generic versions of brand-name drugs may become available.</p>
             </div>
         </div>
 
@@ -145,7 +149,19 @@
         </div>
 
         <div class="example-card">
-            <h4>Example 5: Check Your Authentication Status</h4>
+            <h4>Example 5: Search Patent Expiration Dates</h4>
+            <div class="example-prompt">
+                "What drug patents are expiring in the next month"
+            </div>
+            <p>Claude searches the FDA Orange Book for patents expiring within the next month, returning a consolidated table of upcoming expirations organized by product. The results include trade names, active ingredients, expiry dates, patent numbers, and dosage forms. When an FDA label is available for a product, the trade name appears as a clickable link to the official label. Pediatric exclusivity extensions are also flagged, helping you track when new generic alternatives may enter the market.</p>
+            <div class="example-screenshot">
+                <img src="docs/images/MCP-Patent-Expiration.PNG" alt="Screenshot showing Claude searching for drug patents expiring in the next month from the FDA Orange Book">
+                <div class="caption">Claude presents upcoming patent expirations from the FDA Orange Book</div>
+            </div>
+        </div>
+
+        <div class="example-card">
+            <h4>Example 6: Check Your Authentication Status</h4>
             <div class="example-prompt">
                 "Using the MedRecPro connection tell me about my authentication status"
             </div>
@@ -157,7 +173,7 @@
         </div>
 
         <h2>Available Tools</h2>
-        <p>MedRecPro provides Claude with five tools, organized into two categories:</p>
+        <p>MedRecPro provides Claude with six tools, organized into two categories:</p>
 
         <h3>Drug Label Tools</h3>
         <table>
@@ -171,6 +187,11 @@
                 <td><code>export_drug_label_markdown</code></td>
                 <td>Export a complete label as formatted markdown</td>
                 <td>"Show me the full label for X" or "Export the label"</td>
+            </tr>
+            <tr>
+                <td><code>search_expiring_patents</code></td>
+                <td>Search Orange Book patent expiration dates</td>
+                <td>"When will generic Ozempic be available?" or "What patents expire in 6 months?"</td>
             </tr>
         </table>
 

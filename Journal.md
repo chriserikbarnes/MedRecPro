@@ -350,3 +350,18 @@ Build: 0 errors, 0 warnings.
 
 ---
 
+### 2026-02-27 3:21 PM EST — Add Patent Expiration Tool to Getting Started Documentation
+
+Updated `MedRecProMCP/Templates/McpGettingStarted.html` to document the `search_expiring_patents` MCP tool:
+
+- **Intro paragraph:** Added mention of Orange Book patent expiration search capability
+- **Feature grid:** Added "Patent & Generic Availability" tile (7th feature item)
+- **Example 5:** New example card — "What drug patents are expiring in the next month" with screenshot (`MCP-Patent-Expiration.PNG`). Swapped with the authentication example so all drug-related examples are grouped together (patent = Example 5, auth = Example 6)
+- **Tools table:** Updated count from "five" to "six" tools; added `search_expiring_patents` row to Drug Label Tools table
+
+Also updated `MedRecProMCP/Tools/DrugLabelTools.cs` — strengthened the `[Description]` attribute on `search_expiring_patents` to better emphasize that trade names appear as clickable FDA label links when a cross-referenced SPL label exists, with instructions to preserve those links in output.
+
+Build: 0 errors, 0 warnings.
+
+---
+
