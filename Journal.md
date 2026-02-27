@@ -331,3 +331,22 @@ Consolidated all Orange Book data access code into a dedicated partial class fil
 Build: 0 errors. Tests: 21 Orange Book tests pass (12 existing + 9 new).
 
 ---
+
+### 2026-02-27 1:28 PM EST — Add search_expiring_patents MCP Tool
+
+Added `search_expiring_patents` MCP tool to `MedRecProMCP/Tools/DrugLabelTools.cs`, wrapping the `GET /api/OrangeBook/expiring` endpoint. Enables AI assistants to answer patent expiration and generic drug availability questions ("When will generic Ozempic be available?", "What patents expire in 6 months?").
+
+**Tool design:**
+- Parameters: `tradeName` (brand, partial match), `ingredient` (generic, partial match), `expiringInMonths` (nullable int for open-ended search), `pageNumber`, `pageSize`
+- Returns raw API response containing structured Patents list, pre-rendered Markdown table (with clickable FDA label links where available), TotalCount, and TotalPages
+- Description documents a fallback strategy for brand/generic name ambiguity — LLM retries with `ingredient` if `tradeName` returns empty, and vice versa
+- `expiringInMonths` is nullable (`int?`) so omitting it with a tradeName/ingredient enables open-ended future patent search
+
+**Class-level updates:** Added workflow box, tool selection guide entry, and common scenarios for the new tool to the class `<remarks>` documentation.
+
+**README updates:** Updated tool count (5→6), added `search_expiring_patents` to the Tool Safety Annotations table, updated DrugLabelTools.cs description in project structure.
+
+Build: 0 errors, 0 warnings.
+
+---
+

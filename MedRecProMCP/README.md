@@ -399,7 +399,7 @@ MedRecProMCP/
     AiAgentDtos.cs                    # AI/Claude integration models
     WorkPlanModels.cs                 # Work plan and execution models
   Tools/
-    DrugLabelTools.cs                 # MCP tools for drug label search and export (annotated)
+    DrugLabelTools.cs                 # MCP tools for drug labels, patent expiration (annotated)
     UserTools.cs                      # MCP tools for user/account operations (annotated)
   Templates/
     McpDocumentation.html             # Embedded HTML technical documentation template
@@ -450,19 +450,20 @@ Submission materials for the [Anthropic Connectors Directory](https://claude.com
 
 ### Tool Safety Annotations
 
-All 5 tools have MCP safety annotations declared via `[McpServerTool]` attribute properties (supported in `ModelContextProtocol` SDK v0.7.0-preview.1):
+All 6 tools have MCP safety annotations declared via `[McpServerTool]` attribute properties (supported in `ModelContextProtocol` SDK v0.7.0-preview.1):
 
 | Tool | Title | ReadOnly | Destructive | OpenWorld |
 |---|---|---|---|---|
 | `search_drug_labels` | Search Drug Labels | `true` | `false` | `true` |
 | `export_drug_label_markdown` | Export Drug Label | `true` | `false` | `true` |
+| `search_expiring_patents` | Search Expiring Patents | `true` | `false` | `true` |
 | `get_my_profile` | Get My Profile | `true` | `false` | `false` |
 | `get_my_activity` | Get My Activity | `true` | `false` | `false` |
 | `get_my_activity_by_date_range` | Get Activity by Date Range | `true` | `false` | `false` |
 
 **Annotation rationale:**
 - All tools are read-only — no data is modified by any tool
-- Drug label tools use `OpenWorld = true` because they query an external FDA SPL database (NIH National Library of Medicine DailyMed)
+- Drug label and patent tools use `OpenWorld = true` because they query an external FDA SPL database (NIH National Library of Medicine DailyMed) and FDA Orange Book patent data
 - User tools use `OpenWorld = false` because they only access the authenticated user's own data within the closed MedRecPro system
 
 ### Issues Encountered and Fixes

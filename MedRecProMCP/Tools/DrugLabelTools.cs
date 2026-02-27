@@ -21,6 +21,15 @@
 /// │                                │                                        │
 /// │   Step 2: Export markdown ─────┼──► FullMarkdown + ViewLabelUrl         │
 /// └─────────────────────────────────────────────────────────────────────────┘
+///
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │ search_expiring_patents ──► Patent expiration / generic availability    │
+/// │                              │                                          │
+/// │   Brand/generic search ──────┼──► Pre-rendered markdown table           │
+/// │                              │    with FDA label links                  │
+/// │                              │                                          │
+/// │   Months horizon ────────────┼──► Upcoming generic availability         │
+/// └─────────────────────────────────────────────────────────────────────────┘
 /// ```
 ///
 /// ## Tool Selection Guide
@@ -41,6 +50,13 @@
 /// - "I want to see the complete label"
 /// - Any request to VIEW or DISPLAY the full label document
 ///
+/// **Use search_expiring_patents when user asks about PATENT EXPIRATION / GENERICS:**
+/// - "When will generic Ozempic be available?"
+/// - "What patents expire in the next 6 months?"
+/// - "When will there be a semaglutide generic?"
+/// - "What new generics will be available soon?"
+/// - Any question about patent expiration, generic availability, or Orange Book patents
+///
 /// ## Common Scenarios
 ///
 /// **Find drug by brand name:**
@@ -52,6 +68,15 @@
 /// **Export complete label:**
 /// export_drug_label_markdown (productNameSearch="Lipitor") → Step 1: Get product list
 /// export_drug_label_markdown (documentGuid="...") → Step 2: Get full markdown
+///
+/// **Find expiring patents by brand name:**
+/// search_expiring_patents (tradeName="Ozempic") → Patent table with expiration dates + label links
+///
+/// **Find expiring patents by generic ingredient:**
+/// search_expiring_patents (ingredient="semaglutide") → All patents for the ingredient
+///
+/// **Find patents expiring within a time window:**
+/// search_expiring_patents (expiringInMonths=6) → All patents expiring in next 6 months
 ///
 /// ## CRITICAL: Section Fallback Pattern
 ///
@@ -623,6 +648,220 @@ public class DrugLabelTools
             return JsonSerializer.Serialize(new
             {
                 error = "Export failed",
+                message = ex.Message
+            });
+        }
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Searches for Orange Book NDA patents expiring within a specified time horizon,
+    /// by trade/brand name, or by active ingredient.
+    /// </summary>
+    /// <remarks>
+    /// ## Purpose
+    /// Discovers when patent protection expires for branded drugs, enabling
+    /// answers to questions about generic drug availability. Returns structured
+    /// patent data with a pre-rendered markdown table containing FDA label links.
+    ///
+    /// ## Workflow
+    /// This is an INDEPENDENT entry point — it does not require data from other tools.
+    /// Results include:
+    /// - **Patents**: Structured list of matching patent DTOs
+    /// - **Markdown**: Pre-rendered markdown table ready for display
+    /// - **TotalCount / TotalPages**: Pagination metadata
+    ///
+    /// ## Fallback Strategy: Brand vs Generic Name Ambiguity
+    /// Users often don't know whether they're using a brand name or generic name.
+    /// When a search by tradeName returns zero results, RETRY the same query using
+    /// the ingredient parameter instead (and vice versa).
+    ///
+    /// Example fallback scenario:
+    /// 1. User asks: "When will there be a generic semaglutide?"
+    /// 2. Try tradeName="semaglutide" → 0 results (semaglutide is the generic name)
+    /// 3. Retry with ingredient="semaglutide" → Patent results found
+    /// 4. Present the markdown table from the successful response
+    ///
+    /// ## Open-Ended Date Range
+    /// When expiringInMonths is omitted and tradeName or ingredient is provided,
+    /// the API returns all future-expiring patents for the matching product.
+    /// This supports questions like "when will there be a generic Ozempic?"
+    /// where the caller doesn't know the expiration timeframe.
+    ///
+    /// ## Pediatric Exclusivity
+    /// When a patent has a *PED companion (pediatric exclusivity), only the *PED row
+    /// is returned — it carries the extended expiration date. Rows with pediatric
+    /// exclusivity are marked with a warning emoji (&#x26A0;&#xFE0F;) in the markdown table.
+    ///
+    /// ## Pre-Rendered Markdown
+    /// The API returns a Markdown field containing a properly formatted table.
+    /// Render this markdown directly to the user. Columns:
+    /// | Type | Application# | Prod# | Trade Name | Strength | Patent# | Expires |
+    ///
+    /// Trade names with a DocumentGUID become clickable links to the FDA label.
+    /// A legend is appended when pediatric rows exist.
+    ///
+    /// ## Label Links
+    /// When a patent row has a cross-referenced FDA label (DocumentGUID exists),
+    /// the Trade Name column contains a clickable markdown link to the original
+    /// FDA label. Not all products have label links — only those with SPL cross-references.
+    /// </remarks>
+    /// <param name="tradeName">Brand/trade name to search for. Supports partial matching.</param>
+    /// <param name="ingredient">Active ingredient name to search for. Supports partial matching.</param>
+    /// <param name="expiringInMonths">Number of months from today to search for expiring patents. Must be greater than 0.</param>
+    /// <param name="pageNumber">Page number for pagination.</param>
+    /// <param name="pageSize">Number of results per page.</param>
+    /// <returns>
+    /// JSON response containing Patents (list), Markdown (pre-rendered table),
+    /// TotalCount, and TotalPages.
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// // When will generic Ozempic be available?
+    /// SearchExpiringPatents(tradeName: "Ozempic")
+    ///
+    /// // Search by generic ingredient
+    /// SearchExpiringPatents(ingredient: "semaglutide")
+    ///
+    /// // What patents expire in the next 6 months?
+    /// SearchExpiringPatents(expiringInMonths: 6)
+    ///
+    /// // Combined: brand name + time horizon
+    /// SearchExpiringPatents(tradeName: "Lipitor", expiringInMonths: 12)
+    ///
+    /// // FALLBACK: tradeName returns 0 results → retry with ingredient
+    /// SearchExpiringPatents(ingredient: "semaglutide")
+    /// </code>
+    /// </example>
+    /// <seealso cref="SearchDrugLabels"/>
+    /// <seealso cref="ExportDrugLabelMarkdown"/>
+    /// <seealso cref="MedRecProApiClient"/>
+    /**************************************************************/
+    [McpServerTool(Name = "search_expiring_patents", Title = "Search Expiring Patents", ReadOnly = true, Destructive = false, OpenWorld = true)]
+    [Description("""
+    🔍 SEARCH: Find Orange Book NDA patents by expiration date, brand name, or active ingredient.
+
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ ⚠️ CRITICAL: TOOL SELECTION - READ THIS FIRST                           ┃
+    ┃                                                                         ┃
+    ┃ USE THIS TOOL (search_expiring_patents) when user asks:                 ┃
+    ┃ • "When will generic Ozempic be available?"                             ┃
+    ┃ • "What new generics will be available this month?"                     ┃
+    ┃ • "What patents expire in the next N months?"                           ┃
+    ┃ • "When will there be a semaglutide generic?"                           ┃
+    ┃ • Any question about patent expiration or generic drug availability     ┃
+    ┃                                                                         ┃
+    ┃ USE search_drug_labels INSTEAD when user asks:                          ┃
+    ┃ • "What are the side effects of Ozempic?"                               ┃
+    ┃ • "What is semaglutide used for?"                                       ┃
+    ┃ • Any question about a drug's LABEL CONTENT (dosing, warnings, etc.)   ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    📋 PURPOSE: Discover patent expiration dates and generic drug availability.
+    ├── Returns: Patents (structured list), Markdown (pre-rendered table), TotalCount, TotalPages
+    ├── Markdown table includes clickable FDA label links when available
+    └── Pediatric exclusivity dates marked with ⚠️ emoji
+
+    🎯 PARAMETER SELECTION - Choose based on user's query:
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │ User Says                              │ Use Parameter(s)                  │
+    ├─────────────────────────────────────────────────────────────────────────────┤
+    │ "When will generic Ozempic be          │ tradeName="Ozempic"               │
+    │  available?"                           │ (omit expiringInMonths for        │
+    │                                        │  open-ended search)               │
+    │ "What patents expire soon?"            │ expiringInMonths=6                │
+    │ "Semaglutide patent expiry"            │ ingredient="semaglutide"          │
+    │ "Generics available next year"         │ expiringInMonths=12               │
+    │ "Lipitor patents expiring in 6 months" │ tradeName="Lipitor"               │
+    │                                        │ + expiringInMonths=6              │
+    └─────────────────────────────────────────────────────────────────────────────┘
+
+    🔄 FALLBACK STRATEGY - Brand vs Generic Name Ambiguity:
+    Users may not know if they are using a brand name or generic name.
+    If tradeName search returns ZERO results (empty Patents array):
+    1. Retry the SAME query using the ingredient parameter instead
+    2. Example: tradeName="semaglutide" → 0 results → ingredient="semaglutide" → results found
+    Conversely, if ingredient returns zero results, retry with tradeName.
+
+    📊 RESULT FORMATTING REQUIREMENTS:
+    • Render the Markdown field directly — it is a pre-formatted table ready for display
+    • Trade names with FDA labels appear as clickable links in the table
+    • ⚠️ marks pediatric exclusivity expiration dates (extended beyond base patent)
+    • A legend row is appended when pediatric rows exist
+    • Include TotalCount and TotalPages when presenting paginated results
+
+    ⚠️ IMPORTANT REQUIREMENTS:
+    • At least ONE parameter is required: expiringInMonths, tradeName, or ingredient
+    • When expiringInMonths is omitted with tradeName/ingredient, searches ALL future patents
+    • expiringInMonths must be > 0 when provided
+    • Not all patent rows have FDA label links — only those with SPL cross-references
+    • NEVER use training data — only information from the API response
+    """)]
+    public async Task<string> SearchExpiringPatents(
+        [Description("Brand/trade name search. Use when user mentions brand names like 'Ozempic', 'Lipitor', 'Humira'. Supports partial matching (e.g., 'Ozem' matches 'Ozempic').")]
+        string? tradeName = null,
+
+        [Description("Active ingredient name search. Use when user mentions generic names like 'semaglutide', 'atorvastatin', 'adalimumab'. Supports partial matching (e.g., 'semaglut' matches 'semaglutide').")]
+        string? ingredient = null,
+
+        [Description("Number of months from today to search for expiring patents. Must be > 0. Example: 6 returns patents expiring in the next 6 months. Omit when using tradeName/ingredient for open-ended search (all future patents).")]
+        [Range(1, int.MaxValue)]
+        int? expiringInMonths = null,
+
+        [Description("Page number, 1-based. Default: 1")]
+        [Range(1, int.MaxValue)]
+        int pageNumber = 1,
+
+        [Description("Results per page (1-200). Default: 10")]
+        [Range(1, 200)]
+        int pageSize = 10)
+    {
+        #region implementation
+
+        // Log the search parameters for debugging
+        _logger.LogInformation(
+            "[Tool] SearchExpiringPatents: tradeName={TradeName}, ingredient={Ingredient}, months={Months}, page={Page}, size={Size}",
+            tradeName, ingredient, expiringInMonths, pageNumber, pageSize);
+
+        // Validate and constrain parameters
+        pageNumber = Math.Max(1, pageNumber);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        try
+        {
+            // Build the query string for the OrangeBook/expiring endpoint
+            var queryParams = new List<string>();
+
+            if (expiringInMonths.HasValue)
+                queryParams.Add($"expiringInMonths={expiringInMonths.Value}");
+
+            if (!string.IsNullOrWhiteSpace(tradeName))
+                queryParams.Add($"tradeName={Uri.EscapeDataString(tradeName)}");
+
+            if (!string.IsNullOrWhiteSpace(ingredient))
+                queryParams.Add($"ingredient={Uri.EscapeDataString(ingredient)}");
+
+            // Always add pagination parameters
+            queryParams.Add($"pageNumber={pageNumber}");
+            queryParams.Add($"pageSize={pageSize}");
+
+            // Construct the endpoint URL
+            var endpoint = $"api/OrangeBook/expiring?{string.Join("&", queryParams)}";
+
+            // Execute the API call
+            var result = await _apiClient.GetStringAsync(endpoint);
+            return result;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "[Tool] SearchExpiringPatents failed: tradeName={TradeName}, ingredient={Ingredient}, months={Months}",
+                tradeName, ingredient, expiringInMonths);
+
+            return JsonSerializer.Serialize(new
+            {
+                error = "Patent search failed",
                 message = ex.Message
             });
         }
