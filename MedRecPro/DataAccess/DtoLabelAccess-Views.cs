@@ -1004,50 +1004,6 @@ namespace MedRecPro.DataAccess
 
         #endregion Inventory Summary Views
 
-        #region Orange Book Patent Views
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds a list of OrangeBookPatent DTOs from the navigation view.
-        /// Transforms view entities to DTOs with encrypted IDs and computes
-        /// LabelLink URLs for rows with available DocumentGUIDs.
-        /// </summary>
-        /// <param name="db">The application database context.</param>
-        /// <param name="entities">Collection of view entities to transform.</param>
-        /// <param name="pkSecret">Secret used for ID encryption.</param>
-        /// <param name="logger">Logger instance for diagnostics.</param>
-        /// <returns>List of <see cref="OrangeBookPatentDto"/> with encrypted IDs and computed LabelLinks.</returns>
-        /// <seealso cref="LabelView.OrangeBookPatent"/>
-        /// <seealso cref="OrangeBookPatentDto"/>
-        private static List<OrangeBookPatentDto> buildOrangeBookPatentDtos(
-            ApplicationDbContext db,
-            List<LabelView.OrangeBookPatent> entities,
-            string pkSecret,
-            ILogger logger)
-        {
-            #region implementation
-
-            return entities.Select(entity =>
-            {
-                var dto = new OrangeBookPatentDto
-                {
-                    OrangeBookPatent = entity.ToEntityWithEncryptedId(pkSecret, logger)
-                };
-
-                // Compute LabelLink when a cross-referenced SPL label DocumentGUID is available
-                if (entity.DocumentGUID.HasValue)
-                {
-                    dto.LabelLink = $"/api/Label/original/{entity.DocumentGUID.Value}/false";
-                }
-
-                return dto;
-            }).ToList();
-
-            #endregion
-        }
-
-        #endregion Orange Book Patent Views
-
         #region Generic Query Helpers
 
         /**************************************************************/

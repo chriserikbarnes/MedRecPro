@@ -314,3 +314,20 @@ Added optional `tradeName` and `ingredient` query parameters to `GET /api/Orange
 Made `expiringInMonths` optional (`int?`). When omitted with a `tradeName` or `ingredient`, the date range scopes from today through all future patents using `MaxExpirationMonths` (2880 months / 240 years). This supports open-ended queries where the caller doesn't know the expiration timeframe. At least one search parameter (`expiringInMonths`, `tradeName`, or `ingredient`) is required — returns 400 if all are blank. Build clean, 342 tests pass.
 
 ---
+
+### 2026-02-27 12:47 PM EST — Organize Orange Book Data Access Layer
+
+Consolidated all Orange Book data access code into a dedicated partial class file `DtoLabelAccess-OrangeBook.cs`. Previously the code was scattered across three files: `DtoLabelAccess.cs` (SearchOrangeBookPatentsAsync), `DtoLabelAccess-Views.cs` (buildOrangeBookPatentDtos), and `OrangeBookController.cs` (countExpiringPatentsAsync as a private method with direct DB queries).
+
+**Key changes:**
+- **Created** `DataAccess/DtoLabelAccess-OrangeBook.cs` — new partial class consolidating all Orange Book queries
+- **Moved** `SearchOrangeBookPatentsAsync` from `DtoLabelAccess.cs` (removed ~193-line `#region Orange Book Patent Navigation`)
+- **Moved** `buildOrangeBookPatentDtos` from `DtoLabelAccess-Views.cs` (removed ~43-line `#region Orange Book Patent Views`)
+- **Extracted** `countExpiringPatentsAsync` from `OrangeBookController.cs` → renamed to `CountExpiringPatentsAsync` (public static), now takes `ApplicationDbContext db` and `int maxExpirationMonths` parameters instead of relying on controller instance fields
+- **Fixed** CS1574 broken cref: `EntitySearchHelper.FilterBySearchTerms{T}` → `SearchFilterExtensions.FilterBySearchTerms{T}` (the class in `EntitySearchHelper.cs` is actually named `SearchFilterExtensions`)
+- **Updated** controller call site to use `DtoLabelAccess.CountExpiringPatentsAsync(...)`
+- **Added** 9 new tests for `CountExpiringPatentsAsync`: empty DB, no filters, date range filtering, expired patents exclusion, null fallback to maxExpirationMonths, tradeName partial match, ingredient partial match, combined AND logic, non-matching filter
+
+Build: 0 errors. Tests: 21 Orange Book tests pass (12 existing + 9 new).
+
+---

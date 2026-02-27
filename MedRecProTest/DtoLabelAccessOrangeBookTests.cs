@@ -7,13 +7,15 @@ namespace MedRecProTest
 {
     /**************************************************************/
     /// <summary>
-    /// Unit tests for <see cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/>.
+    /// Unit tests for <see cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/> and
+    /// <see cref="DtoLabelAccess.CountExpiringPatentsAsync"/>.
     /// </summary>
     /// <remarks>
     /// Tests cover: empty database, no-filter return-all, individual filter isolation
     /// (ApplicationNumber, Ingredient, TradeName, PatentNo, DocumentGuid,
     /// HasPediatricFlag, HasWithdrawnCommercialReasonFlag), non-matching exact
-    /// patent number, pagination, and multi-filter intersection.
+    /// patent number, pagination, multi-filter intersection, count date ranges,
+    /// count text filters, and count fallback behavior.
     ///
     /// All tests use shared-cache named SQLite in-memory databases with a sentinel
     /// connection, seeded via <see cref="DtoLabelAccessTestHelper.SeedOrangeBookPatentView"/>.
@@ -746,5 +748,347 @@ namespace MedRecProTest
         }
 
         #endregion SearchOrangeBookPatentsAsync — Multiple Filter Tests
+
+        #region CountExpiringPatentsAsync — Empty Database
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that CountExpiringPatentsAsync returns zero when
+        /// the database contains no patent records.
+        /// </summary>
+        [TestMethod]
+        public async Task CountExpiringPatentsAsync_EmptyDatabase_ReturnsZero()
+        {
+            #region implementation
+
+            // Arrange
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+
+            // Act
+            var count = await DtoLabelAccess.CountExpiringPatentsAsync(
+                context,
+                expiringInMonths: 6,
+                maxExpirationMonths: 2880,
+                tradeName: null,
+                ingredient: null);
+
+            // Assert
+            Assert.AreEqual(0, count, "Empty database should return zero patents");
+
+            #endregion
+        }
+
+        #endregion CountExpiringPatentsAsync — Empty Database
+
+        #region CountExpiringPatentsAsync — No Filter Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that CountExpiringPatentsAsync counts all seeded patents
+        /// within the date range when no text filters are applied.
+        /// </summary>
+        [TestMethod]
+        public async Task CountExpiringPatentsAsync_NoFilters_CountsAllInRange()
+        {
+            #region implementation
+
+            // Arrange
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+
+            var futureDate = DateTime.Today.AddMonths(3);
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "DRUG_A", patentNo: "US0000001", patentExpireDate: futureDate);
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "DRUG_B", patentNo: "US0000002", patentExpireDate: futureDate.AddMonths(1));
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "DRUG_C", patentNo: "US0000003", patentExpireDate: futureDate.AddMonths(2));
+
+            // Act
+            var count = await DtoLabelAccess.CountExpiringPatentsAsync(
+                context,
+                expiringInMonths: 12,
+                maxExpirationMonths: 2880,
+                tradeName: null,
+                ingredient: null);
+
+            // Assert
+            Assert.AreEqual(3, count, "All three seeded patents within range should be counted");
+
+            #endregion
+        }
+
+        #endregion CountExpiringPatentsAsync — No Filter Tests
+
+        #region CountExpiringPatentsAsync — Date Range Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that CountExpiringPatentsAsync filters by the date range
+        /// defined by expiringInMonths, excluding patents outside the window.
+        /// </summary>
+        [TestMethod]
+        public async Task CountExpiringPatentsAsync_ExpiringInMonths_FiltersDateRange()
+        {
+            #region implementation
+
+            // Arrange
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+
+            // One patent expiring in 2 months (within 6-month window)
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "IN_RANGE", patentNo: "US0000001",
+                patentExpireDate: DateTime.Today.AddMonths(2));
+            // One patent expiring in 12 months (outside 6-month window)
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "OUT_OF_RANGE", patentNo: "US0000002",
+                patentExpireDate: DateTime.Today.AddMonths(12));
+
+            // Act
+            var count = await DtoLabelAccess.CountExpiringPatentsAsync(
+                context,
+                expiringInMonths: 6,
+                maxExpirationMonths: 2880,
+                tradeName: null,
+                ingredient: null);
+
+            // Assert
+            Assert.AreEqual(1, count, "Only the patent within the 6-month window should be counted");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that patents expiring before today are excluded from the count
+        /// (already-expired patents).
+        /// </summary>
+        [TestMethod]
+        public async Task CountExpiringPatentsAsync_ExpiredPatents_ReturnsZero()
+        {
+            #region implementation
+
+            // Arrange
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+
+            // Seed a patent that already expired
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "EXPIRED", patentNo: "US0000001",
+                patentExpireDate: DateTime.Today.AddMonths(-1));
+
+            // Act
+            var count = await DtoLabelAccess.CountExpiringPatentsAsync(
+                context,
+                expiringInMonths: 6,
+                maxExpirationMonths: 2880,
+                tradeName: null,
+                ingredient: null);
+
+            // Assert
+            Assert.AreEqual(0, count, "Already-expired patents should not be counted");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that when expiringInMonths is null, the maxExpirationMonths
+        /// fallback is used as the upper bound of the date range.
+        /// </summary>
+        [TestMethod]
+        public async Task CountExpiringPatentsAsync_NullExpiringInMonths_UsesMaxMonths()
+        {
+            #region implementation
+
+            // Arrange
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+
+            // Patent expiring in 5 years — within 2880-month fallback, outside 3-month window
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "FAR_FUTURE", patentNo: "US0000001",
+                patentExpireDate: DateTime.Today.AddYears(5));
+
+            // Act — null expiringInMonths with large maxExpirationMonths should include this patent
+            var count = await DtoLabelAccess.CountExpiringPatentsAsync(
+                context,
+                expiringInMonths: null,
+                maxExpirationMonths: 2880,
+                tradeName: null,
+                ingredient: null);
+
+            // Assert
+            Assert.AreEqual(1, count,
+                "When expiringInMonths is null, maxExpirationMonths fallback should include far-future patents");
+
+            #endregion
+        }
+
+        #endregion CountExpiringPatentsAsync — Date Range Tests
+
+        #region CountExpiringPatentsAsync — Text Filter Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that tradeName filter applies partial matching with LIKE.
+        /// </summary>
+        [TestMethod]
+        public async Task CountExpiringPatentsAsync_TradeName_PartialMatch()
+        {
+            #region implementation
+
+            // Arrange
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+
+            var futureDate = DateTime.Today.AddMonths(3);
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "LIPITOR", patentNo: "US0000001", patentExpireDate: futureDate);
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "CRESTOR", patentNo: "US0000002", patentExpireDate: futureDate);
+
+            // Act
+            var count = await DtoLabelAccess.CountExpiringPatentsAsync(
+                context,
+                expiringInMonths: 12,
+                maxExpirationMonths: 2880,
+                tradeName: "LIPIT",
+                ingredient: null);
+
+            // Assert
+            Assert.AreEqual(1, count, "Only LIPITOR should match the partial tradeName filter 'LIPIT'");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that ingredient filter applies partial matching with LIKE.
+        /// </summary>
+        [TestMethod]
+        public async Task CountExpiringPatentsAsync_Ingredient_PartialMatch()
+        {
+            #region implementation
+
+            // Arrange
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+
+            var futureDate = DateTime.Today.AddMonths(3);
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                ingredient: "ATORVASTATIN", patentNo: "US0000001", patentExpireDate: futureDate);
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                ingredient: "ROSUVASTATIN", patentNo: "US0000002", patentExpireDate: futureDate);
+
+            // Act
+            var count = await DtoLabelAccess.CountExpiringPatentsAsync(
+                context,
+                expiringInMonths: 12,
+                maxExpirationMonths: 2880,
+                tradeName: null,
+                ingredient: "ATORVA");
+
+            // Assert
+            Assert.AreEqual(1, count, "Only ATORVASTATIN should match the partial ingredient filter 'ATORVA'");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that tradeName and ingredient filters use AND logic
+        /// when both are provided.
+        /// </summary>
+        [TestMethod]
+        public async Task CountExpiringPatentsAsync_CombinedFilters_IntersectsAndLogic()
+        {
+            #region implementation
+
+            // Arrange
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+
+            var futureDate = DateTime.Today.AddMonths(3);
+            // Matches both filters
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "LIPITOR", ingredient: "ATORVASTATIN",
+                patentNo: "US0000001", patentExpireDate: futureDate);
+            // Matches tradeName only
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "LIPITOR", ingredient: "SOMETHING_ELSE",
+                patentNo: "US0000002", patentExpireDate: futureDate);
+            // Matches ingredient only
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "CRESTOR", ingredient: "ATORVASTATIN",
+                patentNo: "US0000003", patentExpireDate: futureDate);
+
+            // Act
+            var count = await DtoLabelAccess.CountExpiringPatentsAsync(
+                context,
+                expiringInMonths: 12,
+                maxExpirationMonths: 2880,
+                tradeName: "LIPITOR",
+                ingredient: "ATORVASTATIN");
+
+            // Assert
+            Assert.AreEqual(1, count,
+                "Only the patent matching BOTH tradeName=LIPITOR AND ingredient=ATORVASTATIN should be counted");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that non-matching text filters return zero.
+        /// </summary>
+        [TestMethod]
+        public async Task CountExpiringPatentsAsync_NonMatchingFilter_ReturnsZero()
+        {
+            #region implementation
+
+            // Arrange
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+
+            var futureDate = DateTime.Today.AddMonths(3);
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(connection,
+                tradeName: "LIPITOR", patentNo: "US0000001", patentExpireDate: futureDate);
+
+            // Act
+            var count = await DtoLabelAccess.CountExpiringPatentsAsync(
+                context,
+                expiringInMonths: 12,
+                maxExpirationMonths: 2880,
+                tradeName: "NONEXISTENT",
+                ingredient: null);
+
+            // Assert
+            Assert.AreEqual(0, count, "Non-matching tradeName filter should return zero");
+
+            #endregion
+        }
+
+        #endregion CountExpiringPatentsAsync — Text Filter Tests
     }
 }

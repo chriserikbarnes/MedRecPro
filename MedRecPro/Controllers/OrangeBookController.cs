@@ -231,7 +231,8 @@ namespace MedRecPro.Api.Controllers
                     expiringInMonths, tradeName, ingredient, pageNumber, pageSize);
 
                 // 1. Get the total count of matching patents (before pagination)
-                var totalCount = await countExpiringPatentsAsync(expiringInMonths, tradeName, ingredient);
+                var totalCount = await DtoLabelAccess.CountExpiringPatentsAsync(
+                    _dbContext, expiringInMonths, MaxExpirationMonths, tradeName, ingredient);
 
                 // 2. Retrieve paginated patent data (includes both base and *PED rows)
                 //    When expiringInMonths is null (open-ended search by tradeName/ingredient),
@@ -295,54 +296,6 @@ namespace MedRecPro.Api.Controllers
         #endregion
 
         #region Private Methods
-
-        /**************************************************************/
-        /// <summary>
-        /// Counts the total number of patents expiring within the specified month horizon,
-        /// optionally filtered by trade name and/or ingredient.
-        /// Used to compute <see cref="OrangeBookPatentExpirationResponseDto.TotalPages"/>.
-        /// </summary>
-        /// <param name="expiringInMonths">
-        /// Number of months from today to search. When null, uses <see cref="MaxExpirationMonths"/>
-        /// to scope from today through all future patents.
-        /// </param>
-        /// <param name="tradeName">Optional trade name partial match filter.</param>
-        /// <param name="ingredient">Optional ingredient partial match filter.</param>
-        /// <returns>Total count of matching patent records in the view.</returns>
-        /// <remarks>
-        /// Runs a lightweight COUNT(*) query against vw_OrangeBookPatent with the same
-        /// date range and text filters used by <see cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/>.
-        /// Text filters use EF.Functions.Like with '%term%' to match the PartialMatchAny
-        /// behavior of <see cref="EntitySearchHelper.FilterBySearchTerms{T}"/>.
-        /// </remarks>
-        /// <seealso cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/>
-        private async Task<int> countExpiringPatentsAsync(int? expiringInMonths, string? tradeName, string? ingredient)
-        {
-            #region implementation
-
-            var rangeStart = DateTime.Today;
-            var rangeEnd = DateTime.Today.AddMonths(expiringInMonths ?? MaxExpirationMonths);
-
-            var query = _dbContext.Set<OrangeBookPatent>()
-                .AsNoTracking()
-                .Where(p => p.PatentExpireDate >= rangeStart && p.PatentExpireDate <= rangeEnd);
-
-            // Apply tradeName partial match filter (mirrors SearchOrangeBookPatentsAsync behavior)
-            if (!string.IsNullOrWhiteSpace(tradeName))
-            {
-                query = query.Where(p => EF.Functions.Like(p.TradeName, $"%{tradeName}%"));
-            }
-
-            // Apply ingredient partial match filter (mirrors SearchOrangeBookPatentsAsync behavior)
-            if (!string.IsNullOrWhiteSpace(ingredient))
-            {
-                query = query.Where(p => EF.Functions.Like(p.Ingredient, $"%{ingredient}%"));
-            }
-
-            return await query.CountAsync();
-
-            #endregion
-        }
 
         /**************************************************************/
         /// <summary>
