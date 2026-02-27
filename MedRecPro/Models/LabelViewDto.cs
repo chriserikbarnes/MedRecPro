@@ -2628,5 +2628,63 @@ namespace MedRecPro.Models
                 : null;
     }
 
+    /**************************************************************/
+    /// <summary>
+    /// Response DTO for the Orange Book patent expiration discovery endpoint.
+    /// Wraps the filtered patent result list with a pre-rendered markdown table for display.
+    /// </summary>
+    /// <remarks>
+    /// The JSON response contains two representations of the same data:
+    /// - <see cref="Patents"/>: structured list for programmatic consumption
+    /// - <see cref="Markdown"/>: pre-rendered markdown table for direct display
+    ///
+    /// Pediatric exclusivity rows (<c>*PED</c> patents) are preserved while their
+    /// base companion rows are filtered out to avoid duplication.
+    /// </remarks>
+    /// <seealso cref="OrangeBookPatentDto"/>
+    public class OrangeBookPatentExpirationResponseDto
+    {
+        /**************************************************************/
+        /// <summary>
+        /// List of Orange Book patent DTOs matching the expiration query.
+        /// Each item contains the OrangeBookPatent dictionary with encrypted IDs
+        /// and a LabelLink when a cross-referenced SPL label exists.
+        /// </summary>
+        /// <remarks>
+        /// Pediatric base rows are filtered out when their <c>*PED</c> companion
+        /// is present in the result set. The <c>*PED</c> row carries the extended
+        /// pediatric exclusivity expiration date.
+        /// </remarks>
+        public required List<OrangeBookPatentDto> Patents { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-rendered markdown table of the patent results.
+        /// </summary>
+        /// <remarks>
+        /// Columns: Type, Application#, Prod#, Trade Name (with lowercase ingredient),
+        /// Strength, Patent#, and Expires.
+        ///
+        /// When HasPediatricFlag is true, the Expires column is suffixed with a
+        /// warning emoji indicating pediatric exclusivity.
+        ///
+        /// When DocumentGUID is available, the Trade Name is a markdown link
+        /// to the original FDA label.
+        /// </remarks>
+        public string? Markdown { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Total count of matching patent records across all pages (before pagination).
+        /// </summary>
+        public int TotalCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Total number of pages available based on <see cref="TotalCount"/> and the current page size.
+        /// </summary>
+        public int TotalPages { get; set; }
+    }
+
     #endregion Orange Book Patent DTOs
 }

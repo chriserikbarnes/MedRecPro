@@ -276,3 +276,33 @@ Fixed 4 failing tests out of 141 total DtoLabelAccess tests:
 Final results: 342 total tests (141 new DtoLabelAccess + 201 existing), all passing, zero regressions.
 
 ---
+
+### 2026-02-27 10:20 AM EST — Application Insights Failure Log Noise Filtering & Workbook Setup
+
+Analyzed MedRecPro's Application Insights Failures blade which was showing 261+ failed requests, virtually all from automated vulnerability scanners. Built a Kusto (KQL) regex filter to exclude bot noise and surface only real application failures.
+
+**Problem:** Scanner bots were probing for AWS credentials, Stripe keys, Terraform state, SharePoint exploits, WordPress paths, config files (appsettings.json, composer.json, parameters.yml), and framework artifacts (Next.js, Nuxt, Vercel, Netlify). This drowned out real failures like SqlExceptions and Azure blob dependency errors. The "double-URL" pattern (`/Home/https:/medrec.pro/...`) was confirmed as bot behavior (single-slash mangling), not an application routing bug.
+
+**Solution — Iterative KQL regex filter:** Built a `where not(tolower(url) matches regex ...)` filter across three iterations, adding patterns as new noise surfaced in each export. Resolved RE2 regex engine compatibility issues: `(?i)` flag not supported (used `tolower()` instead), lookaheads `(?!/)` not supported (replaced with `$` anchor), character class escaping `[_/\-]` required hyphen-first positioning `[-_/]`.
+
+**Workbook integration:** Added the filtered query as a new tile in the Application Insights "Failure Analysis" Workbook, wired to existing `TimeRange` and `Apps` parameters. Updated the built-in Request Details table and all chart sections (Failed Operations, All Operations, Top Failure Codes, Top Exceptions) to use the same noise filter. Result: 261 failures reduced to 2 real failures with 99.32% success rate.
+
+**Evaluated but deferred:** Azure Front Door + WAF (~$35/mo) would block scanner traffic at the edge. Deferred until production traffic or acquisition demo readiness.
+
+**Still to address:** SPL image .jpg 404s (spl.js loading images not captured during import — filtered for now, fix in spl.js later), CSS cache-busting hash mismatches (site.css, chat.css — low priority), SqlExceptions (4) and Azure blob failures (12) visible now that noise is cleared.
+
+---
+
+### 2026-02-27 11:21 PM EST — OrangeBookController: Patent Expiration Discovery Endpoint
+
+Created a new `OrangeBookController` with a `GET /api/OrangeBook/expiring` endpoint for discovering NDA patents expiring within a configurable time horizon. The endpoint calls `SearchOrangeBookPatentsAsync` and returns JSON with both structured patent data and a pre-rendered markdown table.
+
+**DRY refactor:** Promoted `validatePagingParameters`, `addPaginationHeaders`, and `DefaultPageNumber`/`DefaultPageSize` from `LabelController` (private) to `ApiControllerBase` (protected). Removed the duplicates from `LabelController` — all 26+ existing call sites continue working via inheritance. This enables any future controller to reuse pagination logic without duplication.
+
+**Pediatric deduplication:** When both a base patent row and its `*PED` companion appear in results, the base row is filtered out. Only the `*PED` row (carrying the extended pediatric exclusivity expiration date) is retained, marked with a warning emoji in the markdown table.
+
+**Markdown table:** Columns are Type (always NDA), Application#, Prod#, Trade Name (with lowercase ingredient in italics), Strength, Patent#, and Expires. When a DocumentGUID cross-reference exists, Trade Name becomes a markdown link to the original FDA label. Footer legend explains the pediatric warning emoji.
+
+**Files created:** `Controllers/OrangeBookController.cs`. **Files modified:** `Controllers/ApiControllerBase.cs` (pagination promotion), `Controllers/LabelController.cs` (removed private duplicates), `Models/LabelViewDto.cs` (added `OrangeBookPatentExpirationResponseDto`). Build clean, 79 Orange Book tests pass.
+
+---
