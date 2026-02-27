@@ -520,7 +520,7 @@ app.MapGet("/", () => Results.Ok(new
 app.MapGet("/health", () => Results.Ok(new
 {
     name = "MedRecPro MCP Server",
-    version = configuration.GetValue<string>("Version") ?? "1.0.0",
+    version = configuration.GetValue<string>("Version") ?? "1.0.1",
     status = "running",
     mcp = "/",
     documentation = $"{mcpSettings.ServerUrl}/docs",
