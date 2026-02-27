@@ -814,6 +814,7 @@ function Invoke-ImportPhase {
 
             # Build BCP import command as a flat array
             # -n: Native format
+            # -q: SET QUOTED_IDENTIFIER ON (required for tables with filtered/computed indexes)
             # -b: Batch size
             # -h TABLOCK: Table-level lock for performance
             # -E: Preserve identity values (critical for surrogate key consistency)
@@ -828,6 +829,7 @@ function Invoke-ImportPhase {
             [void]$bcpArgs.Add("-P")
             [void]$bcpArgs.Add($params.AzurePassword)
             [void]$bcpArgs.Add("-n")
+            [void]$bcpArgs.Add("-q")
             [void]$bcpArgs.Add("-b")
             [void]$bcpArgs.Add($params.BatchSize.ToString())
             [void]$bcpArgs.Add("-h")
@@ -886,6 +888,7 @@ function Invoke-ImportPhase {
 
             # Build BCP import command as a flat array
             # -n: Native format
+            # -q: SET QUOTED_IDENTIFIER ON (required for tables with filtered/computed indexes)
             # -b: Batch size
             # -h TABLOCK: Table-level lock for performance
             # -E: Preserve identity values (critical for surrogate key consistency)
@@ -900,6 +903,7 @@ function Invoke-ImportPhase {
             [void]$bcpArgs.Add("-P")
             [void]$bcpArgs.Add($AzurePassword)
             [void]$bcpArgs.Add("-n")
+            [void]$bcpArgs.Add("-q")
             [void]$bcpArgs.Add("-b")
             [void]$bcpArgs.Add($BatchSize.ToString())
             [void]$bcpArgs.Add("-h")
