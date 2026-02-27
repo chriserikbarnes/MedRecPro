@@ -423,8 +423,14 @@ namespace MedRecPro.Api.Controllers
                 var tradeName = patent.TradeName ?? "";
                 var ingredient = (patent.Ingredient ?? "").ToLowerInvariant();
                 var strength = escapeMarkdownPipe(getDictString(dict, "Strength"));
-                var patentNo = escapeMarkdownPipe(patent.PatentNo ?? "");
-                var expireDate = patent.PatentExpireDate?.ToString("yyyy-MM-dd") ?? "N/A";
+                var rawPatentNo = patent.PatentNo ?? "";
+                // Strip *PED suffix for display — pediatric status is shown via the ⚠️ emoji in Expires
+                if (rawPatentNo.EndsWith("*PED", StringComparison.OrdinalIgnoreCase))
+                {
+                    rawPatentNo = rawPatentNo[..^4];
+                }
+                var patentNo = escapeMarkdownPipe(rawPatentNo);
+                var expireDate = patent.PatentExpireDate?.ToString("MM/dd/yyyy") ?? "N/A";
                 var hasPediatricFlag = getDictBool(dict, "HasPediatricFlag");
 
                 // Build Trade Name cell: absolute link when DocumentGUID available, with lowercase ingredient
@@ -439,9 +445,9 @@ namespace MedRecPro.Api.Controllers
                     tradeNameCell = $"{escapeMarkdownPipe(tradeName)} *({escapeMarkdownPipe(ingredient)})*";
                 }
 
-                // Append pediatric warning emoji to expires column
+                // Append pediatric dagger to expires column
                 var expiresCell = hasPediatricFlag
-                    ? $"{expireDate} \u26a0\ufe0f"
+                    ? $"{expireDate}\u2020"
                     : expireDate;
 
                 sb.AppendLine($"| NDA | {applicationNumber} | {productNo} | {tradeNameCell} | {strength} | {patentNo} | {expiresCell} |");
@@ -451,7 +457,7 @@ namespace MedRecPro.Api.Controllers
             if (patents.Any(p => getDictBool(p.OrangeBookPatent, "HasPediatricFlag")))
             {
                 sb.AppendLine();
-                sb.AppendLine("\u26a0\ufe0f = Pediatric Exclusivity Expiration");
+                sb.AppendLine("\u2020 = Pediatric Exclusivity Expiration");
             }
 
             return sb.ToString();
