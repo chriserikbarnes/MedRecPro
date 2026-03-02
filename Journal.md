@@ -390,3 +390,25 @@ Extended the existing tarpit system (both MedRecPro and MedRecProStatic) to dete
 
 ---
 
+### 2026-03-02 1:15 PM EST — MCP Endpoint Health Check Workflow + Integrity Protection
+
+Created `.github/workflows/mcp-health-check.yml` — a GitHub Actions workflow that monitors the MedRecPro MCP server endpoints hourly on weekdays (8 AM – 7 PM EST).
+
+**Health checks (4 steps):**
+1. MCP server liveness — `GET /mcp/health`, validates `{"status":"running"}`
+2. `search_drug_labels` — Anthropic API call with `productNameSearch='aspirin'`
+3. `export_drug_label_markdown` — Anthropic API call with `productNameSearch='aspirin'` (Step 1)
+4. `search_expiring_patents` — Anthropic API call with `tradeName='Lipitor'`
+
+Uses `claude-haiku-4-5-20251001` via the Anthropic Messages API with `mcp_servers` parameter. User tool endpoints (`get_my_profile`, `get_my_activity`, `get_my_activity_by_date_range`) are excluded.
+
+**Security hardening:**
+- `permissions: {}` — zero workflow permissions (only outbound HTTP needed)
+- `actions/checkout` pinned to commit SHA (`@11bd71901bbe5b1630ceea73d27597364c9af683`, v4.2.2)
+- SHA-256 integrity check — workflow computes its own hash at runtime, compares against `WORKFLOW_INTEGRITY_HASH` GitHub secret; mismatch exits before `ANTHROPIC_API_KEY` is ever exposed to any step
+- All API-key steps gated on `steps.integrity.outcome == 'success'`
+
+**Required GitHub secrets:** `ANTHROPIC_API_KEY` (existing), `WORKFLOW_INTEGRITY_HASH` (new — SHA-256 of the workflow file, must be updated after any legitimate edit).
+
+---
+
