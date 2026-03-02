@@ -12,9 +12,7 @@ permissions: {}
 
 env:
   MCP_HEALTH_URL: https://www.medrecpro.com/mcp/health
-  MCP_SERVER_URL: https://www.medrecpro.com/mcp
-  ANTHROPIC_API_URL: https://api.anthropic.com/v1/messages
-  ANTHROPIC_MODEL: claude-haiku-4-5-20251001
+  API_BASE_URL: https://www.medrecpro.com
 
 jobs:
   health-check:
@@ -56,11 +54,14 @@ jobs:
       - name: Check MCP server health
         id: health
         if: steps.integrity.outcome == 'success'
+        env:
+          CF_BYPASS_TOKEN: ${{ secrets.CF_HEALTH_CHECK_TOKEN }}
         run: |
           echo "Checking MCP server health..."
           RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
             -H "User-Agent: MedRecPro-HealthCheck/1.0" \
             -H "Cache-Control: no-cache" \
+            -H "X-Health-Token: $CF_BYPASS_TOKEN" \
             "$MCP_HEALTH_URL")
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
@@ -84,70 +85,42 @@ jobs:
           echo "MCP server is running (v$VERSION)"
 
       # ────────────────────────────────────────────────
-      # Step 1: search_drug_labels
+      # Step 1: search_drug_labels (direct REST API)
       # ────────────────────────────────────────────────
       - name: Test search_drug_labels
         id: search_labels
         if: steps.integrity.outcome == 'success' && steps.health.outcome == 'success'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CF_BYPASS_TOKEN: ${{ secrets.CF_HEALTH_CHECK_TOKEN }}
         run: |
           echo "Testing search_drug_labels..."
 
-          RESPONSE=$(curl -s -w "\n---HTTP_CODE:%{http_code}---" \
-            --max-time 120 \
-            -H "Content-Type: application/json" \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "anthropic-beta: mcp-client-2025-04-04" \
-            -d '{
-              "model": "'"$ANTHROPIC_MODEL"'",
-              "max_tokens": 1024,
-              "system": "You are a health check agent. Call the requested MCP tool and return the raw result. Be concise.",
-              "messages": [{"role": "user", "content": "Use the search_drug_labels tool with productNameSearch='\''aspirin'\'' and pageSize=1. Return only the raw tool result."}],
-              "mcp_servers": [{"type": "url", "url": "'"$MCP_SERVER_URL"'", "name": "medrecpro"}]
-            }' \
-            "$ANTHROPIC_API_URL")
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
+            -H "User-Agent: MedRecPro-HealthCheck/1.0" \
+            -H "Cache-Control: no-cache" \
+            -H "X-Health-Token: $CF_BYPASS_TOKEN" \
+            "$API_BASE_URL/api/Label/product/latest/details?productNameSearch=aspirin&pageSize=1")
 
-          HTTP_CODE=$(echo "$RESPONSE" | grep -o '\-\-\-HTTP_CODE:[0-9]*\-\-\-' | grep -o '[0-9]*')
-          BODY=$(echo "$RESPONSE" | sed 's/---HTTP_CODE:[0-9]*---//')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
 
-          echo "Anthropic API HTTP Status: $HTTP_CODE"
+          echo "HTTP Status: $HTTP_CODE"
 
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Anthropic API returned HTTP $HTTP_CODE"
-            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+            echo "::error::search_drug_labels returned HTTP $HTTP_CODE"
+            echo "$BODY" | head -c 500
             exit 1
           fi
 
-          # Check for API-level errors
-          if echo "$BODY" | jq -e '.error' > /dev/null 2>&1; then
-            echo "::error::API error: $(echo "$BODY" | jq -r '.error.message')"
+          if ! echo "$BODY" | jq . > /dev/null 2>&1; then
+            echo "::error::Response is not valid JSON"
+            echo "$BODY" | head -c 500
             exit 1
           fi
 
-          # Check for MCP tool errors
-          HAS_TOOL_ERROR=$(echo "$BODY" | jq '[.content[]? | select(.type == "mcp_tool_result" and .is_error == true)] | length')
-          if [ "$HAS_TOOL_ERROR" -gt 0 ]; then
-            ERROR_MSG=$(echo "$BODY" | jq -r '[.content[]? | select(.type == "mcp_tool_result" and .is_error == true) | .content[]?.text // "Unknown error"] | join("; ")' | head -c 500)
-            echo "::error::MCP tool error: $ERROR_MSG"
-            exit 1
-          fi
-
-          # Verify we got tool results
-          TOOL_RESULT_COUNT=$(echo "$BODY" | jq '[.content[]? | select(.type == "mcp_tool_result")] | length')
-          if [ "$TOOL_RESULT_COUNT" -eq 0 ]; then
-            echo "::error::No mcp_tool_result blocks — tool may not have been called"
-            echo "Content types: $(echo "$BODY" | jq '[.content[]?.type]')"
-            echo "Text: $(echo "$BODY" | jq -r '[.content[]? | select(.type == "text") | .text] | join(" ")' | head -c 500)"
-            exit 1
-          fi
-
-          # Check for application-level errors in tool result
-          RESULT_TEXT=$(echo "$BODY" | jq -r '.content[]? | select(.type == "mcp_tool_result") | .content[]?.text // empty' | head -1)
-          APP_ERROR=$(echo "$RESULT_TEXT" | jq -r '.error // empty' 2>/dev/null)
+          APP_ERROR=$(echo "$BODY" | jq -r '.error // empty')
           if [ -n "$APP_ERROR" ]; then
-            APP_MSG=$(echo "$RESULT_TEXT" | jq -r '.message // "No details"' 2>/dev/null)
+            APP_MSG=$(echo "$BODY" | jq -r '.message // "No details"')
             echo "::error::Application error: $APP_ERROR — $APP_MSG"
             exit 1
           fi
@@ -155,66 +128,42 @@ jobs:
           echo "search_drug_labels: PASS"
 
       # ────────────────────────────────────────────────
-      # Step 2: export_drug_label_markdown (Step 1 only)
+      # Step 2: export_drug_label_markdown (product list)
       # ────────────────────────────────────────────────
       - name: Test export_drug_label_markdown
         id: export_label
         if: steps.integrity.outcome == 'success' && steps.health.outcome == 'success'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CF_BYPASS_TOKEN: ${{ secrets.CF_HEALTH_CHECK_TOKEN }}
         run: |
-          echo "Testing export_drug_label_markdown (Step 1)..."
+          echo "Testing export_drug_label_markdown (product list)..."
 
-          RESPONSE=$(curl -s -w "\n---HTTP_CODE:%{http_code}---" \
-            --max-time 120 \
-            -H "Content-Type: application/json" \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "anthropic-beta: mcp-client-2025-04-04" \
-            -d '{
-              "model": "'"$ANTHROPIC_MODEL"'",
-              "max_tokens": 1024,
-              "system": "You are a health check agent. Call the requested MCP tool and return the raw result. Be concise.",
-              "messages": [{"role": "user", "content": "Use the export_drug_label_markdown tool with productNameSearch='\''aspirin'\'' to get the product list (Step 1 only, do not provide a documentGuid). Return only the raw tool result."}],
-              "mcp_servers": [{"type": "url", "url": "'"$MCP_SERVER_URL"'", "name": "medrecpro"}]
-            }' \
-            "$ANTHROPIC_API_URL")
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
+            -H "User-Agent: MedRecPro-HealthCheck/1.0" \
+            -H "Cache-Control: no-cache" \
+            -H "X-Health-Token: $CF_BYPASS_TOKEN" \
+            "$API_BASE_URL/api/Label/product/latest?productNameSearch=aspirin&pageSize=1")
 
-          HTTP_CODE=$(echo "$RESPONSE" | grep -o '\-\-\-HTTP_CODE:[0-9]*\-\-\-' | grep -o '[0-9]*')
-          BODY=$(echo "$RESPONSE" | sed 's/---HTTP_CODE:[0-9]*---//')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
 
-          echo "Anthropic API HTTP Status: $HTTP_CODE"
+          echo "HTTP Status: $HTTP_CODE"
 
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Anthropic API returned HTTP $HTTP_CODE"
-            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+            echo "::error::export_drug_label_markdown returned HTTP $HTTP_CODE"
+            echo "$BODY" | head -c 500
             exit 1
           fi
 
-          if echo "$BODY" | jq -e '.error' > /dev/null 2>&1; then
-            echo "::error::API error: $(echo "$BODY" | jq -r '.error.message')"
+          if ! echo "$BODY" | jq . > /dev/null 2>&1; then
+            echo "::error::Response is not valid JSON"
+            echo "$BODY" | head -c 500
             exit 1
           fi
 
-          HAS_TOOL_ERROR=$(echo "$BODY" | jq '[.content[]? | select(.type == "mcp_tool_result" and .is_error == true)] | length')
-          if [ "$HAS_TOOL_ERROR" -gt 0 ]; then
-            ERROR_MSG=$(echo "$BODY" | jq -r '[.content[]? | select(.type == "mcp_tool_result" and .is_error == true) | .content[]?.text // "Unknown error"] | join("; ")' | head -c 500)
-            echo "::error::MCP tool error: $ERROR_MSG"
-            exit 1
-          fi
-
-          TOOL_RESULT_COUNT=$(echo "$BODY" | jq '[.content[]? | select(.type == "mcp_tool_result")] | length')
-          if [ "$TOOL_RESULT_COUNT" -eq 0 ]; then
-            echo "::error::No mcp_tool_result blocks — tool may not have been called"
-            echo "Content types: $(echo "$BODY" | jq '[.content[]?.type]')"
-            echo "Text: $(echo "$BODY" | jq -r '[.content[]? | select(.type == "text") | .text] | join(" ")' | head -c 500)"
-            exit 1
-          fi
-
-          RESULT_TEXT=$(echo "$BODY" | jq -r '.content[]? | select(.type == "mcp_tool_result") | .content[]?.text // empty' | head -1)
-          APP_ERROR=$(echo "$RESULT_TEXT" | jq -r '.error // empty' 2>/dev/null)
+          APP_ERROR=$(echo "$BODY" | jq -r '.error // empty')
           if [ -n "$APP_ERROR" ]; then
-            APP_MSG=$(echo "$RESULT_TEXT" | jq -r '.message // "No details"' 2>/dev/null)
+            APP_MSG=$(echo "$BODY" | jq -r '.message // "No details"')
             echo "::error::Application error: $APP_ERROR — $APP_MSG"
             exit 1
           fi
@@ -222,66 +171,42 @@ jobs:
           echo "export_drug_label_markdown: PASS"
 
       # ────────────────────────────────────────────────
-      # Step 3: search_expiring_patents
+      # Step 3: search_expiring_patents (direct REST API)
       # ────────────────────────────────────────────────
       - name: Test search_expiring_patents
         id: search_patents
         if: steps.integrity.outcome == 'success' && steps.health.outcome == 'success'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CF_BYPASS_TOKEN: ${{ secrets.CF_HEALTH_CHECK_TOKEN }}
         run: |
           echo "Testing search_expiring_patents..."
 
-          RESPONSE=$(curl -s -w "\n---HTTP_CODE:%{http_code}---" \
-            --max-time 120 \
-            -H "Content-Type: application/json" \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "anthropic-beta: mcp-client-2025-04-04" \
-            -d '{
-              "model": "'"$ANTHROPIC_MODEL"'",
-              "max_tokens": 1024,
-              "system": "You are a health check agent. Call the requested MCP tool and return the raw result. Be concise.",
-              "messages": [{"role": "user", "content": "Use the search_expiring_patents tool with tradeName='\''Lipitor'\'' and pageSize=1. Return only the raw tool result."}],
-              "mcp_servers": [{"type": "url", "url": "'"$MCP_SERVER_URL"'", "name": "medrecpro"}]
-            }' \
-            "$ANTHROPIC_API_URL")
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
+            -H "User-Agent: MedRecPro-HealthCheck/1.0" \
+            -H "Cache-Control: no-cache" \
+            -H "X-Health-Token: $CF_BYPASS_TOKEN" \
+            "$API_BASE_URL/api/OrangeBook/expiring?tradeName=Lipitor&pageSize=1")
 
-          HTTP_CODE=$(echo "$RESPONSE" | grep -o '\-\-\-HTTP_CODE:[0-9]*\-\-\-' | grep -o '[0-9]*')
-          BODY=$(echo "$RESPONSE" | sed 's/---HTTP_CODE:[0-9]*---//')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
 
-          echo "Anthropic API HTTP Status: $HTTP_CODE"
+          echo "HTTP Status: $HTTP_CODE"
 
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Anthropic API returned HTTP $HTTP_CODE"
-            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+            echo "::error::search_expiring_patents returned HTTP $HTTP_CODE"
+            echo "$BODY" | head -c 500
             exit 1
           fi
 
-          if echo "$BODY" | jq -e '.error' > /dev/null 2>&1; then
-            echo "::error::API error: $(echo "$BODY" | jq -r '.error.message')"
+          if ! echo "$BODY" | jq . > /dev/null 2>&1; then
+            echo "::error::Response is not valid JSON"
+            echo "$BODY" | head -c 500
             exit 1
           fi
 
-          HAS_TOOL_ERROR=$(echo "$BODY" | jq '[.content[]? | select(.type == "mcp_tool_result" and .is_error == true)] | length')
-          if [ "$HAS_TOOL_ERROR" -gt 0 ]; then
-            ERROR_MSG=$(echo "$BODY" | jq -r '[.content[]? | select(.type == "mcp_tool_result" and .is_error == true) | .content[]?.text // "Unknown error"] | join("; ")' | head -c 500)
-            echo "::error::MCP tool error: $ERROR_MSG"
-            exit 1
-          fi
-
-          TOOL_RESULT_COUNT=$(echo "$BODY" | jq '[.content[]? | select(.type == "mcp_tool_result")] | length')
-          if [ "$TOOL_RESULT_COUNT" -eq 0 ]; then
-            echo "::error::No mcp_tool_result blocks — tool may not have been called"
-            echo "Content types: $(echo "$BODY" | jq '[.content[]?.type]')"
-            echo "Text: $(echo "$BODY" | jq -r '[.content[]? | select(.type == "text") | .text] | join(" ")' | head -c 500)"
-            exit 1
-          fi
-
-          RESULT_TEXT=$(echo "$BODY" | jq -r '.content[]? | select(.type == "mcp_tool_result") | .content[]?.text // empty' | head -1)
-          APP_ERROR=$(echo "$RESULT_TEXT" | jq -r '.error // empty' 2>/dev/null)
+          APP_ERROR=$(echo "$BODY" | jq -r '.error // empty')
           if [ -n "$APP_ERROR" ]; then
-            APP_MSG=$(echo "$RESULT_TEXT" | jq -r '.message // "No details"' 2>/dev/null)
+            APP_MSG=$(echo "$BODY" | jq -r '.message // "No details"')
             echo "::error::Application error: $APP_ERROR — $APP_MSG"
             exit 1
           fi
