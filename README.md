@@ -97,6 +97,7 @@ MedRecPro/                          # Root repository
       SplAuthorRenderingService.cs
       SplTextContentRenderingService.cs
       SplRenderingRegistrationService.cs
+      TarpitService.cs              # IP tracking, delay calculation, endpoint abuse detection
       ViewRenderService.cs          # Razor view rendering
       ZipImportWorkerService.cs     # Background ZIP import worker
       BackgroudTaskService.cs       # Background task management
@@ -121,6 +122,8 @@ MedRecPro/                          # Root repository
       DtoLabelAccess-ContentHierarchy.cs
       DtoLabelAccess-BatchLoaders.cs
       ... (and more)
+    Middleware/
+      TarpitMiddleware.cs           # Progressive delay for 404 abuse and endpoint rate limiting
     Models/                         # Domain models, DTOs, enums
       Labels.cs                     # Core label entities
       User.cs                       # User model
@@ -128,6 +131,7 @@ MedRecPro/                          # Root repository
       Comparison.cs                 # Label comparison models
       SectionStructure.cs           # Section hierarchy
       DocumentRendering.cs          # Rendering models
+      TarpitSettings.cs             # Tarpit configuration (thresholds, delays, monitored endpoints)
       ... (and more)
     Skills/                         # AI skill definitions (markdown prompts for Claude)
       skills.md                     # Master skill index
@@ -205,10 +209,14 @@ MedRecPro/                          # Root repository
     appsettings.Development.json
     Controllers/
       HomeController.cs             # Index, Terms, Privacy, Chat pages
+    Middleware/
+      TarpitMiddleware.cs           # Progressive delay for 404 abuse and endpoint rate limiting
     Models/
       PageContent.cs                # Strongly-typed content models
+      TarpitSettings.cs             # Tarpit configuration (thresholds, delays, monitored endpoints)
     Services/
       ContentService.cs             # JSON content loader
+      TarpitService.cs              # IP tracking, delay calculation, endpoint abuse detection
     Views/
       Home/
         Index.cshtml                # Landing page
@@ -310,6 +318,8 @@ MedRecPro/                          # Root repository
     LogActivityAsyncTests.cs
     StringCipherTests.cs
     ResolveMcpUserTests.cs          # MCP user resolution and auto-provisioning tests
+    TarpitServiceTests.cs           # Tarpit service unit tests (404 tracking + endpoint abuse)
+    TarpitMiddlewareTests.cs        # Tarpit middleware integration tests
 ```
 
 ## API Endpoints Summary

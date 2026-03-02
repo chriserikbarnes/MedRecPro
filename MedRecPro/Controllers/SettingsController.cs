@@ -224,11 +224,18 @@ namespace MedRecPro.Controllers
         ///   "enhancedDebugging": false,
         ///   "caching": true,
         ///   "fileStorage": true,
-        ///   "razorTemplates": true
+        ///   "razorTemplates": true,
+        ///   "tarpitEnabled": true,
+        ///   "tarpitTriggerThreshold": 5,
+        ///   "tarpitMaxDelayMs": 30000,
+        ///   "tarpitStaleTimeoutMinutes": 10,
+        ///   "tarpitMonitoredEndpoints": [ "/api/", "/Home/Index" ],
+        ///   "tarpitEndpointRateThreshold": 20,
+        ///   "tarpitEndpointWindowSeconds": 60
         /// }
         ///
         /// Sources: DemoModeSettings, FeatureFlags, ComparisonSettings,
-        /// FileStorageSettings, and RazorLight sections in appsettings.json.
+        /// FileStorageSettings, RazorLight, and TarpitSettings sections in appsettings.json.
         /// </example>
         /// <response code="200">Returns all feature flags and capability statuses.</response>
         /// <response code="500">If an internal server error occurs.</response>
@@ -243,6 +250,7 @@ namespace MedRecPro.Controllers
             {
 
                 var featureFlagsSection = _configuration.GetSection("FeatureFlags");
+                var tarpitSection = _configuration.GetSection("TarpitSettings");
 
                 var response = new
                 {
@@ -260,7 +268,14 @@ namespace MedRecPro.Controllers
                     enhancedDebugging = featureFlagsSection.GetValue<bool>("UseEnhancedDebugging", true),
                     caching = _configuration.GetValue<bool>("ComparisonSettings:EnableCaching", true),
                     fileStorage = _configuration.GetSection("FileStorageSettings").Exists(),
-                    razorTemplates = _configuration.GetSection("RazorLight").Exists()
+                    razorTemplates = _configuration.GetSection("RazorLight").Exists(),
+                    tarpitEnabled = tarpitSection.GetValue<bool>("Enabled", true),
+                    tarpitTriggerThreshold = tarpitSection.GetValue<int>("TriggerThreshold", 5),
+                    tarpitMaxDelayMs = tarpitSection.GetValue<int>("MaxDelayMs", 30000),
+                    tarpitStaleTimeoutMinutes = tarpitSection.GetValue<int>("StaleEntryTimeoutMinutes", 10),
+                    tarpitMonitoredEndpoints = tarpitSection.GetSection("MonitoredEndpoints").Get<List<string>>() ?? new(),
+                    tarpitEndpointRateThreshold = tarpitSection.GetValue<int>("EndpointRateThreshold", 20),
+                    tarpitEndpointWindowSeconds = tarpitSection.GetValue<int>("EndpointWindowSeconds", 60)
                 };
 
                 return Ok(response);

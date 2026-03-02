@@ -15,6 +15,7 @@ using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
+using MedRecPro.Middleware;
 using MedRecPro.Models;
 using MedRecPro.Security;
 using MedRecPro.Service;
@@ -130,6 +131,11 @@ builder.Services.AddSingleton<AzureManagementTokenProvider>();
 builder.Services.AddScoped<AzureSqlMetricsService>();
 
 builder.Services.AddDatabaseUsageMonitoring();
+
+// Tarpit middleware configuration and service
+builder.Services.Configure<MedRecPro.Models.TarpitSettings>(
+    builder.Configuration.GetSection("TarpitSettings"));
+builder.Services.AddSingleton<MedRecPro.Service.TarpitService>();
 
 // Register ClaudeSkillService for two-stage routing skill management
 builder.Services.AddSingleton<IClaudeSkillService, ClaudeSkillService>();
@@ -1106,6 +1112,9 @@ else
     app.UseExceptionHandler("/Error"); // You'll need an Error handling page/endpoint
     app.UseHsts();
 }
+
+// Tarpit middleware: progressively delays 404 responses from repeat offenders
+app.UseTarpitMiddleware();
 
 #pragma warning disable CS1587 // XML comment is not placed on a valid language element
 /**************************************************************/

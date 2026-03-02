@@ -1,3 +1,5 @@
+using MedRecPro.Static.Middleware;
+using MedRecPro.Static.Models;
 using MedRecPro.Static.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,6 +11,11 @@ builder.Services.AddControllersWithViews();
 
 // Register content service as singleton (loads JSON once at startup)
 builder.Services.AddSingleton<ContentService>();
+
+// Tarpit middleware configuration and service
+builder.Services.Configure<TarpitSettings>(
+    builder.Configuration.GetSection("TarpitSettings"));
+builder.Services.AddSingleton<TarpitService>();
 
 #endregion
 
@@ -22,6 +29,9 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
 }
+
+// Tarpit middleware: progressively delays 404 responses from repeat offenders
+app.UseTarpitMiddleware();
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();

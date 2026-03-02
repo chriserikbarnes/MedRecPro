@@ -365,3 +365,28 @@ Build: 0 errors, 0 warnings.
 
 ---
 
+### 2026-03-02 10:12 AM EST — TarpitMiddleware Phase 2: Endpoint Abuse Detection
+
+Extended the existing tarpit system (both MedRecPro and MedRecProStatic) to detect and throttle rate-based abuse on configurable success-returning endpoints. Bots were hammering endpoints returning 200 OK (e.g., `GET /api/` with 2,875 hits, `GET /Home/Index` with 664 hits), so the tarpit now monitors those paths too.
+
+**Design — Second Dictionary, Shared Lifecycle:**
+- New `ConcurrentDictionary<string, EndpointAbuseEntry>` keyed by `"{IP}|{normalizedPath}"` — separate from the existing 404 tracker
+- Tumbling window rate detection: hits per configurable time window, counter resets when window expires
+- Combined `MaxTrackedIps` cap across both dictionaries with merged eviction (oldest from either dictionary)
+- Same exponential backoff formula with its own threshold (`EndpointRateThreshold`)
+
+**Key decision:** A 200 on a monitored endpoint does NOT reset the 404 counter — a bot hammering `/api/` is not demonstrating legitimate behavior.
+
+**Files modified (11):**
+- `TarpitSettings.cs` — 3 new properties: `MonitoredEndpoints`, `EndpointRateThreshold`, `EndpointWindowSeconds`
+- `TarpitService.cs` — `EndpointAbuseEntry` record struct, `_endpointTracker` dictionary, 3 new public methods (`RecordEndpointHit`, `GetEndpointHitCount`, `CalculateEndpointDelay`), modified cleanup/eviction/dispose to sweep both dictionaries
+- `TarpitMiddleware.cs` — `getMatchedEndpoint()` helper, restructured `InvokeAsync` success branch for monitored vs non-monitored paths
+- `appsettings.json` (both projects) — added 3 new TarpitSettings fields
+- `SettingsController.cs` — 3 new fields in `GetFeatures()`
+- `TarpitServiceTests.cs` — 12 new endpoint abuse tests
+- `TarpitMiddlewareTests.cs` — 8 new middleware endpoint tests
+
+**Verification:** Both projects build with 0 errors. All 46 tarpit tests pass (26 original + 20 new).
+
+---
+

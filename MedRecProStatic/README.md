@@ -100,10 +100,14 @@ MedRecProStatic/
   appsettings.Development.json        # Local dev overrides
   Controllers/
     HomeController.cs                 # 4 actions: Index, Terms, Privacy, Chat
+  Middleware/
+    TarpitMiddleware.cs               # Progressive delay for 404 abuse and endpoint rate limiting
   Models/
     PageContent.cs                    # Strongly-typed content models (1100+ lines)
+    TarpitSettings.cs                 # Tarpit configuration (thresholds, delays, monitored endpoints)
   Services/
     ContentService.cs                 # Singleton JSON content loader
+    TarpitService.cs                  # IP tracking, delay calculation, endpoint abuse detection
   Views/
     Home/
       Index.cshtml                    # Home/landing page
@@ -156,6 +160,39 @@ wwwroot/js/chat/
 - `POST /api/Ai/interpret` — NLP query to API endpoint mapping
 - `POST /api/Ai/synthesize` — API results to human-readable responses
 - `GET /api/Ai/chat` — Convenience endpoint for simple queries
+
+## Tarpit Middleware (Rate Limiting)
+
+The tarpit middleware progressively delays responses to abusive clients. It runs after the rest of the pipeline completes, inspecting response status codes.
+
+### 404 Abuse Detection
+
+Clients generating repeated 404 responses are tracked by IP. After exceeding `TriggerThreshold` consecutive 404s, exponential backoff delays are applied: 1s, 2s, 4s, 8s... capped at `MaxDelayMs` (default 30s). A successful request on a non-monitored path resets the counter (when `ResetOnSuccess` is enabled).
+
+### Endpoint Rate Limiting
+
+Configurable endpoints (e.g., `/api/`, `/Home/Index`) are monitored for rate-based abuse even when returning 200 OK. Hits are tracked per IP+path in a tumbling window (`EndpointWindowSeconds`). Once `EndpointRateThreshold` is exceeded within the window, the same exponential backoff applies. Success on a monitored endpoint does **not** reset the 404 counter.
+
+### Configuration (`appsettings.json`)
+
+| Setting | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Master switch |
+| `TriggerThreshold` | `5` | Consecutive 404s before delays begin |
+| `MaxDelayMs` | `30000` | Maximum delay per response (ms) |
+| `ResetOnSuccess` | `true` | Reset 404 counter on non-monitored success |
+| `MonitoredEndpoints` | `[]` | Path prefixes to monitor (case-insensitive) |
+| `EndpointRateThreshold` | `20` | Max hits per window before throttling |
+| `EndpointWindowSeconds` | `60` | Tumbling window duration |
+| `StaleEntryTimeoutMinutes` | `10` | Inactivity before entry cleanup |
+| `CleanupIntervalMinutes` | `5` | Background cleanup sweep interval |
+| `MaxTrackedIps` | `10000` | Combined cap across both trackers |
+
+### Client IP Resolution (Cloudflare-aware)
+
+1. `CF-Connecting-IP` header (Cloudflare real client IP)
+2. `X-Forwarded-For` header (first IP in chain)
+3. `HttpContext.Connection.RemoteIpAddress` (direct connection)
 
 ## Content Management
 
