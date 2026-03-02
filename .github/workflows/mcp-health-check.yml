@@ -118,10 +118,10 @@ jobs:
             exit 1
           fi
 
-          APP_ERROR=$(echo "$BODY" | jq -r '.error // empty')
-          if [ -n "$APP_ERROR" ]; then
-            APP_MSG=$(echo "$BODY" | jq -r '.message // "No details"')
-            echo "::error::Application error: $APP_ERROR — $APP_MSG"
+          # Check for app-level error (response may be an array or object)
+          if echo "$BODY" | jq -e 'type == "object" and has("error")' > /dev/null 2>&1; then
+            APP_MSG=$(echo "$BODY" | jq -r '"\(.error) — \(.message // "No details")"')
+            echo "::error::Application error: $APP_MSG"
             exit 1
           fi
 
@@ -161,10 +161,10 @@ jobs:
             exit 1
           fi
 
-          APP_ERROR=$(echo "$BODY" | jq -r '.error // empty')
-          if [ -n "$APP_ERROR" ]; then
-            APP_MSG=$(echo "$BODY" | jq -r '.message // "No details"')
-            echo "::error::Application error: $APP_ERROR — $APP_MSG"
+          # Check for app-level error (response may be an array or object)
+          if echo "$BODY" | jq -e 'type == "object" and has("error")' > /dev/null 2>&1; then
+            APP_MSG=$(echo "$BODY" | jq -r '"\(.error) — \(.message // "No details")"')
+            echo "::error::Application error: $APP_MSG"
             exit 1
           fi
 
@@ -204,10 +204,10 @@ jobs:
             exit 1
           fi
 
-          APP_ERROR=$(echo "$BODY" | jq -r '.error // empty')
-          if [ -n "$APP_ERROR" ]; then
-            APP_MSG=$(echo "$BODY" | jq -r '.message // "No details"')
-            echo "::error::Application error: $APP_ERROR — $APP_MSG"
+          # Check for app-level error (response may be an array or object)
+          if echo "$BODY" | jq -e 'type == "object" and has("error")' > /dev/null 2>&1; then
+            APP_MSG=$(echo "$BODY" | jq -r '"\(.error) — \(.message // "No details")"')
+            echo "::error::Application error: $APP_MSG"
             exit 1
           fi
 
