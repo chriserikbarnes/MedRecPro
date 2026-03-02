@@ -412,3 +412,30 @@ Uses `claude-haiku-4-5-20251001` via the Anthropic Messages API with `mcp_server
 
 ---
 
+### 2026-03-02 2:57 PM EST — MCP Health Check: Cloudflare Worker Proxy & Direct REST Migration
+
+Resolved multiple issues with the MCP health-check GitHub Actions workflow and migrated from the Anthropic API approach to direct REST API calls proxied through a Cloudflare Worker.
+
+**Problem chain:**
+1. **Anthropic API auth failure** — MCP transport at `/mcp` requires OAuth 2.1; Anthropic's `mcp_servers` parameter cannot complete a headless OAuth flow, returning "Authentication error while communicating with MCP server"
+2. **Bot Fight Mode (free plan)** — Cannot be bypassed or skipped via WAF rules; blocks all GitHub Actions runner traffic (curl) with JavaScript challenges
+3. **JSON array response** — API returns arrays, not objects; `jq -r '.error // empty'` crashed with "Cannot index array with string"
+
+**Solutions applied:**
+- **Dropped Anthropic API entirely** — Switched all 3 tool checks to direct REST API calls against the public endpoints (`/api/Label/...`, `/api/OrangeBook/...`). Zero cost per run, no auth needed.
+- **Created Cloudflare Worker proxy** (`workers/health-proxy/`) — GitHub Actions hits `*.workers.dev` (not subject to medrecpro.com's Bot Fight Mode), Worker validates `X-Health-Token` secret, proxies to origin through Cloudflare's internal network. Path-whitelisted to 4 endpoints only.
+- **Fixed jq crash** — Changed error check to `jq -e 'type == "object" and has("error")'` so JSON arrays pass through safely.
+- **Added `.wrangler/` to `.gitignore`** — Wrangler cache directory should not be committed.
+
+**Files modified/created:**
+- `.github/workflows/mcp-health-check.yml` — All requests now route through `PROXY_BASE_URL` (Worker URL stored as `HEALTH_PROXY_URL` secret)
+- `workers/health-proxy/src/index.js` — Worker with token validation, method restriction (GET/HEAD), path whitelist, bot-challenge detection, 10s timeout
+- `workers/health-proxy/wrangler.toml` — Worker config with `ORIGIN_URL` var and `HEALTH_CHECK_TOKEN` secret
+- `.gitignore` — Added `.wrangler/`
+
+**Removed secrets:** `ANTHROPIC_API_KEY` (no longer needed for this workflow).
+**New secrets:** `HEALTH_PROXY_URL` (Worker URL on workers.dev).
+**Retained secrets:** `CF_HEALTH_CHECK_TOKEN`, `WORKFLOW_INTEGRITY_HASH`.
+
+---
+
