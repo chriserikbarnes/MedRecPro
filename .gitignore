@@ -384,3 +384,6 @@ FodyWeavers.xsd
 # Pending work - not ready for release
 /MedRecPro/Todo/
 /workers/health-proxy
+
+# Cloudflare Wrangler
+.wrangler/

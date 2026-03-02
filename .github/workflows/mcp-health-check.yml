@@ -11,8 +11,9 @@ on:
 permissions: {}
 
 env:
-  MCP_HEALTH_URL: https://www.medrecpro.com/mcp/health
-  API_BASE_URL: https://www.medrecpro.com
+  # Worker proxy URL (set via secret so the workers.dev subdomain stays private)
+  # Format: https://medrecpro-health-proxy.<subdomain>.workers.dev
+  PROXY_BASE_URL: ${{ secrets.HEALTH_PROXY_URL }}
 
 jobs:
   health-check:
@@ -62,7 +63,7 @@ jobs:
             -H "User-Agent: MedRecPro-HealthCheck/1.0" \
             -H "Cache-Control: no-cache" \
             -H "X-Health-Token: $CF_BYPASS_TOKEN" \
-            "$MCP_HEALTH_URL")
+            "$PROXY_BASE_URL/mcp/health")
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
@@ -99,7 +100,7 @@ jobs:
             -H "User-Agent: MedRecPro-HealthCheck/1.0" \
             -H "Cache-Control: no-cache" \
             -H "X-Health-Token: $CF_BYPASS_TOKEN" \
-            "$API_BASE_URL/api/Label/product/latest/details?productNameSearch=aspirin&pageSize=1")
+            "$PROXY_BASE_URL/api/Label/product/latest/details?productNameSearch=aspirin&pageSize=1")
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
@@ -142,7 +143,7 @@ jobs:
             -H "User-Agent: MedRecPro-HealthCheck/1.0" \
             -H "Cache-Control: no-cache" \
             -H "X-Health-Token: $CF_BYPASS_TOKEN" \
-            "$API_BASE_URL/api/Label/product/latest?productNameSearch=aspirin&pageSize=1")
+            "$PROXY_BASE_URL/api/Label/product/latest?productNameSearch=aspirin&pageSize=1")
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
@@ -185,7 +186,7 @@ jobs:
             -H "User-Agent: MedRecPro-HealthCheck/1.0" \
             -H "Cache-Control: no-cache" \
             -H "X-Health-Token: $CF_BYPASS_TOKEN" \
-            "$API_BASE_URL/api/OrangeBook/expiring?tradeName=Lipitor&pageSize=1")
+            "$PROXY_BASE_URL/api/OrangeBook/expiring?tradeName=Lipitor&pageSize=1")
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
