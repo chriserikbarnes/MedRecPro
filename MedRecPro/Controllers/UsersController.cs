@@ -1374,7 +1374,13 @@ namespace MedRecPro.Controllers
                         string eJson = StringCipher.Encrypt(json, _pkSecret, StringCipher.EncryptionStrength.Strong);
 
                         // Write
-                        Response.Cookies.Append(cookieName, eJson);
+                        Response.Cookies.Append(cookieName, eJson, new CookieOptions
+                        {
+                            Secure = true,
+                            HttpOnly = true,
+                            SameSite = SameSiteMode.Lax,
+                            IsEssential = true
+                        });
                     }
                 }
                 catch (Exception ex)
