@@ -726,10 +726,9 @@ Cloudflare has multiple independent bot-blocking systems that can interfere with
 
 ### Azure SQL Serverless Cold Starts
 
-Azure SQL Serverless auto-pauses after inactivity. Resuming takes 15-30+ seconds, which can exceed default timeouts. Mitigations:
-- **`DatabaseKeepAliveService`** pings the database with `SELECT 1` every 55 minutes during business hours (Mon-Fri, 8 AM - 5 PM Eastern) to prevent auto-pause. Configured via the `DatabaseKeepAlive` section in `appsettings.json`
-- Increase HttpClient and SQL command timeouts
-- Use `EnableRetryOnFailure()` in `UseSqlServer()` configuration
+Azure SQL Serverless auto-pauses after inactivity. Resuming takes 30-60 seconds, which can exceed default timeouts. Mitigations:
+- **`DatabaseKeepAliveService`** pings the database with `SELECT 1` every 14 minutes during business hours (Mon-Fri, 8 AM - 8 PM Eastern) to prevent auto-pause. Each ping cycle includes 3 retry attempts with escalating delays (10s, 30s, 60s) and a 90-second connect timeout to accommodate cold resume. Configured via the `DatabaseKeepAlive` section in `appsettings.json`
+- **`EnableRetryOnFailure()`** is configured on the EF Core `DbContext` with 3 retries and a 60-second command timeout to handle transient failures across all application database operations
 - Increase the auto-pause delay during active development
 
 ### Key Vault Secret Naming

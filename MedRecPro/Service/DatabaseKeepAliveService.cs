@@ -16,8 +16,14 @@ namespace MedRecPro.Services
     /// <remarks>
     /// Azure SQL Serverless (GP_S_Gen5) auto-pauses after 60 minutes of inactivity. Resuming from
     /// a paused state takes 30-60 seconds, which exceeds MCP connector timeout limits. This service
-    /// prevents auto-pause by pinging the database every 55 minutes (configurable) during business
-    /// hours (Mon-Fri, 8 AM - 5 PM Eastern by default).
+    /// prevents auto-pause by pinging the database at configurable intervals during business hours.
+    ///
+    /// Each ping cycle includes configurable retry attempts with escalating delays (default: 3 retries
+    /// at 10s, 30s, 60s) and an extended connect timeout (90 seconds) to accommodate cold resume.
+    /// This retry logic prevents a single transient failure from cascading into permanent keep-alive
+    /// loss — previously, one failed ping at a 55-minute interval meant the next attempt was 110
+    /// minutes later (well past the 60-minute auto-pause threshold), causing all subsequent pings
+    /// to fail for the rest of the business day.
     ///
     /// The service always executes an immediate ping on startup to wake the database for incoming
     /// requests, regardless of business hours. Subsequent timer-driven pings are gated by the
@@ -50,6 +56,8 @@ namespace MedRecPro.Services
         private string _timeZoneId;
         private bool _businessDaysOnly;
         private int _maxConsecutiveFailures;
+        private int _retryAttempts;
+        private int[] _retryDelaySeconds;
         private bool _disposed;
 
         /**************************************************************/
@@ -324,13 +332,16 @@ namespace MedRecPro.Services
 
         /**************************************************************/
         /// <summary>
-        /// Async implementation of the timer callback with business hours gating and error handling.
+        /// Async implementation of the timer callback with business hours gating, retry logic,
+        /// and error handling.
         /// </summary>
         /// <returns>A task representing the async operation.</returns>
         /// <remarks>
         /// First checks whether the current time falls within the configured business hours window.
         /// If outside business hours, the ping is skipped. If inside, executes a lightweight database
-        /// ping and tracks success/failure metrics for Azure diagnostics.
+        /// ping with configurable retry attempts and escalating delays. This retry loop prevents a
+        /// single transient failure from cascading into permanent keep-alive loss — the core fix for
+        /// the Azure SQL Serverless auto-pause cascade failure pattern.
         /// </remarks>
         /// <seealso cref="timerCallback"/>
         /// <seealso cref="isWithinBusinessHours"/>
@@ -358,58 +369,100 @@ namespace MedRecPro.Services
                 "[DatabaseKeepAliveService] Beginning scheduled ping at {UtcTime}",
                 DateTime.UtcNow.ToString("o"));
 
-            try
+            // Attempt ping with configurable retries and escalating delays.
+            // This prevents a single transient failure from cascading: if the database
+            // is paused (cold), the extended connect timeout (90s) and retry delays give
+            // Azure SQL enough time to resume before the next attempt.
+            Exception? lastException = null;
+            var maxAttempts = 1 + _retryAttempts; // 1 initial + N retries
+
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                await executePing(CancellationToken.None);
+                try
+                {
+                    await executePing(CancellationToken.None);
 
-                // Success - reset failure counter and update timestamps
-                _consecutiveFailures = 0;
-                _totalPings++;
-                _lastPingTime = DateTime.UtcNow;
-                _nextScheduledPing = DateTime.UtcNow.AddMinutes(_intervalMinutes);
+                    // Success - reset failure counter and update timestamps
+                    _consecutiveFailures = 0;
+                    _totalPings++;
+                    _lastPingTime = DateTime.UtcNow;
+                    _nextScheduledPing = DateTime.UtcNow.AddMinutes(_intervalMinutes);
 
-                _logger.LogInformation(
-                    "[DatabaseKeepAliveService] Scheduled ping completed successfully at {UtcTime}. " +
-                    "Total pings: {TotalPings}. Next scheduled: {NextRun} UTC",
-                    DateTime.UtcNow.ToString("o"),
-                    _totalPings,
-                    _nextScheduledPing?.ToString("yyyy-MM-dd HH:mm:ss"));
+                    if (attempt > 1)
+                    {
+                        _logger.LogInformation(
+                            "[DatabaseKeepAliveService] Ping succeeded on retry attempt {Attempt}/{MaxAttempts} at {UtcTime}.",
+                            attempt,
+                            maxAttempts,
+                            DateTime.UtcNow.ToString("o"));
+                    }
+
+                    _logger.LogInformation(
+                        "[DatabaseKeepAliveService] Scheduled ping completed successfully at {UtcTime}. " +
+                        "Total pings: {TotalPings}. Next scheduled: {NextRun} UTC",
+                        DateTime.UtcNow.ToString("o"),
+                        _totalPings,
+                        _nextScheduledPing?.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                    return; // Success — exit the retry loop
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+
+                    // Log additional details for Azure SQL specific errors
+                    if (ex is SqlException sqlEx)
+                    {
+                        _logger.LogError(
+                            "[DatabaseKeepAliveService] SQL Error Details - Number: {Number}, State: {State}, " +
+                            "Server: {Server}, Procedure: {Procedure}, LineNumber: {LineNumber}",
+                            sqlEx.Number,
+                            sqlEx.State,
+                            sqlEx.Server,
+                            sqlEx.Procedure,
+                            sqlEx.LineNumber);
+                    }
+
+                    if (attempt < maxAttempts)
+                    {
+                        // Pick the delay for this retry (clamp index to array bounds)
+                        var delayIndex = Math.Min(attempt - 1, _retryDelaySeconds.Length - 1);
+                        var delaySeconds = _retryDelaySeconds[delayIndex];
+
+                        _logger.LogWarning(
+                            "[DatabaseKeepAliveService] Ping attempt {Attempt}/{MaxAttempts} failed: {Message}. " +
+                            "Retrying in {Delay}s...",
+                            attempt,
+                            maxAttempts,
+                            ex.Message,
+                            delaySeconds);
+
+                        await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+                    }
+                }
             }
-            catch (Exception ex)
+
+            // All attempts exhausted — record the failure
+            _consecutiveFailures++;
+            _nextScheduledPing = DateTime.UtcNow.AddMinutes(_intervalMinutes);
+
+            _logger.LogError(lastException,
+                "[DatabaseKeepAliveService] Scheduled ping FAILED after {MaxAttempts} attempts at {UtcTime}. " +
+                "Error: {Message}. Consecutive failures: {Failures}. " +
+                "Next attempt: {NextRun} UTC",
+                maxAttempts,
+                DateTime.UtcNow.ToString("o"),
+                lastException?.Message,
+                _consecutiveFailures,
+                _nextScheduledPing?.ToString("yyyy-MM-dd HH:mm:ss"));
+
+            // Alert if failures exceed threshold
+            if (_consecutiveFailures >= _maxConsecutiveFailures)
             {
-                _consecutiveFailures++;
-                _nextScheduledPing = DateTime.UtcNow.AddMinutes(_intervalMinutes);
-
-                _logger.LogError(ex,
-                    "[DatabaseKeepAliveService] Scheduled ping FAILED at {UtcTime}. " +
-                    "Error: {Message}. Consecutive failures: {Failures}. " +
-                    "Next attempt: {NextRun} UTC",
-                    DateTime.UtcNow.ToString("o"),
-                    ex.Message,
-                    _consecutiveFailures,
-                    _nextScheduledPing?.ToString("yyyy-MM-dd HH:mm:ss"));
-
-                // Log additional details for Azure SQL specific errors
-                if (ex is SqlException sqlEx)
-                {
-                    _logger.LogError(
-                        "[DatabaseKeepAliveService] SQL Error Details - Number: {Number}, State: {State}, " +
-                        "Server: {Server}, Procedure: {Procedure}, LineNumber: {LineNumber}",
-                        sqlEx.Number,
-                        sqlEx.State,
-                        sqlEx.Server,
-                        sqlEx.Procedure,
-                        sqlEx.LineNumber);
-                }
-
-                // Alert if failures exceed threshold
-                if (_consecutiveFailures >= _maxConsecutiveFailures)
-                {
-                    _logger.LogCritical(
-                        "[DatabaseKeepAliveService] Exceeded max consecutive failures ({Max}). " +
-                        "Database may be unreachable. Will continue retrying on next timer tick.",
-                        _maxConsecutiveFailures);
-                }
+                _logger.LogCritical(
+                    "[DatabaseKeepAliveService] Exceeded max consecutive failures ({Max}). " +
+                    "Database may be unreachable. Will continue retrying on next timer tick.",
+                    _maxConsecutiveFailures);
             }
 
             #endregion
@@ -439,6 +492,24 @@ namespace MedRecPro.Services
             _timeZoneId = settings.GetValue<string>("TimeZoneId", "Eastern Standard Time") ?? "Eastern Standard Time";
             _businessDaysOnly = settings.GetValue<bool>("BusinessDaysOnly", true);
             _maxConsecutiveFailures = settings.GetValue<int>("MaxConsecutiveFailures", 3);
+            _retryAttempts = settings.GetValue<int>("RetryAttempts", 3);
+            _retryDelaySeconds = settings.GetSection("RetryDelaySeconds").Get<int[]>() ?? new[] { 10, 30, 60 };
+
+            // Validate retry settings
+            if (_retryAttempts < 0)
+            {
+                _logger.LogWarning(
+                    "[DatabaseKeepAliveService] RetryAttempts value of {Value} is invalid. Using default of 3.",
+                    _retryAttempts);
+                _retryAttempts = 3;
+            }
+
+            if (_retryDelaySeconds.Length == 0)
+            {
+                _logger.LogWarning(
+                    "[DatabaseKeepAliveService] RetryDelaySeconds array is empty. Using defaults [10, 30, 60].");
+                _retryDelaySeconds = new[] { 10, 30, 60 };
+            }
 
             // Validate interval
             if (_intervalMinutes < 1)
@@ -479,14 +550,17 @@ namespace MedRecPro.Services
             _logger.LogInformation(
                 "[DatabaseKeepAliveService] Configuration loaded - Enabled: {Enabled}, " +
                 "IntervalMinutes: {Interval}, BusinessHours: {Start}:00-{End}:00 {TimeZone}, " +
-                "BusinessDaysOnly: {DaysOnly}, MaxConsecutiveFailures: {MaxFailures}",
+                "BusinessDaysOnly: {DaysOnly}, MaxConsecutiveFailures: {MaxFailures}, " +
+                "RetryAttempts: {RetryAttempts}, RetryDelays: [{RetryDelays}]s",
                 _isEnabled,
                 _intervalMinutes,
                 _businessHoursStart,
                 _businessHoursEnd,
                 _timeZoneId,
                 _businessDaysOnly,
-                _maxConsecutiveFailures);
+                _maxConsecutiveFailures,
+                _retryAttempts,
+                string.Join(", ", _retryDelaySeconds));
 
             #endregion
         }
@@ -532,9 +606,10 @@ namespace MedRecPro.Services
         /// <exception cref="InvalidOperationException">Thrown when database connection string is not configured.</exception>
         /// <exception cref="SqlException">Thrown when the SQL operation fails.</exception>
         /// <remarks>
-        /// Opens a raw <see cref="SqlConnection"/> and executes SELECT 1 with a 30-second command timeout.
-        /// The connection string is re-resolved on each ping to support hot-reload via Azure App Service
-        /// Configuration. Logs connection details and latency for Azure diagnostics.
+        /// Opens a raw <see cref="SqlConnection"/> with a 90-second connect timeout to accommodate
+        /// Azure SQL Serverless cold resume (30-60 seconds) and executes SELECT 1 with a 30-second
+        /// command timeout. The connection string is re-resolved on each ping to support hot-reload
+        /// via Azure App Service Configuration. Logs connection details and latency for Azure diagnostics.
         /// </remarks>
         /// <seealso cref="SqlConnection"/>
         /// <seealso cref="timerCallbackAsync"/>
@@ -562,7 +637,15 @@ namespace MedRecPro.Services
                    ?? connectionStringBackup
                    ?? throw new InvalidOperationException("DefaultConnection string not found in configuration.");
 
-            await using var connection = new SqlConnection(connectionString);
+            // Override connect timeout to 90 seconds to accommodate Azure SQL Serverless
+            // cold resume (30-60 seconds). Default SqlConnection timeout is 15 seconds which
+            // is too short and causes cascade failures when the database is paused.
+            var csBuilder = new SqlConnectionStringBuilder(connectionString)
+            {
+                ConnectTimeout = 90
+            };
+
+            await using var connection = new SqlConnection(csBuilder.ConnectionString);
 
             try
             {

@@ -84,7 +84,14 @@ if (string.IsNullOrEmpty(connectionString))
 
 /**************************************************************/
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(connectionString)
+    options.UseSqlServer(connectionString, sqlOptions =>
+    {
+        sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorNumbersToAdd: null);
+        sqlOptions.CommandTimeout(60);
+    })
      .LogTo(Console.WriteLine, LogLevel.Error));
 
 builder.Services.Configure<ClaudeApiSettings>(builder.Configuration.GetSection("ClaudeApiSettings"));

@@ -59,7 +59,7 @@ jobs:
           CF_BYPASS_TOKEN: ${{ secrets.CF_HEALTH_CHECK_TOKEN }}
         run: |
           echo "Checking MCP server health..."
-          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 120 \
             -H "User-Agent: MedRecPro-HealthCheck/1.0" \
             -H "Cache-Control: no-cache" \
             -H "X-Health-Token: $CF_BYPASS_TOKEN" \
@@ -96,7 +96,7 @@ jobs:
         run: |
           echo "Testing search_drug_labels..."
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 120 \
             -H "User-Agent: MedRecPro-HealthCheck/1.0" \
             -H "Cache-Control: no-cache" \
             -H "X-Health-Token: $CF_BYPASS_TOKEN" \
@@ -139,7 +139,7 @@ jobs:
         run: |
           echo "Testing export_drug_label_markdown (product list)..."
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 120 \
             -H "User-Agent: MedRecPro-HealthCheck/1.0" \
             -H "Cache-Control: no-cache" \
             -H "X-Health-Token: $CF_BYPASS_TOKEN" \
@@ -182,7 +182,7 @@ jobs:
         run: |
           echo "Testing search_expiring_patents..."
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 \
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 120 \
             -H "User-Agent: MedRecPro-HealthCheck/1.0" \
             -H "Cache-Control: no-cache" \
             -H "X-Health-Token: $CF_BYPASS_TOKEN" \

@@ -439,3 +439,35 @@ Resolved multiple issues with the MCP health-check GitHub Actions workflow and m
 
 ---
 
+### 2026-03-03 12:15 PM EST — CodeQL Analysis & HTTP/Cookie Security Hardening
+
+Added CodeQL analysis workflow and hardened HTTP/cookie security across the codebase.
+
+---
+
+### 2026-03-04 — Fix Database Keep-Alive Cascade Failure
+
+Investigated and fixed a cascade failure in `DatabaseKeepAliveService` where a single transient ping failure caused the Azure SQL Serverless database to remain paused indefinitely. The 55-minute ping interval meant one failure led to 110+ minutes of inactivity (well past the 60-minute auto-pause threshold), and the default 15-second connect timeout was too short for the 30-60 second cold resume.
+
+**Root cause chain:** Single transient failure → 55-min wait → DB idle 110 min → auto-paused → 15s connect timeout too short for resume → permanent cascade. Logs confirmed: last successful ping at 9:20 AM EST, 8 consecutive failures through 5:35 PM EST.
+
+**5 fixes applied (4 implemented, 1 deferred):**
+
+1. **EF Core transient retry** (`Program.cs`) — Added `EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: 30s)` and `CommandTimeout(60)` to protect ALL application DB operations from transient failures and cold-start timeouts.
+
+2. **Keep-alive retry logic** (`DatabaseKeepAliveService.cs`) — Added configurable retry with escalating delays (10s → 30s → 60s). Extended `SqlConnection` connect timeout to 90 seconds via `SqlConnectionStringBuilder`. Only increments `_consecutiveFailures` after all retries exhausted.
+
+3. **Interval & business hours** (`appsettings.json`) — Reduced ping interval from 55 → 14 minutes (3 consecutive total failures = 42 min, still under 60-min auto-pause). Extended business hours end from 17 → 20 (covers health check window through 7 PM EST).
+
+4. **Health check curl timeouts** (`mcp-health-check.yml`) — Changed all four `--max-time` from 30 → 120 seconds. New workflow integrity hash: `093b65930963d532fd607f0844be5476f267738e67fd34c30f560832d4d0e35b`.
+
+5. **Deferred:** Worker proxy timeout increase (10s → 90s) — user decided the other fixes make this moot.
+
+**README updated** with new keep-alive parameters and EF Core resilience info.
+
+**Tests created:** 16 unit tests in `DatabaseKeepAliveServiceTests.cs` covering constructor validation, config loading with retry settings, config validation/fallback, service lifecycle. All 16 pass.
+
+**Pending:** Update `WORKFLOW_INTEGRITY_HASH` GitHub secret with new hash.
+
+---
+
