@@ -491,3 +491,23 @@ Implemented a three-layer solution to gracefully handle missing/broken images in
 
 ---
 
+### 2026-03-04 3:07 PM EST — Add Orange Book Patent Search Skill to AI Skills Interface
+
+Added the Orange Book patent search capability to MedRecPro's AI skills architecture, enabling the AI to discover and route queries about patent expiration dates and generic drug availability to the existing `GET /api/OrangeBook/expiring` endpoint.
+
+**Assessment:** Implemented entirely through the skills layer — no new controller or data access code needed since `OrangeBookController.cs` already had the endpoint.
+
+**Files created:**
+- `Skills/interfaces/api/orange-book-patents.md` — Interface document with API endpoint spec, parameter guide, response structure, fallback strategy (brand↔generic retry), and result formatting requirements
+
+**Files modified:**
+- `Skills/skills.md` — Added "Orange Book Patents > Patent Expiration Search" capability contract and integration note for patent + label content combination
+- `Skills/selectors.md` — Added decision tree branch, keyword section (patent/generic/time horizon keywords), priority rule, 3 skill combination entries, interface reference, and help description
+- `Service/ClaudeSkillService.cs` — Added `orangeBookPatents` to all 3 internal dictionaries (`_skillConfigKeys`, `_interfaceDocPaths`, `mapAiSkillNamesToInternal`)
+- `appsettings.json` — Added `Skill-OrangeBookPatents` config key
+
+**Tests added:**
+- `MedRecProTest/ClaudeSkillServiceTests.cs` — 21 MSTest tests covering Orange Book skill registration, cross-validation of all 3 dictionaries, AI-to-internal name mapping via reflection, interface document file existence/content, and regression guards for all 14 existing skills. All 21 tests pass.
+
+---
+

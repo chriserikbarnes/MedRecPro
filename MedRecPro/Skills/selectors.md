@@ -24,6 +24,9 @@ Query Analysis
     +-- Contains opioid conversion keywords?
     |       YES --> equianalgesicConversion
     |
+    +-- Contains patent expiration, generic availability, or Orange Book keywords?
+    |       YES --> orangeBookPatents
+    |
     +-- Contains log/activity/performance keywords?
     |       YES --> userActivity (requires auth)
     |
@@ -225,6 +228,34 @@ Query: "How do I import SPL files?"
 
 ---
 
+### orangeBookPatents
+
+**Primary Keywords**
+- patent, patents, patent expiration, patent expiry, patent expire
+- orange book, NDA patent
+- generic available, generic availability, when will generic
+- when will there be a generic, generic version
+- patent protection, off patent, patent cliff
+
+**Generic Availability Keywords**
+- when will generic, generic for, generic version of
+- generic equivalent, go generic, becomes generic
+- patent expires, patent expiring, patents expiring
+
+**Time Horizon Keywords**
+- expiring in, expire in, expires in, expiring soon
+- next 6 months, next year, next 12 months
+- upcoming generics, new generics, soon to be generic
+
+**Selection Rule**: Any query about patent expiration dates, generic drug availability timing, or Orange Book patent data. Route to orangeBookPatents.
+
+**IMPORTANT**: Distinguish from indicationDiscovery and labelContent:
+- "When will generic Ozempic be available?" → orangeBookPatents (patent/generic timing)
+- "What is Ozempic used for?" → labelContent (drug label content)
+- "What helps with diabetes?" → indicationDiscovery (condition-based)
+
+---
+
 ### userActivity
 
 **Log Keywords**
@@ -305,6 +336,7 @@ Describe the searchable data and features:
 - **Condition/Indication Search**: Find drugs that treat specific conditions (e.g., "What helps with depression?")
 - **Label Content**: Retrieve specific sections from FDA drug labels — side effects, dosing, warnings, contraindications, drug interactions
 - **Opioid Conversion**: Equianalgesic dose conversion between opioid medications
+- **Patent Expiration Search**: Find Orange Book patent data and generic drug availability timelines
 - **Inventory Browse**: View database statistics, top manufacturers, and drug class summaries
 
 Include 2-3 example queries the user can try, such as:
@@ -352,7 +384,8 @@ Explain that the user can search using natural language:
 3. **Condition queries use indicationDiscovery** - "What helps with high blood pressure" routes to indication search
 4. **Specific product + detail = labelContent** - Only after product is identified
 5. **Opioid conversion takes precedence** - Over general indication queries for opioid medications
-6. **Admin skills require authentication** - Check auth state before selecting userActivity or cacheManagement
+6. **Patent/generic queries use orangeBookPatents** - "When will generic X be available" routes to patent search
+7. **Admin skills require authentication** - Check auth state before selecting userActivity or cacheManagement
 7. **dataRescue supplements, doesn't replace** - Always used alongside another skill
 
 **Key Distinction - Class vs Condition:**
@@ -373,6 +406,9 @@ Explain that the user can search using natural language:
 | "What helps with depression?" | indicationDiscovery |
 | "What are the side effects of Lipitor?" | labelContent |
 | "Convert morphine to hydromorphone" | equianalgesicConversion |
+| "When will generic Ozempic be available?" | orangeBookPatents |
+| "What patents expire in the next 6 months?" | orangeBookPatents |
+| "Patents for semaglutide and its side effects" | orangeBookPatents + labelContent |
 | "What helps with depression and what are the side effects?" | indicationDiscovery + labelContent |
 | "Show me beta blockers and their warnings" | pharmacologicClassSearch + labelContent |
 | "Show me application logs" | userActivity |
@@ -508,6 +544,7 @@ After skill selection, load the corresponding interface document:
 | userActivity | [interfaces/api/user-activity.md](./interfaces/api/user-activity.md) |
 | cacheManagement | [interfaces/api/cache-management.md](./interfaces/api/cache-management.md) |
 | sessionManagement | [interfaces/api/session-management.md](./interfaces/api/session-management.md) |
+| orangeBookPatents | [interfaces/api/orange-book-patents.md](./interfaces/api/orange-book-patents.md) |
 | dataRescue | [interfaces/api/data-rescue.md](./interfaces/api/data-rescue.md) |
 | retryFallback | [interfaces/api/retry-fallback.md](./interfaces/api/retry-fallback.md) |
 

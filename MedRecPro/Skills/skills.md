@@ -195,6 +195,32 @@ Accesses official dosing guidance and conversion tables from FDA-approved labeli
 
 ---
 
+## Orange Book Patents
+
+### Patent Expiration Search
+
+Search Orange Book NDA patents by expiration date, brand name, or active ingredient to discover when generic versions may become available.
+
+Provides patent expiration tracking for FDA-approved drug products. Returns patent data with pediatric exclusivity handling and cross-references to SPL drug labels when available.
+
+**Inputs**
+- Brand/trade name (optional): e.g., "Ozempic", "Lipitor"
+- Active ingredient (optional): e.g., "semaglutide", "atorvastatin"
+- Expiration time horizon in months (optional): e.g., 6, 12, 24
+
+**Outputs**
+- Patent records with expiration dates
+- Pre-rendered markdown table for display
+- FDA label links where cross-references exist
+- Pagination metadata
+
+**Scenarios**
+- "When will generic Ozempic be available?"
+- "What patents expire in the next 6 months?"
+- "When will there be a semaglutide generic?"
+
+---
+
 ## System Administration
 
 ### Application Log Viewing
@@ -338,6 +364,7 @@ Skills may be combined for complex queries:
 - **Label content + Rescue workflow**: Attempt structured retrieval, fall back to narrative extraction
 - **Pharmacologic class search + Label content**: Find products by drug class, then retrieve detailed prescribing information
 - **Pharmacologic class browse + Class search**: Browse available classes, then search for products in selected class
+- **Patent search + Label content**: Find patent expiration data, then retrieve label details for the product
 
 ---
 

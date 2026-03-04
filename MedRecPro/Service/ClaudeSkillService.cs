@@ -368,7 +368,8 @@ namespace MedRecPro.Service
             { "general", "Skill-General" },
             { "sessionManagement", "Skill-SessionManagement" },
             { "equianalgesicConversion", "Skill-EquianalgesicConversion" },
-            { "pharmacologicClassSearch", "Skill-PharmacologicClassSearch" }
+            { "pharmacologicClassSearch", "Skill-PharmacologicClassSearch" },
+            { "orangeBookPatents", "Skill-OrangeBookPatents" }
         };
 
         /**************************************************************/
@@ -394,6 +395,8 @@ namespace MedRecPro.Service
             { "retryFallback", "Skills/interfaces/api/retry-fallback.md" },
             { "pharmacologicClass", "Skills/interfaces/api/pharmacologic-class.md" },
             { "pharmacologicClassSearch", "Skills/interfaces/api/pharmacologic-class.md" },
+
+            { "orangeBookPatents", "Skills/interfaces/api/orange-book-patents.md" },
 
             // Alias mappings for skill names used in AI selection
             // These map the skill names from _skillConfigKeys to their interface documents
@@ -675,7 +678,8 @@ namespace MedRecPro.Service
                 { "dataRescue", "rescueWorkflow" },
                 { "retryFallback", "retry" },
                 { "pharmacologicClass", "pharmacologicClassSearch" },
-                { "pharmacologicClassSearch", "pharmacologicClassSearch" }
+                { "pharmacologicClassSearch", "pharmacologicClassSearch" },
+                { "orangeBookPatents", "orangeBookPatents" }
             };
 
             var mappedSkills = new List<string>();
