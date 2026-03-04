@@ -471,3 +471,23 @@ Investigated and fixed a cascade failure in `DatabaseKeepAliveService` where a s
 
 ---
 
+### 2026-03-04 1:54 PM EST — SPL Drug Label Broken Image Handling
+
+Implemented a three-layer solution to gracefully handle missing/broken images in SPL drug label HTML rendering. Label imports do not include image files, but the XML references must remain for validation. Previously, the browser showed broken image icons.
+
+**Approach:** Instead of broken icons, broken images are replaced with styled text placeholders showing the image description (if available from alt text) and a "Text-only label, image not available" notice. Captions remain visible for context.
+
+**Three layers:**
+1. **XSLT `onerror` handlers** (primary) — Added to all 5 `<img>` tags across 3 template locations in `spl-common.xsl`. Creates placeholder elements immediately on load failure, zero race condition.
+2. **JS `hideBrokenImages()` fallback** (secondary) — Added to `spl.js`, runs on page load after 200ms delay. Catches any images missed by onerror using `img.complete && img.naturalWidth === 0`.
+3. **CSS `data-broken` attribute rules** (tertiary) — Added to `spl.css` with `!important` as a safety net.
+
+**Encoding fix:** Initial implementation used em dash (`—`) as separator in placeholder text, which was garbled to `â€"` during XSLT→HTML processing. Replaced with ASCII hyphen ` - `.
+
+**Files modified:**
+- `Views/Stylesheets/spl-common.xsl` — `onerror` attributes on all 5 `<img>` tags (inline lines 2813/2818, block lines 2841/2846, product line 3964)
+- `Views/Stylesheets/spl.js` — New `hideBrokenImages()` function + integrated into `load` event handler
+- `Views/Stylesheets/spl.css` — `img[data-broken]` hiding rule + `.spl-image-placeholder` block/inline styles
+
+---
+
