@@ -2810,12 +2810,12 @@ token.
 		</xsl:if>
 		<xsl:choose>
 			<xsl:when test="boolean(//v3:observationMedia[@ID=$reference]//v3:text)">
-				<img alt="{//v3:observationMedia[@ID=$reference]//v3:text}" src="{//v3:observationMedia[@ID=$reference]//v3:reference/@value}">
+				<img alt="{//v3:observationMedia[@ID=$reference]//v3:text}" src="{//v3:observationMedia[@ID=$reference]//v3:reference/@value}" onerror="this.style.display='none';this.setAttribute('data-broken','true');var p=document.createElement('span');p.className='spl-image-placeholder';p.textContent='['+this.alt+' - Text-only label, image not available]';this.parentNode.insertBefore(p,this.nextSibling)">
 					<xsl:apply-templates select="@*"/>
 				</img>
 			</xsl:when>
 			<xsl:when test="not(boolean(//v3:observationMedia[@ID=$reference]//v3:text))">
-				<img alt="Image from Drug Label Content" src="{//v3:observationMedia[@ID=$reference]//v3:reference/@value}">
+				<img alt="Image from Drug Label Content" src="{//v3:observationMedia[@ID=$reference]//v3:reference/@value}" onerror="this.style.display='none';this.setAttribute('data-broken','true');var p=document.createElement('span');p.className='spl-image-placeholder';p.textContent='[Text-only label, image not available]';this.parentNode.insertBefore(p,this.nextSibling)">
 					<xsl:apply-templates select="@*"/>
 				</img>
 			</xsl:when>
@@ -2838,12 +2838,12 @@ token.
 
 			<xsl:choose>
 				<xsl:when test="boolean(//v3:observationMedia[@ID=$reference]//v3:text)">
-					<img alt="{//v3:observationMedia[@ID=$reference]//v3:text}" src="{//v3:observationMedia[@ID=$reference]//v3:reference/@value}">
+					<img alt="{//v3:observationMedia[@ID=$reference]//v3:text}" src="{//v3:observationMedia[@ID=$reference]//v3:reference/@value}" onerror="this.style.display='none';this.setAttribute('data-broken','true');var p=document.createElement('div');p.className='spl-image-placeholder';p.textContent='['+this.alt+' - Text-only label, image not available]';this.parentNode.insertBefore(p,this)">
 						<xsl:apply-templates select="@*"/>
 					</img>
 				</xsl:when>
 				<xsl:when test="not(boolean(//v3:observationMedia[@ID=$reference]//v3:text))">
-					<img alt="Image from Drug Label Content" src="{//v3:observationMedia[@ID=$reference]//v3:reference/@value}">
+					<img alt="Image from Drug Label Content" src="{//v3:observationMedia[@ID=$reference]//v3:reference/@value}" onerror="this.style.display='none';this.setAttribute('data-broken','true');var p=document.createElement('div');p.className='spl-image-placeholder';p.textContent='[Text-only label, image not available]';this.parentNode.insertBefore(p,this)">
 						<xsl:apply-templates select="@*"/>
 					</img>
 				</xsl:when>
@@ -3961,7 +3961,7 @@ token.
 	<xsl:template name="image">
 		<xsl:param name="path" select="."/>
 		<xsl:if test="string-length($path/v3:value/v3:reference/@value) > 0">
-			<img alt="Image of Product" style="width:100%;" src="{$path/v3:value/v3:reference/@value}"/>
+			<img alt="Image of Product" style="width:100%;" src="{$path/v3:value/v3:reference/@value}" onerror="this.style.display='none';this.setAttribute('data-broken','true');var p=document.createElement('div');p.className='spl-image-placeholder';p.textContent='[Image of Product - Text-only label, image not available]';this.parentNode.insertBefore(p,this)"/>
 		</xsl:if>
 	</xsl:template>
 

@@ -814,6 +814,38 @@ be represented
     margin-bottom: 4ex;
 }
 
+/* Broken image hiding: cooperates with onerror handlers in spl-common.xsl
+   and hideBrokenImages() fallback in spl.js.
+   data-broken attribute is set when an image fails to load (404). */
+.spl img[data-broken="true"] {
+    display: none !important;
+}
+
+/* Text placeholder for broken/missing images — text-only label notice.
+   Created by onerror handlers in spl-common.xsl and hideBrokenImages() in spl.js. */
+.spl .spl-image-placeholder {
+    display: block;
+    padding: 0.75em 1em;
+    margin: 1ex 0;
+    background-color: #f8f9fa;
+    border: 1px dashed #adb5bd;
+    border-radius: 4px;
+    color: #6c757d;
+    font-style: italic;
+    font-size: 90%;
+    text-align: center;
+}
+
+/* Inline variant for placeholders inside paragraphs and table cells */
+.spl p .spl-image-placeholder,
+.spl td .spl-image-placeholder,
+.spl th .spl-image-placeholder {
+    display: inline;
+    padding: 0.2em 0.5em;
+    margin: 0;
+    border-radius: 2px;
+}
+
 .spl div.Warning {
     border: 4px solid black;
     margin-top: 2ex;

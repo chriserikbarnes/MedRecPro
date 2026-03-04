@@ -405,10 +405,76 @@ Copyright (C) 2012-2016 Health Level Seven, Inc. All Rights Reserved.
 
 /**************************************************************/
 /**
- * @description Page load event handler - executes column conversion after 200ms delay to ensure DOM rendering
+ * @function hideBrokenImages
+ * @description Scans all SPL images and replaces any that failed to load (404/broken)
+ * with a text placeholder noting this is a text-only version of the label.
+ * Acts as a fallback for the XSLT-generated onerror handlers on img elements.
+ * @remarks
+ * - Checks img.complete && img.naturalWidth === 0 to detect broken images
+ * - img.complete is true when loading has finished (success or failure)
+ * - img.naturalWidth === 0 means no image data was decoded (404 or error)
+ * - Skips images already marked data-broken by onerror handlers (placeholder already created)
+ * - Uses alt text as the image description when available and meaningful
+ * - Block-level images get a div placeholder; inline images get a span placeholder
+ * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/complete|HTMLImageElement.complete}
+ * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/naturalWidth|HTMLImageElement.naturalWidth}
+ */
+function hideBrokenImages() {
+    // #region implementation
+    var images = document.querySelectorAll('.spl img');
+    var hiddenCount = 0;
+
+    images.forEach(function (img) {
+        // Skip images already handled by onerror (placeholder already inserted)
+        if (img.getAttribute('data-broken') === 'true') {
+            return;
+        }
+
+        // Skip images without a src
+        if (!img.src) {
+            return;
+        }
+
+        // img.complete = true means loading finished (success OR failure)
+        // img.naturalWidth = 0 means no image data was decoded
+        if (img.complete && img.naturalWidth === 0) {
+            img.style.display = 'none';
+            img.setAttribute('data-broken', 'true');
+            hiddenCount++;
+
+            // Determine if inline (inside paragraph/table cell) or block-level
+            var isInline = img.closest('p') || img.closest('td') || img.closest('th');
+            var placeholder = document.createElement(isInline ? 'span' : 'div');
+            placeholder.className = 'spl-image-placeholder';
+
+            // Use alt text if meaningful (not the generic fallback)
+            var alt = img.alt;
+            var hasDescription = alt && alt !== 'Image from Drug Label Content';
+            placeholder.textContent = '[' + (hasDescription ? alt + ' - ' : '') +
+                'Text-only label, image not available]';
+
+            // Insert placeholder: after for inline (before caption), before for block
+            if (isInline) {
+                img.parentNode.insertBefore(placeholder, img.nextSibling);
+            } else {
+                img.parentNode.insertBefore(placeholder, img);
+            }
+        }
+    });
+
+    if (hiddenCount > 0) {
+        console.log('SPL: Replaced ' + hiddenCount + ' broken image(s) with text placeholders');
+    }
+    // #endregion
+}
+
+/**************************************************************/
+/**
+ * @description Page load event handler - executes column conversion and broken image cleanup after 200ms delay to ensure DOM rendering
  * @listens window#load
  * @see {@link convertToTwoColumns}
  * @see {@link convertIndexToTwoColumns}
+ * @see {@link hideBrokenImages}
  */
 window.addEventListener('load', function () {
     // #region implementation
@@ -418,6 +484,9 @@ window.addEventListener('load', function () {
         }
         if (typeof convertIndexToTwoColumns === 'function') {
             convertIndexToTwoColumns();
+        }
+        if (typeof hideBrokenImages === 'function') {
+            hideBrokenImages();
         }
     }, 200);
     // #endregion
