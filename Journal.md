@@ -552,3 +552,26 @@ No code changes required — the middleware and service already support the new 
 
 ---
 
+### 2026-03-05 12:38 PM EST — Tarpit Middleware: Pre-Pipeline Delay Architecture Fix
+
+Fixed an architectural issue where the tarpit delay ran AFTER `await _next(context)`, meaning the response body was already flushed to the browser before the delay started. Abusive clients (including manual F5 testing) could bypass the delay entirely: the response arrived instantly, `Task.Delay` held the connection open, and pressing F5 or canceling the request triggered `OperationCanceledException` which was swallowed — the client never experienced any slowdown.
+
+**Root cause:** The delay was post-pipeline. By the time `Task.Delay(delayMs, context.RequestAborted)` executed, the controller had already written the response body to Kestrel's output buffer. The browser received content immediately; only the TCP connection lingered.
+
+**Fix:** Moved the delay to BEFORE `await _next(context)`. The middleware now evaluates the client's PRIOR abuse history (both 404 hits and endpoint rate abuse) and applies a delay pre-pipeline. The browser receives nothing until the delay completes. Pressing F5 cancels the delay AND the response — the client gets a blank page/loading spinner and must wait through the delay on the next attempt too.
+
+**Restructured `InvokeAsync` into slim orchestrator calling two new private methods:**
+- `applyPrePipelineDelay(context, clientId, clientIp)` — checks existing 404 + endpoint hit counts, takes MAX of both calculated delays, applies `Task.Delay` with `RequestAborted` cancellation
+- `recordPostPipelineHits(context, ref clientId, ref clientIp)` — records hits based on actual response status code (404 → record hit, monitored 200 → record endpoint hit, non-monitored 200 + ResetOnSuccess → reset counter)
+
+**Design note:** The delay is based on hits from PRIOR requests, so the request that first crosses the threshold is recorded but not delayed — the NEXT request sees the threshold exceeded and is delayed. The difference is one request late (e.g., delay starts at hit 11 instead of hit 10 with threshold=10).
+
+**`??=` null guard analysis:** Also confirmed that the `clientId ??= getClientIp(context)` lines in `recordPostPipelineHits` are NOT a bug — the `??=` operator only fires when `clientId` is null (Phase 1 exception path). When Phase 1 succeeds, `clientId` already holds the cookie value or IP, and `??=` is a no-op.
+
+**Files modified (both MedRecPro and MedRecProStatic):**
+- `Middleware/TarpitMiddleware.cs` — Extracted `applyPrePipelineDelay()` and `recordPostPipelineHits()`, restructured `InvokeAsync` as slim orchestrator
+
+**Tests:** All 53 tarpit tests pass without modification. Existing threshold-crossing tests validate service state and delay formula math (not timing), so they're unaffected by the pre/post-pipeline change.
+
+---
+

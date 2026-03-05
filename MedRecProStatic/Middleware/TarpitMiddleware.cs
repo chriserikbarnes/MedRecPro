@@ -98,8 +98,9 @@ public class TarpitMiddleware
 
     /**************************************************************/
     /// <summary>
-    /// Processes an HTTP request through the pipeline, then applies tarpit
-    /// logic based on the response status code and request path.
+    /// Processes an HTTP request through the pipeline, applying tarpit delays
+    /// BEFORE the response is generated so abusive clients cannot bypass
+    /// the delay by canceling the request.
     /// </summary>
     /// <param name="context">The HTTP context for the current request.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
@@ -107,14 +108,20 @@ public class TarpitMiddleware
     /// Execution flow:
     /// 1. Resolves client identity and sets tracking cookie BEFORE the pipeline runs
     ///    (response headers must be written before downstream middleware starts the body).
-    /// 2. Calls the next middleware in the pipeline.
-    /// 3. If tarpit is disabled, returns immediately.
-    /// 4. On 404: records the hit and applies progressive delay if threshold is met.
-    /// 5. On success (status &lt; 400) for a monitored endpoint: records endpoint abuse
-    ///    hit and applies delay if rate threshold is exceeded. Does NOT reset 404 counter.
-    /// 6. On success for a non-monitored endpoint: resets 404 counter if ResetOnSuccess is enabled.
-    /// 7. Any exception in tarpit logic is caught, logged, and swallowed.
+    /// 2. Evaluates the client's PRIOR abuse history (404 hits + endpoint rate abuse)
+    ///    and applies a pre-pipeline delay if thresholds are exceeded. The browser
+    ///    receives nothing until the delay completes — pressing F5 cancels the delay
+    ///    AND the response, forcing the client to wait on the next attempt.
+    /// 3. Calls the next middleware in the pipeline.
+    /// 4. Records hits based on the actual response status code for future delay
+    ///    calculations. No delays are applied post-pipeline.
+    ///
+    /// **Design note:** The delay is based on hits recorded by PRIOR requests, so the
+    /// request that first crosses the threshold is recorded but not delayed — the NEXT
+    /// request sees the threshold exceeded and is delayed before processing.
     /// </remarks>
+    /// <seealso cref="applyPrePipelineDelay"/>
+    /// <seealso cref="recordPostPipelineHits"/>
     /// <seealso cref="resolveClientId"/>
     public async Task InvokeAsync(HttpContext context)
     {
@@ -141,36 +148,151 @@ public class TarpitMiddleware
             _logger.LogError(ex, "TarpitMiddleware: Error resolving client identity");
         }
 
+        // Phase 1.5: Pre-pipeline tarpit delay based on PRIOR abuse history
+        await applyPrePipelineDelay(context, clientId, clientIp);
+
         // Phase 2: Execute the rest of the pipeline
         await _next(context);
 
-        // Phase 3: Tarpit evaluation using the pre-resolved client identity
+        // Phase 3: Record hits for future delay calculations (no delays here)
+        recordPostPipelineHits(context, ref clientId, ref clientIp);
+
+        #endregion
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    /**************************************************************/
+    /// <summary>
+    /// Evaluates the client's prior abuse history and applies a delay BEFORE
+    /// the pipeline executes, preventing the response from being sent until
+    /// the delay completes.
+    /// </summary>
+    /// <param name="context">The HTTP context for the current request.</param>
+    /// <param name="clientId">
+    /// The resolved client identifier from Phase 1, or <c>null</c> if identity
+    /// resolution failed (falls back to IP).
+    /// </param>
+    /// <param name="clientIp">
+    /// The resolved client IP from Phase 1, or <c>null</c> if resolution failed.
+    /// Used only for log messages.
+    /// </param>
+    /// <returns>A task representing the asynchronous delay operation.</returns>
+    /// <remarks>
+    /// Checks both the 404 hit history and endpoint abuse history for the client.
+    /// Takes the MAX of both calculated delays (they do not stack).
+    /// Uses <see cref="HttpContext.RequestAborted"/> so disconnecting clients
+    /// do not hold server threads.
+    ///
+    /// **Graceful degradation:** If the tarpit is disabled, identity resolution
+    /// threw in Phase 1, or the client has no abuse history, this method returns
+    /// immediately with no delay.
+    /// </remarks>
+    /// <seealso cref="recordPostPipelineHits"/>
+    /// <seealso cref="TarpitService.GetHitCount"/>
+    /// <seealso cref="TarpitService.GetEndpointHitCount"/>
+    private async Task applyPrePipelineDelay(
+        HttpContext context, string? clientId, string? clientIp)
+    {
+        #region implementation
+
         try
         {
             var settings = _settingsMonitor.CurrentValue;
+            if (!settings.Enabled) return;
 
-            if (!settings.Enabled)
-                return;
+            var resolvedId = clientId ?? getClientIp(context);
+            int delayMs = 0;
 
-            // Fall back to IP if identity resolution failed above
+            // Check 404 abuse history
+            var priorHitCount = _tarpitService.GetHitCount(resolvedId);
+            delayMs = Math.Max(delayMs, _tarpitService.CalculateDelay(priorHitCount));
+
+            // Check endpoint abuse history for monitored paths
+            var matchedEndpoint = getMatchedEndpoint(
+                context.Request.Path, settings.MonitoredEndpoints);
+
+            if (matchedEndpoint != null)
+            {
+                var epHitCount = _tarpitService.GetEndpointHitCount(
+                    resolvedId, matchedEndpoint);
+                delayMs = Math.Max(delayMs,
+                    _tarpitService.CalculateEndpointDelay(epHitCount));
+            }
+
+            if (delayMs > 0)
+            {
+                _logger.LogWarning(
+                    "Tarpit: Delaying {ClientId} (IP: {IP}) {Delay}ms before processing — {Path}",
+                    resolvedId, clientIp ?? resolvedId, delayMs, context.Request.Path);
+
+                await Task.Delay(delayMs, context.RequestAborted);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected during delay — expected behavior, no action needed
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "TarpitMiddleware: Error during pre-pipeline delay");
+        }
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Records the current request's hit data after the pipeline has executed,
+    /// based on the actual response status code. No delays are applied here —
+    /// delays are handled pre-pipeline by <see cref="applyPrePipelineDelay"/>.
+    /// </summary>
+    /// <param name="context">The HTTP context (response status code is now available).</param>
+    /// <param name="clientId">
+    /// The resolved client identifier. Written via <c>??=</c> as a null safety net
+    /// if Phase 1 identity resolution threw.
+    /// </param>
+    /// <param name="clientIp">
+    /// The resolved client IP. Written via <c>??=</c> as a null safety net.
+    /// </param>
+    /// <remarks>
+    /// Recording logic by response status:
+    /// - **404**: Records a 404 hit for the client. The NEXT request from this client
+    ///   will see the updated count and be delayed pre-pipeline.
+    /// - **Success (&lt; 400) on monitored endpoint**: Records an endpoint abuse hit.
+    ///   Does NOT reset the 404 counter — hammering a monitored endpoint is not
+    ///   legitimate behavior.
+    /// - **Success on non-monitored endpoint**: Resets the 404 counter if
+    ///   <see cref="TarpitSettings.ResetOnSuccess"/> is enabled.
+    /// </remarks>
+    /// <seealso cref="applyPrePipelineDelay"/>
+    /// <seealso cref="TarpitService.RecordHit"/>
+    /// <seealso cref="TarpitService.RecordEndpointHit"/>
+    private void recordPostPipelineHits(
+        HttpContext context, ref string? clientId, ref string? clientIp)
+    {
+        #region implementation
+
+        try
+        {
+            var settings = _settingsMonitor.CurrentValue;
+            if (!settings.Enabled) return;
+
+            // Fall back to IP if identity resolution failed in Phase 1
             clientId ??= getClientIp(context);
             clientIp ??= clientId;
 
             if (context.Response.StatusCode == 404)
             {
-                // 404 tracking
                 _tarpitService.RecordHit(clientId);
-                var hitCount = _tarpitService.GetHitCount(clientId);
-                var delayMs = _tarpitService.CalculateDelay(hitCount);
 
-                if (delayMs > 0)
-                {
-                    _logger.LogWarning(
-                        "Tarpit: {ClientId} (IP: {IP}) hit {Count} consecutive 404s, delaying {Delay}ms — {Path}",
-                        clientId, clientIp, hitCount, delayMs, context.Request.Path);
-
-                    await Task.Delay(delayMs, context.RequestAborted);
-                }
+                _logger.LogInformation(
+                    "Tarpit: {ClientId} (IP: {IP}) recorded 404 #{Count} — {Path}",
+                    clientId, clientIp,
+                    _tarpitService.GetHitCount(clientId),
+                    context.Request.Path);
             }
             else if (context.Response.StatusCode < 400)
             {
@@ -180,42 +302,23 @@ public class TarpitMiddleware
 
                 if (matchedEndpoint != null)
                 {
-                    // Monitored endpoint abuse detection — do NOT reset 404 counter
+                    // Monitored endpoint abuse — record hit, do NOT reset 404 counter
                     _tarpitService.RecordEndpointHit(clientId, matchedEndpoint);
-                    var hitCount = _tarpitService.GetEndpointHitCount(clientId, matchedEndpoint);
-                    var delayMs = _tarpitService.CalculateEndpointDelay(hitCount);
-
-                    if (delayMs > 0)
-                    {
-                        _logger.LogWarning(
-                            "Tarpit: {ClientId} (IP: {IP}) hit monitored endpoint {Endpoint} {Count} times in window, delaying {Delay}ms",
-                            clientId, clientIp, matchedEndpoint, hitCount, delayMs);
-
-                        await Task.Delay(delayMs, context.RequestAborted);
-                    }
                 }
                 else if (settings.ResetOnSuccess)
                 {
-                    // Non-monitored success — reset 404 counter (existing behavior)
+                    // Non-monitored success — reset 404 counter
                     _tarpitService.ResetClient(clientId);
                 }
             }
         }
-        catch (OperationCanceledException)
-        {
-            // Client disconnected during delay — expected behavior, no action needed
-        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "TarpitMiddleware: Unexpected error during tarpit processing");
+            _logger.LogError(ex, "TarpitMiddleware: Error during hit recording");
         }
 
         #endregion
     }
-
-    #endregion
-
-    #region Private Methods
 
     /**************************************************************/
     /// <summary>
