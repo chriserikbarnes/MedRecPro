@@ -797,5 +797,250 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion
+
+        #region Cookie-Based Client Tracking Tests
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that when no tracking cookie is present, the middleware
+        /// uses the IP address for tracking and sets a <c>__tp</c> cookie
+        /// on the response for future requests.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_NoCookie_UsesIpAndSetsCookie()
+        {
+            #region implementation
+
+            // Arrange
+            using var tarpitService = CreateTarpitService();
+            var middleware = CreateMiddleware(CreateNextDelegate(404), tarpitService);
+            var context = CreateHttpContext("192.168.1.50");
+
+            // Act
+            await middleware.InvokeAsync(context);
+
+            // Assert — should track by IP (no cookie available on first request)
+            Assert.AreEqual(1, tarpitService.GetHitCount("192.168.1.50"),
+                "First request without cookie should use IP for tracking");
+
+            // Assert — response should set the __tp cookie
+            var setCookieHeader = context.Response.Headers["Set-Cookie"].ToString();
+            Assert.IsTrue(setCookieHeader.Contains("__tp="),
+                "Response should contain Set-Cookie header with __tp cookie");
+            Assert.IsTrue(setCookieHeader.Contains("httponly", StringComparison.OrdinalIgnoreCase),
+                "Cookie should be HttpOnly");
+            Assert.IsTrue(setCookieHeader.Contains("secure", StringComparison.OrdinalIgnoreCase),
+                "Cookie should be Secure");
+            Assert.IsTrue(setCookieHeader.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase),
+                "Cookie should be SameSite=Strict");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that when a valid <c>__tp</c> cookie is present,
+        /// the middleware uses the cookie value (not the IP) as the client identifier.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_ValidCookiePresent_UsesCookieNotIp()
+        {
+            #region implementation
+
+            // Arrange
+            using var tarpitService = CreateTarpitService();
+            var middleware = CreateMiddleware(CreateNextDelegate(404), tarpitService);
+            var context = CreateHttpContext("192.168.1.50");
+            var cookieValue = Guid.NewGuid().ToString("N"); // 32 hex chars
+            context.Request.Headers["Cookie"] = $"__tp={cookieValue}";
+
+            // Act
+            await middleware.InvokeAsync(context);
+
+            // Assert — should track by cookie value, NOT by IP
+            Assert.AreEqual(1, tarpitService.GetHitCount(cookieValue),
+                "With valid cookie, should track by cookie value");
+            Assert.AreEqual(0, tarpitService.GetHitCount("192.168.1.50"),
+                "With valid cookie, should NOT track by IP");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that the cookie provides tracking continuity when the client IP
+        /// rotates across requests (e.g., Safari iCloud Private Relay).
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_CookiePersistsAcrossIpChanges_AccumulatesHits()
+        {
+            #region implementation
+
+            // Arrange
+            using var tarpitService = CreateTarpitService();
+            var cookieValue = Guid.NewGuid().ToString("N");
+
+            // Act — send 3 requests from different IPs but same cookie
+            var ips = new[] { "10.0.0.1", "10.0.0.2", "10.0.0.3" };
+            foreach (var ip in ips)
+            {
+                var middleware = CreateMiddleware(CreateNextDelegate(404), tarpitService);
+                var context = CreateHttpContext(ip);
+                context.Request.Headers["Cookie"] = $"__tp={cookieValue}";
+                await middleware.InvokeAsync(context);
+            }
+
+            // Assert — all 3 hits should accumulate under the cookie key
+            Assert.AreEqual(3, tarpitService.GetHitCount(cookieValue),
+                "Cookie-tracked client should accumulate hits across IP changes");
+
+            // Assert — no hits should be recorded under individual IPs
+            foreach (var ip in ips)
+            {
+                Assert.AreEqual(0, tarpitService.GetHitCount(ip),
+                    $"IP {ip} should not have separate tracking when cookie is present");
+            }
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that a malformed cookie value (not 32 hex chars)
+        /// is rejected and the middleware falls back to IP-based tracking.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_InvalidCookieFormat_FallsBackToIp()
+        {
+            #region implementation
+
+            // Arrange
+            using var tarpitService = CreateTarpitService();
+            var middleware = CreateMiddleware(CreateNextDelegate(404), tarpitService);
+            var context = CreateHttpContext("192.168.1.50");
+            context.Request.Headers["Cookie"] = "__tp=not-a-valid-hex-value";
+
+            // Act
+            await middleware.InvokeAsync(context);
+
+            // Assert — should fall back to IP
+            Assert.AreEqual(1, tarpitService.GetHitCount("192.168.1.50"),
+                "Invalid cookie should fall back to IP tracking");
+            Assert.AreEqual(0, tarpitService.GetHitCount("not-a-valid-hex-value"),
+                "Invalid cookie value should not be used as tracking key");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that when <see cref="TarpitSettings.EnableClientTracking"/>
+        /// is false, the middleware uses pure IP-based identification and does not
+        /// set a tracking cookie.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_ClientTrackingDisabled_UsesIpOnly()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = new TarpitSettings
+            {
+                Enabled = true,
+                TriggerThreshold = 5,
+                MaxDelayMs = 30_000,
+                StaleEntryTimeoutMinutes = 10,
+                CleanupIntervalMinutes = 60,
+                MaxTrackedIps = 10_000,
+                ResetOnSuccess = true,
+                EnableClientTracking = false // Disabled
+            };
+
+            using var tarpitService = CreateTarpitService(settings);
+            var middleware = CreateMiddleware(CreateNextDelegate(404), tarpitService, settings);
+            var context = CreateHttpContext("192.168.1.50");
+
+            // Act
+            await middleware.InvokeAsync(context);
+
+            // Assert — should use IP, no cookie set
+            Assert.AreEqual(1, tarpitService.GetHitCount("192.168.1.50"),
+                "With client tracking disabled, should use IP");
+
+            var setCookieHeader = context.Response.Headers["Set-Cookie"].ToString();
+            Assert.IsFalse(setCookieHeader.Contains("__tp="),
+                "With client tracking disabled, should NOT set __tp cookie");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that monitored endpoint abuse detection uses the cookie value
+        /// (not the IP) as the tracking key when a cookie is present.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_CookieWithMonitoredEndpoint_TracksByCookie()
+        {
+            #region implementation
+
+            // Arrange
+            using var tarpitService = CreateTarpitService();
+            var middleware = CreateMiddleware(CreateNextDelegate(200), tarpitService);
+            var cookieValue = Guid.NewGuid().ToString("N");
+            var context = CreateHttpContext("192.168.1.50", "/api/data");
+            context.Request.Headers["Cookie"] = $"__tp={cookieValue}";
+
+            // Act
+            await middleware.InvokeAsync(context);
+
+            // Assert — should track endpoint hit by cookie value
+            Assert.AreEqual(1, tarpitService.GetEndpointHitCount(cookieValue, "/api/"),
+                "Endpoint hit should be tracked by cookie value, not IP");
+            Assert.AreEqual(0, tarpitService.GetEndpointHitCount("192.168.1.50", "/api/"),
+                "Endpoint hit should NOT be tracked by IP when cookie is present");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that ResetOnSuccess clears the 404 counter using the cookie key
+        /// rather than the IP, so a client with rotating IPs is properly reset.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_CookieWithResetOnSuccess_ResetsByCookieKey()
+        {
+            #region implementation
+
+            // Arrange
+            using var tarpitService = CreateTarpitService();
+            var cookieValue = Guid.NewGuid().ToString("N");
+
+            // Build up 404 hits via cookie
+            var notFoundMiddleware = CreateMiddleware(CreateNextDelegate(404), tarpitService);
+            for (int i = 0; i < 3; i++)
+            {
+                var ctx = CreateHttpContext("10.0.0.1");
+                ctx.Request.Headers["Cookie"] = $"__tp={cookieValue}";
+                await notFoundMiddleware.InvokeAsync(ctx);
+            }
+            Assert.AreEqual(3, tarpitService.GetHitCount(cookieValue),
+                "Precondition: Should have 3 hits under cookie key");
+
+            // Act — send a 200 on non-monitored path with same cookie but different IP
+            var successMiddleware = CreateMiddleware(CreateNextDelegate(200), tarpitService);
+            var successCtx = CreateHttpContext("10.0.0.2", "/about");
+            successCtx.Request.Headers["Cookie"] = $"__tp={cookieValue}";
+            await successMiddleware.InvokeAsync(successCtx);
+
+            // Assert — cookie key should be reset
+            Assert.AreEqual(0, tarpitService.GetHitCount(cookieValue),
+                "ResetOnSuccess should reset by cookie key, not IP");
+
+            #endregion
+        }
+
+        #endregion
     }
 }

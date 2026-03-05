@@ -3,6 +3,7 @@ using MedRecPro.Service;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Text.RegularExpressions;
 
 namespace MedRecPro.Middleware;
 
@@ -46,6 +47,24 @@ public class TarpitMiddleware
     private readonly IOptionsMonitor<TarpitSettings> _settingsMonitor;
     private readonly ILogger<TarpitMiddleware> _logger;
 
+    /**************************************************************/
+    /// <summary>
+    /// Cookie name used for client tracking when
+    /// <see cref="TarpitSettings.EnableClientTracking"/> is enabled.
+    /// </summary>
+    private const string ClientTrackingCookieName = "__tp";
+
+    /**************************************************************/
+    /// <summary>
+    /// Validates that a tracking cookie value is exactly 32 lowercase hexadecimal characters.
+    /// </summary>
+    /// <remarks>
+    /// This format matches a GUID with hyphens removed (<c>ToString("N")</c>).
+    /// Any cookie value that does not match is treated as absent (falls through to IP).
+    /// </remarks>
+    private static readonly Regex ValidCookiePattern =
+        new(@"^[0-9a-f]{32}$", RegexOptions.Compiled);
+
     #endregion
 
     #region Constructor
@@ -88,20 +107,46 @@ public class TarpitMiddleware
     /// <returns>A task representing the asynchronous operation.</returns>
     /// <remarks>
     /// Execution flow:
-    /// 1. Calls the next middleware in the pipeline.
-    /// 2. If tarpit is disabled, returns immediately.
-    /// 3. On 404: records the hit and applies progressive delay if threshold is met.
-    /// 4. On success (status &lt; 400) for a monitored endpoint: records endpoint abuse
+    /// 1. Resolves client identity and sets tracking cookie BEFORE the pipeline runs
+    ///    (response headers must be written before downstream middleware starts the body).
+    /// 2. Calls the next middleware in the pipeline.
+    /// 3. If tarpit is disabled, returns immediately.
+    /// 4. On 404: records the hit and applies progressive delay if threshold is met.
+    /// 5. On success (status &lt; 400) for a monitored endpoint: records endpoint abuse
     ///    hit and applies delay if rate threshold is exceeded. Does NOT reset 404 counter.
-    /// 5. On success for a non-monitored endpoint: resets 404 counter if ResetOnSuccess is enabled.
-    /// 6. Any exception in tarpit logic is caught, logged, and swallowed.
+    /// 6. On success for a non-monitored endpoint: resets 404 counter if ResetOnSuccess is enabled.
+    /// 7. Any exception in tarpit logic is caught, logged, and swallowed.
     /// </remarks>
+    /// <seealso cref="resolveClientId"/>
     public async Task InvokeAsync(HttpContext context)
     {
         #region implementation
 
+        // Phase 1: Resolve client identity BEFORE the pipeline runs so the
+        // tracking cookie is set on the response before downstream middleware
+        // starts writing the response body.
+        string? clientId = null;
+        string? clientIp = null;
+
+        try
+        {
+            var settingsSnapshot = _settingsMonitor.CurrentValue;
+
+            if (settingsSnapshot.Enabled)
+            {
+                clientId = resolveClientId(context, settingsSnapshot);
+                clientIp = getClientIp(context);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "TarpitMiddleware: Error resolving client identity");
+        }
+
+        // Phase 2: Execute the rest of the pipeline
         await _next(context);
 
+        // Phase 3: Tarpit evaluation using the pre-resolved client identity
         try
         {
             var settings = _settingsMonitor.CurrentValue;
@@ -109,20 +154,22 @@ public class TarpitMiddleware
             if (!settings.Enabled)
                 return;
 
-            var clientIp = getClientIp(context);
+            // Fall back to IP if identity resolution failed above
+            clientId ??= getClientIp(context);
+            clientIp ??= clientId;
 
             if (context.Response.StatusCode == 404)
             {
-                // 404 tracking — unchanged from original behavior
-                _tarpitService.RecordHit(clientIp);
-                var hitCount = _tarpitService.GetHitCount(clientIp);
+                // 404 tracking
+                _tarpitService.RecordHit(clientId);
+                var hitCount = _tarpitService.GetHitCount(clientId);
                 var delayMs = _tarpitService.CalculateDelay(hitCount);
 
                 if (delayMs > 0)
                 {
                     _logger.LogWarning(
-                        "Tarpit: {IP} hit {Count} consecutive 404s, delaying {Delay}ms — {Path}",
-                        clientIp, hitCount, delayMs, context.Request.Path);
+                        "Tarpit: {ClientId} (IP: {IP}) hit {Count} consecutive 404s, delaying {Delay}ms — {Path}",
+                        clientId, clientIp, hitCount, delayMs, context.Request.Path);
 
                     await Task.Delay(delayMs, context.RequestAborted);
                 }
@@ -136,15 +183,15 @@ public class TarpitMiddleware
                 if (matchedEndpoint != null)
                 {
                     // Monitored endpoint abuse detection — do NOT reset 404 counter
-                    _tarpitService.RecordEndpointHit(clientIp, matchedEndpoint);
-                    var hitCount = _tarpitService.GetEndpointHitCount(clientIp, matchedEndpoint);
+                    _tarpitService.RecordEndpointHit(clientId, matchedEndpoint);
+                    var hitCount = _tarpitService.GetEndpointHitCount(clientId, matchedEndpoint);
                     var delayMs = _tarpitService.CalculateEndpointDelay(hitCount);
 
                     if (delayMs > 0)
                     {
                         _logger.LogWarning(
-                            "Tarpit: {IP} hit monitored endpoint {Endpoint} {Count} times in window, delaying {Delay}ms",
-                            clientIp, matchedEndpoint, hitCount, delayMs);
+                            "Tarpit: {ClientId} (IP: {IP}) hit monitored endpoint {Endpoint} {Count} times in window, delaying {Delay}ms",
+                            clientId, clientIp, matchedEndpoint, hitCount, delayMs);
 
                         await Task.Delay(delayMs, context.RequestAborted);
                     }
@@ -152,7 +199,7 @@ public class TarpitMiddleware
                 else if (settings.ResetOnSuccess)
                 {
                     // Non-monitored success — reset 404 counter (existing behavior)
-                    _tarpitService.ResetClient(clientIp);
+                    _tarpitService.ResetClient(clientId);
                 }
             }
         }
@@ -171,6 +218,95 @@ public class TarpitMiddleware
     #endregion
 
     #region Private Methods
+
+    /**************************************************************/
+    /// <summary>
+    /// Resolves a stable client identifier using cookie-based tracking
+    /// with IP address fallback.
+    /// </summary>
+    /// <param name="context">The HTTP context for the current request.</param>
+    /// <param name="settings">The current tarpit settings snapshot.</param>
+    /// <returns>
+    /// The client identifier: cookie value if a valid <c>__tp</c> cookie exists,
+    /// otherwise the client IP address from <see cref="getClientIp"/>.
+    /// </returns>
+    /// <remarks>
+    /// Resolution order:
+    /// 1. If <see cref="TarpitSettings.EnableClientTracking"/> is disabled, returns IP.
+    /// 2. If a valid <c>__tp</c> cookie exists (32 hex chars), renews the cookie
+    ///    and returns the cookie value as the identifier.
+    /// 3. If no valid cookie exists, generates a new cookie (set on the response)
+    ///    and returns the IP address for this request only. The next request from
+    ///    the same browser will use the cookie.
+    ///
+    /// This approach ensures that the very first request from a new browser uses
+    /// the IP (since no cookie is available yet), but all subsequent requests use
+    /// the stable cookie value even if the IP changes.
+    ///
+    /// **Graceful degradation:** Bots that reject cookies get a new GUID set on
+    /// every response but never send it back, so they fall through to IP tracking
+    /// on every request — identical to the previous behavior.
+    /// </remarks>
+    /// <seealso cref="getClientIp"/>
+    /// <seealso cref="appendTrackingCookie"/>
+    private string resolveClientId(HttpContext context, TarpitSettings settings)
+    {
+        #region implementation
+
+        if (!settings.EnableClientTracking)
+            return getClientIp(context);
+
+        // Check for existing valid tracking cookie
+        if (context.Request.Cookies.TryGetValue(ClientTrackingCookieName, out var cookieValue)
+            && !string.IsNullOrWhiteSpace(cookieValue)
+            && ValidCookiePattern.IsMatch(cookieValue))
+        {
+            // Valid cookie found — renew it and use as identifier
+            appendTrackingCookie(context, cookieValue, settings);
+            return cookieValue;
+        }
+
+        // No valid cookie — set a new one for future requests, use IP for this request
+        var newId = Guid.NewGuid().ToString("N");
+        appendTrackingCookie(context, newId, settings);
+        return getClientIp(context);
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Appends the <c>__tp</c> tracking cookie to the response with secure defaults.
+    /// </summary>
+    /// <param name="context">The HTTP context.</param>
+    /// <param name="value">The 32-character hex cookie value.</param>
+    /// <param name="settings">The current tarpit settings for MaxAge calculation.</param>
+    /// <remarks>
+    /// Cookie properties:
+    /// - <see cref="CookieOptions.HttpOnly"/>: true (prevents JavaScript access).
+    /// - <see cref="CookieOptions.Secure"/>: true (HTTPS only).
+    /// - <see cref="CookieOptions.SameSite"/>: Strict (prevents cross-site transmission).
+    /// - <see cref="CookieOptions.Path"/>: "/" (applies to all paths).
+    /// - <see cref="CookieOptions.MaxAge"/>: Aligned with <see cref="TarpitSettings.StaleEntryTimeoutMinutes"/>
+    ///   to ensure the cookie expires at roughly the same time the server-side entry becomes stale.
+    ///   Renewed on every request to keep active clients tracked.
+    /// </remarks>
+    /// <seealso cref="TarpitSettings.StaleEntryTimeoutMinutes"/>
+    private static void appendTrackingCookie(HttpContext context, string value, TarpitSettings settings)
+    {
+        #region implementation
+
+        context.Response.Cookies.Append(ClientTrackingCookieName, value, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Path = "/",
+            MaxAge = TimeSpan.FromMinutes(Math.Max(1, settings.StaleEntryTimeoutMinutes))
+        });
+
+        #endregion
+    }
 
     /**************************************************************/
     /// <summary>

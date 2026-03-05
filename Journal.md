@@ -511,3 +511,44 @@ Added the Orange Book patent search capability to MedRecPro's AI skills architec
 
 ---
 
+### 2026-03-05 7:45 AM EST — Tarpit Middleware: Cookie-Based Client Tracking
+
+Fixed a production issue where the tarpit middleware failed to throttle rapidly repeated API calls when client IPs were masked or rotated (Safari iCloud Private Relay, upstream agent IP rotation, Cloudflare inconsistencies). Each request appeared as a new client with hit count = 1, so the tarpit threshold was never reached.
+
+**Root cause:** Client identification was purely IP-based via `getClientIp()` (CF-Connecting-IP → X-Forwarded-For → RemoteIpAddress). When IPs rotate, every request starts fresh.
+
+**Solution:** Added a hybrid cookie + IP identification scheme. A `__tp` tracking cookie (HttpOnly, Secure, SameSite=Strict) is set on every response. On subsequent requests, the cookie value serves as the stable client identifier regardless of IP changes. First request (no cookie yet) falls back to IP. Bots that reject cookies get pure IP-based tracking — identical to previous behavior. The `TarpitService` itself is unchanged since it already operates on opaque string keys.
+
+**Key design decisions:**
+- Cookie value is a 32-char hex GUID, validated via compiled regex to reject spoofed/malformed values
+- Cookie MaxAge aligned with `StaleEntryTimeoutMinutes` (renewed on every request)
+- Client identity resolved BEFORE `await _next()` so the cookie is set before downstream middleware writes the response body
+- New `EnableClientTracking` setting (default: true) provides a kill switch
+- Log messages now include both `{ClientId}` and `{IP}` for diagnostic correlation
+
+**Files modified (both MedRecPro and MedRecProStatic):**
+- `Models/TarpitSettings.cs` — Added `EnableClientTracking` property (bool, default: true)
+- `Middleware/TarpitMiddleware.cs` — Added `resolveClientId()`, `appendTrackingCookie()`, restructured `InvokeAsync()` into 3 phases (pre-pipeline identity, pipeline execution, post-pipeline tarpit evaluation)
+- `appsettings.json` — Added `"EnableClientTracking": true` to TarpitSettings
+
+**Tests added:**
+- `MedRecProTest/TarpitMiddlewareTests.cs` — 7 new tests: NoCookie_UsesIpAndSetsCookie, ValidCookiePresent_UsesCookieNotIp, CookiePersistsAcrossIpChanges_AccumulatesHits, InvalidCookieFormat_FallsBackToIp, ClientTrackingDisabled_UsesIpOnly, CookieWithMonitoredEndpoint_TracksByCookie, CookieWithResetOnSuccess_ResetsByCookieKey. All 53 tarpit tests pass (26 existing middleware + 27 service + 7 new cookie = 0 regressions).
+
+---
+
+### 2026-03-05 — Tarpit Middleware: Endpoint Rate Threshold Tuning
+
+Config-only change driven by Azure App Insights telemetry analysis (last 24 hours). Production data showed bot abuse patterns: `GET /api/` at 3,020 hits from 4 users (5.27ms avg), `GET Home/Index` at 653 hits from 3 users (11.3ms avg). The 404 tarpit was working correctly (probe paths hitting 30s MaxDelayMs cap), but the endpoint rate monitoring was too lenient — bots could reset the 60-second window and get another 20 free hits, allowing ~28,800 free hits/day per identity.
+
+**Changes (both MedRecPro and MedRecProStatic `appsettings.json`):**
+- `EndpointRateThreshold`: 20 → 10 (halved free hits before delay kicks in)
+- `EndpointWindowSeconds`: 60 → 300 (5-minute window prevents window-reset abuse)
+
+**Impact:** Free throughput reduced ~90% — from 28,800 to 2,880 free hits/day per identity. A bot hitting `/api/` at 1 req/sec triggers delay after 10 seconds, then faces exponential backoff for the remaining 290 seconds of the window. Legitimate users would need 10+ requests to the same monitored endpoint within 5 minutes to trigger — well outside normal browsing patterns.
+
+**Decision: `/Home/Index` remains monitored.** 653 hits from 3 users (~218/user/day) on a marketing landing page is not legitimate behavior. The `Task.Delay` after `_next()` produces the intended UX: browser shows a loading spinner while the response is held server-side.
+
+No code changes required — the middleware and service already support the new values. All 53 tarpit tests pass (tests use their own settings objects, not appsettings.json).
+
+---
+

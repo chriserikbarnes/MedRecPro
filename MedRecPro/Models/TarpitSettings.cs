@@ -163,4 +163,28 @@ public class TarpitSettings
     /// <seealso cref="MonitoredEndpoints"/>
     /// <seealso cref="EndpointRateThreshold"/>
     public int EndpointWindowSeconds { get; set; } = 60;
+
+    /**************************************************************/
+    /// <summary>
+    /// Enables cookie-based client identification to maintain tracking
+    /// continuity when client IP addresses rotate.
+    /// </summary>
+    /// <remarks>
+    /// When enabled, the middleware sets an HttpOnly tracking cookie (<c>__tp</c>)
+    /// on every response. Subsequent requests from the same browser are identified
+    /// by the cookie value instead of the IP address. This solves the problem where
+    /// Safari iCloud Private Relay, upstream agent services, or Cloudflare rotate
+    /// the apparent client IP, causing each request to appear as a new client.
+    ///
+    /// When disabled, the middleware falls back to pure IP-based identification
+    /// (the original behavior).
+    ///
+    /// **Cookie properties:** HttpOnly, Secure, SameSite=Strict, Path=/,
+    /// MaxAge aligned with <see cref="StaleEntryTimeoutMinutes"/>.
+    ///
+    /// **Graceful degradation:** If the client blocks cookies, each request
+    /// falls through to IP identification — identical to the current behavior.
+    /// </remarks>
+    /// <seealso cref="StaleEntryTimeoutMinutes"/>
+    public bool EnableClientTracking { get; set; } = true;
 }
