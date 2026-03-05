@@ -212,9 +212,12 @@ public class TarpitMiddleware
             var priorHitCount = _tarpitService.GetHitCount(resolvedId);
             delayMs = Math.Max(delayMs, _tarpitService.CalculateDelay(priorHitCount));
 
-            // Check endpoint abuse history for monitored paths
-            var matchedEndpoint = getMatchedEndpoint(
-                context.Request.Path, settings.MonitoredEndpoints);
+            // Reconstruct the full public path (PathBase + Path) so endpoint
+            // matching works correctly behind Azure Virtual Application mappings
+            // where IIS strips the virtual directory prefix from Request.Path.
+            var requestPath = (context.Request.PathBase + context.Request.Path).Value
+                              ?? context.Request.Path;
+            var matchedEndpoint = getMatchedEndpoint(requestPath, settings.MonitoredEndpoints);
 
             if (matchedEndpoint != null)
             {
@@ -228,7 +231,7 @@ public class TarpitMiddleware
             {
                 _logger.LogWarning(
                     "Tarpit: Delaying {ClientId} (IP: {IP}) {Delay}ms before processing — {Path}",
-                    resolvedId, clientIp ?? resolvedId, delayMs, context.Request.Path);
+                    resolvedId, clientIp ?? resolvedId, delayMs, requestPath);
 
                 await Task.Delay(delayMs, context.RequestAborted);
             }
@@ -286,6 +289,12 @@ public class TarpitMiddleware
             clientId ??= getClientIp(context);
             clientIp ??= clientId;
 
+            // Reconstruct the full public path (PathBase + Path) so endpoint
+            // matching works correctly behind Azure Virtual Application mappings
+            // where IIS strips the virtual directory prefix from Request.Path.
+            var requestPath = (context.Request.PathBase + context.Request.Path).Value
+                              ?? context.Request.Path;
+
             if (context.Response.StatusCode == 404)
             {
                 _tarpitService.RecordHit(clientId);
@@ -294,13 +303,12 @@ public class TarpitMiddleware
                     "Tarpit: {ClientId} (IP: {IP}) recorded 404 #{Count} — {Path}",
                     clientId, clientIp,
                     _tarpitService.GetHitCount(clientId),
-                    context.Request.Path);
+                    requestPath);
             }
             else if (context.Response.StatusCode < 400)
             {
                 // Success response — check if path matches a monitored endpoint
-                var matchedEndpoint = getMatchedEndpoint(
-                    context.Request.Path, settings.MonitoredEndpoints);
+                var matchedEndpoint = getMatchedEndpoint(requestPath, settings.MonitoredEndpoints);
 
                 if (matchedEndpoint != null)
                 {

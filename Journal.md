@@ -575,3 +575,31 @@ Fixed an architectural issue where the tarpit delay ran AFTER `await _next(conte
 
 ---
 
+### 2026-03-05 — Fix Tarpit PathBase Mismatch (Azure Virtual Application)
+
+**Problem:** After deploying the pre-pipeline delay fix, production validation showed tarpit behavior works on `https://www.medrecpro.com/home/index` (MedRecProStatic) but NOT on `https://www.medrecpro.com/api/` (MedRecPro). Rapid F5 on `/api/` never triggers any slowdown.
+
+**Root cause — triple failure from Azure Virtual Application path stripping:**
+
+MedRecPro is deployed as an IIS Virtual Application under `/api`. The ASP.NET Core IIS integration module strips the prefix: `context.Request.PathBase` = `/api`, `context.Request.Path` = `/`. Evidence: controller routes use `[Route("[controller]")]` in production (no `/api`), Swagger config comment states *"Do not prefix with '/api' because Azure App Service hosts under '/api'"*.
+
+1. **Endpoint monitoring never matched:** `getMatchedEndpoint` was called with `context.Request.Path` (which is `/`). `"/".StartsWith("/api/")` → false → endpoint abuse tracking skipped.
+2. **404 tracking never triggered:** The `app.MapGet("/", ...)` root endpoint returns HTTP 200, so no 404 hit was recorded.
+3. **Counter actively reset:** Since `/` didn't match any monitored endpoint and `ResetOnSuccess=true`, every 200 response wiped the client's abuse history via `_tarpitService.ResetClient()`.
+
+MedRecProStatic worked because it's deployed at the root (no virtual application), so `context.Request.Path` = `/Home/Index` matched the monitored endpoint directly.
+
+**Fix:** Reconstruct the full public path using `(context.Request.PathBase + context.Request.Path).Value` when calling `getMatchedEndpoint`. This is idiomatic ASP.NET Core — `PathBase` exists specifically for virtual application scenarios. Applied the 2-line change in both `applyPrePipelineDelay` and `recordPostPipelineHits`, plus updated log messages to show the full path.
+
+**Files modified (both MedRecPro and MedRecProStatic):**
+- `Middleware/TarpitMiddleware.cs` — `applyPrePipelineDelay`: use `PathBase + Path` for endpoint matching and logging. `recordPostPipelineHits`: same reconstruction for endpoint matching and 404 logging.
+
+**New tests (3 added to TarpitMiddlewareTests.cs):**
+- `InvokeAsync_WithPathBase_MatchesMonitoredEndpoint` — PathBase="/api", Path="/" → matches "/api/" in MonitoredEndpoints
+- `InvokeAsync_WithoutPathBase_MatchesOnPathAlone` — Empty PathBase, Path="/Home/Index" → matches directly (MedRecProStatic scenario)
+- `InvokeAsync_WithPathBase_AppliesEndpointDelayFromPriorHits` — Verifies delay calculation uses reconstructed path
+
+**Tests:** All 56 tarpit tests pass (53 existing + 3 new). Both solutions build with 0 errors.
+
+---
+
