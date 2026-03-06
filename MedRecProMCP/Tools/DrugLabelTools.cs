@@ -272,7 +272,7 @@ public class DrugLabelTools
     /// </example>
     /// <seealso cref="MedRecProApiClient.GetStringAsync"/>
     /**************************************************************/
-    [McpServerTool(Name = "search_drug_labels", Title = "Search Drug Labels", ReadOnly = true, Destructive = false, OpenWorld = true)]
+    [McpServerTool(Name = "search_drug_labels", Title = "Search Drug Labels", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("""
     🔍 SEARCH: Find FDA drug labels and answer SPECIFIC QUESTIONS about drugs.
 
@@ -502,7 +502,7 @@ public class DrugLabelTools
     /// <seealso cref="SearchDrugLabels"/>
     /// <seealso cref="MedRecProApiClient.GetStringAsync"/>
     /**************************************************************/
-    [McpServerTool(Name = "export_drug_label_markdown", Title = "Export Drug Label", ReadOnly = true, Destructive = false, OpenWorld = true)]
+    [McpServerTool(Name = "export_drug_label_markdown", Title = "Export Drug Label", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("""
     📄 EXPORT: Get a complete FDA drug label as clean, formatted markdown.
 
@@ -763,7 +763,7 @@ public class DrugLabelTools
     /// <seealso cref="ExportDrugLabelMarkdown"/>
     /// <seealso cref="MedRecProApiClient"/>
     /**************************************************************/
-    [McpServerTool(Name = "search_expiring_patents", Title = "Search Expiring Patents", ReadOnly = true, Destructive = false, OpenWorld = true)]
+    [McpServerTool(Name = "search_expiring_patents", Title = "Search Expiring Patents", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("""
     🔍 SEARCH: Find Orange Book NDA patents by expiration date, brand name, or active ingredient.
 
@@ -984,7 +984,7 @@ public class DrugLabelTools
     /// <seealso cref="ExportDrugLabelMarkdown"/>
     /// <seealso cref="SearchExpiringPatents"/>
     /**************************************************************/
-    [McpServerTool(Name = "search_by_pharmacologic_class", Title = "Search by Pharmacologic Class", ReadOnly = true, Destructive = false, OpenWorld = true)]
+    [McpServerTool(Name = "search_by_pharmacologic_class", Title = "Search by Pharmacologic Class", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("""
     🔍 SEARCH: Discover GROUPS of drugs by therapeutic or pharmacologic class (e.g., beta blockers, SSRIs, statins).
 

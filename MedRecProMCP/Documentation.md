@@ -10,8 +10,10 @@ MedRecPro connects Claude to the MedRecPro API (https://www.medrecpro.com/api/sw
 - **Targeted label section lookups:** Get specific sections like warnings, adverse reactions, dosage, drug interactions, or indications without wading through the full label. Claude automatically selects the right LOINC section code.
 - **Drug comparisons:** Compare warnings, side effects, or indications across multiple medications. Claude calls the search tool for each drug and synthesizes a side-by-side comparison.
 - **Complete label export:** Export any FDA drug label as clean, formatted markdown with all sections — indications, dosage, warnings, adverse reactions, clinical pharmacology, and more.
+- **Pharmacologic class discovery:** Discover groups of drugs by therapeutic or pharmacologic class. Ask about "beta blockers," "SSRIs," or "statins" and get all FDA-labeled products in that class with AI-powered terminology matching.
+- **Patent expiration search:** Look up Orange Book NDA patent expiration dates by brand name or active ingredient to find when generic alternatives may become available.
 - **FDA source verification:** Every response includes a clickable link to view the official FDA label, so you can verify the information directly.
-- **User activity tracking:** View your MedRecPro profile and search history to keep track of your research sessions. This feature requires authentication. The drug tools function with anonymous access. 
+- **User activity tracking:** View your MedRecPro profile and search history to keep track of your research sessions. This feature requires authentication. The drug tools function with anonymous access.
 
 ## Setup
 
@@ -79,7 +81,27 @@ This server requires OAuth authentication. You'll need:
 
 ---
 
-### Example 5: View Your Authentication and Profile
+### Example 5: Discover Drugs by Pharmacologic Class
+
+**User prompt:** "What beta blockers are available?"
+
+**What happens:** Claude calls `search_by_pharmacologic_class` with `query: "beta blockers"`. The AI-powered terminology matching translates "beta blockers" to the formal FDA class name "Beta-Adrenergic Blockers [EPC]" and returns all products in that class with clickable label links.
+
+**Expected output:** Claude presents the matched pharmacologic class and a grouped list of all FDA-labeled beta blocker products — metoprolol tartrate, metoprolol succinate, atenolol, propranolol, carvedilol, nadolol, and others. Each product includes a clickable link to view the full FDA label. The total product count is displayed, and Claude may note subclass distinctions (selective vs. non-selective) based on the returned data.
+
+---
+
+### Example 6: Check Patent Expiration Dates
+
+**User prompt:** "When will generic Ozempic be available?"
+
+**What happens:** Claude calls `search_expiring_patents` with `tradeName: "Ozempic"` to find all Orange Book NDA patents associated with Ozempic and their expiration dates.
+
+**Expected output:** Claude presents a table of Ozempic's active patents with their patent numbers, expiration dates, patent types (drug substance, drug product, or method of use), and any pediatric exclusivity extensions. Claude summarizes when the last patent expires and explains that generic availability depends on all listed patents expiring or being successfully challenged.
+
+---
+
+### Example 7: View Your Authentication and Profile
 
 **User prompt:** "Using the MedRecPro connection tell me about my authentication status"
 
