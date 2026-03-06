@@ -603,3 +603,16 @@ MedRecProStatic worked because it's deployed at the root (no virtual application
 
 ---
 
+### 2026-03-06 11:30 AM EST — Add Pharmacologic Class Search MCP Tool
+
+Added `search_by_pharmacologic_class` MCP tool to `MedRecProMCP/Tools/DrugLabelTools.cs`. This tool exposes the existing `GET /api/Label/pharmacologic-class/search` endpoint for AI-powered drug class discovery — translating natural language terms (e.g., "beta blockers", "SSRIs", "statins") to formal FDA pharmacologic class names and returning all matching products grouped by class with clickable FDA label links.
+
+**Key implementation details:**
+- Tool calls the `query` parameter for AI-powered terminology matching (recommended) or `classNameSearch` for direct partial matching (fallback)
+- Rewrites relative `labelLinks` from the API response to absolute URLs using the same base URL pattern as `ExportDrugLabelMarkdown`
+- Comprehensive `[Description]` attribute with boxed tool-selection rules, 12+ sample trigger questions, terminology mapping table, fallback strategy, and mandatory label link presentation requirements
+- Updated class-level XML docs: added ASCII workflow box, tool selection guide entry, and common scenario examples
+- Build: 0 errors, 0 warnings
+
+---
+

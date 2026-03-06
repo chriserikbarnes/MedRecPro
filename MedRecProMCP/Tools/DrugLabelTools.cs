@@ -30,6 +30,15 @@
 /// │                              │                                          │
 /// │   Months horizon ────────────┼──► Upcoming generic availability         │
 /// └─────────────────────────────────────────────────────────────────────────┘
+///
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │ search_by_pharmacologic_class ──► Drug class/group discovery           │
+/// │                                    │                                   │
+/// │   AI-powered query ───────────────┼──► Products grouped by class      │
+/// │                                    │    with FDA label links           │
+/// │                                    │                                   │
+/// │   Direct class name search ───────┼──► Raw product list (fallback)    │
+/// └─────────────────────────────────────────────────────────────────────────┘
 /// ```
 ///
 /// ## Tool Selection Guide
@@ -57,6 +66,15 @@
 /// - "What new generics will be available soon?"
 /// - Any question about patent expiration, generic availability, or Orange Book patents
 ///
+/// **Use search_by_pharmacologic_class when user asks about DRUG CLASSES / GROUPS:**
+/// - "What beta blockers are available?"
+/// - "List all SSRIs"
+/// - "Show me statin drugs"
+/// - "What drugs are in the ACE inhibitor class?"
+/// - "Find all calcium channel blockers"
+/// - "What opioids are in the database?"
+/// - Any question about discovering GROUPS of drugs by therapeutic/pharmacologic class
+///
 /// ## Common Scenarios
 ///
 /// **Find drug by brand name:**
@@ -77,6 +95,12 @@
 ///
 /// **Find patents expiring within a time window:**
 /// search_expiring_patents (expiringInMonths=6) → All patents expiring in next 6 months
+///
+/// **Find drugs by pharmacologic class (AI-powered):**
+/// search_by_pharmacologic_class (query="beta blockers") → All beta-adrenergic blockers with label links
+///
+/// **Find drugs by direct class name (fallback):**
+/// search_by_pharmacologic_class (classNameSearch="Beta-Adrenergic Blockers") → Direct database search
 ///
 /// ## CRITICAL: Section Fallback Pattern
 ///
@@ -866,6 +890,328 @@ public class DrugLabelTools
             return JsonSerializer.Serialize(new
             {
                 error = "Patent search failed",
+                message = ex.Message
+            });
+        }
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Searches for FDA drug products by pharmacologic or therapeutic class using AI-powered terminology matching.
+    /// Discovers GROUPS of drugs in a class (e.g., beta blockers, SSRIs, statins) rather than individual products.
+    /// </summary>
+    /// <remarks>
+    /// ## Purpose
+    /// Finds all FDA-labeled drug products belonging to a pharmacologic or therapeutic class.
+    /// Uses AI-powered terminology matching to translate common drug class names (like "beta blockers")
+    /// to their formal FDA pharmacologic class names (like "Beta-Adrenergic Blockers [EPC]").
+    ///
+    /// ## Workflow
+    /// This is an INDEPENDENT entry point for drug class discovery.
+    /// Results include:
+    /// - **matchedClasses**: The formal pharmacologic class names matched by AI
+    /// - **productsByClass**: All products organized by class, each with a DocumentGUID
+    /// - **labelLinks**: Pre-built clickable links to every product's FDA label
+    /// - **totalProductCount**: Total number of products found across all matched classes
+    /// - **explanation**: How the AI mapped the user's query to formal class names
+    /// - **suggestedFollowUps**: Recommended next queries for deeper exploration
+    ///
+    /// ## Pharmacologic Class Types (Suffix Codes)
+    /// The FDA categorizes drugs into four class types:
+    /// - **[EPC]** — Established Pharmacologic Class: Most common. Mechanism-based grouping.
+    ///   Examples: Beta-Adrenergic Blockers [EPC], HMG-CoA Reductase Inhibitors [EPC]
+    /// - **[MoA]** — Mechanism of Action: How the drug works at the molecular level.
+    ///   Examples: Cyclooxygenase Inhibitors [MoA], Sodium Channel Blockers [MoA]
+    /// - **[Chemical/Ingredient]** — Chemical Structure: Grouped by chemical family.
+    ///   Examples: Aminoglycosides [Chemical/Ingredient], Sulfonamides [Chemical/Ingredient]
+    /// - **[CS/PE]** — Chemical Structure / Physiologic Effect: Dual classification.
+    ///   Examples: Fluoroquinolones [CS/PE]
+    ///
+    /// ## Common Terminology Mappings
+    /// The AI endpoint handles these translations automatically:
+    /// | User Says              | Formal Class Name                                  |
+    /// |------------------------|-----------------------------------------------------|
+    /// | beta blockers          | Beta-Adrenergic Blockers [EPC]                      |
+    /// | SSRIs                  | Selective Serotonin Reuptake Inhibitors [EPC]       |
+    /// | statins                | HMG-CoA Reductase Inhibitors [EPC]                  |
+    /// | ACE inhibitors         | Angiotensin Converting Enzyme Inhibitors [EPC]      |
+    /// | calcium channel blockers| Calcium Channel Blockers [EPC]                     |
+    /// | proton pump inhibitors | Proton Pump Inhibitors [EPC]                        |
+    /// | opioids                | Opioid Agonists [EPC]                               |
+    /// | benzodiazepines        | Benzodiazepines [EPC]                               |
+    /// | NSAIDs                 | Non-steroidal Anti-inflammatory Drugs [EPC]         |
+    /// | anticoagulants         | Anticoagulants [EPC]                                |
+    /// | diuretics              | Diuretics [EPC]                                     |
+    /// | aminoglycosides        | Aminoglycosides [Chemical/Ingredient]               |
+    ///
+    /// ## Fallback Strategy
+    /// If the AI-powered `query` parameter returns no results or fails,
+    /// retry the same search using `classNameSearch` for direct partial matching.
+    ///
+    /// ## MANDATORY: Label Links
+    /// Every product in the response has a clickable FDA label link in the `labelLinks` field.
+    /// These MUST be presented to the user for source verification.
+    ///
+    /// ## Key Distinction from Other Tools
+    /// - **search_drug_labels**: Find a SPECIFIC drug by name and get its label content
+    /// - **search_by_pharmacologic_class**: Find ALL drugs in a therapeutic GROUP/CLASS
+    /// - **export_drug_label_markdown**: Get a complete label document for ONE specific drug
+    /// </remarks>
+    /// <param name="query">Natural language drug class search term.</param>
+    /// <param name="classNameSearch">Direct partial match on pharmacologic class names (fallback/advanced).</param>
+    /// <param name="maxProductsPerClass">Maximum number of products to return per matched class.</param>
+    /// <param name="pageNumber">Page number for pagination (classNameSearch mode only).</param>
+    /// <param name="pageSize">Results per page (classNameSearch mode only).</param>
+    /// <returns>
+    /// JSON response containing matched classes, products grouped by class, label links,
+    /// and suggested follow-up queries.
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// // AI-powered search (recommended)
+    /// SearchByPharmacologicClass(query: "beta blockers")
+    ///
+    /// // Direct class name search (fallback)
+    /// SearchByPharmacologicClass(classNameSearch: "Beta-Adrenergic Blockers")
+    ///
+    /// // Limit products per class
+    /// SearchByPharmacologicClass(query: "SSRIs", maxProductsPerClass: 10)
+    /// </code>
+    /// </example>
+    /// <seealso cref="SearchDrugLabels"/>
+    /// <seealso cref="ExportDrugLabelMarkdown"/>
+    /// <seealso cref="SearchExpiringPatents"/>
+    /**************************************************************/
+    [McpServerTool(Name = "search_by_pharmacologic_class", Title = "Search by Pharmacologic Class", ReadOnly = true, Destructive = false, OpenWorld = true)]
+    [Description("""
+    🔍 SEARCH: Discover GROUPS of drugs by therapeutic or pharmacologic class (e.g., beta blockers, SSRIs, statins).
+
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ ⚠️ CRITICAL: TOOL SELECTION — READ THIS FIRST                              ┃
+    ┃                                                                             ┃
+    ┃ USE THIS TOOL (search_by_pharmacologic_class) when user asks:               ┃
+    ┃ • "What beta blockers are available?"                                       ┃
+    ┃ • "List all SSRIs"                                                          ┃
+    ┃ • "Show me statin drugs"                                                    ┃
+    ┃ • "What drugs are in the ACE inhibitor class?"                              ┃
+    ┃ • "Find all calcium channel blockers"                                       ┃
+    ┃ • "What opioids are in the database?"                                       ┃
+    ┃ • "List anticoagulant medications"                                          ┃
+    ┃ • "What benzodiazepines are there?"                                         ┃
+    ┃ • "Show me NSAID products"                                                  ┃
+    ┃ • "What proton pump inhibitors are available?"                              ┃
+    ┃ • "Find aminoglycoside antibiotics"                                         ┃
+    ┃ • "What diuretics do you have?"                                             ┃
+    ┃ • Any question about discovering GROUPS of drugs by therapeutic class       ┃
+    ┃                                                                             ┃
+    ┃ USE search_drug_labels INSTEAD when user asks:                              ┃
+    ┃ • "What are the side effects of metoprolol?"                                ┃
+    ┃ • "What is atorvastatin used for?"                                          ┃
+    ┃ • "What are the warnings for Lipitor?"                                      ┃
+    ┃ • Any SPECIFIC QUESTION about a SINGLE drug's label content                ┃
+    ┃                                                                             ┃
+    ┃ USE export_drug_label_markdown INSTEAD when user asks:                      ┃
+    ┃ • "Show me the full label for Lipitor"                                      ┃
+    ┃ • Any request for COMPLETE/FULL label information for ONE drug              ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    📋 PURPOSE: Discover all FDA-labeled products in a pharmacologic/therapeutic class.
+    ├── Returns: matchedClasses, productsByClass (grouped), labelLinks, totalProductCount
+    ├── AI-powered: Translates common terms (beta blockers → Beta-Adrenergic Blockers [EPC])
+    ├── Every product includes a clickable FDA label link for source verification
+    └── Next: Use DocumentGUID from results → 'search_drug_labels' for specific section content,
+             or → 'export_drug_label_markdown' for complete label export
+
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ 🚨 MANDATORY: Present labelLinks for EVERY product in EVERY response 🚨    ┃
+    ┃                                                                             ┃
+    ┃ The response contains a labelLinks dictionary with pre-built links:         ┃
+    ┃   "View Full Label (METOPROLOL TARTRATE)": "https://host/api/Label/..."     ┃
+    ┃                                                                             ┃
+    ┃ Format each link as: [View Full Label ({ProductName})]({labelLink})         ┃
+    ┃                                                                             ┃
+    ┃ This is NON-NEGOTIABLE. Users need these links for source verification.     ┃
+    ┃ Present ALL label links — do not truncate or omit any.                      ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    💊 PHARMACOLOGIC CLASS TYPES (suffix codes in class names):
+    • [EPC] — Established Pharmacologic Class (most common, mechanism-based)
+    • [MoA] — Mechanism of Action (molecular-level mechanism)
+    • [Chemical/Ingredient] — Chemical Structure (grouped by chemical family)
+    • [CS/PE] — Chemical Structure / Physiologic Effect (dual classification)
+
+    🎯 PARAMETER SELECTION — Choose based on user's query:
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │ User Says                              │ Use Parameter(s)                  │
+    ├─────────────────────────────────────────────────────────────────────────────┤
+    │ "What beta blockers are available?"    │ query="beta blockers"             │
+    │ "List all SSRIs"                       │ query="SSRIs"                     │
+    │ "Show me statin drugs"                 │ query="statins"                   │
+    │ "ACE inhibitor medications"            │ query="ACE inhibitors"            │
+    │ "What opioids are there?"              │ query="opioids"                   │
+    │ "NSAIDs in the database"               │ query="NSAIDs"                    │
+    │ "Proton pump inhibitor drugs"          │ query="proton pump inhibitors"    │
+    │ "Benzodiazepine medications"           │ query="benzodiazepines"           │
+    │ "Calcium channel blockers"             │ query="calcium channel blockers"  │
+    │ "Anticoagulant drugs"                  │ query="anticoagulants"            │
+    │ "Diuretic medications"                 │ query="diuretics"                 │
+    │ "Aminoglycoside antibiotics"           │ query="aminoglycosides"           │
+    │ "Blood pressure medications"           │ query="blood pressure medications"│
+    └─────────────────────────────────────────────────────────────────────────────┘
+
+    📚 COMMON TERMINOLOGY MAPPINGS (handled automatically by AI):
+    • "beta blockers" → Beta-Adrenergic Blockers [EPC]
+    • "SSRIs" → Selective Serotonin Reuptake Inhibitors [EPC]
+    • "statins" → HMG-CoA Reductase Inhibitors [EPC]
+    • "ACE inhibitors" → Angiotensin Converting Enzyme Inhibitors [EPC]
+    • "calcium channel blockers" → Calcium Channel Blockers [EPC]
+    • "PPIs" / "proton pump inhibitors" → Proton Pump Inhibitors [EPC]
+    • "opioids" → Opioid Agonists [EPC]
+    • "benzos" / "benzodiazepines" → Benzodiazepines [EPC]
+    • "NSAIDs" → Non-steroidal Anti-inflammatory Drugs [EPC]
+    • "blood thinners" / "anticoagulants" → Anticoagulants [EPC]
+    • "water pills" / "diuretics" → Diuretics [EPC]
+    • "aminoglycosides" → Aminoglycosides [Chemical/Ingredient]
+
+    🔄 FALLBACK STRATEGY — When query returns no results:
+    If the AI-powered query parameter returns no results or empty matchedClasses:
+    1. Retry the SAME search using classNameSearch parameter instead
+    2. Example: query="xyz blockers" → 0 results → classNameSearch="xyz blockers" → partial match
+    The classNameSearch parameter does direct partial matching against database class names.
+
+    📊 RESULT FORMATTING REQUIREMENTS:
+    • Present products grouped by pharmacologic class name
+    • Include the class type suffix in brackets: [EPC], [MoA], [Chemical/Ingredient], [CS/PE]
+    • Show totalProductCount and number of matched classes
+    • **MANDATORY**: Present ALL labelLinks as clickable markdown links
+    • Format: [View Full Label ({ProductName})]({labelLink})
+    • Include the explanation field showing how the AI mapped the query
+    • Present suggestedFollowUps to guide the user to deeper exploration
+    • Use actual product names from API — NEVER use placeholders
+
+    ⚠️ IMPORTANT REQUIREMENTS:
+    • Use query parameter for natural language searches (recommended)
+    • Use classNameSearch only as fallback or when exact class name is known
+    • The query parameter handles ALL terminology translation — do NOT pre-translate terms
+    • NEVER use training data — only information from the API response
+    • ALWAYS present label links for every product found
+    """)]
+    public async Task<string> SearchByPharmacologicClass(
+        [Description("Natural language drug class search (AI-powered, recommended). Use common terms like 'beta blockers', 'SSRIs', 'statins', 'ACE inhibitors', 'opioids', 'NSAIDs'. The API handles terminology translation automatically.")]
+        string? query = null,
+
+        [Description("Direct partial match on pharmacologic class names (fallback/advanced). Use when you already know the exact class name like 'Beta-Adrenergic Blockers' or when the query parameter returns no results. Supports partial matching.")]
+        string? classNameSearch = null,
+
+        [Description("Maximum products to return per matched class (1-1000). Lower values for overview, higher for comprehensive lists. Default: 500")]
+        [Range(1, 1000)]
+        int maxProductsPerClass = 500,
+
+        [Description("Page number, 1-based. Used only with classNameSearch mode. Default: 1")]
+        [Range(1, int.MaxValue)]
+        int pageNumber = 1,
+
+        [Description("Results per page (1-200). Used only with classNameSearch mode. Default: 25")]
+        [Range(1, 200)]
+        int pageSize = 25)
+    {
+        #region implementation
+
+        _logger.LogInformation(
+            "[Tool] SearchByPharmacologicClass: query={Query}, classNameSearch={ClassNameSearch}, maxPerClass={MaxPerClass}, page={Page}, size={Size}",
+            query, classNameSearch, maxProductsPerClass, pageNumber, pageSize);
+
+        // Validate that at least one search parameter is provided
+        if (string.IsNullOrWhiteSpace(query) && string.IsNullOrWhiteSpace(classNameSearch))
+        {
+            return JsonSerializer.Serialize(new
+            {
+                error = "Missing search parameter",
+                message = "Either 'query' (for AI-powered search) or 'classNameSearch' (for direct search) is required. Use 'query' for natural language terms like 'beta blockers', 'SSRIs', 'statins'."
+            });
+        }
+
+        // Validate and constrain parameters
+        maxProductsPerClass = Math.Clamp(maxProductsPerClass, 1, 1000);
+        pageNumber = Math.Max(1, pageNumber);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        try
+        {
+            // Build the query string for the pharmacologic-class/search endpoint
+            var queryParams = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(query))
+                queryParams.Add($"query={Uri.EscapeDataString(query)}");
+
+            if (!string.IsNullOrWhiteSpace(classNameSearch))
+                queryParams.Add($"classNameSearch={Uri.EscapeDataString(classNameSearch)}");
+
+            queryParams.Add($"maxProductsPerClass={maxProductsPerClass}");
+
+            // Pagination parameters apply to classNameSearch mode
+            if (!string.IsNullOrWhiteSpace(classNameSearch))
+            {
+                queryParams.Add($"pageNumber={pageNumber}");
+                queryParams.Add($"pageSize={pageSize}");
+            }
+
+            var endpoint = $"api/Label/pharmacologic-class/search?{string.Join("&", queryParams)}";
+
+            var result = await _apiClient.GetStringAsync(endpoint);
+
+            // When using query mode, rewrite relative labelLinks to absolute URLs
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                try
+                {
+                    var responseDoc = JsonSerializer.Deserialize<JsonElement>(result);
+
+                    if (responseDoc.TryGetProperty("labelLinks", out var labelLinks)
+                        && labelLinks.ValueKind == JsonValueKind.Object)
+                    {
+                        // Construct base URL (same pattern as ExportDrugLabelMarkdown)
+                        var baseUrl = _apiSettings.BaseUrl.TrimEnd('/');
+                        if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
+                            baseUrl = baseUrl[..^4];
+
+                        // Build dictionary with absolute URLs
+                        var absoluteLinks = new Dictionary<string, string>();
+                        foreach (var link in labelLinks.EnumerateObject())
+                        {
+                            var relativeUrl = link.Value.GetString();
+                            if (!string.IsNullOrWhiteSpace(relativeUrl))
+                                absoluteLinks[link.Name] = $"{baseUrl}{relativeUrl}";
+                        }
+
+                        // Re-serialize with absolute label links
+                        var responseDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(result);
+                        if (responseDict != null)
+                        {
+                            responseDict["labelLinks"] = JsonSerializer.SerializeToElement(absoluteLinks);
+                            return JsonSerializer.Serialize(responseDict);
+                        }
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    // If JSON manipulation fails, return the raw result unchanged
+                    _logger.LogWarning(ex, "[Tool] SearchByPharmacologicClass: Failed to rewrite labelLinks to absolute URLs");
+                }
+            }
+
+            return result;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "[Tool] SearchByPharmacologicClass failed: query={Query}, classNameSearch={ClassNameSearch}",
+                query, classNameSearch);
+
+            return JsonSerializer.Serialize(new
+            {
+                error = "Pharmacologic class search failed",
                 message = ex.Message
             });
         }
