@@ -75,6 +75,14 @@
 /// - "What opioids are in the database?"
 /// - Any question about discovering GROUPS of drugs by therapeutic/pharmacologic class
 ///
+/// **Use search_by_indication when user asks about CONDITIONS / DISEASES:**
+/// - "What drugs treat high blood pressure?"
+/// - "What medications help with depression?"
+/// - "Find drugs for type 2 diabetes"
+/// - "What is used for epilepsy?"
+/// - "Medications for anxiety"
+/// - Any question about finding drugs that treat a specific medical condition
+///
 /// ## Common Scenarios
 ///
 /// **Find drug by brand name:**
@@ -101,6 +109,9 @@
 ///
 /// **Find drugs by direct class name (fallback):**
 /// search_by_pharmacologic_class (classNameSearch="Beta-Adrenergic Blockers") → Direct database search
+///
+/// **Find drugs by medical condition (AI-powered, 3-stage):**
+/// search_by_indication (query="high blood pressure") → Drugs indicated for hypertension with label links
 ///
 /// ## CRITICAL: Section Fallback Pattern
 ///
@@ -1217,5 +1228,200 @@ public class DrugLabelTools
         }
 
         #endregion
-    }
+        }
+
+        #region search by indication
+
+        /**************************************************************/
+        /// <summary>
+        /// Searches for drugs by medical condition or indication using AI-enhanced matching.
+        /// </summary>
+        /// <remarks>
+        /// ## Purpose
+        /// Discovers FDA-labeled products indicated for a specific medical condition using
+        /// a three-stage pipeline: keyword pre-filter, AI semantic matching, and AI validation
+        /// against actual FDA label indication text.
+        ///
+        /// ## Workflow
+        /// 1. Stage 1: Keyword pre-filter on ~1,000 reference entries (no AI call)
+        /// 2. Stage 2: Claude AI matches user query to candidate indications
+        /// 3. Stage 3: Claude AI validates matches against actual FDA label text
+        /// </remarks>
+        /// <seealso cref="SearchDrugLabels"/>
+        /// <seealso cref="SearchByPharmacologicClass"/>
+        /**************************************************************/
+        [McpServerTool(Name = "search_by_indication", Title = "Search by Indication", ReadOnly = true, Destructive = false, OpenWorld = false)]
+        [Description("""
+    🔍 SEARCH: Discover drugs that treat a specific MEDICAL CONDITION or DISEASE (e.g., high blood pressure, diabetes, depression).
+
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ ⚠️ CRITICAL: TOOL SELECTION — READ THIS FIRST                              ┃
+    ┃                                                                             ┃
+    ┃ USE THIS TOOL (search_by_indication) when user asks:                        ┃
+    ┃ • "What drugs treat high blood pressure?"                                   ┃
+    ┃ • "What medications help with depression?"                                  ┃
+    ┃ • "Find drugs for type 2 diabetes"                                          ┃
+    ┃ • "What is used for epilepsy?"                                              ┃
+    ┃ • "Medications for anxiety"                                                 ┃
+    ┃ • "What treats migraines?"                                                  ┃
+    ┃ • "Drugs indicated for heart failure"                                       ┃
+    ┃ • "What is prescribed for asthma?"                                          ┃
+    ┃ • Any question about finding drugs that treat a specific CONDITION          ┃
+    ┃                                                                             ┃
+    ┃ USE search_by_pharmacologic_class INSTEAD when user asks:                   ┃
+    ┃ • "What beta blockers are available?"                                       ┃
+    ┃ • "List all SSRIs"                                                          ┃
+    ┃ • Any question about DRUG CLASSES (not conditions)                         ┃
+    ┃                                                                             ┃
+    ┃ USE search_drug_labels INSTEAD when user asks:                              ┃
+    ┃ • "What are the side effects of metoprolol?"                                ┃
+    ┃ • Any SPECIFIC QUESTION about a SINGLE drug's label content                ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    📋 PURPOSE: Discover all FDA-labeled products indicated for a medical condition.
+    ├── Returns: matchedIndications, productsByIndication (grouped by UNII), labelLinks, totalProductCount
+    ├── AI-powered (3-stage): Keyword filter → AI matching → AI validation against actual label text
+    ├── Every product includes a clickable FDA label link for source verification
+    ├── Validation confirms matches against actual FDA Indications & Usage section text
+    └── Next: Use labelLinks → view full FDA label, or → 'search_drug_labels' for details
+
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ 🚨 MANDATORY: Present labelLinks for EVERY product in EVERY response 🚨    ┃
+    ┃                                                                             ┃
+    ┃ The response contains a labelLinks dictionary with pre-built links:         ┃
+    ┃   "View Full Label (LISINOPRIL)": "https://host/api/Label/..."             ┃
+    ┃                                                                             ┃
+    ┃ Format each link as: [View Full Label ({ProductName})]({labelLink})         ┃
+    ┃ Present ALL label links — do not truncate or omit any.                      ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    🎯 PARAMETER SELECTION — Choose based on user's query:
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │ User Says                              │ Use Parameter(s)                  │
+    ├─────────────────────────────────────────────────────────────────────────────┤
+    │ "What treats high blood pressure?"     │ query="high blood pressure"       │
+    │ "Drugs for diabetes"                   │ query="diabetes"                  │
+    │ "Depression medications"               │ query="depression"                │
+    │ "What helps with anxiety?"             │ query="anxiety"                   │
+    │ "Epilepsy drugs"                       │ query="epilepsy"                  │
+    │ "Heart failure medications"            │ query="heart failure"             │
+    │ "Asthma treatments"                    │ query="asthma"                    │
+    │ "Migraine drugs"                       │ query="migraine"                  │
+    │ "Cancer medications"                   │ query="cancer"                    │
+    │ "What is used for cholesterol?"        │ query="high cholesterol"          │
+    │ "HIV treatment options"                │ query="hiv"                       │
+    │ "Drugs for arthritis"                  │ query="arthritis"                 │
+    └─────────────────────────────────────────────────────────────────────────────┘
+
+    🩺 COMMON CONDITION MAPPINGS (handled automatically by AI):
+    • "high blood pressure" → hypertension, antihypertensive products
+    • "sugar" / "blood sugar" → diabetes, glycemic control products
+    • "sad" / "feeling down" → depression, antidepressant products
+    • "heart problems" → heart failure, cardiac products
+    • "joint pain" → arthritis, anti-inflammatory products
+    • "seizures" → epilepsy, anticonvulsant products
+    • "breathing problems" → asthma, COPD, bronchodilator products
+
+    📊 RESULT FORMATTING REQUIREMENTS:
+    • Present products grouped by UNII (active ingredient)
+    • Show the matchedIndications with relevance reasoning
+    • Include validationReason showing how the match was confirmed against actual label text
+    • **MANDATORY**: Present ALL labelLinks as clickable markdown links
+    • Format: [View Full Label ({ProductName})]({labelLink})
+    • Present suggestedFollowUps to guide deeper exploration
+    • Use actual product names from API — NEVER use placeholders
+
+    ⚠️ IMPORTANT REQUIREMENTS:
+    • The query parameter accepts natural language — do NOT pre-translate medical terms
+    • NEVER use training data — only information from the API response
+    • ALWAYS present label links for every product found
+    """)]
+        public async Task<string> SearchByIndication(
+            [Description("Natural language medical condition search (AI-powered). Use common terms like 'high blood pressure', 'diabetes', 'depression', 'anxiety', 'pain', 'cancer'. The API handles medical terminology translation automatically.")]
+            [Required]
+            string query,
+
+            [Description("Maximum products to return per matched indication (1-100). Lower values for overview, higher for comprehensive lists. Default: 25")]
+            [Range(1, 100)]
+            int maxProductsPerIndication = 25)
+        {
+            #region implementation
+
+            _logger.LogInformation(
+                "[Tool] SearchByIndication: query={Query}, maxPerIndication={MaxPerIndication}",
+                query, maxProductsPerIndication);
+
+            // Validate query
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return JsonSerializer.Serialize(new
+                {
+                    error = "Missing search parameter",
+                    message = "The 'query' parameter is required. Provide a medical condition like 'high blood pressure', 'diabetes', 'depression'."
+                });
+            }
+
+            // Constrain parameters
+            maxProductsPerIndication = Math.Clamp(maxProductsPerIndication, 1, 100);
+
+            try
+            {
+                // Build the query string for the indication/search endpoint
+                var endpoint = $"api/Label/indication/search?query={Uri.EscapeDataString(query)}&maxProductsPerIndication={maxProductsPerIndication}";
+
+                var result = await _apiClient.GetStringAsync(endpoint);
+
+                // Rewrite relative labelLinks to absolute URLs
+                try
+                {
+                    var responseDoc = JsonSerializer.Deserialize<JsonElement>(result);
+
+                    if (responseDoc.TryGetProperty("labelLinks", out var labelLinks)
+                        && labelLinks.ValueKind == JsonValueKind.Object)
+                    {
+                        // Construct base URL (same pattern as other tools)
+                        var baseUrl = _apiSettings.BaseUrl.TrimEnd('/');
+                        if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
+                            baseUrl = baseUrl[..^4];
+
+                        // Build dictionary with absolute URLs
+                        var absoluteLinks = new Dictionary<string, string>();
+                        foreach (var link in labelLinks.EnumerateObject())
+                        {
+                            var relativeUrl = link.Value.GetString();
+                            if (!string.IsNullOrWhiteSpace(relativeUrl))
+                                absoluteLinks[link.Name] = $"{baseUrl}{relativeUrl}";
+                        }
+
+                        // Re-serialize with absolute label links
+                        var responseDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(result);
+                        if (responseDict != null)
+                        {
+                            responseDict["labelLinks"] = JsonSerializer.SerializeToElement(absoluteLinks);
+                            return JsonSerializer.Serialize(responseDict);
+                        }
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "[Tool] SearchByIndication: Failed to rewrite labelLinks to absolute URLs");
+                }
+
+                return result;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "[Tool] SearchByIndication failed: query={Query}", query);
+
+                return JsonSerializer.Serialize(new
+                {
+                    error = "Indication search failed",
+                    message = ex.Message
+                });
+            }
+
+            #endregion
+        }
+
+        #endregion
 }

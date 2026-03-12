@@ -616,3 +616,47 @@ Added `search_by_pharmacologic_class` MCP tool to `MedRecProMCP/Tools/DrugLabelT
 
 ---
 
+### 2026-03-12 3:13 PM EST — AI-Enhanced Search by Indication
+
+Implemented the full three-stage AI-enhanced indication search pipeline for MedRecPro. This feature allows users to search for drugs by medical indication/condition (e.g., "diabetes", "high blood pressure") using a combination of keyword pre-filtering and Claude AI semantic matching.
+
+**Architecture — Three-stage pipeline:**
+1. **C# keyword pre-filter** — Tokenizes user query, expands ~40 condition synonym mappings, scores reference entries, caps at 50 candidates
+2. **Claude AI semantic matching** — Sends filtered candidates to Claude for semantic relevance scoring with confidence levels (high/medium/low)
+3. **Claude AI validation** — Fetches actual FDA Indications & Usage sections (LOINC 34067-9) and validates matches against real label text
+
+**Files created:**
+- `MedRecPro/Skills/prompts/indication-matching-prompt.md` — Stage 2 prompt template with `{{USER_QUERY}}` and `{{CANDIDATE_LIST}}` placeholders
+- `MedRecPro/Skills/prompts/indication-validation-prompt.md` — Stage 3 prompt template with `{{USER_QUERY}}` and `{{VALIDATION_ENTRIES}}` placeholders
+- `MedRecProTest/ClaudeSearchServiceIndicationTests.cs` — 25 unit tests covering parsing, pre-filter, AI response parsing, validation, orchestrator edge cases, and DTOs
+
+**Files modified:**
+- `MedRecPro/Service/ClaudeSearchService.cs` — Added 8 DTOs (IndicationReferenceEntry, IndicationMatch, IndicationMatchResult, IndicationProductInfo, IndicationValidationEntry, ValidatedIndication, IndicationValidationResult, IndicationSearchResult), 3 interface methods, constants, and 15+ implementation methods including the orchestrator `SearchByIndicationAsync()`
+- `MedRecPro/Controllers/LabelController.cs` — Added `GET indication/search` endpoint with query and maxProductsPerIndication parameters
+- `MedRecPro/appsettings.json` — Added `Prompt-IndicationMatching` and `Prompt-IndicationValidation` config keys
+- `MedRecProMCP/Tools/DrugLabelTools.cs` — Added `search_by_indication` MCP tool with comprehensive description, updated Tool Selection Guide
+
+**Key design decisions:**
+- UNII validation: every AI-returned UNII must exist in the candidate list to prevent hallucinated identifiers
+- Graceful degradation: if Stage 3 validation fails, all Stage 2 matches are kept unfiltered
+- Reference data cached for 8 hours via `PerformanceHelper`
+- Synonym expansion covers ~40 common condition mappings (e.g., "high blood pressure" → "hypertension")
+- Build: 0 errors across all projects; 25/25 tests passing
+
+---
+
+### 2026-03-12 3:24 PM EST — Refactor SearchByIndicationAsync() into Orchestrator Pattern
+
+Refactored `SearchByIndicationAsync()` from a ~200-line monolithic method into a concise orchestrator backed by 3 new private methods, matching the pattern established by `SearchByUserQueryAsync()` (pharmacologic class search).
+
+**Extracted methods:**
+- `lookupProductsForMatchedIndicationsAsync()` — product lookup per matched UNII, indication summary enrichment, validation entry building
+- `applyValidationFilterAsync()` — Stage 3 validation against actual FDA label text, filtering rejected UNIIs, attaching validation metadata
+- `buildLabelLinks()` — label link dictionary population from product DocumentGuids
+
+**File modified:** `MedRecPro/Service/ClaudeSearchService.cs`
+
+The orchestrator now reads as a clean step sequence: input validation → Stage 1 pre-filter → Stage 2 AI matching → product lookup → Stage 3 validation → label links → finalize. Pure refactor with no behavior changes. Build: 0 errors; 25/25 tests passing.
+
+---
+

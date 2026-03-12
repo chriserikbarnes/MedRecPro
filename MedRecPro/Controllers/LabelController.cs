@@ -1147,6 +1147,92 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Searches for drugs by medical condition or indication using a three-stage
+        /// AI-enhanced pipeline: keyword pre-filter, AI matching, and AI validation
+        /// against actual FDA label indication text.
+        /// </summary>
+        /// <param name="query">
+        /// Natural language condition query (e.g., "high blood pressure", "type 2 diabetes", "depression").
+        /// </param>
+        /// <param name="maxProductsPerIndication">
+        /// Maximum number of products to return per matched indication. Default is 25.
+        /// </param>
+        /// <returns>
+        /// An <see cref="IndicationSearchResult"/> containing matched products organized by UNII
+        /// with label links, validation reasons, and follow-up suggestions.
+        /// </returns>
+        /// <remarks>
+        /// ## Search Pipeline
+        /// 1. **Stage 1 (Keyword Pre-Filter)**: Tokenizes the query, expands with medical synonyms,
+        ///    and scores ~1,000 reference entries. No AI call. Caps at 50 candidates.
+        /// 2. **Stage 2 (AI Matching)**: Sends candidates to Claude for semantic matching.
+        ///    Returns ranked UNIIs with relevance reasoning.
+        /// 3. **Stage 3 (AI Validation)**: Fetches actual FDA Indications &amp; Usage section text
+        ///    and asks Claude to confirm each match. Filters out false positives.
+        ///
+        /// ## Examples
+        /// - `GET /api/Label/indication/search?query=high+blood+pressure`
+        /// - `GET /api/Label/indication/search?query=type+2+diabetes&amp;maxProductsPerIndication=10`
+        /// </remarks>
+        /// <seealso cref="IndicationSearchResult"/>
+        /// <seealso cref="IClaudeSearchService.SearchByIndicationAsync"/>
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("indication/search")]
+        [ProducesResponseType(typeof(IndicationSearchResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult> SearchByIndication(
+            [FromQuery] string query,
+            [FromQuery] int maxProductsPerIndication = 25)
+        {
+            #region Input Validation
+
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return BadRequest("The 'query' parameter is required. Provide a medical condition (e.g., 'high blood pressure', 'diabetes', 'depression').");
+            }
+
+            #endregion
+
+            #region AI-Powered Search
+
+            if (_claudeSearchService == null)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    "AI search service is not available. Indication search requires AI capabilities.");
+            }
+
+            try
+            {
+                _logger.LogInformation("[Label] AI indication search for: {Query}", query);
+
+                // Build system context
+                var isAuthenticated = User.Identity?.IsAuthenticated ?? false;
+                var userId = isAuthenticated ? getEncryptedUserId() : null;
+                var systemContext = await _claudeApiService.GetSystemContextAsync(isAuthenticated, userId);
+
+                // Execute the three-stage search
+                var result = await _claudeSearchService.SearchByIndicationAsync(
+                    query,
+                    systemContext,
+                    maxProductsPerIndication);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during indication search for query: {Query}", query);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "An error occurred while searching by indication.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Extracts drug/ingredient names from a natural language description using AI.
         /// Used for UNII resolution fallback when the interpret phase uses incorrect UNIIs
         /// but includes the correct product name in the endpoint description.
