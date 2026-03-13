@@ -143,5 +143,11 @@
 		<None Update="Skills\prompts\pharmacologic-class-matching-prompt.md">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
+		<None Update="Skills\prompts\indication-matching-prompt.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Skills\prompts\indication-validation-prompt.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 	</ItemGroup>
 </Project>
