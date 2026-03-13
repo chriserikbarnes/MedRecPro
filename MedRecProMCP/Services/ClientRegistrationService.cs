@@ -164,10 +164,10 @@ public class ClientRegistrationService : IClientRegistrationService
     public async Task<RegisteredClient?> ValidateClientAsync(string clientId, string? clientSecret = null)
     {
         #region implementation
-        // Check for pre-registered Claude client
-        if (clientId.Equals("claude", StringComparison.OrdinalIgnoreCase))
+        // Check for pre-registered Claude client (supports both simple ID and CIMD URL)
+        if (IsClaudeClient(clientId))
         {
-            _logger.LogDebug("[DCR] Validated pre-registered Claude client");
+            _logger.LogDebug("[DCR] Validated pre-registered Claude client (clientId: {ClientId})", clientId);
             return ClaudeClient;
         }
 
@@ -374,6 +374,36 @@ public class ClientRegistrationService : IClientRegistrationService
     }
 
     #region Private Methods
+
+    /**************************************************************/
+    /// <summary>
+    /// Determines whether the given client ID matches the pre-registered Claude client.
+    /// Matches on the simple "claude" ID as well as Claude's Client ID Metadata Document URLs,
+    /// which Claude.ai sends as client_id per the MCP OAuth spec but which currently return
+    /// HTML instead of a JSON metadata document.
+    /// </summary>
+    /// <param name="clientId">The client ID to check.</param>
+    /// <returns>True if the client ID identifies Claude.</returns>
+    /// <seealso cref="ClaudeClient"/>
+    /**************************************************************/
+    private static bool IsClaudeClient(string clientId)
+    {
+        #region implementation
+        if (clientId.Equals("claude", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Claude.ai sends its CIMD URL as the client_id per MCP OAuth spec
+        if (Uri.TryCreate(clientId, UriKind.Absolute, out var uri) &&
+            uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) &&
+            (uri.Host.Equals("claude.ai", StringComparison.OrdinalIgnoreCase) ||
+             uri.Host.Equals("claude.com", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return false;
+        #endregion
+    }
 
     /**************************************************************/
     /// <summary>

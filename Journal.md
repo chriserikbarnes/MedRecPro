@@ -700,3 +700,15 @@ Build: 0 errors, 0 warnings. Branch: `Indication-Search`.
 
 ---
 
+### 2026-03-13 3:56 PM EST — Fix MCP OAuth: Claude.ai CIMD URL Returns HTML Instead of JSON
+
+**Problem:** Claude.ai's MCP OAuth connection stopped working. When connecting, the authorize endpoint returned `{"error":"invalid_client","error_description":"Unknown client_id"}`. The root cause: Claude.ai sends `client_id=https://claude.ai/oauth/mcp-oauth-client-metadata` (a Client ID Metadata Document URL per MCP OAuth spec), but that URL now returns Claude's SPA HTML instead of a JSON metadata document. The `ClientRegistrationService.FetchClientMetadataDocumentAsync` tried to deserialize HTML as JSON and failed (`'<' is an invalid start of a value`), so the client was never registered.
+
+**Fix:** Added `IsClaudeClient()` private helper method in `ClientRegistrationService.cs` that recognizes both the simple `"claude"` client ID and any `https://claude.ai/...` or `https://claude.com/...` URL as the pre-registered Claude client. This bypasses the broken CIMD fetch entirely — the hardcoded `ClaudeClient` with correct redirect URIs is returned directly. Updated `ValidateClientAsync` to use the new helper.
+
+**File modified:** `MedRecProMCP/Services/ClientRegistrationService.cs`
+
+Build: 0 errors, 0 warnings.
+
+---
+
