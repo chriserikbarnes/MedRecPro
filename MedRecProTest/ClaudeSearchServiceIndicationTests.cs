@@ -1,3 +1,4 @@
+using MedRecPro.Models;
 using MedRecPro.Service;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;

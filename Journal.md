@@ -660,3 +660,15 @@ The orchestrator now reads as a clean step sequence: input validation → Stage 
 
 ---
 
+### 2026-03-13 9:46 AM EST — Extract ClaudeSearchService models to separate file
+
+Separated 12 model classes from `Service/ClaudeSearchService.cs` into a dedicated `Models/ClaudeSearchModels.cs` file to improve separation of concerns. Extracted: `PharmacologicClassMatchResult`, `PharmacologicClassSearchResult`, `PharmacologicClassProductInfo`, `ProductExtractionResult`, `IndicationReferenceEntry`, `IndicationMatch`, `IndicationMatchResult`, `IndicationProductInfo`, `IndicationValidationEntry`, `ValidatedIndication`, `IndicationValidationResult`, `IndicationSearchResult`. Models moved from `MedRecPro.Service` namespace to `MedRecPro.Models`. No behavior changes — existing `using MedRecPro.Models;` imports in both the service and controller already resolved the types. Build: 0 errors.
+
+---
+
+### 2026-03-13 10:07 AM EST — Reorganize ClaudeSearchService by intent with public-then-private ordering
+
+Reorganized `Service/ClaudeSearchService.cs` (~2521 lines, ~30 methods) into intent-based regions with public-then-private method ordering. New structure: `#region pharmacologic class search` (4 public, 11 private), `#region indication search` (3 public, 15 private), `#region shared private methods` (3 utility methods: `loadPromptTemplate`, `readPromptFileByPath`, `extractJsonFromResponse`). Each intent region contains nested `#region public methods` and `#region private methods` sub-regions. Used Node.js scripting to precisely extract and reassemble method blocks by mapped line ranges. Build: 0 errors.
+
+---
+

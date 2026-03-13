@@ -8,17 +8,18 @@ using Microsoft.Extensions.Logging;
 
 namespace MedRecPro.Service
 {
-    #region pharmacologic class search service interface
+    #region claude search service interface
 
     /**************************************************************/
     /// <summary>
-    /// Defines the contract for intelligent pharmacologic class search operations.
-    /// This service enables context-aware matching between user queries and actual
-    /// pharmacologic class names in the database, solving the mismatch problem where
-    /// user terminology differs from database classification names.
+    /// Defines the contract for AI-powered drug search operations.
+    /// Provides pharmacologic class search and indication-based search capabilities
+    /// that use AI to bridge the gap between user terminology and database vocabulary.
     /// </summary>
     /// <remarks>
-    /// The service implements a multi-step workflow:
+    /// The service supports two primary search workflows:
+    ///
+    /// <b>Pharmacologic Class Search</b>
     /// <list type="number">
     /// <item>Retrieve all pharmacologic class summaries from the database</item>
     /// <item>Use AI to match user query terms to actual class display names</item>
@@ -26,22 +27,36 @@ namespace MedRecPro.Service
     /// <item>Produce a consolidated summary with label links to latest products</item>
     /// </list>
     ///
-    /// This solves the problem where users ask "what medications are beta blockers" but
-    /// the database stores the class as "Beta-Adrenergic Blockers [EPC]" or similar.
+    /// <b>Indication Search (3-stage pipeline)</b>
+    /// <list type="number">
+    /// <item><b>Stage 1:</b> Load and keyword pre-filter the indication reference data
+    /// (labelProductIndication.md) to produce a candidate set</item>
+    /// <item><b>Stage 2:</b> Use AI to match user query against candidate indications,
+    /// returning matched UNIIs with confidence and relevance reasoning</item>
+    /// <item><b>Stage 3:</b> Validate AI matches against actual FDA label indication text,
+    /// filtering out false positives before returning final results</item>
+    /// </list>
+    ///
+    /// Both workflows solve the vocabulary mismatch problem where user terminology
+    /// differs from how data is stored (e.g., "beta blockers" vs "Beta-Adrenergic
+    /// Blockers [EPC]", or "blood pressure" vs specific FDA indication language).
     /// </remarks>
     /// <example>
     /// <code>
-    /// // User asks: "what medications are beta blockers"
-    /// var result = await pharmacologicClassSearchService.SearchByUserQueryAsync(
-    ///     "beta blockers",
-    ///     systemContext);
+    /// // Pharmacologic class search
+    /// var classResult = await service.SearchByUserQueryAsync(
+    ///     "beta blockers", systemContext);
     ///
-    /// // Returns products from classes matching "beta blocker" terminology
+    /// // Indication search
+    /// var indicationResult = await service.SearchByIndicationAsync(
+    ///     "treatment of type 2 diabetes", systemContext);
     /// </code>
     /// </example>
     /// <seealso cref="IClaudeApiService"/>
     /// <seealso cref="DtoLabelAccess.GetPharmacologicClassSummariesAsync"/>
     /// <seealso cref="DtoLabelAccess.SearchByPharmacologicClassAsync"/>
+    /// <seealso cref="IndicationSearchResult"/>
+    /// <seealso cref="PharmacologicClassSearchResult"/>
     public interface IClaudeSearchService
     {
         #region search methods
@@ -247,558 +262,35 @@ namespace MedRecPro.Service
 
     #endregion
 
-    #region pharmacologic class search models
+    #region claude search service implementation
 
     /**************************************************************/
     /// <summary>
-    /// Represents the result of matching user query terms to database class names.
-    /// </summary>
-    /// <seealso cref="IClaudeSearchService.MatchUserQueryToClassesAsync"/>
-    public class PharmacologicClassMatchResult
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets whether the matching operation was successful.
-        /// </summary>
-        public bool Success { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the list of matched class names from the database.
-        /// These are the exact class names that can be used for product searches.
-        /// </summary>
-        public List<string> MatchedClassNames { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the explanation of how matches were determined.
-        /// Useful for transparency and debugging.
-        /// </summary>
-        public string? Explanation { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets any error message if matching failed.
-        /// </summary>
-        public string? Error { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets alternative suggestions if no exact matches were found.
-        /// </summary>
-        public List<string>? Suggestions { get; set; }
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents the complete result of a pharmacologic class search operation.
-    /// Contains all matched products organized by class with label links.
-    /// </summary>
-    /// <seealso cref="IClaudeSearchService.SearchByUserQueryAsync"/>
-    public class PharmacologicClassSearchResult
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets whether the search operation was successful.
-        /// </summary>
-        public bool Success { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the original user query that initiated the search.
-        /// </summary>
-        public string OriginalQuery { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the list of pharmacologic classes that matched the user query.
-        /// </summary>
-        public List<string> MatchedClasses { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the products found, organized by their pharmacologic class.
-        /// Key is the class name, value is the list of products in that class.
-        /// </summary>
-        public Dictionary<string, List<PharmacologicClassProductInfo>> ProductsByClass { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the total number of products found across all classes.
-        /// </summary>
-        public int TotalProductCount { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets label links for all found products.
-        /// Key is display name, value is the API URL.
-        /// </summary>
-        /// <example>
-        /// {
-        ///   "View Full Label (METOPROLOL TARTRATE)": "/api/Label/original/{guid}/true"
-        /// }
-        /// </example>
-        public Dictionary<string, string> LabelLinks { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets any error message if the search failed.
-        /// </summary>
-        public string? Error { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the AI's explanation of the search results.
-        /// </summary>
-        public string? Explanation { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets suggested follow-up queries.
-        /// </summary>
-        public List<string>? SuggestedFollowUps { get; set; }
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents product information for pharmacologic class search results.
-    /// Contains the essential fields needed for display and label link generation.
-    /// </summary>
-    public class PharmacologicClassProductInfo
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the product name.
-        /// </summary>
-        public string ProductName { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the document GUID for generating label links.
-        /// </summary>
-        public string? DocumentGuid { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the pharmacologic class name this product belongs to.
-        /// </summary>
-        public string? PharmClassName { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the active ingredient(s) in the product.
-        /// </summary>
-        public string? ActiveIngredient { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the labeler/manufacturer name.
-        /// </summary>
-        public string? LabelerName { get; set; }
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents the result of extracting a product/ingredient name from a description.
-    /// Used for UNII resolution fallback when the interpret phase uses incorrect UNIIs.
-    /// </summary>
-    /// <seealso cref="IClaudeSearchService.ExtractProductFromDescriptionAsync"/>
-    public class ProductExtractionResult
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets whether the extraction operation was successful.
-        /// </summary>
-        public bool Success { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the extracted product/ingredient names.
-        /// The first name is the primary (most likely) extraction.
-        /// Multiple names may be returned for combination products or
-        /// when both brand and generic names are identified.
-        /// </summary>
-        public List<string> ProductNames { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the primary extracted product name (convenience property).
-        /// Returns the first product name or null if none extracted.
-        /// </summary>
-        public string? PrimaryProductName => ProductNames.FirstOrDefault();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the confidence level of the extraction.
-        /// Values: "high", "medium", "low"
-        /// </summary>
-        public string Confidence { get; set; } = "low";
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the AI's explanation of the extraction logic.
-        /// Useful for debugging and transparency.
-        /// </summary>
-        public string? Explanation { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets any error message if extraction failed.
-        /// </summary>
-        public string? Error { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets whether a brand-to-generic mapping was applied.
-        /// </summary>
-        public bool BrandMappingApplied { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the original brand name if a mapping was applied.
-        /// </summary>
-        public string? OriginalBrandName { get; set; }
-    }
-
-    #endregion
-
-    #region indication search models
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents a parsed entry from the labelProductIndication.md reference file.
-    /// Each entry contains one or more product names, a UNII code, and
-    /// the summarized FDA indication text for that ingredient.
-    /// </summary>
-    /// <seealso cref="IClaudeSearchService.GetIndicationReferenceDataAsync"/>
-    public class IndicationReferenceEntry
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the product names (brand/generic) associated with this UNII.
-        /// </summary>
-        public List<string> ProductNames { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the FDA Unique Ingredient Identifier.
-        /// </summary>
-        public string UNII { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the combined indication text from all FDA labels for this UNII.
-        /// </summary>
-        public string IndicationsSummary { get; set; } = string.Empty;
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents a single indication match from Claude AI (Stage 2).
-    /// Contains the UNII, product names, and the AI's reasoning for the match.
-    /// </summary>
-    /// <seealso cref="IndicationMatchResult"/>
-    public class IndicationMatch
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the matched UNII code.
-        /// </summary>
-        public string UNII { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the product names associated with the matched UNII.
-        /// </summary>
-        public string ProductNames { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the AI's explanation for why this UNII matches the query.
-        /// </summary>
-        public string RelevanceReason { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the confidence level of the match (high, medium, low).
-        /// </summary>
-        public string Confidence { get; set; } = "low";
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents the complete result of AI indication matching (Stage 2).
-    /// Contains all matched indications and any explanatory context.
-    /// </summary>
-    /// <seealso cref="IClaudeSearchService.MatchUserQueryToIndicationsAsync"/>
-    public class IndicationMatchResult
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets whether the matching operation succeeded.
-        /// </summary>
-        public bool Success { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the list of matched indications from the AI.
-        /// </summary>
-        public List<IndicationMatch> MatchedIndications { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the AI's explanation of how matches were determined.
-        /// </summary>
-        public string? Explanation { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets any error message if matching failed.
-        /// </summary>
-        public string? Error { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets alternative query suggestions if no matches were found.
-        /// </summary>
-        public List<string>? Suggestions { get; set; }
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents product information for indication search results.
-    /// Contains essential fields for display, label link generation, and validation context.
-    /// </summary>
-    /// <seealso cref="IndicationSearchResult"/>
-    public class IndicationProductInfo
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the product name.
-        /// </summary>
-        public string ProductName { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the document GUID for generating label links.
-        /// </summary>
-        public string? DocumentGuid { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the UNII code for the active ingredient.
-        /// </summary>
-        public string? UNII { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the active ingredient name.
-        /// </summary>
-        public string? ActiveIngredient { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the labeler/manufacturer name.
-        /// </summary>
-        public string? LabelerName { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets a truncated indication summary from the reference data.
-        /// </summary>
-        public string? IndicationSummary { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the validation reason from Stage 3 (why the match was confirmed).
-        /// </summary>
-        public string? ValidationReason { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the validation confidence from Stage 3 (high, medium, low, unverified).
-        /// </summary>
-        public string? ValidationConfidence { get; set; }
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents an entry sent to Stage 3 Claude validation.
-    /// Contains the UNII, product name, and the actual FDA label indication text.
-    /// </summary>
-    /// <seealso cref="IndicationValidationResult"/>
-    public class IndicationValidationEntry
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the UNII code.
-        /// </summary>
-        public string UNII { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the product name.
-        /// </summary>
-        public string ProductName { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the document GUID for the product label.
-        /// </summary>
-        public string? DocumentGuid { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the actual FDA Indications &amp; Usage section text from the label.
-        /// </summary>
-        public string IndicationText { get; set; } = string.Empty;
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents a single validation verdict from Stage 3 Claude validation.
-    /// </summary>
-    /// <seealso cref="IndicationValidationResult"/>
-    public class ValidatedIndication
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the UNII code.
-        /// </summary>
-        public string UNII { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the product name.
-        /// </summary>
-        public string ProductName { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets whether the indication match was confirmed against the actual label.
-        /// </summary>
-        public bool Confirmed { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the reason for the validation verdict.
-        /// </summary>
-        public string ValidationReason { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the confidence level of the validation (high, medium, low).
-        /// </summary>
-        public string Confidence { get; set; } = "low";
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents the result of Stage 3 Claude validation.
-    /// Contains verdicts for each product evaluated against actual label text.
-    /// </summary>
-    public class IndicationValidationResult
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets whether the validation operation succeeded.
-        /// </summary>
-        public bool Success { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the list of validated matches.
-        /// </summary>
-        public List<ValidatedIndication> ValidatedMatches { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the AI's summary of validation results.
-        /// </summary>
-        public string? Explanation { get; set; }
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents the complete result of an indication search operation.
-    /// Contains all matched and validated products organized by indication
-    /// with label links for source verification.
-    /// </summary>
-    /// <seealso cref="IClaudeSearchService.SearchByIndicationAsync"/>
-    public class IndicationSearchResult
-    {
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets whether the search operation was successful.
-        /// </summary>
-        public bool Success { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the original user query.
-        /// </summary>
-        public string OriginalQuery { get; set; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the list of matched indications from Stage 2.
-        /// </summary>
-        public List<IndicationMatch> MatchedIndications { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the products found, organized by UNII.
-        /// Key is the UNII code, value is the list of products for that ingredient.
-        /// </summary>
-        public Dictionary<string, List<IndicationProductInfo>> ProductsByIndication { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the total number of products found across all indications.
-        /// </summary>
-        public int TotalProductCount { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets label links for all found products.
-        /// Key is display name, value is the API URL.
-        /// </summary>
-        public Dictionary<string, string> LabelLinks { get; set; } = new();
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets any error message if the search failed.
-        /// </summary>
-        public string? Error { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets the AI's explanation of the search results.
-        /// </summary>
-        public string? Explanation { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets or sets suggested follow-up queries.
-        /// </summary>
-        public List<string>? SuggestedFollowUps { get; set; }
-    }
-
-    #endregion
-
-    #region pharmacologic class search service implementation
-
-    /**************************************************************/
-    /// <summary>
-    /// Implementation of the pharmacologic class search service that enables
-    /// intelligent matching between user queries and database class names.
+    /// Implementation of the AI-powered drug search service that enables
+    /// intelligent matching between user queries and database vocabulary
+    /// for both pharmacologic class and indication-based searches.
     /// </summary>
     /// <remarks>
     /// This service solves the context matching problem where users ask about
-    /// drug classes using common terminology that differs from how classes are
-    /// stored in the database. It uses AI to bridge the vocabulary gap.
+    /// drugs using common terminology that differs from how data is stored
+    /// in the database. It uses AI to bridge the vocabulary gap across two
+    /// search domains:
+    ///
+    /// <b>Pharmacologic Class Search:</b> Matches user terms (e.g., "beta blockers")
+    /// to database class names (e.g., "Beta-Adrenergic Blockers [EPC]") and returns
+    /// products in those classes with label links.
+    ///
+    /// <b>Indication Search:</b> Implements a 3-stage AI pipeline —
+    /// keyword pre-filter, AI matching against indication reference data,
+    /// and validation against actual FDA label text — to find drugs by
+    /// therapeutic use (e.g., "treatment of type 2 diabetes").
+    ///
+    /// Both search paths include fallback strategies for when AI is unavailable,
+    /// using simple keyword matching as a degraded alternative.
     /// </remarks>
     /// <seealso cref="IClaudeSearchService"/>
+    /// <seealso cref="IndicationSearchResult"/>
+    /// <seealso cref="PharmacologicClassSearchResult"/>
     public class ClaudeSearchService : IClaudeSearchService
     {
         #region private fields
@@ -910,7 +402,9 @@ namespace MedRecPro.Service
 
         #endregion
 
-        #region search methods
+        #region pharmacologic class search
+
+        #region public methods
 
         /**************************************************************/
         /// <inheritdoc/>
@@ -1199,79 +693,6 @@ namespace MedRecPro.Service
         #endregion
 
         #region private methods
-
-        /**************************************************************/
-        /// <summary>
-        /// Loads a prompt template from the configured file path with caching.
-        /// </summary>
-        /// <param name="configKey">The configuration key (e.g., "Prompt-ProductExtraction").</param>
-        /// <param name="cacheKeyPrefix">A prefix for the cache key.</param>
-        /// <returns>The prompt template content or an error message.</returns>
-        private string loadPromptTemplate(string configKey, string cacheKeyPrefix)
-        {
-            #region implementation
-
-            // Check cache first
-            var key = $"{cacheKeyPrefix}_{configKey}";
-            var cachedPrompt = PerformanceHelper.GetCache<string>(key);
-            if (!string.IsNullOrEmpty(cachedPrompt))
-            {
-                return cachedPrompt;
-            }
-
-            // Get the configured path from ClaudeApiSettings
-            var promptFilePath = _configuration.GetValue<string>($"{SkillConfigSection}:{configKey}");
-
-            if (string.IsNullOrEmpty(promptFilePath))
-            {
-                _logger.LogWarning("[PROMPT LOAD] Configuration key '{ConfigKey}' not found in {Section}",
-                    configKey, SkillConfigSection);
-                return $"{configKey} configuration not found in {SkillConfigSection}.";
-            }
-
-            var content = readPromptFileByPath(promptFilePath);
-
-            // Cache for configured duration to reduce file I/O
-            PerformanceHelper.SetCacheManageKey(key, content, PromptCacheHours);
-
-            return content;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Reads a prompt file from the specified path.
-        /// </summary>
-        /// <param name="promptFilePath">The relative or absolute path to the prompt file.</param>
-        /// <returns>The file content or an error message.</returns>
-        private string readPromptFileByPath(string promptFilePath)
-        {
-            #region implementation
-
-            // Resolve the path relative to the application's content root
-            var fullPath = Path.Combine(AppContext.BaseDirectory, promptFilePath);
-
-            if (!File.Exists(fullPath))
-            {
-                // Try relative to current directory as fallback
-                fullPath = Path.Combine(Directory.GetCurrentDirectory(), promptFilePath);
-            }
-
-            if (!File.Exists(fullPath))
-            {
-                _logger.LogError("[PROMPT LOAD] File not found at: {PromptFilePath}", promptFilePath);
-                return $"Prompt file not found at: {promptFilePath}";
-            }
-
-            var content = File.ReadAllText(fullPath);
-            _logger.LogDebug("[PROMPT LOAD] Successfully loaded: {FullPath} ({Length} chars)",
-                fullPath, content.Length);
-
-            return content;
-
-            #endregion
-        }
 
         /**************************************************************/
         /// <summary>
@@ -1641,47 +1062,6 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Extracts JSON content from AI response, handling markdown code blocks.
-        /// </summary>
-        /// <param name="response">Raw AI response.</param>
-        /// <returns>Extracted JSON string or null.</returns>
-        private string? extractJsonFromResponse(string response)
-        {
-            #region implementation
-
-            if (string.IsNullOrWhiteSpace(response))
-            {
-                return null;
-            }
-
-            // Try to find JSON in markdown code blocks
-            var jsonMatch = System.Text.RegularExpressions.Regex.Match(
-                response,
-                @"```(?:json)?\s*\n?([\s\S]*?)\n?```",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-            if (jsonMatch.Success)
-            {
-                return jsonMatch.Groups[1].Value.Trim();
-            }
-
-            // Try to find raw JSON object
-            var jsonObjectMatch = System.Text.RegularExpressions.Regex.Match(
-                response,
-                @"\{[\s\S]*\}");
-
-            if (jsonObjectMatch.Success)
-            {
-                return jsonObjectMatch.Value;
-            }
-
-            return null;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Performs simple string matching as fallback when AI matching fails.
         /// </summary>
         /// <param name="userQuery">User query text.</param>
@@ -1924,7 +1304,11 @@ namespace MedRecPro.Service
 
         #endregion
 
-        #region indication search methods
+        #endregion
+
+        #region indication search
+
+        #region public methods
 
         /**************************************************************/
         /// <inheritdoc/>
@@ -1970,6 +1354,181 @@ namespace MedRecPro.Service
 
             #endregion
         }
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Stage 2: Sends pre-filtered candidates to Claude for semantic matching.
+        /// Falls back to simple keyword matching if the AI call fails.
+        /// </remarks>
+        public async Task<IndicationMatchResult> MatchUserQueryToIndicationsAsync(
+            string userQuery,
+            List<IndicationReferenceEntry> candidates)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(userQuery))
+            {
+                return new IndicationMatchResult
+                {
+                    Success = false,
+                    Error = "User query cannot be empty."
+                };
+            }
+
+            if (candidates == null || candidates.Count == 0)
+            {
+                return new IndicationMatchResult
+                {
+                    Success = false,
+                    Error = "No candidate indications available for matching."
+                };
+            }
+
+            _logger.LogDebug("Matching user query '{Query}' against {Count} indication candidates",
+                userQuery, candidates.Count);
+
+            try
+            {
+                // Format candidates for the prompt
+                var formattedCandidates = formatCandidatesForPrompt(candidates);
+
+                // Build the AI prompt
+                var matchPrompt = buildIndicationMatchingPrompt(userQuery, formattedCandidates);
+
+                // Create scope to resolve IClaudeApiService
+                using var scope = _serviceScopeFactory.CreateScope();
+                var claudeApiService = scope.ServiceProvider.GetRequiredService<IClaudeApiService>();
+
+                // Call Claude for matching
+                var matchResponse = await claudeApiService.GenerateDocumentComparisonAsync(matchPrompt);
+
+                // Parse the AI response
+                return parseIndicationMatchResponse(matchResponse, candidates);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error matching user query to indications: {Query}", userQuery);
+
+                // Fall back to simple matching
+                return performSimpleIndicationMatching(candidates);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Orchestrates the complete three-stage indication search:
+        /// 1. Load reference data and keyword pre-filter
+        /// 2. AI matching on filtered candidates
+        /// 3. Product lookup + AI validation against actual label text
+        /// </remarks>
+        public async Task<IndicationSearchResult> SearchByIndicationAsync(
+            string userQuery,
+            AiSystemContext? systemContext = null,
+            int maxProductsPerIndication = 25)
+        {
+            #region implementation
+
+            var result = new IndicationSearchResult
+            {
+                OriginalQuery = userQuery
+            };
+
+            // Input validation
+            if (string.IsNullOrWhiteSpace(userQuery))
+            {
+                result.Success = false;
+                result.Error = "Search query cannot be empty.";
+                return result;
+            }
+
+            // Sanitize query: cap length, strip control characters
+            userQuery = new string(userQuery.Take(500).Where(c => !char.IsControl(c) || c == ' ').ToArray()).Trim();
+
+            _logger.LogInformation("[INDICATION SEARCH] Starting search for: {Query}", userQuery);
+
+            try
+            {
+                // Stage 1: Load reference data and pre-filter by keyword
+                var allEntries = await GetIndicationReferenceDataAsync();
+                if (allEntries.Count == 0)
+                {
+                    result.Success = false;
+                    result.Error = "Indication reference data not available.";
+                    return result;
+                }
+
+                var candidates = preFilterIndicationsByKeyword(userQuery, allEntries);
+                if (candidates.Count == 0)
+                {
+                    result.Success = false;
+                    result.Error = "No indications matched your query terms.";
+                    result.SuggestedFollowUps = new List<string>
+                    {
+                        "Try using medical terminology (e.g., 'hypertension' instead of 'high blood pressure')",
+                        "Try broader terms (e.g., 'diabetes' instead of 'type 2 diabetes mellitus')",
+                        "Search by drug name instead using search_drug_labels"
+                    };
+                    return result;
+                }
+
+                _logger.LogInformation("[INDICATION SEARCH] Stage 1: {Count} candidates from keyword pre-filter", candidates.Count);
+
+                // Stage 2: AI matching
+                var matchResult = await MatchUserQueryToIndicationsAsync(userQuery, candidates);
+                if (!matchResult.Success || matchResult.MatchedIndications.Count == 0)
+                {
+                    result.Success = false;
+                    result.Error = matchResult.Error ?? "No indications matched your query.";
+                    result.Explanation = matchResult.Explanation;
+                    result.SuggestedFollowUps = matchResult.Suggestions;
+                    return result;
+                }
+
+                result.MatchedIndications = matchResult.MatchedIndications;
+                _logger.LogInformation("[INDICATION SEARCH] Stage 2: {Count} matched indications from AI",
+                    matchResult.MatchedIndications.Count);
+
+                // Product lookup for each matched UNII
+                var (allProducts, validationEntries) = await lookupProductsForMatchedIndicationsAsync(
+                    matchResult, candidates, result, maxProductsPerIndication);
+
+                // Stage 3: AI validation against actual label text
+                if (validationEntries.Count > 0)
+                {
+                    allProducts = await applyValidationFilterAsync(userQuery, validationEntries, allProducts, result);
+                }
+
+                // Build label links and finalize result
+                result.TotalProductCount = allProducts.Count;
+                buildLabelLinks(allProducts, result);
+
+                result.Success = result.TotalProductCount > 0;
+                result.Explanation = matchResult.Explanation;
+                result.SuggestedFollowUps = generateIndicationFollowUpSuggestions(result);
+
+                _logger.LogInformation("[INDICATION SEARCH] Found {Count} products across {IndicationCount} indications",
+                    result.TotalProductCount, result.ProductsByIndication.Count);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during indication search for query: {Query}", userQuery);
+                result.Success = false;
+                result.Error = $"Search failed: {ex.Message}";
+                return result;
+            }
+
+            #endregion
+        }
+
+        #endregion
+
+        #region private methods
 
         /**************************************************************/
         /// <summary>
@@ -2182,68 +1741,6 @@ namespace MedRecPro.Service
                 .Take(MaxCandidatesForClaude)
                 .Select(s => s.Entry)
                 .ToList();
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <inheritdoc/>
-        /// <remarks>
-        /// Stage 2: Sends pre-filtered candidates to Claude for semantic matching.
-        /// Falls back to simple keyword matching if the AI call fails.
-        /// </remarks>
-        public async Task<IndicationMatchResult> MatchUserQueryToIndicationsAsync(
-            string userQuery,
-            List<IndicationReferenceEntry> candidates)
-        {
-            #region implementation
-
-            if (string.IsNullOrWhiteSpace(userQuery))
-            {
-                return new IndicationMatchResult
-                {
-                    Success = false,
-                    Error = "User query cannot be empty."
-                };
-            }
-
-            if (candidates == null || candidates.Count == 0)
-            {
-                return new IndicationMatchResult
-                {
-                    Success = false,
-                    Error = "No candidate indications available for matching."
-                };
-            }
-
-            _logger.LogDebug("Matching user query '{Query}' against {Count} indication candidates",
-                userQuery, candidates.Count);
-
-            try
-            {
-                // Format candidates for the prompt
-                var formattedCandidates = formatCandidatesForPrompt(candidates);
-
-                // Build the AI prompt
-                var matchPrompt = buildIndicationMatchingPrompt(userQuery, formattedCandidates);
-
-                // Create scope to resolve IClaudeApiService
-                using var scope = _serviceScopeFactory.CreateScope();
-                var claudeApiService = scope.ServiceProvider.GetRequiredService<IClaudeApiService>();
-
-                // Call Claude for matching
-                var matchResponse = await claudeApiService.GenerateDocumentComparisonAsync(matchPrompt);
-
-                // Parse the AI response
-                return parseIndicationMatchResponse(matchResponse, candidates);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error matching user query to indications: {Query}", userQuery);
-
-                // Fall back to simple matching
-                return performSimpleIndicationMatching(candidates);
-            }
 
             #endregion
         }
@@ -2907,115 +2404,6 @@ namespace MedRecPro.Service
         }
 
         /**************************************************************/
-        /// <inheritdoc/>
-        /// <remarks>
-        /// Orchestrates the complete three-stage indication search:
-        /// 1. Load reference data and keyword pre-filter
-        /// 2. AI matching on filtered candidates
-        /// 3. Product lookup + AI validation against actual label text
-        /// </remarks>
-        public async Task<IndicationSearchResult> SearchByIndicationAsync(
-            string userQuery,
-            AiSystemContext? systemContext = null,
-            int maxProductsPerIndication = 25)
-        {
-            #region implementation
-
-            var result = new IndicationSearchResult
-            {
-                OriginalQuery = userQuery
-            };
-
-            // Input validation
-            if (string.IsNullOrWhiteSpace(userQuery))
-            {
-                result.Success = false;
-                result.Error = "Search query cannot be empty.";
-                return result;
-            }
-
-            // Sanitize query: cap length, strip control characters
-            userQuery = new string(userQuery.Take(500).Where(c => !char.IsControl(c) || c == ' ').ToArray()).Trim();
-
-            _logger.LogInformation("[INDICATION SEARCH] Starting search for: {Query}", userQuery);
-
-            try
-            {
-                // Stage 1: Load reference data and pre-filter by keyword
-                var allEntries = await GetIndicationReferenceDataAsync();
-                if (allEntries.Count == 0)
-                {
-                    result.Success = false;
-                    result.Error = "Indication reference data not available.";
-                    return result;
-                }
-
-                var candidates = preFilterIndicationsByKeyword(userQuery, allEntries);
-                if (candidates.Count == 0)
-                {
-                    result.Success = false;
-                    result.Error = "No indications matched your query terms.";
-                    result.SuggestedFollowUps = new List<string>
-                    {
-                        "Try using medical terminology (e.g., 'hypertension' instead of 'high blood pressure')",
-                        "Try broader terms (e.g., 'diabetes' instead of 'type 2 diabetes mellitus')",
-                        "Search by drug name instead using search_drug_labels"
-                    };
-                    return result;
-                }
-
-                _logger.LogInformation("[INDICATION SEARCH] Stage 1: {Count} candidates from keyword pre-filter", candidates.Count);
-
-                // Stage 2: AI matching
-                var matchResult = await MatchUserQueryToIndicationsAsync(userQuery, candidates);
-                if (!matchResult.Success || matchResult.MatchedIndications.Count == 0)
-                {
-                    result.Success = false;
-                    result.Error = matchResult.Error ?? "No indications matched your query.";
-                    result.Explanation = matchResult.Explanation;
-                    result.SuggestedFollowUps = matchResult.Suggestions;
-                    return result;
-                }
-
-                result.MatchedIndications = matchResult.MatchedIndications;
-                _logger.LogInformation("[INDICATION SEARCH] Stage 2: {Count} matched indications from AI",
-                    matchResult.MatchedIndications.Count);
-
-                // Product lookup for each matched UNII
-                var (allProducts, validationEntries) = await lookupProductsForMatchedIndicationsAsync(
-                    matchResult, candidates, result, maxProductsPerIndication);
-
-                // Stage 3: AI validation against actual label text
-                if (validationEntries.Count > 0)
-                {
-                    allProducts = await applyValidationFilterAsync(userQuery, validationEntries, allProducts, result);
-                }
-
-                // Build label links and finalize result
-                result.TotalProductCount = allProducts.Count;
-                buildLabelLinks(allProducts, result);
-
-                result.Success = result.TotalProductCount > 0;
-                result.Explanation = matchResult.Explanation;
-                result.SuggestedFollowUps = generateIndicationFollowUpSuggestions(result);
-
-                _logger.LogInformation("[INDICATION SEARCH] Found {Count} products across {IndicationCount} indications",
-                    result.TotalProductCount, result.ProductsByIndication.Count);
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during indication search for query: {Query}", userQuery);
-                result.Success = false;
-                result.Error = $"Search failed: {ex.Message}";
-                return result;
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
         /// <summary>
         /// Generates suggested follow-up queries for indication search results.
         /// </summary>
@@ -3047,6 +2435,126 @@ namespace MedRecPro.Service
             }
 
             return suggestions;
+
+            #endregion
+        }
+
+        #endregion
+
+        #endregion
+
+        #region shared private methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Loads a prompt template from the configured file path with caching.
+        /// </summary>
+        /// <param name="configKey">The configuration key (e.g., "Prompt-ProductExtraction").</param>
+        /// <param name="cacheKeyPrefix">A prefix for the cache key.</param>
+        /// <returns>The prompt template content or an error message.</returns>
+        private string loadPromptTemplate(string configKey, string cacheKeyPrefix)
+        {
+            #region implementation
+
+            // Check cache first
+            var key = $"{cacheKeyPrefix}_{configKey}";
+            var cachedPrompt = PerformanceHelper.GetCache<string>(key);
+            if (!string.IsNullOrEmpty(cachedPrompt))
+            {
+                return cachedPrompt;
+            }
+
+            // Get the configured path from ClaudeApiSettings
+            var promptFilePath = _configuration.GetValue<string>($"{SkillConfigSection}:{configKey}");
+
+            if (string.IsNullOrEmpty(promptFilePath))
+            {
+                _logger.LogWarning("[PROMPT LOAD] Configuration key '{ConfigKey}' not found in {Section}",
+                    configKey, SkillConfigSection);
+                return $"{configKey} configuration not found in {SkillConfigSection}.";
+            }
+
+            var content = readPromptFileByPath(promptFilePath);
+
+            // Cache for configured duration to reduce file I/O
+            PerformanceHelper.SetCacheManageKey(key, content, PromptCacheHours);
+
+            return content;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Reads a prompt file from the specified path.
+        /// </summary>
+        /// <param name="promptFilePath">The relative or absolute path to the prompt file.</param>
+        /// <returns>The file content or an error message.</returns>
+        private string readPromptFileByPath(string promptFilePath)
+        {
+            #region implementation
+
+            // Resolve the path relative to the application's content root
+            var fullPath = Path.Combine(AppContext.BaseDirectory, promptFilePath);
+
+            if (!File.Exists(fullPath))
+            {
+                // Try relative to current directory as fallback
+                fullPath = Path.Combine(Directory.GetCurrentDirectory(), promptFilePath);
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                _logger.LogError("[PROMPT LOAD] File not found at: {PromptFilePath}", promptFilePath);
+                return $"Prompt file not found at: {promptFilePath}";
+            }
+
+            var content = File.ReadAllText(fullPath);
+            _logger.LogDebug("[PROMPT LOAD] Successfully loaded: {FullPath} ({Length} chars)",
+                fullPath, content.Length);
+
+            return content;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts JSON content from AI response, handling markdown code blocks.
+        /// </summary>
+        /// <param name="response">Raw AI response.</param>
+        /// <returns>Extracted JSON string or null.</returns>
+        private string? extractJsonFromResponse(string response)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(response))
+            {
+                return null;
+            }
+
+            // Try to find JSON in markdown code blocks
+            var jsonMatch = System.Text.RegularExpressions.Regex.Match(
+                response,
+                @"```(?:json)?\s*\n?([\s\S]*?)\n?```",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (jsonMatch.Success)
+            {
+                return jsonMatch.Groups[1].Value.Trim();
+            }
+
+            // Try to find raw JSON object
+            var jsonObjectMatch = System.Text.RegularExpressions.Regex.Match(
+                response,
+                @"\{[\s\S]*\}");
+
+            if (jsonObjectMatch.Success)
+            {
+                return jsonObjectMatch.Value;
+            }
+
+            return null;
 
             #endregion
         }
