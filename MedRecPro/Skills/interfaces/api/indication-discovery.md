@@ -1,304 +1,167 @@
 # Indication Discovery - API Interface
 
-Maps the **Condition-Based Product Search** and **Alternative Product Discovery** capabilities to API endpoints.
+Intelligent search for products indicated for specific medical conditions, diseases, or symptoms.
 
 ---
 
-## Reference Data
+## CRITICAL: Use Indication Search Endpoint for All Condition Queries
 
-**File**: `C:\Users\chris\Documents\Repos\MedRecPro\Skills\labelProductIndication.md`
+**ALWAYS use `/api/Label/indication/search` for condition-based product queries.**
 
-**Format**: Pipe-delimited entries separated by `---`
-```
-ProductNames|UNII|IndicationsSummary
-```
+This endpoint handles terminology matching, AI-powered indication matching, and validation automatically. User queries like "high blood pressure", "what helps with depression", or "surgical analgesic" are processed through a 3-stage server-side pipeline.
 
-**Usage**: Search `IndicationsSummary` for condition keywords to extract UNII codes for API calls.
+**WRONG:** Manually searching reference data, chaining multiple API calls, or building UNII lookups client-side
 
----
-
-## Primary Workflow
-
-### Step 1: Match Condition to UNII
-
-Search reference data for condition keywords. Match ALL parts of compound conditions.
-
-| User Query | Required Keywords |
-|------------|-------------------|
-| "estrogen sensitive cancer" | estrogen + (cancer OR carcinoma OR breast) |
-| "seasonal allergies" | allergic rhinitis OR seasonal OR antihistamine |
-| "surgical analgesic" | surgical + analgesic OR perioperative |
-
-### Step 2: Get Latest Labels by UNII
-
-```
-GET /api/Label/product/latest?unii={UNII}&pageNumber=1&pageSize=5
-```
-
-**Output Fields**:
-- `ProductName` - Display name
-- `ActiveIngredient` - Ingredient list
-- `UNII` - Ingredient identifier
-- `DocumentGUID` - For section content retrieval
-
-### Step 3: Get Label Content (REQUIRED)
-
-**CRITICAL**: This step is REQUIRED, not optional.
-
-**Recommended Approach - Get ALL Sections:**
-```
-GET /api/Label/markdown/sections/{DocumentGUID}
-```
-
-**Alternative - Specific Section (may 404):**
-```
-GET /api/Label/markdown/sections/{DocumentGUID}?sectionCode=34067-9
-```
-
-**Why omit sectionCode?**
-- Not all labels have all section codes - specific queries may return 404
-- Omitting `sectionCode` returns ALL available sections
-- More reliable for synthesis - no missing data
-
-**Section Codes (if you need specific sections)**:
-- `34067-9` - Indications and Usage
-- `34089-3` - Description (drug class)
-
-**Output Fields**:
-- `fullSectionText` - Pre-formatted markdown
-- `contentBlockCount` - Quality indicator
-
-### Full Label Content Requirement
-
-**Step 3 is REQUIRED for product summarization:**
-- Always call `/api/Label/markdown/sections/{DocumentGUID}`
-- **RECOMMENDED**: Omit the `sectionCode` parameter to get ALL sections reliably
-- Returns ALL sections including Indications, Description, Dosage, Warnings, etc.
-- Use this data for product summaries, NOT training data
-- The reference file (`labelProductIndication.md`) is for UNII matching only, not final summaries
-
-**CRITICAL - NO TRAINING DATA**:
-- Response content MUST come ONLY from API results
-- DO NOT generate drug descriptions, mechanisms, or classifications from training data
-- List ONLY products returned by the API with their exact `productName` and `activeIngredient` values
-- If the API returns 5 products, list exactly those 5 products - no more, no less
-
-### Step 4: Find Related Products (Optional)
-
-```
-GET /api/Label/product/related?sourceDocumentGuid={DocumentGUID}
-```
-
-**Filter Options**:
-- `relationshipType=SameActiveIngredient` - Generic equivalents
-- `relationshipType=SameApplicationNumber` - Same approval
-
-### Step 5: Build Label Links
-
-**Format**: `/api/Label/original/{DocumentGUID}/true`
-
-Use RELATIVE URLs only. Never include protocol or domain.
+**CORRECT:** `/api/Label/indication/search?query=high blood pressure` (handles everything server-side)
 
 ---
 
-## Output Mapping
+## Primary Endpoint (REQUIRED)
 
+### Condition-Based Product Search
+
+**This is the ONLY endpoint you should use for indication/condition queries.**
+
+```
+GET /api/Label/indication/search?query={userQuery}&maxProductsPerIndication=25
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | User's natural language condition query (e.g., "high blood pressure", "depression", "surgical analgesic") |
+| `maxProductsPerIndication` | int | No | Max products per matched indication (default: 25) |
+
+**What it does:**
+1. Keyword pre-filter against curated indication reference data (with synonym expansion)
+2. AI semantic matching to identify products genuinely indicated for the condition
+3. AI validation against actual FDA label "Indications & Usage" text to eliminate false positives
+4. Returns consolidated results with label links
+
+**Response Structure:**
 ```json
 {
-  "outputMapping": {
-    "documentGuid": "DocumentGUID",
-    "productName": "ProductName",
-    "activeIngredient": "ActiveIngredient"
-  }
-}
-```
-
-For multi-product queries, use array extraction:
-```json
-{
-  "outputMapping": {
-    "documentGuids": "documentGUID[]",
-    "productNames": "productName[]"
-  }
+  "originalQuery": "high blood pressure",
+  "matchedIndications": [
+    {
+      "unii": "ABC123XYZ",
+      "productNames": "LISINOPRIL",
+      "relevanceReason": "Indicated for treatment of hypertension",
+      "confidence": "high"
+    }
+  ],
+  "productsByIndication": {
+    "ABC123XYZ": [
+      {
+        "productName": "LISINOPRIL",
+        "documentGuid": "abc-123-def",
+        "unii": "ABC123XYZ",
+        "activeIngredient": "Lisinopril",
+        "labelerName": "Mylan Pharmaceuticals",
+        "indicationSummary": "Treatment of hypertension...",
+        "validationReason": "FDA label confirms hypertension indication",
+        "validationConfidence": "high"
+      }
+    ]
+  },
+  "totalProductCount": 47,
+  "labelLinks": {
+    "View Full Label (LISINOPRIL)": "/api/Label/original/abc-123-def/true"
+  },
+  "explanation": "Matched 'high blood pressure' to hypertension-indicated products",
+  "suggestedFollowUps": [
+    "Tell me about the side effects of LISINOPRIL",
+    "What are the contraindications for these medications?"
+  ]
 }
 ```
 
 ---
 
-## Relevance Validation
+## Required JSON Response Format
 
-Before presenting results, validate each product against the original query:
-
-1. Look up product's UNII in reference data
-2. Check if `IndicationsSummary` matches query keywords
-3. Exclude products that fail validation
-4. Do not create `dataReferences` entries for irrelevant products
-
----
-
-## Truncation Detection
-
-Content is truncated if:
-- Text ends with `:` followed by nothing
-- `fullSectionText` < 200 characters
-- `contentBlockCount` = 1
-
-**Fallback**: Use multi-product workflow to aggregate from multiple labels.
-
----
-
-## Multi-Product Workflow (Recommended)
-
-**Use full-section retrieval to avoid 404 errors:**
+When the AI selects `indicationDiscovery` skill, return this endpoint specification:
 
 ```json
 {
+  "success": true,
   "endpoints": [
     {
       "step": 1,
       "method": "GET",
-      "path": "/api/Label/ingredient/advanced",
+      "path": "/api/Label/indication/search",
       "queryParameters": {
-        "substanceNameSearch": "{ingredientName}",
-        "pageNumber": 1,
-        "pageSize": 20
+        "query": "{user's condition/symptom term}"
       },
-      "outputMapping": {
-        "documentGuids": "documentGUID[]",
-        "productNames": "productName[]"
-      }
-    },
-    {
-      "step": 2,
-      "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuids}}",
-      "description": "Get ALL sections - no sectionCode means all available sections returned",
-      "dependsOn": 1
+      "description": "Search for products indicated for this medical condition"
     }
+  ],
+  "explanation": "I'll search for all medications indicated for this condition."
+}
+```
+
+**Examples:**
+- User says "what helps with depression" → `"query": "depression"`
+- User says "high blood pressure medications" → `"query": "high blood pressure"`
+- User says "surgical analgesic" → `"query": "surgical analgesic"`
+- User says "what treats seasonal allergies" → `"query": "seasonal allergies"`
+
+---
+
+## Trigger Phrases
+
+Routes to this skill when user asks:
+- "What helps with {condition}?"
+- "What can be used for {condition}?"
+- "Options for {condition}"
+- "Treatment for {condition}"
+- "Products for {condition}"
+- "What treats {condition}?"
+
+Where {condition} is a medical condition, symptom, or therapeutic need (not a specific product name).
+
+**Key Distinction:**
+- "What helps with high blood pressure?" → `indicationDiscovery` → `/api/Label/indication/search?query=`
+- "What are the beta blockers?" → `pharmacologicClassSearch` → `/api/Label/pharmacologic-class/search?query=`
+- "What are the side effects of Lipitor?" → `labelContent` → product-specific label retrieval
+
+---
+
+## Label Link Format (MANDATORY)
+
+**Every response MUST include label links:**
+
+```markdown
+### View Full Labels:
+- [View Full Label (LISINOPRIL)](/api/Label/original/{GUID1}/true)
+- [View Full Label (AMLODIPINE)](/api/Label/original/{GUID2}/true)
+```
+
+The endpoint returns pre-built label links in the `labelLinks` field.
+
+---
+
+## Error Handling
+
+### No Matching Products Found
+
+```json
+{
+  "originalQuery": "xyz condition",
+  "matchedIndications": [],
+  "productsByIndication": {},
+  "totalProductCount": 0,
+  "error": "No products found matching the condition query.",
+  "suggestedFollowUps": [
+    "Try using more specific medical terminology",
+    "Search by drug class instead: 'What are the beta blockers?'"
   ]
 }
 ```
 
-**Key Points**:
-- Omitting `sectionCode` returns ALL available sections
-- Avoids 404 errors from non-existent section codes
-- Synthesis phase selects relevant content from complete data
-
 ---
 
-## Condition Keyword Mappings
+## Related Documents
 
-| User Term | Search Keywords |
-|-----------|-----------------|
-| feeling down, sad | depression, depressive, MDD |
-| high blood pressure | hypertension, antihypertensive |
-| diabetes, blood sugar | diabetes, glycemic, type 2 |
-| anxiety, nervous | anxiety, anxiolytic, panic |
-| allergies, sneezing | allergic rhinitis, antihistamine |
-| pain, aches | pain, analgesic, arthritis |
-| surgical analgesic | surgical, analgesic, perioperative |
-| cancer | cancer, carcinoma, malignancy |
-
----
-
-## Response Requirements
-
-### dataReferences (Required)
-
-```json
-{
-  "dataReferences": {
-    "View Full Label (ProductName)": "/api/Label/original/{DocumentGUID}/true"
-  }
-}
-```
-
-Use ACTUAL product names from API response. Never use placeholders.
-
-### CRITICAL: Label Link Construction
-
-When UNII/ingredient data is available from Step 2:
-- **ALWAYS** use the DocumentGUID returned by `/api/Label/product/latest` to build label links
-- **DO NOT** use alternative methods (regex extraction, path parsing, or other endpoints)
-- The correct label link format is: `/api/Label/original/{DocumentGUID}/true`
-- Include the ProductName from the API response in the link display text
-
-### REQUIRED: View Full Labels Section
-
-Your response MUST include a "View Full Labels:" section with clickable links.
-
-For each product returned by `/api/Label/product/latest`:
-1. Extract the `productName` and `documentGUID` from the response
-2. Create a markdown link using the **ACTUAL product name** from the API response
-3. **DO NOT use generic placeholders** like "Prescription Drug" or "OTC Drug"
-
-**Example (CORRECT)**:
-```
-View Full Labels:
-- [View Full Label (Atorvastatin Calcium)](/api/Label/original/48173596-6909-f52b-e063-6294a90a8f22/true)
-- [View Full Label (Rosuvastatin)](/api/Label/original/abc12345-1234-5678-9abc-def012345678/true)
-```
-
-**Example (WRONG)**:
-```
-- [View Full Label (Prescription Drug)](/api/Label/original/48173596.../true)
-```
-
-### CRITICAL: Relative URLs Only
-
-- Use RELATIVE URLs: `/api/Label/original/{DocumentGUID}/true`
-- NEVER include `http://`, `https://`, `localhost`, or any domain
-- The frontend will add the correct base URL
-
-### Data Sources
-
-1. **Primary**: `/api/Label/markdown/sections/{DocumentGUID}` API response
-2. **Supplemental**: `labelProductIndication.md` reference file
-3. **Never**: Training data
-
----
-
-## Example Workflow
-
-**Query**: "What helps with seasonal allergies?"
-
-```json
-{
-  "endpoints": [
-    {
-      "step": 1,
-      "method": "GET",
-      "path": "/api/Label/product/latest",
-      "queryParameters": { "unii": "YO7261ME24", "pageSize": 5 },
-      "outputMapping": {
-        "documentGuids1": "DocumentGUID[]",
-        "productNames1": "ProductName[]"
-      }
-    },
-    {
-      "step": 2,
-      "method": "GET",
-      "path": "/api/Label/product/latest",
-      "queryParameters": { "unii": "E6582LOH6V", "pageSize": 5 },
-      "outputMapping": {
-        "documentGuids2": "DocumentGUID[]",
-        "productNames2": "ProductName[]"
-      }
-    },
-    {
-      "step": 3,
-      "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuids1}}",
-      "description": "Get ALL sections for first UNII products",
-      "dependsOn": 1
-    },
-    {
-      "step": 4,
-      "method": "GET",
-      "path": "/api/Label/markdown/sections/{{documentGuids2}}",
-      "description": "Get ALL sections for second UNII products",
-      "dependsOn": 2
-    }
-  ]
-}
-```
+- [Label Content](./label-content.md) — Section retrieval after indication search
+- [Pharmacologic Class](./pharmacologic-class.md) — Drug class search (alternative discovery path)
+- [Data Rescue](./data-rescue.md) — Fallback strategies when primary search returns empty

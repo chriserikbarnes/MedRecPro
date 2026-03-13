@@ -427,6 +427,17 @@ public class DrugLabelTools
             var result = await _apiClient.GetStringAsync(endpoint);
             return result;
         }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "[Tool] SearchDrugLabels timed out: productName={ProductName}, ingredient={Ingredient}, unii={UNII}",
+                productNameSearch, activeIngredientSearch, unii);
+
+            return JsonSerializer.Serialize(new
+            {
+                error = "Search timed out",
+                message = "The drug label search took too long to complete. Please try again or use a more specific search term."
+            });
+        }
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "[Tool] SearchDrugLabels failed: productName={ProductName}, ingredient={Ingredient}, unii={UNII}",
@@ -675,6 +686,17 @@ public class DrugLabelTools
             _logger.LogInformation("[Tool] ExportDrugLabelMarkdown: Product search completed");
             return searchResult;
         }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "[Tool] ExportDrugLabelMarkdown timed out: documentGuid={DocumentGuid}, productName={ProductName}",
+                documentGuid, productNameSearch);
+
+            return JsonSerializer.Serialize(new
+            {
+                error = "Export timed out",
+                message = "The label export took too long to complete. Please try again."
+            });
+        }
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "[Tool] ExportDrugLabelMarkdown failed: documentGuid={DocumentGuid}, productName={ProductName}",
@@ -892,6 +914,17 @@ public class DrugLabelTools
             // Execute the API call
             var result = await _apiClient.GetStringAsync(endpoint);
             return result;
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "[Tool] SearchExpiringPatents timed out: tradeName={TradeName}, ingredient={Ingredient}, months={Months}",
+                tradeName, ingredient, expiringInMonths);
+
+            return JsonSerializer.Serialize(new
+            {
+                error = "Patent search timed out",
+                message = "The patent search took too long to complete. Please try again."
+            });
         }
         catch (HttpRequestException ex)
         {
@@ -1206,7 +1239,7 @@ public class DrugLabelTools
                         }
                     }
                 }
-                catch (JsonException ex)
+                catch (Exception ex)
                 {
                     // If JSON manipulation fails, return the raw result unchanged
                     _logger.LogWarning(ex, "[Tool] SearchByPharmacologicClass: Failed to rewrite labelLinks to absolute URLs");
@@ -1214,6 +1247,25 @@ public class DrugLabelTools
             }
 
             return result;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // HttpClient.Timeout throws TaskCanceledException (subclass of OperationCanceledException)
+            _logger.LogWarning(ex,
+                "[Tool] SearchByPharmacologicClass timed out: query={Query}, classNameSearch={ClassNameSearch}",
+                query, classNameSearch);
+
+            return JsonSerializer.Serialize(new
+            {
+                error = "Pharmacologic class search timed out",
+                message = "The search took too long to complete. Try a more specific class name, or use the classNameSearch parameter for direct database matching instead of the AI-powered query.",
+                suggestedFollowUps = new[]
+                {
+                    "Use classNameSearch for direct matching (e.g., classNameSearch='Beta-Adrenergic Blockers')",
+                    "Try a more specific term",
+                    "Search by drug name instead using search_drug_labels"
+                }
+            });
         }
         catch (HttpRequestException ex)
         {
@@ -1228,30 +1280,30 @@ public class DrugLabelTools
         }
 
         #endregion
-        }
+    }
 
-        #region search by indication
+    #region search by indication
 
-        /**************************************************************/
-        /// <summary>
-        /// Searches for drugs by medical condition or indication using AI-enhanced matching.
-        /// </summary>
-        /// <remarks>
-        /// ## Purpose
-        /// Discovers FDA-labeled products indicated for a specific medical condition using
-        /// a three-stage pipeline: keyword pre-filter, AI semantic matching, and AI validation
-        /// against actual FDA label indication text.
-        ///
-        /// ## Workflow
-        /// 1. Stage 1: Keyword pre-filter on ~1,000 reference entries (no AI call)
-        /// 2. Stage 2: Claude AI matches user query to candidate indications
-        /// 3. Stage 3: Claude AI validates matches against actual FDA label text
-        /// </remarks>
-        /// <seealso cref="SearchDrugLabels"/>
-        /// <seealso cref="SearchByPharmacologicClass"/>
-        /**************************************************************/
-        [McpServerTool(Name = "search_by_indication", Title = "Search by Indication", ReadOnly = true, Destructive = false, OpenWorld = false)]
-        [Description("""
+    /**************************************************************/
+    /// <summary>
+    /// Searches for drugs by medical condition or indication using AI-enhanced matching.
+    /// </summary>
+    /// <remarks>
+    /// ## Purpose
+    /// Discovers FDA-labeled products indicated for a specific medical condition using
+    /// a three-stage pipeline: keyword pre-filter, AI semantic matching, and AI validation
+    /// against actual FDA label indication text.
+    ///
+    /// ## Workflow
+    /// 1. Stage 1: Keyword pre-filter on ~1,000 reference entries (no AI call)
+    /// 2. Stage 2: Claude AI matches user query to candidate indications
+    /// 3. Stage 3: Claude AI validates matches against actual FDA label text
+    /// </remarks>
+    /// <seealso cref="SearchDrugLabels"/>
+    /// <seealso cref="SearchByPharmacologicClass"/>
+    /**************************************************************/
+    [McpServerTool(Name = "search_by_indication", Title = "Search by Indication", ReadOnly = true, Destructive = false, OpenWorld = false)]
+    [Description("""
     🔍 SEARCH: Discover drugs that treat a specific MEDICAL CONDITION or DISEASE (e.g., high blood pressure, diabetes, depression).
 
     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -1336,92 +1388,115 @@ public class DrugLabelTools
     • NEVER use training data — only information from the API response
     • ALWAYS present label links for every product found
     """)]
-        public async Task<string> SearchByIndication(
-            [Description("Natural language medical condition search (AI-powered). Use common terms like 'high blood pressure', 'diabetes', 'depression', 'anxiety', 'pain', 'cancer'. The API handles medical terminology translation automatically.")]
+    public async Task<string> SearchByIndication(
+        [Description("Natural language medical condition search (AI-powered). Use common terms like 'high blood pressure', 'diabetes', 'depression', 'anxiety', 'pain', 'cancer'. The API handles medical terminology translation automatically.")]
             [Required]
             string query,
 
-            [Description("Maximum products to return per matched indication (1-100). Lower values for overview, higher for comprehensive lists. Default: 25")]
+        [Description("Maximum products to return per matched indication (1-100). Lower values for overview, higher for comprehensive lists. Default: 25")]
             [Range(1, 100)]
             int maxProductsPerIndication = 25)
+    {
+        #region implementation
+
+        _logger.LogInformation(
+            "[Tool] SearchByIndication: query={Query}, maxPerIndication={MaxPerIndication}",
+            query, maxProductsPerIndication);
+
+        // Validate query
+        if (string.IsNullOrWhiteSpace(query))
         {
-            #region implementation
-
-            _logger.LogInformation(
-                "[Tool] SearchByIndication: query={Query}, maxPerIndication={MaxPerIndication}",
-                query, maxProductsPerIndication);
-
-            // Validate query
-            if (string.IsNullOrWhiteSpace(query))
+            return JsonSerializer.Serialize(new
             {
-                return JsonSerializer.Serialize(new
-                {
-                    error = "Missing search parameter",
-                    message = "The 'query' parameter is required. Provide a medical condition like 'high blood pressure', 'diabetes', 'depression'."
-                });
-            }
+                error = "Missing search parameter",
+                message = "The 'query' parameter is required. Provide a medical condition like 'high blood pressure', 'diabetes', 'depression'."
+            });
+        }
 
-            // Constrain parameters
-            maxProductsPerIndication = Math.Clamp(maxProductsPerIndication, 1, 100);
+        // Constrain parameters
+        maxProductsPerIndication = Math.Clamp(maxProductsPerIndication, 1, 100);
 
+        try
+        {
+            // Build the query string for the indication/search endpoint
+            var endpoint = $"api/Label/indication/search?query={Uri.EscapeDataString(query)}&maxProductsPerIndication={maxProductsPerIndication}";
+
+            var result = await _apiClient.GetStringAsync(endpoint);
+
+            // Rewrite relative labelLinks to absolute URLs
             try
             {
-                // Build the query string for the indication/search endpoint
-                var endpoint = $"api/Label/indication/search?query={Uri.EscapeDataString(query)}&maxProductsPerIndication={maxProductsPerIndication}";
+                var responseDoc = JsonSerializer.Deserialize<JsonElement>(result);
 
-                var result = await _apiClient.GetStringAsync(endpoint);
-
-                // Rewrite relative labelLinks to absolute URLs
-                try
+                if (responseDoc.TryGetProperty("labelLinks", out var labelLinks)
+                    && labelLinks.ValueKind == JsonValueKind.Object)
                 {
-                    var responseDoc = JsonSerializer.Deserialize<JsonElement>(result);
+                    // Construct base URL (same pattern as other tools)
+                    var baseUrl = _apiSettings.BaseUrl.TrimEnd('/');
+                    if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
+                        baseUrl = baseUrl[..^4];
 
-                    if (responseDoc.TryGetProperty("labelLinks", out var labelLinks)
-                        && labelLinks.ValueKind == JsonValueKind.Object)
+                    // Build dictionary with absolute URLs
+                    var absoluteLinks = new Dictionary<string, string>();
+                    foreach (var link in labelLinks.EnumerateObject())
                     {
-                        // Construct base URL (same pattern as other tools)
-                        var baseUrl = _apiSettings.BaseUrl.TrimEnd('/');
-                        if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
-                            baseUrl = baseUrl[..^4];
+                        var relativeUrl = link.Value.GetString();
+                        if (!string.IsNullOrWhiteSpace(relativeUrl))
+                            absoluteLinks[link.Name] = $"{baseUrl}{relativeUrl}";
+                    }
 
-                        // Build dictionary with absolute URLs
-                        var absoluteLinks = new Dictionary<string, string>();
-                        foreach (var link in labelLinks.EnumerateObject())
-                        {
-                            var relativeUrl = link.Value.GetString();
-                            if (!string.IsNullOrWhiteSpace(relativeUrl))
-                                absoluteLinks[link.Name] = $"{baseUrl}{relativeUrl}";
-                        }
-
-                        // Re-serialize with absolute label links
-                        var responseDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(result);
-                        if (responseDict != null)
-                        {
-                            responseDict["labelLinks"] = JsonSerializer.SerializeToElement(absoluteLinks);
-                            return JsonSerializer.Serialize(responseDict);
-                        }
+                    // Re-serialize with absolute label links
+                    var responseDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(result);
+                    if (responseDict != null)
+                    {
+                        responseDict["labelLinks"] = JsonSerializer.SerializeToElement(absoluteLinks);
+                        return JsonSerializer.Serialize(responseDict);
                     }
                 }
-                catch (JsonException ex)
-                {
-                    _logger.LogWarning(ex, "[Tool] SearchByIndication: Failed to rewrite labelLinks to absolute URLs");
-                }
-
-                return result;
             }
-            catch (HttpRequestException ex)
+            catch (Exception ex)
             {
-                _logger.LogError(ex, "[Tool] SearchByIndication failed: query={Query}", query);
-
-                return JsonSerializer.Serialize(new
-                {
-                    error = "Indication search failed",
-                    message = ex.Message
-                });
+                // If JSON manipulation fails, return the raw result unchanged
+                _logger.LogWarning(ex, "[Tool] SearchByIndication: Failed to rewrite labelLinks to absolute URLs");
             }
 
-            #endregion
+            return result;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // HttpClient.Timeout throws TaskCanceledException (subclass of OperationCanceledException)
+            // The 3-stage AI pipeline (keyword filter → AI matching → AI validation) can exceed
+            // the default HttpClient timeout. Return a graceful error instead of letting it
+            // propagate as an unhandled MCP -32603 error.
+            _logger.LogWarning(ex,
+                "[Tool] SearchByIndication timed out: query={Query}. The AI-powered indication search " +
+                "pipeline may need more time than the configured HTTP timeout allows.", query);
+
+            return JsonSerializer.Serialize(new
+            {
+                error = "Indication search timed out",
+                message = "The AI-powered indication search took too long to complete. This can happen with broad queries that match many products. Try a more specific condition term, or retry the search.",
+                suggestedFollowUps = new[]
+                {
+                    "Try a more specific term (e.g., 'type 2 diabetes' instead of 'diabetes')",
+                    "Search by drug name instead using search_drug_labels",
+                    "Search by drug class using search_by_pharmacologic_class"
+                }
+            });
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "[Tool] SearchByIndication failed: query={Query}", query);
+
+            return JsonSerializer.Serialize(new
+            {
+                error = "Indication search failed",
+                message = ex.Message
+            });
         }
 
         #endregion
+    }
+
+    #endregion
 }

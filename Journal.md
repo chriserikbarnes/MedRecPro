@@ -672,3 +672,31 @@ Reorganized `Service/ClaudeSearchService.cs` (~2521 lines, ~30 methods) into int
 
 ---
 
+### 2026-03-13 11:29 AM EST — Consolidate Indication Discovery Skills Interface
+
+Rewrote `Skills/interfaces/api/indication-discovery.md` from 305 lines to ~130 lines, replacing the old 5-step manual workflow with a single-endpoint pattern matching the `pharmacologic-class.md` convention. The old interface documented manual steps (search reference data, chain UNII lookups, fetch label sections, validate relevance) that the new `GET /api/Label/indication/search` endpoint already handles server-side via `ClaudeSearchService.SearchByIndicationAsync()`.
+
+**Duplication eliminated:**
+- Condition keyword mappings (duplicated in `selectors.md` and interface doc) — removed from interface, kept in selectors for routing
+- Lay-to-medical terminology rules (duplicated across both AI prompt files and interface doc) — removed from interface, kept in prompts for server-side AI calls
+- Reference data format/parsing docs — removed (server-internal concern)
+- Array extraction syntax, truncation detection, multi-product workflow — all removed (handled server-side)
+
+**No other files changed:** Prompt files stay in `Skills/prompts/` (consistent with `pharmacologic-class-matching-prompt.md` pattern), appsettings config keys unchanged, `selectors.md` routing keywords appropriate for skill selection, `skills.md` capability contracts stable. Build: 0 errors.
+
+---
+
+### 2026-03-13 12:38 PM EST — Fix MCP Error -32603 on Indication Search (Timeout Handling)
+
+Diagnosed and fixed the `MCP error -32603: An error occurred` that surfaced when calling `search_by_indication`. Root cause: the MCP tool layer in `DrugLabelTools.cs` only caught `HttpRequestException`, but HttpClient timeouts throw `TaskCanceledException` (a subclass of `OperationCanceledException`), which propagated unhandled to the MCP framework as a generic -32603 error.
+
+**Fixes applied:**
+- **`MedRecProMCP/Tools/DrugLabelTools.cs`** — Added `catch (OperationCanceledException)` blocks to all 5 MCP tool methods (`SearchDrugLabels`, `ExportDrugLabelMarkdown`, `SearchExpiringPatents`, `SearchByPharmacologicClass`, `SearchByIndication`). Each returns a structured JSON error with timeout messaging and suggested follow-ups instead of crashing.
+- **`MedRecProMCP/appsettings.json`** — Increased `MedRecProApi.TimeoutSeconds` from 30 to 120. The 3-stage AI-powered indication search pipeline (keyword pre-filter → AI semantic matching → AI validation) requires significantly more time than simple label lookups.
+
+**Investigation path:** Traced from MCP tool → `MedRecProApiClient.GetStringAsync` → HttpClient timeout config in `Program.cs` → confirmed server-side (`LabelController.cs`, `ClaudeSearchService.cs`) has proper exception handling. The gap was exclusively in the MCP client tool layer.
+
+Build: 0 errors, 0 warnings. Branch: `Indication-Search`.
+
+---
+
