@@ -320,9 +320,9 @@ export const MessageRenderer = (function () {
                     <svg width="44" height="44" viewBox="0 0 44 44">
                         <defs>
                             <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                                <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
-                                <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
-                                <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0.3" />
+                                <stop offset="0%" style="stop-color:#e5771e;stop-opacity:1" />
+                                <stop offset="50%" style="stop-color:#d06818;stop-opacity:1" />
+                                <stop offset="100%" style="stop-color:#e5771e;stop-opacity:0.3" />
                             </linearGradient>
                         </defs>
                         <circle class="progress-ring-track" cx="22" cy="22" r="16"
@@ -418,9 +418,9 @@ export const MessageRenderer = (function () {
                     <svg width="44" height="44" viewBox="0 0 44 44">
                         <defs>
                             <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                                <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
-                                <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
-                                <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0.3" />
+                                <stop offset="0%" style="stop-color:#e5771e;stop-opacity:1" />
+                                <stop offset="50%" style="stop-color:#d06818;stop-opacity:1" />
+                                <stop offset="100%" style="stop-color:#e5771e;stop-opacity:0.3" />
                             </linearGradient>
                         </defs>
                         <circle class="progress-ring-track" cx="22" cy="22" r="16"

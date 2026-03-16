@@ -125,6 +125,7 @@ app.MapGet("/.well-known/openid-configuration/mcp",
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
+app.MapControllers();
 
 #endregion
 

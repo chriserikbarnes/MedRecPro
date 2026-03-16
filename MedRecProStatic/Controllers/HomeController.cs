@@ -83,6 +83,59 @@ namespace MedRecPro.Static.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Displays the MCP Documentation page with architecture, authentication,
+        /// endpoints, and tool reference documentation.
+        /// </summary>
+        /// <returns>View with MCP documentation content.</returns>
+        /// <remarks>
+        /// This page provides technical documentation for the MCP server including
+        /// architecture diagrams, OAuth authentication flow, available endpoints,
+        /// tool parameter documentation, LOINC section codes, and a tool selection guide.
+        /// Content is loaded from the pages.json file.
+        /// </remarks>
+        /// <seealso cref="ContentService"/>
+        [Route("mcp/docs")]
+        public IActionResult McpDocs()
+        {
+            #region implementation
+
+            var content = _contentService.GetMcpDocsPage();
+            ViewBag.Config = _contentService.GetConfig();
+            ViewBag.Title = "MCP Documentation";
+
+            #endregion
+
+            return View(content);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Displays the MCP Getting Started page with setup instructions,
+        /// feature overview, and usage examples.
+        /// </summary>
+        /// <returns>View with MCP getting started content.</returns>
+        /// <remarks>
+        /// This page guides users through connecting Claude to MedRecPro via MCP,
+        /// including authentication setup, feature overview, and real-world usage
+        /// examples with screenshots. Content is loaded from the pages.json file.
+        /// </remarks>
+        /// <seealso cref="ContentService"/>
+        [Route("mcp/getting-started")]
+        public IActionResult McpSetup()
+        {
+            #region implementation
+
+            var content = _contentService.GetMcpSetupPage();
+            ViewBag.Config = _contentService.GetConfig();
+            ViewBag.Title = "Getting Started with MCP";
+
+            #endregion
+
+            return View(content);
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Displays the AI Chat interface for natural language interaction with MedRecPro.
         /// </summary>
         /// <returns>View with the AI chat interface.</returns>

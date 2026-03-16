@@ -1,0 +1,260 @@
+@model MedRecPro.Static.Models.McpDocsPageContent
+
+@{
+    ViewData["Title"] = "MCP Documentation";
+}
+
+<div class="mcp-page">
+    <div class="container">
+        <div class="mcp-hero">
+            <h1>@Model.Title</h1>
+            <p class="mcp-hero-description">@Model.Description</p>
+            <div class="mcp-meta">
+                <span class="mcp-meta-item"><strong>Runtime:</strong> @Model.Runtime</span>
+                <span class="mcp-meta-item"><strong>URL:</strong> <a href="@Model.ProductionUrl">@Model.ProductionUrl</a></span>
+            </div>
+        </div>
+
+        <!-- Architecture -->
+        <section class="mcp-section">
+            <h2>Architecture</h2>
+            <p>@Model.ArchitectureDescription</p>
+            @if (!string.IsNullOrEmpty(Model.ArchitectureDiagram))
+            {
+                <div class="architecture-diagram"><pre><code>@Model.ArchitectureDiagram</code></pre></div>
+            }
+
+            @if (Model.VirtualPaths != null && Model.VirtualPaths.Any())
+            {
+                <table class="mcp-table">
+                    <thead>
+                        <tr><th>Virtual Path</th><th>Physical Path</th><th>Project</th><th>Purpose</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var vp in Model.VirtualPaths)
+                        {
+                            <tr>
+                                <td><code>@vp.Path</code></td>
+                                <td><code>@vp.PhysicalPath</code></td>
+                                <td>@vp.Project</td>
+                                <td>@vp.Purpose</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </section>
+
+        <!-- Connecting with Claude Desktop -->
+        <section class="mcp-section">
+            <h2>Connecting with Claude Desktop</h2>
+            <p>Add the following to your Claude Desktop configuration file:</p>
+            @if (!string.IsNullOrEmpty(Model.ConnectionConfig))
+            {
+                <div class="code-block"><pre><code>@Model.ConnectionConfig</code></pre></div>
+            }
+        </section>
+
+        <!-- Authentication -->
+        <section class="mcp-section">
+            <h2>Authentication</h2>
+            <p>@Model.AuthDescription</p>
+            @if (Model.AuthSteps != null && Model.AuthSteps.Any())
+            {
+                <ol class="mcp-auth-steps">
+                    @foreach (var step in Model.AuthSteps)
+                    {
+                        <li>@Html.Raw(step)</li>
+                    }
+                </ol>
+            }
+            @if (!string.IsNullOrEmpty(Model.OAuthScopes))
+            {
+                <p><strong>Supported OAuth scopes:</strong> <code>@Model.OAuthScopes</code></p>
+            }
+        </section>
+
+        <!-- Available Endpoints -->
+        <section class="mcp-section">
+            <h2>Available Endpoints</h2>
+            <p>@Model.EndpointsDescription</p>
+            @if (Model.Endpoints != null && Model.Endpoints.Any())
+            {
+                <table class="mcp-table endpoint-table">
+                    <thead>
+                        <tr><th>Endpoint</th><th>Method</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var ep in Model.Endpoints)
+                        {
+                            <tr>
+                                <td><code>@ep.Path</code></td>
+                                <td><span class="endpoint-method">@ep.Method</span></td>
+                                <td>@ep.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            @if (!string.IsNullOrEmpty(Model.EndpointsNote))
+            {
+                <div class="note-box">
+                    <strong>Note:</strong> @Model.EndpointsNote
+                </div>
+            }
+        </section>
+
+        <!-- MCP Tools -->
+        <section class="mcp-section">
+            <h2>MCP Tools</h2>
+            <p>@Model.ToolsDescription</p>
+
+            @if (Model.ToolCategories != null)
+            {
+                @foreach (var category in Model.ToolCategories)
+                {
+                    <h3>@category.CategoryName</h3>
+                    <p>@category.Description</p>
+
+                    @if (!string.IsNullOrEmpty(category.WorkflowDiagram))
+                    {
+                        <div class="workflow-diagram"><pre><code>@category.WorkflowDiagram</code></pre></div>
+                    }
+
+                    @if (category.Tools != null)
+                    {
+                        @foreach (var tool in category.Tools)
+                        {
+                            <div class="tool-card">
+                                <h4><span class="tool-name">@tool.Name</span></h4>
+                                <p>@tool.Description</p>
+
+                                @if (!string.IsNullOrEmpty(tool.UsageDescription))
+                                {
+                                    <p>@Html.Raw(tool.UsageDescription)</p>
+                                }
+
+                                @if (tool.Steps != null && tool.Steps.Any())
+                                {
+                                    @foreach (var step in tool.Steps)
+                                    {
+                                        <p><strong>@step.Label</strong>@(!string.IsNullOrEmpty(step.Description) ? $": {step.Description}" : "")</p>
+                                        @if (step.Parameters != null && step.Parameters.Any())
+                                        {
+                                            <table class="param-table">
+                                                <thead>
+                                                    <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var param in step.Parameters)
+                                                    {
+                                                        <tr>
+                                                            <td><code>@param.Name</code></td>
+                                                            <td>@param.Type</td>
+                                                            <td><span class="badge @(param.Required ? "badge-required" : "badge-optional")">@(param.Required ? "Required" : "Optional")</span></td>
+                                                            <td>@param.Description</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        }
+                                        @if (!string.IsNullOrEmpty(step.ReturnsDescription))
+                                        {
+                                            <p>@step.ReturnsDescription</p>
+                                        }
+                                    }
+                                }
+                                else if (tool.Parameters != null && tool.Parameters.Any())
+                                {
+                                    <table class="param-table">
+                                        <thead>
+                                            <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var param in tool.Parameters)
+                                            {
+                                                <tr>
+                                                    <td><code>@param.Name</code></td>
+                                                    <td>@param.Type</td>
+                                                    <td><span class="badge @(param.Required ? "badge-required" : "badge-optional")">@(param.Required ? "Required" : "Optional")</span></td>
+                                                    <td>@param.Description</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                }
+                                else if (tool.Parameters != null && !tool.Parameters.Any())
+                                {
+                                    <p><em>No parameters required.</em></p>
+                                }
+
+                                @if (!string.IsNullOrEmpty(tool.ReturnsDescription) && (tool.Steps == null || !tool.Steps.Any()))
+                                {
+                                    <p><strong>Returns:</strong> @tool.ReturnsDescription</p>
+                                }
+                            </div>
+                        }
+                    }
+                }
+            }
+        </section>
+
+        <!-- LOINC Section Codes -->
+        @if (Model.LoincCodes != null && Model.LoincCodes.Any())
+        {
+            <section class="mcp-section">
+                <h3>Common LOINC Section Codes</h3>
+                <p>Use these codes with the <code>sectionCode</code> parameter in <code>search_drug_labels</code> to filter results to a specific label section:</p>
+                <table class="mcp-table loinc-table">
+                    <thead>
+                        <tr><th>Code</th><th>Section</th><th>Typical User Question</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var loinc in Model.LoincCodes)
+                        {
+                            <tr>
+                                <td><code>@loinc.Code</code></td>
+                                <td>@loinc.SectionName</td>
+                                <td>@loinc.TypicalQuestion</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                @if (!string.IsNullOrEmpty(Model.LoincNote))
+                {
+                    <div class="note-box">
+                        <strong>Section Fallback:</strong> @Model.LoincNote
+                    </div>
+                }
+            </section>
+        }
+
+        <!-- Tool Selection Guide -->
+        @if (Model.ToolSelectionGuide != null && Model.ToolSelectionGuide.Any())
+        {
+            <section class="mcp-section">
+                <h2>Tool Selection Guide</h2>
+                <table class="mcp-table">
+                    <thead>
+                        <tr><th>User Intent</th><th>Tool</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in Model.ToolSelectionGuide)
+                        {
+                            <tr>
+                                <td>"@entry.UserIntent"</td>
+                                <td><code>@entry.Tool</code></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </section>
+        }
+
+        <!-- Support -->
+        <section class="mcp-section">
+            <h2>Support</h2>
+            <p>For questions or issues, visit <a href="https://www.medrecpro.com">www.medrecpro.com</a></p>
+        </section>
+    </div>
+</div>

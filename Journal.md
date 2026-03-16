@@ -712,3 +712,48 @@ Build: 0 errors, 0 warnings.
 
 ---
 
+### 2026-03-16 1:59 PM EST — Unify Sub Pages with Home Page Navigation & Styling
+
+Converted standalone MCP HTML files to Razor views and unified all sub pages (MCP Docs, MCP Getting Started, Chat, Privacy, Terms) with the shared `_Layout.cshtml` navbar and earth-tone design system.
+
+**Key changes across 14 files:**
+
+- **Data layer:** Added 15+ MCP model classes to `PageContent.cs`, added `mcpDocs` and `mcpSetup` content blocks to `pages.json` (architecture diagram, OAuth auth flow, all 8 MCP tools with full parameter docs, LOINC codes, tool selection guide, 7 examples with screenshots), added getter methods to `ContentService.cs`
+- **Controller:** Added `McpDocs()` and `McpSetup()` actions with `[Route("mcp/docs")]` and `[Route("mcp/getting-started")]` attribute routing to `HomeController.cs`
+- **Views:** Created `McpDocs.cshtml` and `McpSetup.cshtml` Razor views; restructured `Chat.cshtml` to use `_Layout.cshtml` (removed `Layout = null`, moved resources to `@section Head/Scripts`, replaced `.chat-header` with `.chat-subheader`); deleted old `mcp.html` and `mcp-setup.html`
+- **Navigation:** Added MCP nav link to `_Layout.cshtml` navbar; added MCP Docs and Getting Started links to footer; added `@RenderSection("Head")` for Chat's Google Fonts
+- **Styling:** Added ~350 lines of MCP component styles to `site.css` (`.mcp-page`, `.tool-card`, `.param-table`, `.example-card`, `.step-counter`, etc.); rethemed `chat.css` from blue-gray to earth-tone (`#e5771e` burnt orange accent, `#342e2a` dark brown backgrounds)
+- **Routing fix:** Added `app.MapControllers()` to `Program.cs` to enable attribute routing alongside conventional routing
+- **Tests:** Created `site-tests.js` with 20 browser console tests — all passing
+
+**MCP tool documentation now covers all 8 tools** (previously only 3 of 5 Drug Label tools were documented): `search_drug_labels`, `export_drug_label_markdown`, `search_expiring_patents`, `search_by_pharmacologic_class`, `search_by_indication`, `get_my_profile`, `get_my_activity`, `get_my_activity_by_date_range`.
+
+Build: 0 errors, 1 pre-existing warning.
+
+---
+
+### 2026-03-16 3:27 PM EST — Chat Page: Remove Double Header, Fix Spinner Colors
+
+Reverted Chat.cshtml to self-contained layout (`Layout = null`) so it only shows the chat subheader (lighter brown bar) without the `_Layout` navbar creating a double header.
+
+**Changes:**
+- **Chat.cshtml** — Restored full HTML wrapper with `Layout = null`; added Home link button in the header actions for navigation back; kept `ViewBag.Config` for site name
+- **chat.css** — Added `.chat-page` layout rule (100vh/100dvh flex column); `.brand-logo` kept at 50×38px oblong with `border-radius: var(--radius-md)` for rounded corners
+- **message-renderer.js** — Changed progress ring spinner gradient from blue/purple (`#3b82f6`/`#8b5cf6`) to orange (`#e5771e`/`#d06818`) across both simple and detailed progress indicators
+- **site.css** — Removed `.chat-page`/`.chat-subheader` overrides (now fully in chat.css)
+
+Build: 0 errors, 1 pre-existing warning.
+
+---
+
+### 2026-03-16 4:03 PM EST — Chat Page: Fix White Border & Oversized Input Field
+
+Chat page was rendering with a white border/inset around the content and the text input field appeared oversized.
+
+**Root cause:** Chat.cshtml is self-contained (`Layout = null`, only loads `chat.css` — no `site.css`). Without a CSS reset, the browser default `body { margin: 8px }` created the white border, and the missing `box-sizing: border-box` caused textarea padding to be added outside the `min-height: 54px`.
+
+**Fix in `chat.css`:** Added CSS reset block at the top — `*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box }` and `html, body { height: 100%; overflow: hidden }`.
+
+Build: 0 errors, 1 pre-existing warning.
+
+---

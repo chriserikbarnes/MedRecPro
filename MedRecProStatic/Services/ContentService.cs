@@ -154,5 +154,27 @@ namespace MedRecPro.Static.Services
         /// <seealso cref="LegalSection"/>
         /// <seealso cref="SubprocessorInfo"/>
         public PrivacyPageContent GetPrivacyPage() => _pages.Privacy;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the content for the MCP Documentation page.
+        /// </summary>
+        /// <returns>
+        /// Page content containing architecture, authentication, endpoints,
+        /// tool documentation, LOINC codes, and tool selection guide.
+        /// </returns>
+        /// <seealso cref="McpDocsPageContent"/>
+        public McpDocsPageContent GetMcpDocsPage() => _pages.McpDocs;
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the content for the MCP Getting Started page.
+        /// </summary>
+        /// <returns>
+        /// Page content containing features, setup steps, usage examples
+        /// with screenshots, and tool reference tables.
+        /// </returns>
+        /// <seealso cref="McpSetupPageContent"/>
+        public McpSetupPageContent GetMcpSetupPage() => _pages.McpSetup;
     }
 }

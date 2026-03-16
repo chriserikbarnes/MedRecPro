@@ -72,14 +72,23 @@
         "title": "AI-Powered Drug Intelligence",
         "description": "Ask natural language questions like 'Find drugs indicated for hypertension' and get structured, sourced responses using the request-interpret-execute-synthesize pattern.",
         "detail": "Claude interprets your queries, maps them to the right API endpoints, executes them, and synthesizes the results into clear, actionable answers with full source attribution.",
-        "image": "/images/screenshots/MCP-Indication-Example.PNG",
+        "image": "/images/screenshots/Chat-Lisinopril.PNG",
         "imageAlt": "MedRecPro AI indication search showing structured drug results",
         "ctaText": "Try AI Chat",
         "ctaLink": "/Home/Chat",
         "stats": [
-          { "value": "20+", "label": "AI Skills" },
-          { "value": "4", "label": "AI Endpoints" },
-          { "value": "Claude", "label": "Powered" }
+          {
+            "value": "20+",
+            "label": "AI Skills"
+          },
+          {
+            "value": "4",
+            "label": "AI Endpoints"
+          },
+          {
+            "value": "Claude",
+            "label": "Powered"
+          }
         ]
       },
       {
@@ -100,14 +109,23 @@
         "title": "Complete Label Rendering",
         "description": "18 RazorLight templates render SPL XML into structured HTML covering every section of an FDA drug label including ingredients, packaging, and clinical data.",
         "detail": "Full HL7 compliance with the FDA SPL Implementation Guide (Dec 2023). Import labels from DailyMed ZIP files, normalize the data, and render human-readable documents from the database.",
-        "image": "/images/screenshots/MCP-Full-Label-Example.PNG",
+        "image": "/images/screenshots/Lisinopril-Label.PNG",
         "imageAlt": "MedRecPro rendered SPL drug label document",
         "ctaText": "View API Docs",
         "ctaLink": "/api/swagger/index.html",
         "stats": [
-          { "value": "18", "label": "Templates" },
-          { "value": "HL7", "label": "Compliant" },
-          { "value": "Dec 2023", "label": "FDA SPL Guide" }
+          {
+            "value": "18",
+            "label": "Templates"
+          },
+          {
+            "value": "HL7",
+            "label": "Compliant"
+          },
+          {
+            "value": "Dec 2023",
+            "label": "FDA SPL Guide"
+          }
         ]
       }
     ],
@@ -1410,6 +1428,311 @@
           "location": "Global"
         }
       ]
+    }
+  },
+  "mcpDocs": {
+    "title": "MedRecPro MCP Server",
+    "description": "This MCP (Model Context Protocol) server provides secure access to MedRecPro medical records functionality for AI assistants like Claude. It acts as an OAuth 2.1 gateway between MCP clients and the MedRecPro Web API.",
+    "runtime": "ASP.NET Core 8.0",
+    "productionUrl": "https://www.medrecpro.com/mcp",
+    "architectureDescription": "The MCP server runs as an IIS virtual application at /mcp on the same Azure App Service as the main MedRecPro UI and API. IIS handles path-based routing to three separate ASP.NET Core processes:",
+    "architectureDiagram": "                         Azure App Service: \"MedRecPro\" (Windows, IIS)\n                        +--------------------------------------------------+\n                        |                                                  |\n+------------------+    |  /          site\\wwwroot       MedRecProStatic   |\n|  Claude / MCP    | HTTPS  /api       site\\wwwroot\\api   MedRecPro API    |\n|  Client          |------->  /mcp       site\\wwwroot\\mcp   MedRecProMCP   |\n+------------------+    |                                                  |\n        |               +--------------------------------------------------+\n        v                                    |\n+------------------+                         v\n|  Cloudflare      |                +------------------+\n|  (CDN/WAF/DNS)   |                |  Azure Key Vault |\n+------------------+                |  (medrecprovault)|\n                                    +------------------+",
+    "virtualPaths": [
+      { "path": "/", "physicalPath": "site\\wwwroot", "project": "MedRecProStatic", "purpose": "UI / Static content" },
+      { "path": "/api", "physicalPath": "site\\wwwroot\\api", "project": "MedRecPro", "purpose": "Web API" },
+      { "path": "/mcp", "physicalPath": "site\\wwwroot\\mcp", "project": "MedRecProMCP", "purpose": "MCP Server" }
+    ],
+    "connectionConfig": "{\n  \"mcpServers\": {\n    \"medrecpro\": {\n      \"url\": \"https://www.medrecpro.com/mcp\"\n    }\n  }\n}",
+    "authDescription": "This server implements OAuth 2.1 with PKCE. When Claude connects, it automatically handles the authentication flow:",
+    "authSteps": [
+      "Claude sends POST to /mcp (unauthenticated)",
+      "Server returns 401 with WWW-Authenticate header pointing to Protected Resource Metadata",
+      "Claude fetches /.well-known/oauth-protected-resource (RFC 9728)",
+      "Claude fetches /.well-known/oauth-authorization-server (RFC 8414)",
+      "Claude registers via /oauth/register (Dynamic Client Registration, RFC 7591)",
+      "Claude redirects user to /oauth/authorize?provider=google",
+      "User authenticates with Google or Microsoft",
+      "Provider redirects to /oauth/callback/{provider}",
+      "MCP server issues authorization code, redirects to Claude",
+      "Claude exchanges code for tokens via /oauth/token",
+      "Claude sends authenticated POST to /mcp with Bearer token",
+      "MCP server forwards token to MedRecPro API for each tool call"
+    ],
+    "oauthScopes": "openid, profile, email, mcp:tools, mcp:read, mcp:write",
+    "endpointsDescription": "All endpoints are externally prefixed with /mcp by the IIS virtual application.",
+    "endpoints": [
+      { "path": "/mcp", "method": "POST", "description": "MCP Streamable HTTP transport (JSON-RPC)" },
+      { "path": "/mcp/health", "method": "GET", "description": "Health check (returns JSON status)" },
+      { "path": "/mcp/docs", "method": "GET", "description": "This documentation page" },
+      { "path": "/mcp/.well-known/oauth-protected-resource", "method": "GET", "description": "Protected Resource Metadata (RFC 9728)" },
+      { "path": "/mcp/.well-known/oauth-authorization-server", "method": "GET", "description": "Authorization Server Metadata (RFC 8414)" },
+      { "path": "/mcp/oauth/authorize", "method": "GET", "description": "OAuth authorization endpoint" },
+      { "path": "/mcp/oauth/token", "method": "POST", "description": "Token exchange endpoint" },
+      { "path": "/mcp/oauth/register", "method": "POST", "description": "Dynamic Client Registration (RFC 7591)" },
+      { "path": "/mcp/oauth/callback/google", "method": "GET", "description": "Google OAuth callback" },
+      { "path": "/mcp/oauth/callback/microsoft", "method": "GET", "description": "Microsoft OAuth callback" }
+    ],
+    "endpointsNote": "GET /mcp returns HTTP 405 (Method Not Allowed). This is correct behavior — the MCP Streamable HTTP transport only accepts POST requests.",
+    "toolsDescription": "Once authenticated, Claude automatically discovers the following tools when connecting to the /mcp endpoint. Tools are organized into two categories:",
+    "toolCategories": [
+      {
+        "categoryName": "Drug Label Tools",
+        "description": "Search and retrieve FDA drug label information from the MedRecPro database. All drug data is sourced from official FDA Structured Product Labeling (SPL) documents.",
+        "workflowDiagram": "search_drug_labels ──► Quick lookups, section queries, comparisons\n                       ├── ProductName, ActiveIngredient, UNII\n                       ├── Label sections (Indications, Warnings, etc.)\n                       └── ViewLabelUrl - link to FDA label\n\nexport_drug_label_markdown ──► Complete label export (TWO-STEP)\n  Step 1: Search products ─────► User selects DocumentGUID\n  Step 2: Export markdown ──────► FullMarkdown + ViewLabelUrl\n\nsearch_expiring_patents ──► Orange Book patent searches\n                            ├── Patent expiration dates\n                            └── Generic availability timeline\n\nsearch_by_pharmacologic_class ──► Drug class discovery\n                                  ├── AI-powered class matching\n                                  └── Products grouped by class\n\nsearch_by_indication ──► Condition-based drug discovery\n                         ├── AI-powered indication matching\n                         └── Products grouped by indication",
+        "tools": [
+          {
+            "name": "search_drug_labels",
+            "description": "Searches for FDA drug labels and returns complete product details with markdown-formatted label sections.",
+            "usageDescription": "Use when the user asks specific questions about a drug (e.g., \"What are the side effects of Lipitor?\" or \"Compare aspirin and ibuprofen\").",
+            "whenToUse": "Questions about side effects, dosage, warnings, indications, drug interactions",
+            "parameters": [
+              { "name": "productNameSearch", "type": "string", "required": false, "description": "Brand/product name search (e.g., \"Lipitor\", \"Advil\"). Supports partial matching." },
+              { "name": "activeIngredientSearch", "type": "string", "required": false, "description": "Generic/active ingredient name search (e.g., \"atorvastatin\", \"ibuprofen\"). Supports partial matching." },
+              { "name": "unii", "type": "string", "required": false, "description": "UNII (Unique Ingredient Identifier) code for exact chemical match (e.g., \"R16CO5Y76E\" for aspirin)." },
+              { "name": "sectionCode", "type": "string", "required": false, "description": "LOINC section code to filter results to a specific label section. See section codes table below." },
+              { "name": "pageNumber", "type": "int", "required": false, "description": "Page number for pagination (1-based). Default: 1." },
+              { "name": "pageSize", "type": "int", "required": false, "description": "Results per page (1–50). Default: 10. Recommended: 3 for initial searches since labels are large." }
+            ],
+            "returnsDescription": "Array of product objects containing ProductName, ActiveIngredient, UNII, DocumentGUID, markdown-formatted label Sections, and a ViewLabelUrl link to view the FDA label in a browser."
+          },
+          {
+            "name": "export_drug_label_markdown",
+            "description": "Exports a complete FDA drug label as clean, well-formatted markdown.",
+            "usageDescription": "Use when the user wants a complete label (e.g., \"Show me the full label for Lipitor\" or \"Export the label for atorvastatin\").",
+            "whenToUse": "\"Show me the full label for X\" or \"Export the label\"",
+            "steps": [
+              {
+                "label": "Step 1 — Product Search",
+                "description": "Call without documentGuid to search for products.",
+                "parameters": [
+                  { "name": "productNameSearch", "type": "string", "required": false, "description": "Brand/product name search (e.g., \"Lipitor\")." },
+                  { "name": "activeIngredientSearch", "type": "string", "required": false, "description": "Generic ingredient name search (e.g., \"atorvastatin\")." },
+                  { "name": "unii", "type": "string", "required": false, "description": "UNII code for exact ingredient match." }
+                ],
+                "returnsDescription": "List of matching products with ProductName, ActiveIngredient, UNII, and DocumentGUID. The user selects the correct product."
+              },
+              {
+                "label": "Step 2 — Export Markdown",
+                "description": "Call with documentGuid from Step 1 selection.",
+                "parameters": [
+                  { "name": "documentGuid", "type": "string", "required": true, "description": "DocumentGUID from Step 1 selection (e.g., \"052493C7-89A3-452E-8140-04DD95F0D9E2\")." }
+                ],
+                "returnsDescription": "Complete label as formatted markdown with source links (ViewLabelUrl)."
+              }
+            ],
+            "returnsDescription": "Complete FDA drug label as formatted markdown with source links."
+          },
+          {
+            "name": "search_expiring_patents",
+            "description": "Searches Orange Book NDA patents by expiration date, brand name, or active ingredient.",
+            "usageDescription": "Use when the user asks about patent expiration or generic drug availability (e.g., \"When will generic Ozempic be available?\" or \"What patents expire in 6 months?\").",
+            "whenToUse": "Patent expiration dates, generic drug availability",
+            "parameters": [
+              { "name": "tradeName", "type": "string", "required": false, "description": "Brand name search (e.g., \"Ozempic\", \"Lipitor\"). Supports partial matching." },
+              { "name": "ingredient", "type": "string", "required": false, "description": "Generic/active ingredient name search (e.g., \"semaglutide\", \"atorvastatin\")." },
+              { "name": "expiringInMonths", "type": "int", "required": false, "description": "Patent expiration window in months (e.g., 6 for next 6 months). Must be > 0." },
+              { "name": "pageNumber", "type": "int", "required": false, "description": "Page number (1-based). Default: 1." },
+              { "name": "pageSize", "type": "int", "required": false, "description": "Results per page (1–200). Default: 10." }
+            ],
+            "returnsDescription": "Patents with trade name, active ingredient, expiry date, patent number, and dosage form. Includes pre-rendered markdown table and links to FDA labels when available."
+          },
+          {
+            "name": "search_by_pharmacologic_class",
+            "description": "Discovers groups of drugs by therapeutic or pharmacologic class using AI-powered natural language search.",
+            "usageDescription": "Use when the user asks about drug classes or groups (e.g., \"Show me all beta blockers\" or \"What SSRIs are available?\").",
+            "whenToUse": "Drug class/group discovery (\"all SSRIs\", \"beta blockers\", \"statins\")",
+            "parameters": [
+              { "name": "query", "type": "string", "required": false, "description": "AI-powered natural language search (e.g., \"beta blockers\", \"SSRIs\", \"statins\"). Maps common terms to pharmacologic classes." },
+              { "name": "classNameSearch", "type": "string", "required": false, "description": "Direct partial match on exact class names (fallback if AI search returns no results)." },
+              { "name": "maxProductsPerClass", "type": "int", "required": false, "description": "Maximum products per class (1–1000). Default: 500." },
+              { "name": "pageNumber", "type": "int", "required": false, "description": "Page number (1-based, used with classNameSearch). Default: 1." },
+              { "name": "pageSize", "type": "int", "required": false, "description": "Results per page (1–200, used with classNameSearch). Default: 25." }
+            ],
+            "returnsDescription": "Matched classes, products grouped by class with label links, total product count, and suggested follow-up queries."
+          },
+          {
+            "name": "search_by_indication",
+            "description": "Discovers drugs that treat a specific medical condition or disease using AI-powered matching.",
+            "usageDescription": "Use when the user asks what drugs treat a condition (e.g., \"What drugs treat high blood pressure?\" or \"What medications are used for diabetes?\").",
+            "whenToUse": "Condition-based drug discovery (\"treats depression\", \"for diabetes\")",
+            "parameters": [
+              { "name": "query", "type": "string", "required": true, "description": "Natural language condition search (e.g., \"high blood pressure\", \"diabetes\", \"depression\"). AI maps common terms to medical conditions." },
+              { "name": "maxProductsPerIndication", "type": "int", "required": false, "description": "Maximum products per indication (1–100). Default: 25." }
+            ],
+            "returnsDescription": "Matched indications, products grouped by indication with label links, total product count, validation reason, and suggested follow-up queries."
+          }
+        ]
+      },
+      {
+        "categoryName": "User Tools",
+        "description": "Manage user profile and activity information. All operations require authentication.",
+        "tools": [
+          {
+            "name": "get_my_profile",
+            "description": "Gets the current authenticated user's profile information including name, email, and roles.",
+            "whenToUse": "\"Who am I logged in as?\" or \"Show my profile\"",
+            "parameters": []
+          },
+          {
+            "name": "get_my_activity",
+            "description": "Gets the current user's recent activity log showing actions performed in the system.",
+            "whenToUse": "\"What have I done recently?\" or \"Show my activity\"",
+            "parameters": [
+              { "name": "pageNumber", "type": "int", "required": false, "description": "Page number (1-based). Default: 1." },
+              { "name": "pageSize", "type": "int", "required": false, "description": "Results per page (1–100). Default: 20." }
+            ]
+          },
+          {
+            "name": "get_my_activity_by_date_range",
+            "description": "Gets the current user's activity within a specific date range.",
+            "whenToUse": "\"What did I do last week?\" or \"Show activity from January\"",
+            "parameters": [
+              { "name": "startDate", "type": "string", "required": true, "description": "Start date in ISO 8601 format (e.g., 2024-01-01)." },
+              { "name": "endDate", "type": "string", "required": true, "description": "End date in ISO 8601 format (e.g., 2024-12-31)." },
+              { "name": "pageNumber", "type": "int", "required": false, "description": "Page number (1-based). Default: 1." },
+              { "name": "pageSize", "type": "int", "required": false, "description": "Results per page (1–100). Default: 20." }
+            ]
+          }
+        ]
+      }
+    ],
+    "loincCodes": [
+      { "code": "34067-9", "sectionName": "Indications and Usage", "typicalQuestion": "What is this drug used for?" },
+      { "code": "34084-4", "sectionName": "Adverse Reactions", "typicalQuestion": "What are the side effects?" },
+      { "code": "34070-3", "sectionName": "Contraindications", "typicalQuestion": "When should I NOT use this?" },
+      { "code": "43685-7", "sectionName": "Warnings and Precautions", "typicalQuestion": "What are the warnings?" },
+      { "code": "34068-7", "sectionName": "Dosage and Administration", "typicalQuestion": "What is the dosage?" },
+      { "code": "34073-7", "sectionName": "Drug Interactions", "typicalQuestion": "Does this interact with other drugs?" },
+      { "code": "34088-5", "sectionName": "Overdosage", "typicalQuestion": "What happens in an overdose?" },
+      { "code": "34066-1", "sectionName": "Boxed Warning", "typicalQuestion": "Does this have a black box warning?" },
+      { "code": "34090-1", "sectionName": "Clinical Pharmacology", "typicalQuestion": "How does this drug work?" },
+      { "code": "34076-0", "sectionName": "Use in Specific Populations", "typicalQuestion": "Is this safe during pregnancy?" }
+    ],
+    "loincNote": "Not all FDA labels have every LOINC section code. If a query with a specific sectionCode returns empty results, retry without the sectionCode parameter to retrieve all available sections, then search the content for the relevant information.",
+    "toolSelectionGuide": [
+      { "userIntent": "What are the side effects of X?", "tool": "search_drug_labels" },
+      { "userIntent": "What is the dosage for X?", "tool": "search_drug_labels" },
+      { "userIntent": "What are the warnings for X?", "tool": "search_drug_labels" },
+      { "userIntent": "What is X used for?", "tool": "search_drug_labels" },
+      { "userIntent": "Compare X and Y", "tool": "search_drug_labels" },
+      { "userIntent": "Show me the full label for X", "tool": "export_drug_label_markdown" },
+      { "userIntent": "Export the label", "tool": "export_drug_label_markdown" },
+      { "userIntent": "When will generic X be available?", "tool": "search_expiring_patents" },
+      { "userIntent": "What patents expire in 6 months?", "tool": "search_expiring_patents" },
+      { "userIntent": "Show me all beta blockers", "tool": "search_by_pharmacologic_class" },
+      { "userIntent": "What SSRIs are available?", "tool": "search_by_pharmacologic_class" },
+      { "userIntent": "What drugs treat high blood pressure?", "tool": "search_by_indication" },
+      { "userIntent": "What medications are used for diabetes?", "tool": "search_by_indication" },
+      { "userIntent": "What is my profile?", "tool": "get_my_profile" },
+      { "userIntent": "Show my recent activity", "tool": "get_my_activity" },
+      { "userIntent": "What did I do last week?", "tool": "get_my_activity_by_date_range" }
+    ]
+  },
+  "mcpSetup": {
+    "title": "MedRecPro MCP Server",
+    "heroText": "Connect Claude to the FDA's drug label database. Ask about any FDA-approved medication and get accurate, sourced answers from official labeling data.",
+    "capabilitiesDescription": "MedRecPro connects Claude to the FDA's Structured Product Labeling (SPL) database, giving you instant access to comprehensive drug label information. Ask Claude about any FDA-approved medication — side effects, dosage, warnings, drug interactions, indications — and get accurate, sourced answers pulled directly from official FDA labeling data. You can also search Orange Book patent expiration dates to discover when generic versions of brand-name drugs may become available.",
+    "features": [
+      { "title": "Search by Brand or Generic Name", "description": "Ask about \"Lipitor\" or \"atorvastatin\" and get the same comprehensive results from official FDA labels." },
+      { "title": "Targeted Section Lookups", "description": "Get specific label sections like warnings, side effects, dosage, or drug interactions without wading through the full label." },
+      { "title": "Drug Comparisons", "description": "Compare warnings, side effects, or indications across multiple medications side by side." },
+      { "title": "Complete Label Export", "description": "Export any FDA drug label as clean, formatted markdown with all sections and source links." },
+      { "title": "FDA Source Verification", "description": "Every response includes a direct link to the official FDA label so you can verify the information." },
+      { "title": "Activity Tracking", "description": "View your search history and activity within MedRecPro to keep track of your research." },
+      { "title": "Patent & Generic Availability", "description": "Search Orange Book patent expiration dates to find out when generic versions of brand-name drugs may become available." },
+      { "title": "Drug Class Discovery", "description": "Search by pharmacologic class to discover all drugs in a therapeutic category like SSRIs, beta blockers, or statins." },
+      { "title": "Condition-Based Search", "description": "Ask what drugs treat a condition like high blood pressure, diabetes, or depression and get FDA-sourced results." }
+    ],
+    "gettingStartedSteps": [
+      { "text": "Visit the <a href=\"https://claude.com/connectors\">Claude Connectors Directory</a> and find <strong>MedRecPro</strong>." },
+      { "text": "Click <strong>Connect</strong> to begin the setup process." },
+      { "text": "Authenticate with your <strong>Google</strong> or <strong>Microsoft</strong> account. No special permissions or account types are required." },
+      { "text": "Start asking Claude about medications. Try: <em>\"What are the side effects of Lipitor?\"</em>" }
+    ],
+    "authInfo": "OAuth 2.1 with PKCE — MedRecPro uses industry-standard OAuth 2.1 for secure authentication. Sign in with your existing Google or Microsoft account. No special permissions, subscriptions, or account types are required. Authentication is handled seamlessly through Claude's connector interface.",
+    "examples": [
+      {
+        "title": "Look Up Side Effects and Warnings",
+        "prompt": "What are the warnings and or adverse effects for atorvastatin",
+        "description": "Claude searches the FDA drug label database for atorvastatin, retrieves the warnings and adverse reactions sections, and presents a comprehensive summary including myopathy risks, immune-mediated necrotizing myopathy, liver enzyme considerations, and other safety information — all sourced directly from the official FDA label.",
+        "screenshot": "/images/screenshots/MCP-Adverse-Example.PNG",
+        "screenshotAlt": "Screenshot showing Claude retrieving warnings and adverse effects for atorvastatin from FDA label data",
+        "caption": "Claude retrieves and summarizes atorvastatin warnings and adverse reactions from the FDA label"
+      },
+      {
+        "title": "Check Drug Indications",
+        "prompt": "What does the carvedilol label say about its indications",
+        "description": "Claude queries the FDA label for carvedilol and returns its three approved indications: heart failure, left ventricular dysfunction following myocardial infarction, and hypertension. Each indication includes details about the approved use, with links to view the full FDA label for both tablet and capsule formulations.",
+        "screenshot": "/images/screenshots/MCP-Indication-Example.PNG",
+        "screenshotAlt": "Screenshot showing Claude retrieving carvedilol indications from FDA label data",
+        "caption": "Claude presents carvedilol's three FDA-approved indications with full details"
+      },
+      {
+        "title": "Find Dosage Information",
+        "prompt": "What is the starting dose for gabapentin",
+        "description": "Claude searches the dosage and administration section of the gabapentin label, returning starting doses for each approved indication (postherpetic neuralgia and epilepsy), including titration schedules, pediatric dosing, renal impairment adjustments, and tapering guidance.",
+        "screenshot": "/images/screenshots/MCP-Starting-Dose-Example.PNG",
+        "screenshotAlt": "Screenshot showing Claude retrieving gabapentin dosage information from FDA label data",
+        "caption": "Claude provides detailed gabapentin dosing by indication from the FDA label"
+      },
+      {
+        "title": "Export a Complete Drug Label",
+        "prompt": "Show me the full label for valsartan",
+        "description": "Claude first searches for all valsartan products, presenting options including single-ingredient generics, brand names (Diovan), and combination products. After you select a product, Claude exports the complete FDA label as formatted markdown with all sections — indications, dosage, warnings, adverse reactions, and more.",
+        "screenshot": "/images/screenshots/MCP-Full-Label-Example.PNG",
+        "screenshotAlt": "Screenshot showing Claude exporting the full Diovan valsartan label as formatted markdown",
+        "caption": "Claude presents product options, then exports the complete Diovan label with all sections"
+      },
+      {
+        "title": "Search Patent Expiration Dates",
+        "prompt": "What drug patents are expiring in the next month",
+        "description": "Claude searches the FDA Orange Book for patents expiring within the next month, returning a consolidated table of upcoming expirations organized by product. The results include trade names, active ingredients, expiry dates, patent numbers, and dosage forms.",
+        "screenshot": "/images/screenshots/MCP-Patent-Expiration.PNG",
+        "screenshotAlt": "Screenshot showing Claude searching for drug patents expiring in the next month from the FDA Orange Book",
+        "caption": "Claude presents upcoming patent expirations from the FDA Orange Book"
+      },
+      {
+        "title": "Discover Drug Classes",
+        "prompt": "Show me all the SSRIs available",
+        "description": "Claude uses AI-powered search to find the Selective Serotonin Reuptake Inhibitor pharmacologic class, then returns all products in that class grouped by active ingredient with links to their FDA labels.",
+        "screenshot": "/images/screenshots/MCP-Drug-Class-Tool-Response.PNG",
+        "screenshotAlt": "Screenshot showing Claude discovering SSRI drug class members from MedRecPro",
+        "caption": "Claude discovers and lists all SSRIs with their FDA label links"
+      },
+      {
+        "title": "Check Your Authentication Status",
+        "prompt": "Using the MedRecPro connection tell me about my authentication status",
+        "description": "Claude retrieves your MedRecPro profile, showing your login name, email, account creation date, last login, last activity, timezone, and locale settings. This confirms your connection is active and working.",
+        "screenshot": "/images/screenshots/MCP-Authentication-Example.PNG",
+        "screenshotAlt": "Screenshot showing Claude retrieving user profile information from MedRecPro",
+        "caption": "Claude confirms your MedRecPro connection by showing your profile information"
+      }
+    ],
+    "toolCategories": [
+      {
+        "categoryName": "Drug Label Tools",
+        "tools": [
+          { "name": "search_drug_labels", "description": "Search and retrieve specific label sections", "whenToUse": "Questions about side effects, dosage, warnings, indications, drug interactions" },
+          { "name": "export_drug_label_markdown", "description": "Export a complete label as formatted markdown", "whenToUse": "\"Show me the full label for X\" or \"Export the label\"" },
+          { "name": "search_expiring_patents", "description": "Search Orange Book patent expiration dates", "whenToUse": "\"When will generic Ozempic be available?\" or \"What patents expire in 6 months?\"" },
+          { "name": "search_by_pharmacologic_class", "description": "Discover drugs by therapeutic or pharmacologic class", "whenToUse": "\"Show me all beta blockers\" or \"What SSRIs are available?\"" },
+          { "name": "search_by_indication", "description": "Discover drugs that treat a specific condition", "whenToUse": "\"What drugs treat high blood pressure?\" or \"For diabetes?\"" }
+        ]
+      },
+      {
+        "categoryName": "User Tools",
+        "tools": [
+          { "name": "get_my_profile", "description": "View your MedRecPro profile", "whenToUse": "\"Who am I logged in as?\" or \"Show my profile\"" },
+          { "name": "get_my_activity", "description": "View your recent activity log", "whenToUse": "\"What have I done recently?\" or \"Show my activity\"" },
+          { "name": "get_my_activity_by_date_range", "description": "View activity within a date range", "whenToUse": "\"What did I do last week?\" or \"Show activity from January\"" }
+        ]
+      }
+    ],
+    "disclaimer": "All drug data is sourced from official Structured Product Labeling (SPL) documents. MedRecPro does not provide medical advice — it provides access to the same labeling information available on the NIH National Library of Medicine's DailyMed website.",
+    "support": {
+      "email": "support@medrecpro.com",
+      "docsUrl": "https://www.medrecpro.com/mcp/docs",
+      "githubUrl": "https://github.com/chriserikbarnes/MedRecPro/issues"
     }
   }
 }

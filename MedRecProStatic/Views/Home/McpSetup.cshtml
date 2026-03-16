@@ -1,0 +1,164 @@
+@model MedRecPro.Static.Models.McpSetupPageContent
+
+@{
+    ViewData["Title"] = "Getting Started with MCP";
+}
+
+<div class="mcp-page">
+    <div class="container">
+        <!-- Hero -->
+        <div class="mcp-hero">
+            <h1>@Model.Title</h1>
+            <p class="mcp-hero-description">@Model.HeroText</p>
+        </div>
+
+        <!-- What You Can Do -->
+        <section class="mcp-section">
+            <h2>What You Can Do</h2>
+            <p>@Model.CapabilitiesDescription</p>
+
+            @if (Model.Features != null && Model.Features.Any())
+            {
+                <div class="feature-grid-mcp">
+                    @foreach (var feature in Model.Features)
+                    {
+                        <div class="feature-item-mcp">
+                            <h4>@feature.Title</h4>
+                            <p>@feature.Description</p>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+
+        <!-- Getting Started -->
+        @if (Model.GettingStartedSteps != null && Model.GettingStartedSteps.Any())
+        {
+            <section class="mcp-section">
+                <h2>Getting Started</h2>
+                <ol class="step-counter">
+                    @foreach (var step in Model.GettingStartedSteps)
+                    {
+                        <li>@Html.Raw(step.Text)</li>
+                    }
+                </ol>
+            </section>
+        }
+
+        <!-- Authentication -->
+        @if (!string.IsNullOrEmpty(Model.AuthInfo))
+        {
+            <section class="mcp-section">
+                <h2>Authentication</h2>
+                <div class="auth-info-box">
+                    <strong>@Html.Raw(Model.AuthInfo)</strong>
+                </div>
+            </section>
+        }
+
+        <!-- Examples -->
+        @if (Model.Examples != null && Model.Examples.Any())
+        {
+            <section class="mcp-section">
+                <h2>Examples</h2>
+                <p>Here are real examples showing what you can do with MedRecPro connected to Claude.</p>
+
+                @{ var exampleIndex = 0; }
+                @foreach (var example in Model.Examples)
+                {
+                    exampleIndex++;
+                    <div class="example-card">
+                        <h4>Example @exampleIndex: @example.Title</h4>
+                        <div class="example-prompt">
+                            "@example.Prompt"
+                        </div>
+                        <p>@example.Description</p>
+                        @if (!string.IsNullOrEmpty(example.Screenshot))
+                        {
+                            <div class="example-screenshot">
+                                <img src="@example.Screenshot" alt="@example.ScreenshotAlt" loading="lazy" />
+                                @if (!string.IsNullOrEmpty(example.Caption))
+                                {
+                                    <div class="caption">@example.Caption</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+        }
+
+        <!-- Available Tools -->
+        @if (Model.ToolCategories != null)
+        {
+            <section class="mcp-section">
+                <h2>Available Tools</h2>
+                <p>MedRecPro provides Claude with @Model.ToolCategories.Sum(c => c.Tools?.Count ?? 0) tools, organized into @Model.ToolCategories.Count categories:</p>
+
+                @foreach (var category in Model.ToolCategories)
+                {
+                    <h3>@category.CategoryName</h3>
+                    @if (category.Tools != null && category.Tools.Any())
+                    {
+                        <table class="mcp-table">
+                            <thead>
+                                <tr><th>Tool</th><th>Purpose</th><th>When to Use</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var tool in category.Tools)
+                                {
+                                    <tr>
+                                        <td><code>@tool.Name</code></td>
+                                        <td>@tool.Description</td>
+                                        <td>@tool.WhenToUse</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </section>
+        }
+
+        <!-- Disclaimer -->
+        @if (!string.IsNullOrEmpty(Model.Disclaimer))
+        {
+            <div class="note-box">
+                <strong>Note:</strong> @Model.Disclaimer
+            </div>
+        }
+
+        <!-- Privacy & Terms -->
+        <section class="mcp-section">
+            <h2>Privacy & Terms</h2>
+            <div class="mcp-links-grid">
+                <a asp-controller="Home" asp-action="Privacy">Privacy Policy</a>
+                <a asp-controller="Home" asp-action="Terms">Terms of Service</a>
+            </div>
+        </section>
+
+        <!-- Support -->
+        @if (Model.Support != null)
+        {
+            <section class="mcp-section">
+                <h2>Support</h2>
+                <table class="mcp-table">
+                    <tbody>
+                        @if (!string.IsNullOrEmpty(Model.Support.Email))
+                        {
+                            <tr><td>Email</td><td><a href="mailto:@Model.Support.Email">@Model.Support.Email</a></td></tr>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Support.DocsUrl))
+                        {
+                            <tr><td>Technical Documentation</td><td><a href="@Model.Support.DocsUrl">@Model.Support.DocsUrl</a></td></tr>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Support.GithubUrl))
+                        {
+                            <tr><td>GitHub Issues</td><td><a href="@Model.Support.GithubUrl">@Model.Support.GithubUrl</a></td></tr>
+                        }
+                    </tbody>
+                </table>
+            </section>
+        }
+    </div>
+</div>

@@ -179,6 +179,22 @@ namespace MedRecPro.Static.Models
 
         /**************************************************************/
         /// <summary>
+        /// Content for the MCP Documentation page.
+        /// </summary>
+        /// <seealso cref="McpDocsPageContent"/>
+        [JsonPropertyName("mcpDocs")]
+        public McpDocsPageContent McpDocs { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Content for the MCP Getting Started page.
+        /// </summary>
+        /// <seealso cref="McpSetupPageContent"/>
+        [JsonPropertyName("mcpSetup")]
+        public McpSetupPageContent McpSetup { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
         /// Content for the Privacy Policy page.
         /// </summary>
         /// <remarks>
@@ -1252,5 +1268,637 @@ namespace MedRecPro.Static.Models
         /// <seealso cref="SubprocessorInfo"/>
         [JsonPropertyName("subprocessors")]
         public SubprocessorInfo? Subprocessors { get; set; }
+    }
+
+    // ============================================================
+    // MCP DOCUMENTATION PAGE MODELS
+    // ============================================================
+
+    /**************************************************************/
+    /// <summary>
+    /// Content model for the MCP Documentation page.
+    /// </summary>
+    /// <remarks>
+    /// Contains architecture, authentication, endpoints, tool documentation,
+    /// LOINC codes, and tool selection guide information.
+    /// </remarks>
+    /// <seealso cref="McpToolCategory"/>
+    /// <seealso cref="McpEndpointInfo"/>
+    /// <seealso cref="McpLoincCode"/>
+    public class McpDocsPageContent
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Page title (e.g., "MedRecPro MCP Server").
+        /// </summary>
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Server description text.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Runtime information (e.g., "ASP.NET Core 8.0").
+        /// </summary>
+        [JsonPropertyName("runtime")]
+        public string? Runtime { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Production URL for the MCP server.
+        /// </summary>
+        [JsonPropertyName("productionUrl")]
+        public string? ProductionUrl { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Architecture section description text.
+        /// </summary>
+        [JsonPropertyName("architectureDescription")]
+        public string? ArchitectureDescription { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// ASCII architecture diagram text.
+        /// </summary>
+        [JsonPropertyName("architectureDiagram")]
+        public string? ArchitectureDiagram { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Virtual application path mapping table rows.
+        /// </summary>
+        [JsonPropertyName("virtualPaths")]
+        public List<McpVirtualPath>? VirtualPaths { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Claude Desktop connection configuration JSON string.
+        /// </summary>
+        [JsonPropertyName("connectionConfig")]
+        public string? ConnectionConfig { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Authentication description text.
+        /// </summary>
+        [JsonPropertyName("authDescription")]
+        public string? AuthDescription { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Ordered list of authentication flow steps.
+        /// </summary>
+        [JsonPropertyName("authSteps")]
+        public List<string>? AuthSteps { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Supported OAuth scopes.
+        /// </summary>
+        [JsonPropertyName("oauthScopes")]
+        public string? OAuthScopes { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Description for the endpoints section.
+        /// </summary>
+        [JsonPropertyName("endpointsDescription")]
+        public string? EndpointsDescription { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// List of available MCP endpoints.
+        /// </summary>
+        /// <seealso cref="McpEndpointInfo"/>
+        [JsonPropertyName("endpoints")]
+        public List<McpEndpointInfo>? Endpoints { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Note about endpoint behavior (e.g., GET returns 405).
+        /// </summary>
+        [JsonPropertyName("endpointsNote")]
+        public string? EndpointsNote { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Description for the tools section.
+        /// </summary>
+        [JsonPropertyName("toolsDescription")]
+        public string? ToolsDescription { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tool categories with their tools.
+        /// </summary>
+        /// <seealso cref="McpToolCategory"/>
+        [JsonPropertyName("toolCategories")]
+        public List<McpToolCategory>? ToolCategories { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// LOINC section codes for label filtering.
+        /// </summary>
+        /// <seealso cref="McpLoincCode"/>
+        [JsonPropertyName("loincCodes")]
+        public List<McpLoincCode>? LoincCodes { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Note about LOINC section fallback behavior.
+        /// </summary>
+        [JsonPropertyName("loincNote")]
+        public string? LoincNote { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tool selection guide entries mapping user intent to tools.
+        /// </summary>
+        /// <seealso cref="McpToolGuideEntry"/>
+        [JsonPropertyName("toolSelectionGuide")]
+        public List<McpToolGuideEntry>? ToolSelectionGuide { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Content model for the MCP Getting Started page.
+    /// </summary>
+    /// <remarks>
+    /// Contains hero content, features, setup steps, authentication info,
+    /// usage examples with screenshots, and tool reference tables.
+    /// </remarks>
+    /// <seealso cref="McpFeatureCard"/>
+    /// <seealso cref="McpExampleCard"/>
+    public class McpSetupPageContent
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Page title.
+        /// </summary>
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Hero section description text.
+        /// </summary>
+        [JsonPropertyName("heroText")]
+        public string? HeroText { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extended description of capabilities.
+        /// </summary>
+        [JsonPropertyName("capabilitiesDescription")]
+        public string? CapabilitiesDescription { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Feature cards displayed in a grid.
+        /// </summary>
+        /// <seealso cref="McpFeatureCard"/>
+        [JsonPropertyName("features")]
+        public List<McpFeatureCard>? Features { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Getting started steps.
+        /// </summary>
+        /// <seealso cref="McpStep"/>
+        [JsonPropertyName("gettingStartedSteps")]
+        public List<McpStep>? GettingStartedSteps { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Authentication information text.
+        /// </summary>
+        [JsonPropertyName("authInfo")]
+        public string? AuthInfo { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Usage examples with screenshots.
+        /// </summary>
+        /// <seealso cref="McpExampleCard"/>
+        [JsonPropertyName("examples")]
+        public List<McpExampleCard>? Examples { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tool categories for reference tables.
+        /// </summary>
+        /// <seealso cref="McpToolCategory"/>
+        [JsonPropertyName("toolCategories")]
+        public List<McpToolCategory>? ToolCategories { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Data source disclaimer note.
+        /// </summary>
+        [JsonPropertyName("disclaimer")]
+        public string? Disclaimer { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Support contact information.
+        /// </summary>
+        /// <seealso cref="McpSupportInfo"/>
+        [JsonPropertyName("support")]
+        public McpSupportInfo? Support { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Virtual path mapping for the IIS architecture table.
+    /// </summary>
+    public class McpVirtualPath
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Virtual path (e.g., "/mcp").
+        /// </summary>
+        [JsonPropertyName("path")]
+        public string? Path { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Physical path on disk (e.g., "site\wwwroot\mcp").
+        /// </summary>
+        [JsonPropertyName("physicalPath")]
+        public string? PhysicalPath { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Project name (e.g., "MedRecProMCP").
+        /// </summary>
+        [JsonPropertyName("project")]
+        public string? Project { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Purpose description.
+        /// </summary>
+        [JsonPropertyName("purpose")]
+        public string? Purpose { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// A category of MCP tools (e.g., "Drug Label Tools", "User Tools").
+    /// </summary>
+    /// <seealso cref="McpToolInfo"/>
+    public class McpToolCategory
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Category display name.
+        /// </summary>
+        [JsonPropertyName("categoryName")]
+        public string? CategoryName { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Category description text.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Workflow diagram text for this category.
+        /// </summary>
+        [JsonPropertyName("workflowDiagram")]
+        public string? WorkflowDiagram { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tools in this category.
+        /// </summary>
+        /// <seealso cref="McpToolInfo"/>
+        [JsonPropertyName("tools")]
+        public List<McpToolInfo>? Tools { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Information about a single MCP tool.
+    /// </summary>
+    /// <seealso cref="McpToolParam"/>
+    public class McpToolInfo
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Tool name in snake_case (e.g., "search_drug_labels").
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Brief description of what the tool does.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detailed usage description explaining when to use the tool.
+        /// </summary>
+        [JsonPropertyName("usageDescription")]
+        public string? UsageDescription { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// When to use this tool (short phrase for tables).
+        /// </summary>
+        [JsonPropertyName("whenToUse")]
+        public string? WhenToUse { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tool parameters.
+        /// </summary>
+        /// <seealso cref="McpToolParam"/>
+        [JsonPropertyName("parameters")]
+        public List<McpToolParam>? Parameters { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Description of what the tool returns.
+        /// </summary>
+        [JsonPropertyName("returnsDescription")]
+        public string? ReturnsDescription { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional workflow steps for multi-step tools.
+        /// </summary>
+        [JsonPropertyName("steps")]
+        public List<McpToolStep>? Steps { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// A parameter for an MCP tool.
+    /// </summary>
+    public class McpToolParam
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Parameter name in camelCase.
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parameter data type (e.g., "string", "int").
+        /// </summary>
+        [JsonPropertyName("type")]
+        public string? Type { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Whether the parameter is required.
+        /// </summary>
+        [JsonPropertyName("required")]
+        public bool Required { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Description of the parameter including examples.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// A step in a multi-step tool workflow (e.g., export_drug_label_markdown).
+    /// </summary>
+    public class McpToolStep
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Step label (e.g., "Step 1 — Product Search").
+        /// </summary>
+        [JsonPropertyName("label")]
+        public string? Label { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Step description.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parameters specific to this step.
+        /// </summary>
+        [JsonPropertyName("parameters")]
+        public List<McpToolParam>? Parameters { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// What this step returns.
+        /// </summary>
+        [JsonPropertyName("returnsDescription")]
+        public string? ReturnsDescription { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// An MCP server endpoint.
+    /// </summary>
+    public class McpEndpointInfo
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Endpoint path (e.g., "/mcp").
+        /// </summary>
+        [JsonPropertyName("path")]
+        public string? Path { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// HTTP method (e.g., "POST", "GET").
+        /// </summary>
+        [JsonPropertyName("method")]
+        public string? Method { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Endpoint description.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// A LOINC section code used for drug label filtering.
+    /// </summary>
+    public class McpLoincCode
+    {
+        /**************************************************************/
+        /// <summary>
+        /// LOINC code (e.g., "34067-9").
+        /// </summary>
+        [JsonPropertyName("code")]
+        public string? Code { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Section name (e.g., "Indications and Usage").
+        /// </summary>
+        [JsonPropertyName("sectionName")]
+        public string? SectionName { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Typical user question that maps to this section.
+        /// </summary>
+        [JsonPropertyName("typicalQuestion")]
+        public string? TypicalQuestion { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// A tool selection guide entry mapping user intent to the appropriate tool.
+    /// </summary>
+    public class McpToolGuideEntry
+    {
+        /**************************************************************/
+        /// <summary>
+        /// User intent or question (e.g., "What are the side effects of X?").
+        /// </summary>
+        [JsonPropertyName("userIntent")]
+        public string? UserIntent { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recommended tool name.
+        /// </summary>
+        [JsonPropertyName("tool")]
+        public string? Tool { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// A feature card for the MCP Getting Started page.
+    /// </summary>
+    public class McpFeatureCard
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Feature title.
+        /// </summary>
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Feature description.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// A getting started step.
+    /// </summary>
+    public class McpStep
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Step text description.
+        /// </summary>
+        [JsonPropertyName("text")]
+        public string? Text { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// An example usage card with screenshot.
+    /// </summary>
+    public class McpExampleCard
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Example title (e.g., "Look Up Side Effects and Warnings").
+        /// </summary>
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Example prompt the user would type.
+        /// </summary>
+        [JsonPropertyName("prompt")]
+        public string? Prompt { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Description of what Claude does in response.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Path to screenshot image.
+        /// </summary>
+        [JsonPropertyName("screenshot")]
+        public string? Screenshot { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Screenshot alt text.
+        /// </summary>
+        [JsonPropertyName("screenshotAlt")]
+        public string? ScreenshotAlt { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Caption text below the screenshot.
+        /// </summary>
+        [JsonPropertyName("caption")]
+        public string? Caption { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Support contact information for the MCP Getting Started page.
+    /// </summary>
+    public class McpSupportInfo
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Support email address.
+        /// </summary>
+        [JsonPropertyName("email")]
+        public string? Email { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Technical documentation URL.
+        /// </summary>
+        [JsonPropertyName("docsUrl")]
+        public string? DocsUrl { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// GitHub issues URL.
+        /// </summary>
+        [JsonPropertyName("githubUrl")]
+        public string? GithubUrl { get; set; }
     }
 }

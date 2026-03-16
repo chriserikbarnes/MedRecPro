@@ -1,50 +1,57 @@
 /**************************************************************/
-/* CSS Reset and Base Styles */
+/* Reset — Chat is self-contained (no site.css) */
 /**************************************************************/
-*, *::before, *::after {
-    box-sizing: border-box;
+*,
+*::before,
+*::after {
     margin: 0;
     padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
 }
 
 /**************************************************************/
-/* iOS Safari Viewport Fix */
-/* Uses CSS custom property set by JavaScript for accurate viewport height */
-/* Modern browsers support dvh (dynamic viewport height) which handles iOS Safari natively */
+/* Chat CSS Variables — Earth-tone palette aligned with site.css */
 /**************************************************************/
 :root {
     /* Fallback chain: JS-set value -> dvh (dynamic) -> svh (small) -> vh */
     --app-height: 100vh; /* Updated by JS for browsers without dvh support */
-    /* Color palette - Professional pharmaceutical blue-gray */
-    --color-bg-primary: #0f172a;
-    --color-bg-secondary: #1e293b;
-    --color-bg-tertiary: #334155;
-    --color-bg-hover: #475569;
-    --color-text-primary: #f1f5f9;
-    --color-text-secondary: #94a3b8;
-    --color-text-muted: #64748b;
-    --color-accent: #3b82f6;
-    --color-accent-hover: #2563eb;
-    --color-accent-light: rgba(59, 130, 246, 0.1);
+    /* Color palette - Earth-tone aligned with main site */
+    --color-bg-primary: #342e2a;
+    --color-bg-secondary: #fdfdfd; /*#3d3530;*/
+    --color-bg-tertiary: #e5771e0d; /*#4a423c;*/
+    --color-bg-hover: #5a524c;
+    --color-text-primary: #342e2a; /* #f5f0eb;*/
+    --color-text-secondary: #8f5720; /* #b5a99d;*/
+    --color-text-button: #fefefe;
+    --color-text-muted: #8a7d72;
+    --color-accent: #e5771e;
+    --color-accent-hover: #d06818;
+    --color-accent-light: rgba(229, 119, 30, 0.1);
     --color-success: #10b981;
     --color-warning: #f59e0b;
-    --color-error: #ef4444;
-    --color-border: #334155;
-    --color-border-light: #475569;
+    --color-error: #ef444499;
+    --color-border: #4a423c;
+    --color-border-light: #5a524c;
+    --color-bg-chat: #342e2a21;
     /* User message colors */
-    --color-user-bg: #3b82f6;
+    --color-user-bg: #342e2a; /* #e5771e;*/
     --color-user-text: #ffffff;
     /* Assistant thinking colors */
     --color-thinking-bg: rgba(245, 158, 11, 0.1);
     --color-thinking-border: rgba(245, 158, 11, 0.3);
     --color-thinking-text: #fbbf24;
     /* Code block colors */
-    --color-code-bg: #0f172a;
+    --color-code-bg: #2a2420;
     --color-code-text: #fbbf24;
     /* Scrollbar colors */
     --color-scrollbar-track: transparent;
-    --color-scrollbar-thumb: rgba(148, 163, 184, 0.3);
-    --color-scrollbar-thumb-hover: rgba(148, 163, 184, 0.5);
+    --color-scrollbar-thumb: rgba(181, 169, 157, 0.3);
+    --color-scrollbar-thumb-hover: rgba(181, 169, 157, 0.5);
     /* Typography */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
@@ -65,88 +72,60 @@
     --transition-normal: 200ms ease;
 }
 
-html {
-    height: 100%;
-}
-
-body {
-    /* Height using fallback chain: dvh (best for iOS) -> JS variable -> 100% */
-    height: 100%;
-    height: var(--app-height, 100%);
-    height: 100dvh; /* Modern browsers - overrides above if supported */
-    font-family: var(--font-sans);
-    font-size: 16px;
-    line-height: 1.5;
-    color: var(--color-text-primary);
-    background-color: var(--color-bg-primary);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    /* Prevent horizontal scroll */
-    overflow-x: hidden;
-    overflow-y: hidden;
-}
-
 /**************************************************************/
 /* Custom Scrollbar Styling - Petite/Thin like ChatGPT */
 /**************************************************************/
 
-/* WebKit browsers (Chrome, Safari, Edge) */
-::-webkit-scrollbar {
+/* WebKit browsers (Chrome, Safari, Edge) - scoped to chat */
+.chat-page ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
 }
 
-::-webkit-scrollbar-track {
+.chat-page ::-webkit-scrollbar-track {
     background: var(--color-scrollbar-track);
 }
 
-::-webkit-scrollbar-thumb {
+.chat-page ::-webkit-scrollbar-thumb {
     background: var(--color-scrollbar-thumb);
     border-radius: var(--radius-full);
     border: 2px solid transparent;
     background-clip: padding-box;
 }
 
-    ::-webkit-scrollbar-thumb:hover {
+    .chat-page ::-webkit-scrollbar-thumb:hover {
         background: var(--color-scrollbar-thumb-hover);
         border: 2px solid transparent;
         background-clip: padding-box;
     }
 
-/* Firefox */
-* {
+/* Firefox - scoped to chat */
+.chat-page * {
     scrollbar-width: thin;
     scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
 }
 
 /**************************************************************/
-/* Layout */
+/* Chat Page Layout — Self-contained (no _Layout) */
 /**************************************************************/
-.chat-container {
+.chat-page {
     display: flex;
     flex-direction: column;
-    /* Height using fallback chain: dvh (best for iOS) -> JS variable -> vh */
     height: 100vh;
-    height: var(--app-height, 100vh);
-    height: 100dvh; /* Modern browsers - overrides above if supported */
-    max-height: 100vh;
-    max-height: var(--app-height, 100vh);
-    max-height: 100dvh;
-    overflow: hidden;
-    /* Prevent content from causing horizontal scroll */
-    width: 100%;
-    max-width: 100%;
+    height: 100dvh;
+    min-height: 400px;
+    font-family: var(--font-sans);
 }
 
 /**************************************************************/
-/* Header */
+/* Chat Header */
 /**************************************************************/
-.chat-header {
+.chat-subheader {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-md) var(--space-lg);
-    background: var(--color-bg-secondary);
+    padding: var(--space-sm) var(--space-lg);
+    background: var(--color-bg-primary);
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
 }
@@ -159,8 +138,8 @@ body {
 
 .brand-logo {
     width: 50px;
-    height: 40px;
-    border-radius: var(--radius-lg);
+    height: 38px;
+    border-radius: var(--radius-md);
     background: #f5f0eb;
     display: flex;
     align-items: center;
@@ -176,6 +155,7 @@ body {
     font-size: 1.125rem;
     font-weight: 600;
     letter-spacing: -0.025em;
+    color: lightgray;
 }
 
 .brand-subtitle {
@@ -205,12 +185,12 @@ body {
 
 .btn-ghost {
     background: transparent;
-    color: var(--color-text-secondary);
+    color: var(--color-text-button);
 }
 
     .btn-ghost:hover {
         background: var(--color-bg-tertiary);
-        color: var(--color-text-primary);
+        color: var(--color-text-button);
     }
 
 .btn-primary {
@@ -249,6 +229,7 @@ body {
     min-height: 0;
     /* Improve iOS Safari scroll behavior */
     -webkit-overflow-scrolling: touch;
+    background: var( --color-bg-chat);
 }
 
 .messages-wrapper {
@@ -274,7 +255,7 @@ body {
     width: 200px;
     height: 80px;
     border-radius: var(--radius-xl);
-    background: linear-gradient(135deg, var(--color-accent) 0%, #1d4ed8 100%);
+    background: linear-gradient(135deg, var(--color-accent) 0%, #b85c14 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -406,11 +387,11 @@ body {
         }
 
         .message-bubble a:visited {
-            color: #baa8f0; /* Light violet - high contrast on dark bg */
+            color: #d4a574; /* Warm tan - high contrast on dark bg */
         }
 
         .message-bubble a:active {
-            color: #83acf0; /* Light blue - high contrast on dark bg */
+            color: #c4956a; /* Warm gold - high contrast on dark bg */
         }
 
 
@@ -493,11 +474,11 @@ body {
         }
 
         .message-text a:visited {
-            color: #baa8f0; /* Light violet - high contrast on dark bg */
+            color: #d4a574; /* Warm tan - high contrast on dark bg */
         }
 
         .message-text a:active {
-            color: #83acf0; /* Light blue - high contrast on dark bg */
+            color: #c4956a; /* Warm gold - high contrast on dark bg */
         }
 
 
@@ -656,7 +637,6 @@ body {
 /* Enhanced streaming indicator for better visibility */
 .streaming-indicator-visible {
     padding: var(--space-sm) var(--space-md);
-    background: var(--color-bg-tertiary);
     border-radius: var(--radius-md);
     font-size: 0.875rem;
     color: var(--color-text-secondary);
@@ -855,7 +835,7 @@ body {
     /* Shared border creates seamless appearance */
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xl);
-    background: var(--color-bg-tertiary);
+    background: var(--color-bg-secondary);
     transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
@@ -1072,7 +1052,7 @@ body {
 /* Responsive */
 /**************************************************************/
 @media (max-width: 640px) {
-    .chat-header {
+    .chat-subheader {
         padding: var(--space-sm) var(--space-md);
     }
 
@@ -1122,8 +1102,8 @@ body {
 /**************************************************************/
 @supports (padding: env(safe-area-inset-bottom)) {
     /* When banner is hidden (display:none), header needs top safe area */
-    .context-banner[style*="display: none"] ~ .chat-header,
-    .context-banner[style*="display:none"] ~ .chat-header {
+    .context-banner[style*="display: none"] ~ .chat-subheader,
+    .context-banner[style*="display:none"] ~ .chat-subheader {
         padding-top: calc(var(--space-md) + env(safe-area-inset-top, 0));
     }
 

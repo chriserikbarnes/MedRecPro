@@ -10,24 +10,20 @@
     /* Typography */
     --font-primary: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     --font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-    
     /* Font Weights */
     --weight-light: 300;
     --weight-regular: 400;
     --weight-medium: 500;
     --weight-semibold: 600;
     --weight-bold: 700;
-    
     /* Colors - Primary (Burnt Orange) */
     --color-primary: #e5771e;
     --color-primary-dark: #c4621a;
     --color-primary-light: #f4a127;
-
     /* Colors - Secondary (Dark Brown) */
     --color-secondary: #342e2a;
     --color-secondary-light: #7a5a45;
     --color-secondary-lighter: #9b7d6a;
-
     /* Colors - Accent Palette (Earth Tones) */
     --color-teal: #75c8ae;
     --color-teal-light: #e8f5f0;
@@ -41,22 +37,19 @@
     --color-amber-light: #fef5e0;
     --color-olive: #8a7d3b;
     --color-olive-light: #f4f2e6;
-
     /* Colors - UI */
     --color-background: #ffffff;
-    --color-surface: #faf8f5;
+    --color-surface: #fdfdfd; /* #faf8f5;*/
     --color-surface-elevated: #ffffff;
     --color-border: #d4c9bc;
     --color-border-light: #e8e0d8;
     --color-text: #342e2a;
-    --color-text-secondary: #7a5a45;
+    --color-text-secondary: #be5f15; /*#7a5a45;*/
     --color-text-tertiary: #9b7d6a;
-
     /* Gradients */
     --gradient-hero: linear-gradient(135deg, #5a3d2b 0%, #e5771e 50%, #f4a127 100%);
     --gradient-hero-overlay: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.1) 100%);
     --gradient-cta: linear-gradient(135deg, #e5771e 0%, #f4a127 100%);
-    
     /* Spacing */
     --space-xs: 0.25rem;
     --space-sm: 0.5rem;
@@ -66,7 +59,6 @@
     --space-2xl: 3rem;
     --space-3xl: 4rem;
     --space-4xl: 6rem;
-    
     /* Border Radius */
     --radius-sm: 4px;
     --radius-md: 8px;
@@ -74,19 +66,16 @@
     --radius-xl: 16px;
     --radius-2xl: 24px;
     --radius-full: 9999px;
-    
     /* Shadows */
     --shadow-sm: 0 1px 2px rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
     --shadow-md: 0 1px 3px rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
     --shadow-lg: 0 1px 3px rgba(60, 64, 67, 0.3), 0 8px 16px 4px rgba(60, 64, 67, 0.15);
     --shadow-xl: 0 2px 6px rgba(60, 64, 67, 0.3), 0 16px 32px 6px rgba(60, 64, 67, 0.15);
-    
     /* Transitions */
     --transition-fast: 150ms ease;
     --transition-base: 250ms ease;
     --transition-slow: 400ms ease;
     --transition-slower: 600ms ease;
-    
     /* Container */
     --container-max: 1200px;
     --container-narrow: 800px;
@@ -1016,20 +1005,19 @@ a:hover {
 }
 
 .navbar-logo {
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-full);
-    background: #ffffff;
-    padding: 5px;
+    width: 50px;
+    height: 38px;
+    border-radius: var(--radius-md);
+    background: #f5f0eb;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-.navbar-logo svg {
-    width: 24px;
-    height: 18px;
-}
+    .navbar-logo svg {
+        width: 34px;
+        height: auto;
+    }
 
 .navbar-menu {
     display: flex;
@@ -1648,6 +1636,449 @@ footer {
         .summary-table th:last-child {
             width: 65%;
         }
+}
+
+/* ============================================================
+   MCP PAGE STYLES
+   ============================================================ */
+
+.mcp-page {
+    padding: 2rem 0 4rem;
+    min-height: calc(100vh - 200px);
+}
+
+    .mcp-page .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 0 1.5rem;
+    }
+
+.mcp-hero {
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 2px solid var(--color-primary);
+}
+
+.mcp-hero-centered {
+    text-align: center;
+}
+
+    .mcp-hero h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--color-secondary);
+        margin-bottom: 0.5rem;
+    }
+
+.mcp-hero-description {
+    font-size: 1.1rem;
+    color: var(--color-text-light);
+    max-width: 700px;
+    line-height: 1.6;
+}
+
+.mcp-hero-centered .mcp-hero-description {
+    margin: 0.5rem auto;
+}
+
+.mcp-meta {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 0.75rem;
+    font-size: 0.9rem;
+    color: var(--color-text-light);
+}
+
+.mcp-section {
+    margin: 2.5rem 0;
+}
+
+    .mcp-section h2 {
+        font-size: 1.4rem;
+        font-weight: 600;
+        color: var(--color-primary);
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.25rem;
+    }
+
+    .mcp-section h3 {
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: var(--color-secondary);
+        margin-top: 1.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .mcp-section p {
+        line-height: 1.7;
+        color: var(--color-text);
+        margin-bottom: 0.75rem;
+    }
+
+/* Architecture Diagram */
+.architecture-diagram {
+    margin: 1rem 0;
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+    .architecture-diagram pre {
+        background: var(--color-secondary);
+        color: #d4d4d4;
+        padding: 1.25rem;
+        border-radius: 8px;
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        line-height: 1.4;
+        overflow-x: auto;
+        margin: 0;
+    }
+
+    .architecture-diagram pre code {
+        background: none;
+        color: inherit;
+        padding: 0;
+        font-size: inherit;
+    }
+
+/* Code Blocks */
+.code-block pre {
+    background: var(--color-secondary);
+    color: #d4d4d4;
+    padding: 1.25rem;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    overflow-x: auto;
+    margin: 0;
+}
+
+.code-block pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+}
+
+.mcp-page code {
+    background: var(--color-surface);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    color: var(--color-primary);
+}
+
+.mcp-page pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+}
+
+/* Workflow Diagram */
+.workflow-diagram {
+    margin: 1rem 0;
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+    .workflow-diagram pre {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        padding: 1.25rem;
+        border-radius: 8px;
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        line-height: 1.5;
+        overflow-x: auto;
+        margin: 0;
+    }
+
+    .workflow-diagram pre code {
+        background: none;
+        color: var(--color-text);
+        padding: 0;
+    }
+
+/* MCP Tables */
+.mcp-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+}
+
+    .mcp-table th,
+    .mcp-table td {
+        text-align: left;
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    .mcp-table th {
+        background: var(--color-surface);
+        font-weight: 600;
+        color: var(--color-secondary);
+    }
+
+    .mcp-table td {
+        color: var(--color-text);
+    }
+
+/* Endpoint Table */
+.endpoint-method {
+    font-weight: 700;
+    color: var(--color-accent-teal);
+}
+
+/* Tool Cards */
+.tool-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+}
+
+    .tool-card h4 {
+        margin-top: 0;
+        margin-bottom: 0.75rem;
+        color: var(--color-secondary);
+    }
+
+.tool-name {
+    font-family: var(--font-mono);
+    color: var(--color-primary);
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+/* Parameter Tables */
+.param-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.75rem 0;
+    font-size: 0.85rem;
+}
+
+    .param-table th,
+    .param-table td {
+        text-align: left;
+        padding: 0.6rem;
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    .param-table th {
+        background: var(--color-surface);
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+
+/* Badges */
+.badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.badge-required {
+    background: rgba(229, 119, 30, 0.12);
+    color: var(--color-primary);
+}
+
+.badge-optional {
+    background: rgba(117, 200, 174, 0.15);
+    color: var(--color-accent-teal);
+}
+
+/* Note and Warning Boxes */
+.note-box {
+    background: rgba(255, 236, 180, 0.3);
+    border-left: 4px solid var(--color-accent-cream);
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+/* Auth Steps */
+.mcp-auth-steps {
+    padding-left: 1.5rem;
+    margin: 1rem 0;
+}
+
+    .mcp-auth-steps li {
+        padding: 0.35rem 0;
+        line-height: 1.6;
+        color: var(--color-text);
+    }
+
+/* Feature Grid (MCP Setup) */
+.feature-grid-mcp {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.25rem 0;
+}
+
+.feature-item-mcp {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+    .feature-item-mcp:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .feature-item-mcp h4 {
+        margin: 0 0 0.5rem 0;
+        color: var(--color-secondary);
+        font-size: 0.95rem;
+    }
+
+    .feature-item-mcp p {
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--color-text-light);
+    }
+
+/* Step Counter */
+.step-counter {
+    counter-reset: steps;
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0;
+}
+
+    .step-counter li {
+        counter-increment: steps;
+        padding: 0.75rem 0 0.75rem 3.5rem;
+        position: relative;
+        border-bottom: 1px solid var(--color-border);
+        line-height: 1.6;
+        color: var(--color-text);
+    }
+
+    .step-counter li::before {
+        content: counter(steps);
+        position: absolute;
+        left: 0;
+        top: 0.65rem;
+        width: 2.25rem;
+        height: 2.25rem;
+        background: var(--color-primary);
+        color: white;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 2.25rem;
+        font-weight: 700;
+        font-size: 0.9rem;
+    }
+
+/* Auth Info Box */
+.auth-info-box {
+    background: rgba(117, 200, 174, 0.1);
+    border-left: 4px solid var(--color-accent-teal);
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    border-radius: 0 6px 6px 0;
+    line-height: 1.7;
+    font-weight: 400;
+}
+
+/* Example Cards */
+.example-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+    .example-card h4 {
+        margin-top: 0;
+        color: var(--color-secondary);
+        font-size: 1.05rem;
+    }
+
+.example-prompt {
+    background: rgba(229, 119, 30, 0.06);
+    border-left: 4px solid var(--color-primary);
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 0;
+    font-style: italic;
+    border-radius: 0 6px 6px 0;
+    color: var(--color-text);
+}
+
+.example-screenshot {
+    margin: 1rem 0;
+    text-align: center;
+}
+
+    .example-screenshot img {
+        max-width: 100%;
+        border: 1px solid var(--color-border);
+        border-radius: 6px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    .example-screenshot .caption {
+        font-size: 0.85rem;
+        color: var(--color-text-light);
+        margin-top: 0.5rem;
+    }
+
+/* MCP Links Grid */
+.mcp-links-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin: 1rem 0;
+}
+
+    .mcp-links-grid a {
+        display: block;
+        padding: 0.75rem;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 6px;
+        text-decoration: none;
+        color: var(--color-primary);
+        font-weight: 500;
+        transition: background 0.2s ease;
+    }
+
+    .mcp-links-grid a:hover {
+        background: rgba(229, 119, 30, 0.06);
+    }
+
+/* Chat page is self-contained (does not use _Layout) — see chat.css */
+
+/* MCP Responsive */
+@media (max-width: 768px) {
+    .feature-grid-mcp {
+        grid-template-columns: 1fr;
+    }
+
+    .mcp-links-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .mcp-meta {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .mcp-hero h1 {
+        font-size: 1.5rem;
+    }
 }
 
 /* ============================================================
