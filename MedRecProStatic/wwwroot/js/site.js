@@ -98,7 +98,10 @@ function initCardInteractions() {
 }
 
 /**
- * Handle navbar scroll behavior (add shadow on scroll)
+ * Handle navbar scroll behavior
+ * - Adds shadow when scrolled past top
+ * - Hides navbar when scrolling down (past 100px)
+ * - Shows navbar when scrolling up (Inspinia-style)
  */
 function initNavbarScroll() {
     var navbar = document.querySelector('.navbar');
@@ -106,18 +109,32 @@ function initNavbarScroll() {
 
     var lastScrollY = 0;
     var ticking = false;
+    var scrollThreshold = 100;
 
     function updateNavbar() {
-        if (window.scrollY > 10) {
+        var currentScrollY = window.scrollY;
+
+        if (currentScrollY > 10) {
             navbar.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
         } else {
             navbar.style.boxShadow = '';
         }
+
+        if (currentScrollY > scrollThreshold) {
+            if (currentScrollY > lastScrollY) {
+                navbar.classList.add('navbar--hidden');
+            } else {
+                navbar.classList.remove('navbar--hidden');
+            }
+        } else {
+            navbar.classList.remove('navbar--hidden');
+        }
+
+        lastScrollY = currentScrollY;
         ticking = false;
     }
 
     window.addEventListener('scroll', function() {
-        lastScrollY = window.scrollY;
         if (!ticking) {
             window.requestAnimationFrame(updateNavbar);
             ticking = true;
@@ -181,7 +198,6 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
         // Initialize animations
         initScrollAnimations();
-        initTextShimmer();
     }
 
     // Initialize interactions (always)

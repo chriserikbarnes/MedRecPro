@@ -63,6 +63,21 @@
                     @Model.Hero.SecondaryCtaText
                 </a>
             </div>
+
+            @if (!string.IsNullOrEmpty(Model.Hero.HeroImage))
+            {
+                <div class="hero-illustration animate-on-scroll">
+                    <div class="browser-frame">
+                        <div class="browser-bar">
+                            <span class="browser-dot browser-dot--red"></span>
+                            <span class="browser-dot browser-dot--yellow"></span>
+                            <span class="browser-dot browser-dot--green"></span>
+                            <span class="browser-title">MedRecPro API Documentation</span>
+                        </div>
+                        <img src="@Model.Hero.HeroImage" alt="@(Model.Hero.HeroImageAlt ?? "MedRecPro")" loading="lazy" />
+                    </div>
+                </div>
+            }
         </div>
     </div>
 </section>
@@ -90,32 +105,59 @@
 }
 
 @* ============================================================
-   FEATURES SECTION
-   Card grid with colored backgrounds
+   FEATURE SHOWCASE SECTION
+   Alternating image+text rows with screenshots (Inspinia-inspired)
    ============================================================ *@
-<section class="features-section" id="features">
-    <div class="container">
-        <div class="section-header animate-on-scroll">
-            <h2 class="section-title">Everything You Need for SPL Management</h2>
-            <p class="section-subtitle">Built on FDA standards with modern developer experience</p>
-        </div>
-        <div class="features-grid">
-            @foreach (var feature in Model.Features!)
+@if (Model.FeatureShowcase != null && Model.FeatureShowcase.Any())
+{
+    <section class="feature-showcase-section" id="features">
+        <div class="container">
+            <div class="section-header animate-on-scroll">
+                <h2 class="section-title">Everything You Need for SPL Management</h2>
+                <p class="section-subtitle">Built on FDA standards with modern developer experience</p>
+            </div>
+            @for (int i = 0; i < Model.FeatureShowcase.Count; i++)
             {
-                <div class="feature-card feature-card--@feature.Color animate-on-scroll">
-                    <div class="feature-card-bg"></div>
-                    <div class="feature-card-content">
-                        <div class="feature-icon-wrapper">
-                            <span class="feature-icon">@feature.Icon</span>
-                        </div>
-                        <h3 class="feature-title">@feature.Title</h3>
-                        <p class="feature-description">@feature.Description</p>
+                var feature = Model.FeatureShowcase[i];
+                var isReversed = i % 2 == 1;
+                <div class="feature-showcase-row @(isReversed ? "feature-showcase-row--reversed" : "") animate-on-scroll">
+                    <div class="feature-showcase-image">
+                        <img src="@feature.Image" alt="@feature.ImageAlt" loading="lazy" />
+                    </div>
+                    <div class="feature-showcase-content">
+                        <h3 class="feature-showcase-title">@feature.Title</h3>
+                        <p class="feature-showcase-description">@feature.Description</p>
+                        @if (!string.IsNullOrEmpty(feature.Detail))
+                        {
+                            <p class="feature-showcase-detail">@feature.Detail</p>
+                        }
+                        @if (!string.IsNullOrEmpty(feature.CtaText))
+                        {
+                            <a href="@feature.CtaLink" class="feature-showcase-cta">
+                                @feature.CtaText
+                                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                    <path d="M5 12h14M12 5l7 7-7 7" />
+                                </svg>
+                            </a>
+                        }
+                        @if (feature.Stats != null && feature.Stats.Any())
+                        {
+                            <div class="feature-showcase-stats">
+                                @foreach (var stat in feature.Stats)
+                                {
+                                    <div class="mini-stat">
+                                        <span class="mini-stat-value">@stat.Value</span>
+                                        <span class="mini-stat-label">@stat.Label</span>
+                                    </div>
+                                }
+                            </div>
+                        }
                     </div>
                 </div>
             }
         </div>
-    </div>
-</section>
+    </section>
+}
 
 @* ============================================================
    HOW IT WORKS SECTION

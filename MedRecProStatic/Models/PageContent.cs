@@ -395,6 +395,19 @@ namespace MedRecPro.Static.Models
 
         /**************************************************************/
         /// <summary>
+        /// Feature showcase items displayed as alternating image+text rows.
+        /// </summary>
+        /// <remarks>
+        /// Each item pairs a screenshot with descriptive text and mini-stats,
+        /// creating visual rhythm inspired by Inspinia's landing page pattern.
+        /// Odd-indexed items display image on the right, even on the left.
+        /// </remarks>
+        /// <seealso cref="FeatureShowcaseItem"/>
+        [JsonPropertyName("featureShowcase")]
+        public List<FeatureShowcaseItem>? FeatureShowcase { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// How-it-works section with step-by-step process visualization.
         /// </summary>
         [JsonPropertyName("howItWorks")]
@@ -496,6 +509,24 @@ namespace MedRecPro.Static.Models
         /// </summary>
         [JsonPropertyName("secondaryCtaLink")]
         public string? SecondaryCtaLink { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Path to the hero illustration image displayed below the CTAs.
+        /// </summary>
+        /// <remarks>
+        /// Typically a screenshot wrapped in a browser-chrome frame.
+        /// Uses ASP.NET ~/ path format (e.g., "~/images/screenshots/Swagger-UI.PNG").
+        /// </remarks>
+        [JsonPropertyName("heroImage")]
+        public string? HeroImage { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Alt text for the hero illustration image.
+        /// </summary>
+        [JsonPropertyName("heroImageAlt")]
+        public string? HeroImageAlt { get; set; }
     }
 
     // ============================================================
@@ -582,6 +613,108 @@ namespace MedRecPro.Static.Models
         /// </remarks>
         [JsonPropertyName("color")]
         public string? Color { get; set; }
+    }
+
+    // ============================================================
+    // FEATURE SHOWCASE MODELS
+    // ============================================================
+
+    /**************************************************************/
+    /// <summary>
+    /// Feature showcase item displayed as an alternating image+text row.
+    /// </summary>
+    /// <remarks>
+    /// Pairs a product screenshot with descriptive content and mini-statistics.
+    /// Inspired by Inspinia's alternating feature rows pattern.
+    /// </remarks>
+    /// <seealso cref="MiniStat"/>
+    public class FeatureShowcaseItem
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Feature title/heading.
+        /// </summary>
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Primary description of the feature.
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Secondary detail text providing additional context.
+        /// </summary>
+        [JsonPropertyName("detail")]
+        public string? Detail { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Path to the feature screenshot image.
+        /// </summary>
+        /// <remarks>
+        /// Uses ASP.NET ~/ path format (e.g., "~/images/screenshots/MCP-Indication-Example.PNG").
+        /// </remarks>
+        [JsonPropertyName("image")]
+        public string? Image { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Alt text for the feature screenshot image.
+        /// </summary>
+        [JsonPropertyName("imageAlt")]
+        public string? ImageAlt { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional CTA button text (e.g., "Try It Now").
+        /// </summary>
+        [JsonPropertyName("ctaText")]
+        public string? CtaText { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional CTA button link URL.
+        /// </summary>
+        [JsonPropertyName("ctaLink")]
+        public string? CtaLink { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Mini-statistics displayed below the feature description.
+        /// </summary>
+        /// <seealso cref="MiniStat"/>
+        [JsonPropertyName("stats")]
+        public List<MiniStat>? Stats { get; set; }
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Mini-statistic displayed within a feature showcase row.
+    /// </summary>
+    /// <remarks>
+    /// Compact stat display with a value and label, used to reinforce
+    /// feature credibility with concrete numbers.
+    /// </remarks>
+    /// <seealso cref="FeatureShowcaseItem"/>
+    public class MiniStat
+    {
+        /**************************************************************/
+        /// <summary>
+        /// The statistic value (e.g., "20+", "OAuth 2.1").
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string? Value { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Label describing the statistic (e.g., "AI Skills", "Protocol").
+        /// </summary>
+        [JsonPropertyName("label")]
+        public string? Label { get; set; }
     }
 
     // ============================================================

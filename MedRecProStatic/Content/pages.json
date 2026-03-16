@@ -4,27 +4,29 @@
     "hero": {
       "eyebrow": "Open Source Pharmaceutical Data Management",
       "headline": "Structured Product Labeling Made Simple",
-      "subheadline": "The intelligent platform for managing FDA SPL documents with AI-powered analysis, HL7 compliance, and enterprise-grade security.",
+      "subheadline": "A 5-project .NET 8.0 platform for FDA drug label management with 40+ API endpoints, AI-powered natural language queries via Claude, and Model Context Protocol integration.",
       "ctaText": "Get Started",
       "ctaLink": "#index-how-it-works",
       "secondaryCtaText": "View API Docs",
-      "secondaryCtaLink": "/api/swagger/index.html"
+      "secondaryCtaLink": "/api/swagger/index.html",
+      "heroImage": "/images/screenshots/Swagger-UI.PNG",
+      "heroImageAlt": "MedRecPro Swagger API Documentation"
     },
     "stats": [
       {
-        "value": "HL7",
-        "label": "Standards Compliant",
-        "description": "FDA SPL Implementation Guide (Dec 2023)"
+        "value": "40+",
+        "label": "API Endpoints",
+        "description": "Search, CRUD, import, AI interpret, and navigation views"
       },
       {
-        "value": "REST",
-        "label": "API Architecture",
-        "description": "Full OpenAPI/Swagger documentation"
+        "value": "5",
+        "label": "Integrated Projects",
+        "description": "Static site, REST API, MCP server, console importer, shared library"
       },
       {
-        "value": "AI",
-        "label": "Powered Analysis",
-        "description": "Natural language queries via Claude"
+        "value": "20+",
+        "label": "AI Skills",
+        "description": "Indication discovery, dose conversion, pharmacologic class matching, and more"
       }
     ],
     "features": [
@@ -65,6 +67,50 @@
         "color": "teal"
       }
     ],
+    "featureShowcase": [
+      {
+        "title": "AI-Powered Drug Intelligence",
+        "description": "Ask natural language questions like 'Find drugs indicated for hypertension' and get structured, sourced responses using the request-interpret-execute-synthesize pattern.",
+        "detail": "Claude interprets your queries, maps them to the right API endpoints, executes them, and synthesizes the results into clear, actionable answers with full source attribution.",
+        "image": "/images/screenshots/MCP-Indication-Example.PNG",
+        "imageAlt": "MedRecPro AI indication search showing structured drug results",
+        "ctaText": "Try AI Chat",
+        "ctaLink": "/Home/Chat",
+        "stats": [
+          { "value": "20+", "label": "AI Skills" },
+          { "value": "4", "label": "AI Endpoints" },
+          { "value": "Claude", "label": "Powered" }
+        ]
+      },
+      {
+        "title": "MCP Protocol for Claude.ai",
+        "description": "Connect Claude desktop or Claude.ai directly to your pharmaceutical data through the Model Context Protocol with full OAuth 2.1 security.",
+        "detail": "Dynamic client registration, PKCE S256, automatic user provisioning, and JWT-based authentication. Claude discovers tools via RFC 9728/8414 metadata and calls them with structured parameters.",
+        "image": "/images/screenshots/MCP-Drug-Class-Tool-Response.PNG",
+        "imageAlt": "MedRecPro MCP tool response showing drug class data in Claude",
+        "ctaText": "Learn More",
+        "ctaLink": "/mcp/docs",
+        "stats": [
+          { "value": "OAuth 2.1", "label": "Security" },
+          { "value": "RFC 9728", "label": "Discovery" },
+          { "value": "Auto", "label": "Provisioning" }
+        ]
+      },
+      {
+        "title": "Complete Label Rendering",
+        "description": "18 RazorLight templates render SPL XML into structured HTML covering every section of an FDA drug label including ingredients, packaging, and clinical data.",
+        "detail": "Full HL7 compliance with the FDA SPL Implementation Guide (Dec 2023). Import labels from DailyMed ZIP files, normalize the data, and render human-readable documents from the database.",
+        "image": "/images/screenshots/MCP-Full-Label-Example.PNG",
+        "imageAlt": "MedRecPro rendered SPL drug label document",
+        "ctaText": "View API Docs",
+        "ctaLink": "/api/swagger/index.html",
+        "stats": [
+          { "value": "18", "label": "Templates" },
+          { "value": "HL7", "label": "Compliant" },
+          { "value": "Dec 2023", "label": "FDA SPL Guide" }
+        ]
+      }
+    ],
     "howItWorks": {
       "title": "How MedRecPro Works",
       "subtitle": "A modern approach to pharmaceutical labeling management",
@@ -72,7 +118,7 @@
         {
           "number": "01",
           "title": "Import SPL Data",
-          "description": "Upload ZIP files containing SPL XML documents from DailyMed. MedRecPro parses and normalizes the data according to FDA specifications.",
+          "description": "Upload ZIP files containing SPL XML documents from DailyMed. MedRecPro parses and normalizes the data.",
           "icon": "📥"
         },
         {
@@ -90,7 +136,7 @@
         {
           "number": "04",
           "title": "Export & Submit",
-          "description": "Generate valid SPL XML files from your database records. Export complete document packages ready for FDA submission.",
+          "description": "Generate valid SPL XML files from your database records.",
           "icon": "📤"
         }
       ]
@@ -101,37 +147,37 @@
       "cases": [
         {
           "title": "Search Drug Products",
-          "description": "Find products by ingredient, labeler, or NDC code",
+          "description": "Search by NDC code, ingredient, labeler, application number, or pharmacologic class across normalized FDA data",
           "color": "light-red",
           "icon": "💊"
         },
         {
           "title": "Analyze Formulations",
-          "description": "Explore active moieties and ingredient relationships",
+          "description": "Explore active moieties, UNII codes, ingredient relationships, and strength breakdowns across product hierarchies",
           "color": "light-yellow",
           "icon": "🧪"
         },
         {
           "title": "Track Packaging",
-          "description": "Navigate complex packaging hierarchies and NDC codes",
+          "description": "Navigate complex packaging hierarchies with NDC codes, marketing categories, and equivalence codes",
           "color": "light-blue",
           "icon": "📦"
         },
         {
-          "title": "Compare Documents",
-          "description": "Validate rendered output against source XML",
+          "title": "Orange Book Data",
+          "description": "Access FDA Orange Book patent, exclusivity, and therapeutic equivalence data across 7 normalized tables",
           "color": "light-green",
           "icon": "📊"
         },
         {
           "title": "Query with AI",
-          "description": "Ask questions in natural language, get structured data",
+          "description": "Natural language queries interpreted by Claude using the request-interpret-execute-synthesize pattern",
           "color": "light-purple",
           "icon": "💬"
         },
         {
-          "title": "Generate Reports",
-          "description": "Export SPL XML for regulatory submissions",
+          "title": "Generate Labels",
+          "description": "Render SPL XML from database records using 18 RazorLight templates for regulatory review and submission",
           "color": "light-teal",
           "icon": "📄"
         }
@@ -152,14 +198,29 @@
           "description": "Import SPL data from ZIP files with progress tracking"
         },
         {
+          "method": "POST",
+          "path": "/api/ai/interpret",
+          "description": "Map natural language queries to API endpoint calls"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai/synthesize",
+          "description": "Synthesize API results into human-readable responses"
+        },
+        {
           "method": "GET",
-          "path": "/api/ai/chat",
-          "description": "Natural language queries to the pharmaceutical database"
+          "path": "/api/label/indication/search",
+          "description": "Search indications across all drug labels"
         },
         {
           "method": "GET",
           "path": "/api/Label/original/{guid}",
           "description": "Generate valid SPL XML from database records"
+        },
+        {
+          "method": "GET",
+          "path": "/api/label/ingredient/advanced-search",
+          "description": "Advanced ingredient search with UNII and moiety filters"
         }
       ]
     },
