@@ -98,7 +98,7 @@
         "image": "/images/screenshots/MCP-Drug-Class-Tool-Response.PNG",
         "imageAlt": "MedRecPro MCP tool response showing drug class data in Claude",
         "ctaText": "Learn More",
-        "ctaLink": "/mcp/docs",
+        "ctaLink": "/docs/mcp",
         "stats": [
           { "value": "OAuth 2.1", "label": "Security" },
           { "value": "RFC 9728", "label": "Discovery" },
@@ -1463,7 +1463,7 @@
     "endpoints": [
       { "path": "/mcp", "method": "POST", "description": "MCP Streamable HTTP transport (JSON-RPC)" },
       { "path": "/mcp/health", "method": "GET", "description": "Health check (returns JSON status)" },
-      { "path": "/mcp/docs", "method": "GET", "description": "This documentation page" },
+      { "path": "/docs/mcp", "method": "GET", "description": "This documentation page (served by static site)" },
       { "path": "/mcp/.well-known/oauth-protected-resource", "method": "GET", "description": "Protected Resource Metadata (RFC 9728)" },
       { "path": "/mcp/.well-known/oauth-authorization-server", "method": "GET", "description": "Authorization Server Metadata (RFC 8414)" },
       { "path": "/mcp/oauth/authorize", "method": "GET", "description": "OAuth authorization endpoint" },
@@ -1731,7 +1731,7 @@
     "disclaimer": "All drug data is sourced from official Structured Product Labeling (SPL) documents. MedRecPro does not provide medical advice — it provides access to the same labeling information available on the NIH National Library of Medicine's DailyMed website.",
     "support": {
       "email": "support@medrecpro.com",
-      "docsUrl": "https://www.medrecpro.com/mcp/docs",
+      "docsUrl": "https://www.medrecpro.com/docs/mcp",
       "githubUrl": "https://github.com/chriserikbarnes/MedRecPro/issues"
     }
   }

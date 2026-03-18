@@ -94,7 +94,7 @@ namespace MedRecPro.Static.Controllers
         /// Content is loaded from the pages.json file.
         /// </remarks>
         /// <seealso cref="ContentService"/>
-        [Route("mcp/docs")]
+        [Route("docs/mcp")]
         public IActionResult McpDocs()
         {
             #region implementation
@@ -120,7 +120,7 @@ namespace MedRecPro.Static.Controllers
         /// examples with screenshots. Content is loaded from the pages.json file.
         /// </remarks>
         /// <seealso cref="ContentService"/>
-        [Route("mcp/getting-started")]
+        [Route("docs/mcp-getting-started")]
         public IActionResult McpSetup()
         {
             #region implementation
