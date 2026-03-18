@@ -2,7 +2,7 @@
 
 Static marketing, documentation, and AI chat site for MedRecPro - Pharmaceutical Labeling Management System. Also serves OAuth/MCP discovery metadata for the MedRecPro MCP Server.
 
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Runtime:** ASP.NET Core 8.0
 **Production URL:** https://www.medrecpro.com
 

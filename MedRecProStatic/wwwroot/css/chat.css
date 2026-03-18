@@ -184,12 +184,12 @@ html, body {
 }
 
 .btn-ghost {
-    background: transparent;
+    background: rgb(from var(--color-bg-tertiary) r g b / 0.3);
     color: var(--color-text-button);
 }
 
     .btn-ghost:hover {
-        background: var(--color-bg-tertiary);
+        background: rgb(from var(--color-bg-tertiary) r g b / 0.8);
         color: var(--color-text-button);
     }
 
@@ -1167,7 +1167,7 @@ html, body {
 /**************************************************************/
 
 .checkpoint-panel {
-    background: var(--color-bg-tertiary);
+    background: rgb(from var(--color-bg-tertiary) r g b / 0.075);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     padding: var(--space-md);
