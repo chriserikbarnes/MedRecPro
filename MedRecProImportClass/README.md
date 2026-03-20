@@ -11,6 +11,7 @@ This library was created to enable single-file publishing for the `MedRecProCons
 - **SPL XML Parsing**: Complete parsing infrastructure for FDA SPL documents
 - **FDA Orange Book Import**: Parses `products.txt`, `patent.txt`, and `exclusivity.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data, plus embedded patent use code definitions
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
+- **SPL Table Normalization**: 4-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 36-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product meta-analysis with classical ML — includes table reconstruction, 8 section-aware parsers, and automated validation
 - **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
@@ -56,7 +57,26 @@ MedRecProImportClass/
     │   ├── OrangeBookExclusivityParsingService.cs # Phase C: exclusivity.txt parser
     │   ├── OrangeBookPatentUseCodeParsingService.cs # Phase D: patent use code upsert
     │   └── ...                   # SPL section parsers
-    └── ParsingValidators/        # Validation services
+    ├── ParsingValidators/        # Validation services
+    └── TransformationServices/   # SPL Table Standardization pipeline
+        ├── TableCellContextService.cs          # Stage 1: source view assembly
+        ├── TableReconstructionService.cs       # Stage 2: table reconstruction
+        ├── ValueParser.cs                      # Stage 3: regex-based value decomposition
+        ├── PopulationDetector.cs               # Stage 3: population auto-detection
+        ├── BaseTableParser.cs                  # Stage 3: shared parser helpers
+        ├── PkTableParser.cs                    # Stage 3: pharmacokinetic tables
+        ├── SimpleArmTableParser.cs             # Stage 3: single-header AE/efficacy
+        ├── MultilevelAeTableParser.cs          # Stage 3: two-row header AE tables
+        ├── AeWithSocTableParser.cs             # Stage 3: AE with SOC dividers
+        ├── EfficacyMultilevelTableParser.cs    # Stage 3: two-row header efficacy
+        ├── BmdTableParser.cs                   # Stage 3: bone mineral density
+        ├── TissueRatioTableParser.cs           # Stage 3: tissue-to-plasma ratio
+        ├── DosingTableParser.cs                # Stage 3: dosing parameter grids
+        ├── TableParserRouter.cs                # Stage 3: section code → parser routing
+        ├── TableParsingOrchestrator.cs         # Stage 3: batch loop + DB writes
+        ├── RowValidationService.cs             # Stage 4: per-observation checks
+        ├── TableValidationService.cs           # Stage 4: cross-row checks
+        └── BatchValidationService.cs           # Stage 4: aggregate reporting
 ```
 
 ## Dependencies
@@ -191,6 +211,102 @@ If the FDA publishes new patent use codes, update the embedded resource as follo
 
 Phase D is idempotent — existing records with changed definitions are updated, new records are inserted, and unchanged records are skipped.
 
+## SPL Table Standardization Pipeline
+
+A 4-stage pipeline that transforms heterogeneous FDA drug label table data into a uniform 36-column analytical schema for cross-product meta-analysis with classical ML. The full corpus is 250K+ labels; the pipeline supports batch processing by TextTableID range.
+
+### Architecture
+
+```
+Stage 1: Source View Assembly
+  TableCellContextService → 26-column TableCellContext DTO
+        │
+Stage 2: Table Reconstruction
+  TableReconstructionService → ReconstructedTable (classified rows, resolved spans, multi-level headers)
+        │
+Stage 3: Section-Aware Parsing
+  TableParserRouter → ITableParser (8 parsers) → List<ParsedObservation>
+  TableParsingOrchestrator → bulk write to tmp_FlattenedStandardizedTable
+        │
+Stage 4: Validation
+  RowValidationService + TableValidationService + BatchValidationService → BatchValidationReport
+```
+
+### Stage 1: Source View Assembly
+
+`TableCellContextService` joins cell-level data (TextTableCell → TextTableRow → TextTable → SectionTextContent) with section context (vw_SectionNavigation) and document context (Document) into a flat 26-column `TableCellContext` DTO using EF Core LINQ. Supports filtering by DocumentGUID, TextTableID, ID range, and MaxRows.
+
+### Stage 2: Table Reconstruction
+
+`TableReconstructionService` takes flat `TableCellContext` rows and reconstructs logical table structures:
+
+- **Cell processing**: Extracts footnote markers from `<sup>` tags, extracts `styleCode` attributes, strips HTML
+- **Row classification**: ExplicitHeader, InferredHeader, ContinuationHeader, SocDivider, DataBody, Footer
+- **Span resolution**: 2D occupancy grid resolves ColSpan/RowSpan into absolute column positions
+- **Header resolution**: Builds multi-level header paths (e.g., "Treatment > Drug A") from classified header rows
+- **Footnote extraction**: Parses footer rows into marker → text dictionary
+
+### Stage 3: Section-Aware Parsing
+
+`TableParserRouter` maps `ParentSectionCode` to a `TableCategory` and selects the most specific parser via priority ordering. `TableParsingOrchestrator` runs the batch loop: reconstruct → route → parse → write to `tmp_FlattenedStandardizedTable`.
+
+#### Table Categories
+
+| Category | Description |
+|----------|-------------|
+| `PK` | Pharmacokinetic parameter tables |
+| `ADVERSE_EVENT` | Adverse reaction incidence tables |
+| `EFFICACY` | Clinical study efficacy/outcomes tables |
+| `DOSING` | Dosage and administration tables |
+| `BMD` | Bone mineral density / timepoint tables |
+| `TISSUE_DISTRIBUTION` | Tissue-to-plasma ratio tables |
+| `DRUG_INTERACTION` | Drug interaction tables (stub) |
+| `OTHER` | Unclassified but parseable tables |
+| `SKIP` | Tables to exclude (patient info, NDC, formulas) |
+
+#### Parsers
+
+| Parser | Category | Structural Trigger |
+|--------|----------|--------------------|
+| `PkTableParser` | PK | Columns are PK parameters, rows are dose regimens |
+| `SimpleArmTableParser` | AE / EFFICACY | Single-header with treatment arm columns |
+| `MultilevelAeTableParser` | AE | Two-row header (colspan study contexts + arm sub-headers) |
+| `AeWithSocTableParser` | AE | Single-header with SOC divider rows in body |
+| `EfficacyMultilevelTableParser` | EFFICACY | Two-row header with stat columns (ARR, RR, P-value) |
+| `BmdTableParser` | BMD | Columns are timepoints (Week/Month/Year) |
+| `TissueRatioTableParser` | TISSUE_DISTRIBUTION | Two-column tissue/ratio tables |
+| `DosingTableParser` | DOSING | Dosing parameter grid tables |
+
+#### Value Decomposition
+
+`ValueParser` applies 13 regex patterns in priority order to decompose cell text into structured components: PrimaryValue, SecondaryValue, CI bounds, P-value, unit, and confidence score. Includes PCT_CHECK validation when arm sample size is available.
+
+#### Population Detection
+
+`PopulationDetector` auto-detects study population from Caption/SectionTitle using regex extraction and a keyword dictionary, with Levenshtein-based fuzzy cross-validation between sources.
+
+### Stage 4: Validation
+
+Three validation services run post-parse:
+
+| Service | Scope | Key Checks |
+|---------|-------|------------|
+| `RowValidationService` | Per-observation | Required fields by category, value type appropriateness, bound consistency, low confidence |
+| `TableValidationService` | Per-table | Duplicate observations, arm coverage gaps, count reasonableness |
+| `BatchValidationService` | Cross-table | Aggregate counts, confidence distribution, cross-version concordance (>50% row count divergence) |
+
+Validation results are returned as in-memory DTOs (`BatchValidationReport`) and logged via ILogger. The orchestrator's `ProcessAllWithValidationAsync` integrates validation into the batch pipeline.
+
+### Output Schema
+
+`tmp_FlattenedStandardizedTable` — 36 columns organized into:
+
+- **Provenance (8)**: DocumentGUID, LabelerName, ProductTitle, VersionNumber, TextTableID, Caption, SourceRowSeq, SourceCellSeq
+- **Classification (4)**: TableCategory, ParentSectionCode, ParentSectionTitle, SectionTitle
+- **Observation Context (9)**: ParameterName, ParameterCategory, ParameterSubtype, TreatmentArm, ArmN, StudyContext, DoseRegimen, Population, Timepoint
+- **Decomposed Values (10)**: RawValue, PrimaryValue, PrimaryValueType, SecondaryValue, SecondaryValueType, LowerBound, UpperBound, BoundType, PValue, Unit
+- **Validation (5)**: ParseConfidence, ParseRule, FootnoteMarkers, FootnoteText, ValidationFlags
+
 ## Relationship to MedRecPro
 
 This library contains **copies** of files from the main MedRecPro project. The source MedRecPro project remains unchanged and can continue to function independently. Key differences:
@@ -210,6 +326,7 @@ This library contains **copies** of files from the main MedRecPro project. The s
 - **No DTO Query Support**: The `GetCompleteLabelsAsync` methods throw `NotSupportedException`. Use the full MedRecPro project for DTO-based queries.
 - **No Rendering**: SPL rendering services are not included. This library is for import only.
 - **Web Context**: Some utility methods that depend on `HttpContext` return empty values when called outside a web context.
+- **Table Normalization Corpus**: The SPL Table Normalization pipeline is designed for the full 250K+ label corpus and requires batch processing by TextTableID range for memory management.
 
 ## Building
 
