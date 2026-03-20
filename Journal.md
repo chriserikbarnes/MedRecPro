@@ -812,3 +812,27 @@ Tests:
 Build: 0 errors. Tests: 36/36 passed.
 
 ---
+
+### 2026-03-20 2:02 PM EST — Stage 3: Section-Aware Parsing (SPL Table Normalization)
+
+Implemented the full Stage 3 parsing pipeline for SPL table normalization. This stage takes Stage 2's `ReconstructedTable` output, routes each table to a type-specific parser based on `ParentSectionCode` (LOINC), and decomposes cell values into structured 36-column observations written to `tmp_FlattenedNormalizedTable`.
+
+**Files created (22 new, 3 modified across 2 sessions):**
+- **Models (4):** `TableCategory.cs` (enum), `ParsedValue.cs`, `ArmDefinition.cs`, `ParsedObservation.cs` — pipeline DTOs
+- **Entity (2):** `LabelView.FlattenedNormalizedTable` nested class added to both `MedRecPro\Models\LabelView.cs` and `MedRecProImportClass\Models\LabelView.cs`
+- **API DTO (1):** `FlattenedNormalizedTableDto.cs` in MedRecPro\Models\
+- **Services (16):** `ValueParser.cs` (13 regex patterns), `PopulationDetector.cs` (Levenshtein fuzzy validation), `ITableParser.cs`, `BaseTableParser.cs`, 8 concrete parsers (PK, SimpleArm, MultilevelAE, AEWithSOC, EfficacyMultilevel, BMD, TissueRatio, Dosing), `ITableParserRouter.cs`, `TableParserRouter.cs`, `ITableParsingOrchestrator.cs`, `TableParsingOrchestrator.cs`
+- **SQL (1):** `Create_tmp_FlattenedNormalizedTable.sql` — idempotent DDL with 5 indexes
+- **Tests (4):** `ValueParserTests.cs` (35+ tests), `PopulationDetectorTests.cs`, `TableParserTests.cs` (all 8 parsers + router), `TableParsingOrchestratorTests.cs`
+
+**Key decisions:**
+- DI registration goes in `MedRecProConsole\Services\ImportService.cs` (not MedRecPro\Program.cs) — MedRecPro has no ProjectReference to MedRecProImportClass; the console app is the correct composition root for batch processing
+- 8 parsers with priority-based selection within categories (e.g., MultilevelAE priority 10 > AEWithSOC priority 20 > SimpleArm priority 30)
+- ValueParser uses strict priority-ordered regex chain (first match wins) — discovered that `n_pct` pattern legitimately matches "125(32%)" before `value_cv`
+- Footnote marker regex split into two alternatives: special symbols (†‡§¶#*) always match; letters [a-g] only match after non-letter (prevents stripping trailing 'e' from "Headache")
+- Type promotion is parser-level (bare Numeric → Percentage in AE, → Mean in PK, → MeanPercentChange in BMD, → Ratio in Tissue)
+- Batch processing via TextTableID range for 250K+ label corpus
+
+Build: 0 errors across MedRecPro, MedRecProConsole, MedRecProTest. Tests: 77/77 passed.
+
+---

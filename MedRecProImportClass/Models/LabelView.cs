@@ -2731,5 +2731,175 @@ namespace MedRecProImportClass.Models
         }
 
         #endregion Cross-Reference and Discovery Views
+
+        #region SPL Table Normalization Views
+
+        /**************************************************************/
+        /// <summary>
+        /// Entity for tmp_FlattenedStandardizedTable — Stage 3 output of the SPL Table
+        /// Normalization pipeline. Each row represents one atomic observation extracted
+        /// from a parsed SPL table cell.
+        /// </summary>
+        /// <remarks>
+        /// Pipeline: Stage 2 (ReconstructedTable) → Parser → ParsedObservation →
+        /// Orchestrator → **tmp_FlattenedStandardizedTable**
+        ///
+        /// Keyless entity — uses nonclustered indexes. Registered via reflection
+        /// in ApplicationDbContext with .HasNoKey().ToView().
+        /// </remarks>
+        /// <seealso cref="ParsedObservation"/>
+        [System.ComponentModel.DataAnnotations.Schema.Table("tmp_FlattenedStandardizedTable")]
+        public class FlattenedStandardizedTable
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>Source SPL document identifier.</summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Manufacturer name.</summary>
+            public string? LabelerName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Drug product name (HTML stripped).</summary>
+            public string? ProductTitle { get; set; }
+
+            /**************************************************************/
+            /// <summary>Label version number.</summary>
+            public int? VersionNumber { get; set; }
+
+            /**************************************************************/
+            /// <summary>FK to source TextTable.</summary>
+            public int? TextTableID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Table caption text.</summary>
+            public string? Caption { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source row sequence number.</summary>
+            public int? SourceRowSeq { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source cell sequence number.</summary>
+            public int? SourceCellSeq { get; set; }
+
+            /**************************************************************/
+            /// <summary>Table category (PK, ADVERSE_EVENT, EFFICACY, etc.).</summary>
+            public string? TableCategory { get; set; }
+
+            /**************************************************************/
+            /// <summary>LOINC parent section code.</summary>
+            public string? ParentSectionCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>Parent section title.</summary>
+            public string? ParentSectionTitle { get; set; }
+
+            /**************************************************************/
+            /// <summary>Section title.</summary>
+            public string? SectionTitle { get; set; }
+
+            /**************************************************************/
+            /// <summary>Parameter name (what was measured).</summary>
+            public string? ParameterName { get; set; }
+
+            /**************************************************************/
+            /// <summary>SOC/parameter category.</summary>
+            public string? ParameterCategory { get; set; }
+
+            /**************************************************************/
+            /// <summary>Parameter subtype.</summary>
+            public string? ParameterSubtype { get; set; }
+
+            /**************************************************************/
+            /// <summary>Treatment arm name.</summary>
+            public string? TreatmentArm { get; set; }
+
+            /**************************************************************/
+            /// <summary>Arm sample size.</summary>
+            public int? ArmN { get; set; }
+
+            /**************************************************************/
+            /// <summary>Study context from colspan grouping.</summary>
+            public string? StudyContext { get; set; }
+
+            /**************************************************************/
+            /// <summary>Dose regimen for PK/dosing tables.</summary>
+            public string? DoseRegimen { get; set; }
+
+            /**************************************************************/
+            /// <summary>Auto-detected population.</summary>
+            public string? Population { get; set; }
+
+            /**************************************************************/
+            /// <summary>Timepoint for longitudinal tables.</summary>
+            public string? Timepoint { get; set; }
+
+            /**************************************************************/
+            /// <summary>Original cell text.</summary>
+            public string? RawValue { get; set; }
+
+            /**************************************************************/
+            /// <summary>Main numeric value.</summary>
+            public double? PrimaryValue { get; set; }
+
+            /**************************************************************/
+            /// <summary>What PrimaryValue represents.</summary>
+            public string? PrimaryValueType { get; set; }
+
+            /**************************************************************/
+            /// <summary>Companion numeric value.</summary>
+            public double? SecondaryValue { get; set; }
+
+            /**************************************************************/
+            /// <summary>What SecondaryValue represents.</summary>
+            public string? SecondaryValueType { get; set; }
+
+            /**************************************************************/
+            /// <summary>Lower bound of CI or range.</summary>
+            public double? LowerBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Upper bound of CI or range.</summary>
+            public double? UpperBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Bound type (95CI, 90CI, Range, IQR).</summary>
+            public string? BoundType { get; set; }
+
+            /**************************************************************/
+            /// <summary>P-value when present.</summary>
+            public double? PValue { get; set; }
+
+            /**************************************************************/
+            /// <summary>Unit of measurement.</summary>
+            public string? Unit { get; set; }
+
+            /**************************************************************/
+            /// <summary>Parse confidence score 0.0–1.0.</summary>
+            public double? ParseConfidence { get; set; }
+
+            /**************************************************************/
+            /// <summary>Which regex pattern matched.</summary>
+            public string? ParseRule { get; set; }
+
+            /**************************************************************/
+            /// <summary>Footnote markers from sup tags.</summary>
+            public string? FootnoteMarkers { get; set; }
+
+            /**************************************************************/
+            /// <summary>Full footnote text, semicolon-delimited.</summary>
+            public string? FootnoteText { get; set; }
+
+            /**************************************************************/
+            /// <summary>Automated validation check results.</summary>
+            public string? ValidationFlags { get; set; }
+
+            #endregion properties
+        }
+
+        #endregion SPL Table Normalization Views
     }
 }

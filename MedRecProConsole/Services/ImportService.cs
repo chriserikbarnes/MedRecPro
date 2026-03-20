@@ -3,6 +3,7 @@ using MedRecProImportClass.DataAccess;
 using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service;
+using MedRecProImportClass.Service.TransformationServices;
 using MedRecProConsole.Helpers;
 using MedRecProConsole.Models;
 using Microsoft.EntityFrameworkCore;
@@ -936,6 +937,20 @@ namespace MedRecProConsole.Services
             services.AddScoped<SplDataService>();
             services.AddScoped<SplXmlParser>();
             services.AddScoped<SplImportService>();
+
+            // Stage 3: SPL Table Normalization — Section-Aware Parsing
+            services.AddScoped<ITableCellContextService, TableCellContextService>();
+            services.AddScoped<ITableReconstructionService, TableReconstructionService>();
+            services.AddScoped<ITableParser, PkTableParser>();
+            services.AddScoped<ITableParser, SimpleArmTableParser>();
+            services.AddScoped<ITableParser, MultilevelAeTableParser>();
+            services.AddScoped<ITableParser, AeWithSocTableParser>();
+            services.AddScoped<ITableParser, EfficacyMultilevelTableParser>();
+            services.AddScoped<ITableParser, BmdTableParser>();
+            services.AddScoped<ITableParser, TissueRatioTableParser>();
+            services.AddScoped<ITableParser, DosingTableParser>();
+            services.AddScoped<ITableParserRouter, TableParserRouter>();
+            services.AddScoped<ITableParsingOrchestrator, TableParsingOrchestrator>();
 
             return services.BuildServiceProvider();
 

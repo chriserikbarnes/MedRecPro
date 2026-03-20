@@ -1,0 +1,559 @@
+using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace MedRecPro.Service.Test
+{
+    /**************************************************************/
+    /// <summary>
+    /// Unit tests for <see cref="ValueParser"/> (Stage 3 of the SPL Table Normalization pipeline).
+    /// </summary>
+    /// <remarks>
+    /// Tests cover all 13 regex patterns in priority order, arm header parsing,
+    /// parameter name cleaning, and PCT_CHECK validation logic.
+    ///
+    /// No database or mocking needed — ValueParser is a static utility operating on strings.
+    /// Internal helpers are tested directly via InternalsVisibleTo.
+    /// </remarks>
+    /// <seealso cref="ValueParser"/>
+    /// <seealso cref="ParsedValue"/>
+    /// <seealso cref="ArmDefinition"/>
+    [TestClass]
+    public class ValueParserTests
+    {
+        #region Empty / NA Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Null input returns IsExcluded with empty_or_na rule.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NullInput_ReturnsExcluded()
+        {
+            var result = ValueParser.Parse(null);
+            Assert.IsTrue(result.IsExcluded);
+            Assert.AreEqual("empty_or_na", result.ParseRule);
+            Assert.AreEqual(0.8, result.ParseConfidence);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Empty string returns IsExcluded.
+        /// </summary>
+        [TestMethod]
+        public void Parse_EmptyString_ReturnsExcluded()
+        {
+            var result = ValueParser.Parse("");
+            Assert.IsTrue(result.IsExcluded);
+            Assert.AreEqual("empty_or_na", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Whitespace-only returns IsExcluded.
+        /// </summary>
+        [TestMethod]
+        public void Parse_WhitespaceOnly_ReturnsExcluded()
+        {
+            var result = ValueParser.Parse("   ");
+            Assert.IsTrue(result.IsExcluded);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "NA" returns IsExcluded.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NA_ReturnsExcluded()
+        {
+            var result = ValueParser.Parse("NA");
+            Assert.IsTrue(result.IsExcluded);
+            Assert.AreEqual("empty_or_na", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "N/A" returns IsExcluded.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NSlashA_ReturnsExcluded()
+        {
+            var result = ValueParser.Parse("N/A");
+            Assert.IsTrue(result.IsExcluded);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dash "--" returns IsExcluded.
+        /// </summary>
+        [TestMethod]
+        public void Parse_DoubleDash_ReturnsExcluded()
+        {
+            var result = ValueParser.Parse("--");
+            Assert.IsTrue(result.IsExcluded);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Em dash "—" returns IsExcluded.
+        /// </summary>
+        [TestMethod]
+        public void Parse_EmDash_ReturnsExcluded()
+        {
+            var result = ValueParser.Parse("—");
+            Assert.IsTrue(result.IsExcluded);
+        }
+
+        #endregion Empty / NA Tests
+
+        #region Coded Exclusion Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Single uppercase letter "A" returns CodedExclusion.
+        /// </summary>
+        [TestMethod]
+        public void Parse_SingleUpperLetter_ReturnsCodedExclusion()
+        {
+            var result = ValueParser.Parse("A");
+            Assert.AreEqual("CodedExclusion", result.PrimaryValueType);
+            Assert.AreEqual("A", result.TextValue);
+            Assert.IsTrue(result.IsExcluded);
+            Assert.AreEqual(1.0, result.ParseConfidence);
+            Assert.AreEqual("letter_code", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Single letter "B" returns CodedExclusion.
+        /// </summary>
+        [TestMethod]
+        public void Parse_SingleUpperLetterB_ReturnsCodedExclusion()
+        {
+            var result = ValueParser.Parse("B");
+            Assert.AreEqual("CodedExclusion", result.PrimaryValueType);
+            Assert.AreEqual("B", result.TextValue);
+        }
+
+        #endregion Coded Exclusion Tests
+
+        #region Fraction Percent Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "239/347 (69%)" returns Percentage with count and PCT_CHECK.
+        /// </summary>
+        [TestMethod]
+        public void Parse_FractionPercent_ReturnsPercentageWithCount()
+        {
+            var result = ValueParser.Parse("239/347 (69%)");
+            Assert.AreEqual(69.0, result.PrimaryValue);
+            Assert.AreEqual("Percentage", result.PrimaryValueType);
+            Assert.AreEqual(239.0, result.SecondaryValue);
+            Assert.AreEqual("Count", result.SecondaryValueType);
+            Assert.AreEqual("%", result.Unit);
+            Assert.AreEqual(1.0, result.ParseConfidence);
+            Assert.AreEqual("frac_pct", result.ParseRule);
+            Assert.IsNotNull(result.ValidationFlags);
+            Assert.IsTrue(result.ValidationFlags!.StartsWith("PCT_CHECK:"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "15/188(8.0%)" without space returns correct parse.
+        /// </summary>
+        [TestMethod]
+        public void Parse_FractionPercentNoSpace_ReturnsCorrect()
+        {
+            var result = ValueParser.Parse("15/188(8.0%)");
+            Assert.AreEqual(8.0, result.PrimaryValue);
+            Assert.AreEqual("Percentage", result.PrimaryValueType);
+            Assert.AreEqual(15.0, result.SecondaryValue);
+        }
+
+        #endregion Fraction Percent Tests
+
+        #region N Percent Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "33 (17.6)" returns Percentage=17.6 with Count=33.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NPercent_ReturnsPercentageWithCount()
+        {
+            var result = ValueParser.Parse("33 (17.6)");
+            Assert.AreEqual(17.6, result.PrimaryValue);
+            Assert.AreEqual("Percentage", result.PrimaryValueType);
+            Assert.AreEqual(33.0, result.SecondaryValue);
+            Assert.AreEqual("Count", result.SecondaryValueType);
+            Assert.AreEqual("%", result.Unit);
+            Assert.AreEqual("n_pct", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "15 (8.0%)" with % sign returns correct parse.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NPercentWithSign_ReturnsCorrect()
+        {
+            var result = ValueParser.Parse("15 (8.0%)");
+            Assert.AreEqual(8.0, result.PrimaryValue);
+            Assert.AreEqual(15.0, result.SecondaryValue);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// n(%) with armN performs PCT_CHECK validation — PASS case.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NPercent_WithArmN_PassesPctCheck()
+        {
+            // 33/188*100 = 17.55%, reported 17.6% — within 1.5pp
+            var result = ValueParser.Parse("33 (17.6)", armN: 188);
+            Assert.IsNotNull(result.ValidationFlags);
+            Assert.IsTrue(result.ValidationFlags!.Contains("PCT_CHECK:PASS"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// n(%) with mismatched armN performs PCT_CHECK validation — WARN case.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NPercent_WithWrongArmN_WarnsPctCheck()
+        {
+            // 33/50*100 = 66%, reported 17.6% — way off
+            var result = ValueParser.Parse("33 (17.6)", armN: 50);
+            Assert.IsNotNull(result.ValidationFlags);
+            Assert.IsTrue(result.ValidationFlags!.Contains("PCT_CHECK:WARN"));
+        }
+
+        #endregion N Percent Tests
+
+        #region RR with CI Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "55%(29%, 71%)" returns RelativeRiskReduction with CI bounds.
+        /// </summary>
+        [TestMethod]
+        public void Parse_RRWithCI_ReturnsRelativeRiskReduction()
+        {
+            var result = ValueParser.Parse("55%(29%, 71%)");
+            Assert.AreEqual(55.0, result.PrimaryValue);
+            Assert.AreEqual("RelativeRiskReduction", result.PrimaryValueType);
+            Assert.AreEqual(29.0, result.LowerBound);
+            Assert.AreEqual(71.0, result.UpperBound);
+            Assert.AreEqual("95CI", result.BoundType);
+            Assert.AreEqual("rr_ci", result.ParseRule);
+        }
+
+        #endregion RR with CI Tests
+
+        #region Diff with CI Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "-4.4(-12.6, 3.8)" returns RiskDifference with CI bounds.
+        /// </summary>
+        [TestMethod]
+        public void Parse_DiffWithCI_ReturnsRiskDifference()
+        {
+            var result = ValueParser.Parse("-4.4(-12.6, 3.8)");
+            Assert.AreEqual(-4.4, result.PrimaryValue);
+            Assert.AreEqual("RiskDifference", result.PrimaryValueType);
+            Assert.AreEqual(-12.6, result.LowerBound);
+            Assert.AreEqual(3.8, result.UpperBound);
+            Assert.AreEqual("95CI", result.BoundType);
+            Assert.AreEqual("diff_ci", result.ParseRule);
+        }
+
+        #endregion Diff with CI Tests
+
+        #region Value CV Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "0.29 (35%)" returns Mean with CV_Percent.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCV_ReturnsMeanWithCV()
+        {
+            var result = ValueParser.Parse("0.29 (35%)");
+            Assert.AreEqual(0.29, result.PrimaryValue);
+            Assert.AreEqual("Mean", result.PrimaryValueType);
+            Assert.AreEqual(35.0, result.SecondaryValue);
+            Assert.AreEqual("CV_Percent", result.SecondaryValueType);
+            Assert.AreEqual("value_cv", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "125(32%)" without space matches n_pct first (pattern priority).
+        /// Value(CV%) requires a decimal in primary or no % on inner: "0.29 (35%)" is value_cv.
+        /// "125(32%)" is ambiguous — n_pct wins by priority order.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCVNoSpace_MatchesNPctByPriority()
+        {
+            var result = ValueParser.Parse("125(32%)");
+            Assert.AreEqual(32.0, result.PrimaryValue);
+            Assert.AreEqual(125.0, result.SecondaryValue);
+            Assert.AreEqual("n_pct", result.ParseRule);
+        }
+
+        #endregion Value CV Tests
+
+        #region Range Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "10.7 to 273" returns Range bounds.
+        /// </summary>
+        [TestMethod]
+        public void Parse_Range_ReturnsBounds()
+        {
+            var result = ValueParser.Parse("10.7 to 273");
+            Assert.AreEqual(10.7, result.LowerBound);
+            Assert.AreEqual(273.0, result.UpperBound);
+            Assert.AreEqual("Range", result.BoundType);
+            Assert.AreEqual(0.9, result.ParseConfidence);
+            Assert.AreEqual("range_to", result.ParseRule);
+        }
+
+        #endregion Range Tests
+
+        #region Standalone Percent Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "8.5%" returns Percentage.
+        /// </summary>
+        [TestMethod]
+        public void Parse_StandalonePercent_ReturnsPercentage()
+        {
+            var result = ValueParser.Parse("8.5%");
+            Assert.AreEqual(8.5, result.PrimaryValue);
+            Assert.AreEqual("Percentage", result.PrimaryValueType);
+            Assert.AreEqual("%", result.Unit);
+            Assert.AreEqual("percentage", result.ParseRule);
+        }
+
+        #endregion Standalone Percent Tests
+
+        #region N Equals Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "n=1401" returns SampleSize.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NEquals_ReturnsSampleSize()
+        {
+            var result = ValueParser.Parse("n=1401");
+            Assert.AreEqual(1401.0, result.PrimaryValue);
+            Assert.AreEqual("SampleSize", result.PrimaryValueType);
+            Assert.AreEqual("n_equals", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "N=188" uppercase returns SampleSize.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NEqualsUppercase_ReturnsSampleSize()
+        {
+            var result = ValueParser.Parse("N=188");
+            Assert.AreEqual(188.0, result.PrimaryValue);
+            Assert.AreEqual("SampleSize", result.PrimaryValueType);
+        }
+
+        #endregion N Equals Tests
+
+        #region P-Value Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "p&lt;0.05" returns PValue with qualifier.
+        /// </summary>
+        [TestMethod]
+        public void Parse_PValueLessThan_ReturnsPValue()
+        {
+            var result = ValueParser.Parse("p<0.05");
+            Assert.AreEqual(0.05, result.PrimaryValue);
+            Assert.AreEqual("PValue", result.PrimaryValueType);
+            Assert.AreEqual(0.05, result.PValue);
+            Assert.AreEqual("<", result.PValueQualifier);
+            Assert.AreEqual("pvalue", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "P=0.001" returns PValue with equals qualifier.
+        /// </summary>
+        [TestMethod]
+        public void Parse_PValueEquals_ReturnsPValue()
+        {
+            var result = ValueParser.Parse("P=0.001");
+            Assert.AreEqual(0.001, result.PrimaryValue);
+            Assert.AreEqual("=", result.PValueQualifier);
+        }
+
+        #endregion P-Value Tests
+
+        #region Plain Number Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "12.5" returns Numeric.
+        /// </summary>
+        [TestMethod]
+        public void Parse_PlainNumber_ReturnsNumeric()
+        {
+            var result = ValueParser.Parse("12.5");
+            Assert.AreEqual(12.5, result.PrimaryValue);
+            Assert.AreEqual("Numeric", result.PrimaryValueType);
+            Assert.AreEqual(0.9, result.ParseConfidence);
+            Assert.AreEqual("plain_number", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Negative number "-3.2" returns Numeric.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NegativeNumber_ReturnsNumeric()
+        {
+            var result = ValueParser.Parse("-3.2");
+            Assert.AreEqual(-3.2, result.PrimaryValue);
+            Assert.AreEqual("Numeric", result.PrimaryValueType);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Number with commas "1,234" returns Numeric.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NumberWithCommas_ReturnsNumeric()
+        {
+            var result = ValueParser.Parse("1,234");
+            Assert.AreEqual(1234.0, result.PrimaryValue);
+            Assert.AreEqual("Numeric", result.PrimaryValueType);
+        }
+
+        #endregion Plain Number Tests
+
+        #region Text Fallback Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "Diarrhea" returns Text type at low confidence.
+        /// </summary>
+        [TestMethod]
+        public void Parse_TextContent_ReturnsText()
+        {
+            var result = ValueParser.Parse("Diarrhea");
+            Assert.AreEqual("Text", result.PrimaryValueType);
+            Assert.AreEqual("Diarrhea", result.TextValue);
+            Assert.AreEqual(0.5, result.ParseConfidence);
+            Assert.AreEqual("text_descriptive", result.ParseRule);
+        }
+
+        #endregion Text Fallback Tests
+
+        #region Arm Header Parsing Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Standard arm header "EVISTA(N=2557)n(%)" parses correctly.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_StandardFormat_ReturnsArmDefinition()
+        {
+            var arm = ValueParser.ParseArmHeader("EVISTA(N=2557)n(%)");
+            Assert.IsNotNull(arm);
+            Assert.AreEqual("EVISTA", arm!.Name);
+            Assert.AreEqual(2557, arm.SampleSize);
+            Assert.AreEqual("n(%)", arm.FormatHint);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Arm header with spaces "Drug A (N=188) %" parses correctly.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_WithSpaces_ReturnsArmDefinition()
+        {
+            var arm = ValueParser.ParseArmHeader("Drug A (N=188) %");
+            Assert.IsNotNull(arm);
+            Assert.AreEqual("Drug A", arm!.Name);
+            Assert.AreEqual(188, arm.SampleSize);
+            Assert.AreEqual("%", arm.FormatHint);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Non-arm header "Adverse Reaction" returns null.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_NoPattern_ReturnsNull()
+        {
+            var arm = ValueParser.ParseArmHeader("Adverse Reaction");
+            Assert.IsNull(arm);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Null input returns null.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_NullInput_ReturnsNull()
+        {
+            var arm = ValueParser.ParseArmHeader(null);
+            Assert.IsNull(arm);
+        }
+
+        #endregion Arm Header Parsing Tests
+
+        #region Parameter Name Cleaning Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Parameter with footnote marker "Nausea†" strips marker.
+        /// </summary>
+        [TestMethod]
+        public void CleanParameterName_WithFootnoteMarker_StripsMarker()
+        {
+            var (name, markers) = ValueParser.CleanParameterName("Nausea†");
+            Assert.AreEqual("Nausea", name);
+            Assert.AreEqual("†", markers);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parameter without marker "Headache" passes through.
+        /// </summary>
+        [TestMethod]
+        public void CleanParameterName_NoMarker_PassesThrough()
+        {
+            var (name, markers) = ValueParser.CleanParameterName("Headache");
+            Assert.AreEqual("Headache", name);
+            Assert.IsNull(markers);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Null input returns null.
+        /// </summary>
+        [TestMethod]
+        public void CleanParameterName_NullInput_ReturnsNull()
+        {
+            var (name, markers) = ValueParser.CleanParameterName(null);
+            Assert.IsNull(name);
+            Assert.IsNull(markers);
+        }
+
+        #endregion Parameter Name Cleaning Tests
+    }
+}
