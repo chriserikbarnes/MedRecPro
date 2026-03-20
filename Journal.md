@@ -757,3 +757,58 @@ Chat page was rendering with a white border/inset around the content and the tex
 Build: 0 errors, 1 pre-existing warning.
 
 ---
+
+### 2026-03-20 10:10 AM EST — SPL Table Normalization Pipeline: Stage 1 Source View Assembly
+
+Implemented Stage 1 of the SPL Table Normalization pipeline — the data access layer that joins cell-level data (TextTableCell → TextTableRow → TextTable → SectionTextContent) with section context (vw_SectionNavigation) and document context (Document) into a flat 26-column DTO for downstream table reconstruction and meta-analysis.
+
+**Files created (5):**
+1. `MedRecProImportClass\Models\TableCellContext.cs` — Read-only 26-property projection DTO (Cell, Row, Table, Content, Document, Section Nav groups)
+2. `MedRecProImportClass\Models\TableCellContextFilter.cs` — Filter with DocumentGUID, TextTableID, range batch (start/end), MaxRows; `Validate()` enforces mutual exclusivity and range completeness
+3. `MedRecProImportClass\Service\TransformationServices\ITableCellContextService.cs` — Interface with `GetTableCellContextsAsync`, `GetTableCellContextsGroupedByTableAsync`, `GetTextTableIdRangeAsync`
+4. `MedRecProImportClass\Service\TransformationServices\TableCellContextService.cs` — EF Core LINQ implementation using explicit joins for SectionTextContent→SectionNavigation→Document (no nav properties exist for those links); `buildQuery()` is `internal` for testability
+5. `MedRecProTest\TableCellContextServiceTests.cs` — 14 MSTest tests using SQLite in-memory DB with DDL patching; vw_SectionNavigation backing table created via raw SQL (ToView entities excluded from GenerateCreateScript); GUIDs seeded as uppercase TEXT per EF Core 8 SQLite convention
+
+**Key decisions:**
+- Removed TextTableColumn join (selects zero columns, causes duplicate rows)
+- Used EF Core LINQ query syntax with explicit joins for consistency
+- Batch by TextTableID range for 250K+ label corpus scalability
+- No default row limit — callers control batching via filter
+
+Build: 0 errors (pre-existing warnings only). Tests: 14/14 passed.
+
+---
+
+### 2026-03-20 12:08 PM EST — SPL Table Normalization Pipeline: Stage 2 — Table Reconstruction
+
+Implemented Stage 2 of the SPL Table Normalization pipeline. This stage takes the flat 26-column `TableCellContext` output from Stage 1 and reconstructs logical table structures: grouping cells by table, extracting footnotes from HTML `<sup>` tags, classifying rows (header/body/footer/SOC divider), resolving ColSpan/RowSpan into absolute column positions via a 2D occupancy grid, and building multi-level header structures with column paths.
+
+**Files created (7):**
+
+DTOs:
+1. `MedRecProImportClass\Models\ProcessedCell.cs` — Single cell after HTML processing (13 properties: identity, position, span, text, footnotes, styleCode)
+2. `MedRecProImportClass\Models\ReconstructedRow.cs` — Classified row with `RowClassification` enum (ExplicitHeader, InferredHeader, ContinuationHeader, SocDivider, DataBody, Footer)
+3. `MedRecProImportClass\Models\ResolvedHeader.cs` — Multi-level header structure with `HeaderColumn` (column paths like "Treatment > Drug A")
+4. `MedRecProImportClass\Models\ReconstructedTable.cs` — Top-level output DTO with classified rows, resolved headers, footnotes dictionary, and document/section context
+
+Service:
+5. `MedRecProImportClass\Service\TransformationServices\ITableReconstructionService.cs` — Interface with `ReconstructTableAsync` and `ReconstructTablesAsync`
+6. `MedRecProImportClass\Service\TransformationServices\TableReconstructionService.cs` — Full implementation consuming `ITableCellContextService` for DRY data access
+
+Tests:
+7. `MedRecProTest\TableReconstructionServiceTests.cs` — 36 MSTest unit tests using Moq (no database needed)
+
+**Key decisions:**
+- Always promote first Body row to InferredHeader (~99% of SPL tables encode headers in first Body row)
+- Extract styleCode attributes in Stage 2 (available for Stage 3 header inference and formatting)
+- Reuse existing `TextUtil.RemoveUnwantedTags(cleanAll: true)` for HTML stripping instead of reimplementing
+- SOC divider detection: single cell spanning full table width, non-empty text < 200 chars
+- Column position resolution via 2D boolean occupancy grid handles RowSpan bleeding across rows
+- Multi-level header resolution walks header rows per column, building HeaderPath arrays joined with " > "
+- Replaced all `<see cref>` with `<seealso cref>` for Swagger documentation compatibility
+- Did not reuse existing `TextTableDto` family (web project API layer with encrypted IDs — different purpose)
+- Did not include TextTableColumn data (rendering hints, not needed for structural reconstruction)
+
+Build: 0 errors. Tests: 36/36 passed.
+
+---

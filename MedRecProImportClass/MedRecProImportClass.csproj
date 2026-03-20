@@ -56,4 +56,8 @@
     <EmbeddedResource Include="Resources\OrangeBookPatentUseCodes.json" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Service\TransformationServices\" />
+  </ItemGroup>
+
 </Project>
