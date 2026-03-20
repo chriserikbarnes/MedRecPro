@@ -836,3 +836,29 @@ Implemented the full Stage 3 parsing pipeline for SPL table normalization. This 
 Build: 0 errors across MedRecPro, MedRecProConsole, MedRecProTest. Tests: 77/77 passed.
 
 ---
+
+### 2026-03-20 3:02 PM EST — Stage 4 SPL Table Normalization: Validation Services
+
+Implemented Stage 4 (Validation) of the SPL Table Normalization pipeline — automated post-parse consistency checks, confidence scoring, and coverage reporting. Three new validation services layer on top of the existing Stage 3 parser output.
+
+**New files (10):**
+- `ValidationResult.cs` — DTOs: `ValidationStatus` enum, `RowValidationResult`, `TableValidationResult`, `BatchValidationReport`, `CrossVersionDiscrepancy`
+- `IRowValidationService.cs` / `RowValidationService.cs` — Per-observation checks: orphan detection (Error), required fields by category (Warning), value type appropriateness, ArmN consistency, bound inversion (Error), low confidence flagging
+- `ITableValidationService.cs` / `TableValidationService.cs` — Cross-row checks: duplicate observation detection, arm coverage gap detection, count reasonableness (arms × params ±20%)
+- `IBatchValidationService.cs` / `BatchValidationService.cs` — Aggregate reporting (confidence distribution, flag summaries, category/rule breakdowns), cross-version concordance (groups by ProductTitle+LabelerName, flags >50% row count divergence)
+- 3 test files: `RowValidationServiceTests.cs` (16 tests), `TableValidationServiceTests.cs` (8 tests), `BatchValidationServiceTests.cs` (13 tests)
+
+**Modified files (2):**
+- `ITableParsingOrchestrator.cs` — Added `ProcessAllWithValidationAsync` method
+- `TableParsingOrchestrator.cs` — Optional `IBatchValidationService` DI (null = skip validation), skip reason tracking via `processBatchWithSkipTrackingAsync`, validation integration after batch completion
+
+**Key decisions:**
+- Missing required fields = Warning severity (not Error) to avoid false positives on valid edge cases like Comparison rows without ArmN
+- Cross-version key = (ProductTitle, LabelerName) since SetId is not in the current schema
+- Results = in-memory DTOs + ILogger summaries only — no new DB tables
+- Stage 4 flags append to existing `ValidationFlags` with semicolon delimiter, preserving Stage 3 PCT_CHECK flags
+- Row/Table services are synchronous (pure logic); only BatchValidationService is async (DB queries)
+
+Build: 0 errors. Tests: 692/692 passed (37 new + 655 existing).
+
+---

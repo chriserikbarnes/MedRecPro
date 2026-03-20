@@ -56,5 +56,16 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <param name="ct">Cancellation token.</param>
         Task TruncateAsync(CancellationToken ct = default);
+
+        /**************************************************************/
+        /// <summary>
+        /// Full corpus run with Stage 4 validation: truncate → batch loop → validate → report.
+        /// After all batches are written, runs <see cref="IBatchValidationService.GenerateReportFromDatabaseAsync"/>
+        /// and <see cref="IBatchValidationService.CheckCrossVersionConcordanceAsync"/>.
+        /// </summary>
+        /// <param name="batchSize">Number of TextTableIDs per batch (default 1000).</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>Validation report with coverage metrics, row/table issues, and concordance checks.</returns>
+        Task<BatchValidationReport> ProcessAllWithValidationAsync(int batchSize = 1000, CancellationToken ct = default);
     }
 }
