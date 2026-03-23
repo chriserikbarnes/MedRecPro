@@ -175,20 +175,22 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="batchSize">TextTableIDs per batch (default 1000).</param>
         /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
         /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
+        /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Total observations written.</returns>
         public async Task<int> ProcessAllAsync(
             int batchSize = 1000,
             IProgress<TransformBatchProgress>? progress = null,
             int? resumeFromId = null,
+            int? maxBatches = null,
             CancellationToken ct = default)
         {
             #region implementation
 
             var stopwatch = Stopwatch.StartNew();
 
-            _logger.LogInformation("Stage 3 — Starting full corpus run (batch size={BatchSize}, resume={Resume})",
-                batchSize, resumeFromId.HasValue ? resumeFromId.Value : "fresh");
+            _logger.LogInformation("Stage 3 — Starting full corpus run (batch size={BatchSize}, resume={Resume}, maxBatches={MaxBatches})",
+                batchSize, resumeFromId.HasValue ? resumeFromId.Value : "fresh", maxBatches?.ToString() ?? "all");
 
             // Only truncate on fresh runs — resuming means data already exists
             if (!resumeFromId.HasValue)
@@ -201,6 +203,10 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var effectiveMinId = resumeFromId ?? minId;
             var totalBatches = (int)Math.Ceiling((double)(maxId - effectiveMinId + 1) / batchSize);
+            if (maxBatches.HasValue)
+            {
+                totalBatches = Math.Min(totalBatches, maxBatches.Value);
+            }
             var totalObservations = 0;
             var batchNumber = 0;
 
@@ -208,6 +214,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 ct.ThrowIfCancellationRequested();
                 batchNumber++;
+
+                // Stop if we've reached the max batches limit
+                if (maxBatches.HasValue && batchNumber > maxBatches.Value)
+                {
+                    break;
+                }
 
                 var end = Math.Min(start + batchSize - 1, maxId);
                 var filter = new TableCellContextFilter
@@ -297,6 +309,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="batchSize">TextTableIDs per batch (default 1000).</param>
         /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
         /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
+        /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Validation report with coverage metrics and issues.</returns>
         /// <exception cref="InvalidOperationException">
@@ -306,6 +319,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             int batchSize = 1000,
             IProgress<TransformBatchProgress>? progress = null,
             int? resumeFromId = null,
+            int? maxBatches = null,
             CancellationToken ct = default)
         {
             #region implementation
@@ -318,8 +332,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var stopwatch = Stopwatch.StartNew();
 
-            _logger.LogInformation("Stage 3+4 — Starting full corpus run with validation (batch size={BatchSize}, resume={Resume})",
-                batchSize, resumeFromId.HasValue ? resumeFromId.Value : "fresh");
+            _logger.LogInformation("Stage 3+4 — Starting full corpus run with validation (batch size={BatchSize}, resume={Resume}, maxBatches={MaxBatches})",
+                batchSize, resumeFromId.HasValue ? resumeFromId.Value : "fresh", maxBatches?.ToString() ?? "all");
 
             // Only truncate on fresh runs — resuming means data already exists
             if (!resumeFromId.HasValue)
@@ -332,6 +346,10 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var effectiveMinId = resumeFromId ?? minId;
             var totalBatches = (int)Math.Ceiling((double)(maxId - effectiveMinId + 1) / batchSize);
+            if (maxBatches.HasValue)
+            {
+                totalBatches = Math.Min(totalBatches, maxBatches.Value);
+            }
             var totalObservations = 0;
             var batchNumber = 0;
             var skipReasons = new Dictionary<int, string>();
@@ -340,6 +358,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 ct.ThrowIfCancellationRequested();
                 batchNumber++;
+
+                // Stop if we've reached the max batches limit
+                if (maxBatches.HasValue && batchNumber > maxBatches.Value)
+                {
+                    break;
+                }
 
                 var end = Math.Min(start + batchSize - 1, maxId);
                 var filter = new TableCellContextFilter

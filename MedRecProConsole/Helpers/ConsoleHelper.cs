@@ -1652,10 +1652,19 @@ namespace MedRecProConsole.Helpers
         /**************************************************************/
         /// <summary>
         /// Runs an interactive table standardization operation from the main menu.
-        /// Prompts for operation type, batch size, and optional table ID.
+        /// Guides the user through truncation, scope selection, batch size, and executes
+        /// with validation always enabled.
         /// </summary>
         /// <param name="connectionString">Database connection string.</param>
         /// <param name="verboseMode">Whether verbose mode is enabled.</param>
+        /// <remarks>
+        /// Flow:
+        /// 1. Check for existing progress file → offer resume
+        /// 2. Truncate prompt → if yes, truncate then continue to scope
+        /// 3. Scope selection: all tables, N tables, single table ID, cancel
+        /// 4. Batch size prompt (for all/N tables)
+        /// 5. Confirmation → execute with validation (Stage 3+4)
+        /// </remarks>
         /// <seealso cref="Services.TableStandardizationService"/>
         private static async Task runStandardizeTablesFromMenuAsync(
             string connectionString,
@@ -1665,47 +1674,121 @@ namespace MedRecProConsole.Helpers
 
             AnsiConsole.WriteLine();
 
-            // Prompt for operation
-            var operation = AnsiConsole.Prompt(
+            var service = new Services.TableStandardizationService();
+            var progressTracker = new Services.StandardizationProgressTracker();
+
+            // Step 1: Check for existing progress file — offer resume
+            if (progressTracker.ProgressFileExists())
+            {
+                try
+                {
+                    var existing = await progressTracker.LoadOrCreateAsync(connectionString, "validate", 1000);
+
+                    AnsiConsole.MarkupLine(
+                        $"[yellow]Previous session found:[/] " +
+                        $"[grey]{existing.TotalObservations:N0} observations, " +
+                        $"{existing.TotalBatchesCompleted} batches completed, " +
+                        $"resumed {existing.ResumeCount} time(s)[/]");
+
+                    if (existing.LastInterruptionReason != null)
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"[grey]Last interruption: {Markup.Escape(existing.LastInterruptionReason)}[/]");
+                    }
+
+                    AnsiConsole.WriteLine();
+
+                    var resumeChoice = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[dodgerblue1]Resume previous session?[/]")
+                            .HighlightStyle("dodgerblue1")
+                            .AddChoices(new[]
+                            {
+                                "Resume           Continue from where you left off",
+                                "Start fresh      Delete progress and start over",
+                                "Cancel           Return to main menu"
+                            }));
+
+                    var choice = resumeChoice.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
+
+                    if (choice == "cancel")
+                    {
+                        AnsiConsole.MarkupLine("[grey]Table standardization cancelled.[/]");
+                        return;
+                    }
+
+                    if (choice == "resume")
+                    {
+                        // Resume — prompt for batch size then go
+                        var resumeBatchSize = AnsiConsole.Prompt(
+                            new TextPrompt<int>("[dodgerblue1]Batch size[/] [grey](tables per batch, 1-50000):[/]")
+                                .PromptStyle("white")
+                                .DefaultValue(existing.BatchSize > 0 ? existing.BatchSize : 1000)
+                                .Validate(bs => bs >= 1 && bs <= 50000
+                                    ? ValidationResult.Success()
+                                    : ValidationResult.Error("[red]Batch size must be between 1 and 50000[/]")));
+
+                        await service.ExecuteValidateAsync(connectionString, resumeBatchSize, verboseMode, quiet: false);
+                        return;
+                    }
+
+                    // Start fresh — delete progress file and fall through
+                    await progressTracker.DeleteProgressFileAsync();
+                    AnsiConsole.MarkupLine("[grey]Progress file deleted. Starting fresh.[/]");
+                    AnsiConsole.WriteLine();
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("different database"))
+                {
+                    AnsiConsole.MarkupLine("[yellow]Existing progress file was created with a different database.[/]");
+
+                    if (AnsiConsole.Confirm("[yellow]Delete the progress file and start fresh?[/]", false))
+                    {
+                        // Force-load with matching connection to enable delete
+                        var tracker2 = new Services.StandardizationProgressTracker();
+                        // Just delete the file directly since we can't load it
+                        await progressTracker.DeleteProgressFileAsync();
+                        AnsiConsole.MarkupLine("[grey]Progress file deleted.[/]");
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine("[grey]Table standardization cancelled.[/]");
+                        return;
+                    }
+                    AnsiConsole.WriteLine();
+                }
+            }
+
+            // Step 2: Truncate prompt
+            if (AnsiConsole.Confirm(
+                "[yellow]Truncate tmp_FlattenedStandardizedTable first?[/] [grey](deletes all standardized data)[/]", false))
+            {
+                await service.ExecuteTruncateAsync(connectionString, quiet: false);
+                AnsiConsole.WriteLine();
+            }
+
+            // Step 3: Scope selection
+            var scope = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
-                    .Title("[dodgerblue1]Select standardization operation:[/]")
+                    .Title("[dodgerblue1]Select scope:[/]")
                     .HighlightStyle("dodgerblue1")
                     .AddChoices(new[]
                     {
-                        "parse       - Stage 3: Parse all tables into observations",
-                        "validate    - Stage 3+4: Parse all tables then validate with report",
-                        "truncate    - Wipe output table for a clean rerun",
-                        "parse-single - Debug: Parse a single table (no DB write)",
-                        "cancel      - Return to main menu"
+                        "All              Standardize all tables in the database",
+                        "Limited          Standardize a specific number of batches",
+                        "Single table     Debug: parse one table by ID (no DB write)",
+                        "Cancel           Return to main menu"
                     }));
 
-            // Extract operation name (first word before spaces/dash)
-            var operationName = operation.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+            var scopeName = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
 
-            if (operationName == "cancel")
+            if (scopeName == "cancel")
             {
                 AnsiConsole.MarkupLine("[grey]Table standardization cancelled.[/]");
                 return;
             }
 
-            var service = new Services.TableStandardizationService();
-
-            // Handle truncate — no extra prompts needed
-            if (operationName == "truncate")
-            {
-                if (!AnsiConsole.Confirm(
-                    "[yellow]Truncate tmp_FlattenedStandardizedTable? This deletes all standardized data.[/]", false))
-                {
-                    AnsiConsole.MarkupLine("[grey]Truncation cancelled.[/]");
-                    return;
-                }
-
-                await service.ExecuteTruncateAsync(connectionString, quiet: false);
-                return;
-            }
-
-            // Handle parse-single — prompt for TextTableID
-            if (operationName == "parse-single")
+            // Handle single table — prompt for TextTableID
+            if (scopeName == "single")
             {
                 var tableId = AnsiConsole.Prompt(
                     new TextPrompt<int>("[dodgerblue1]Enter TextTableID to parse:[/]")
@@ -1718,7 +1801,7 @@ namespace MedRecProConsole.Helpers
                 return;
             }
 
-            // Handle parse / validate — prompt for batch size
+            // Step 4: Batch size
             var batchSize = AnsiConsole.Prompt(
                 new TextPrompt<int>("[dodgerblue1]Batch size[/] [grey](tables per batch, 1-50000):[/]")
                     .PromptStyle("white")
@@ -1727,15 +1810,32 @@ namespace MedRecProConsole.Helpers
                         ? ValidationResult.Success()
                         : ValidationResult.Error("[red]Batch size must be between 1 and 50000[/]")));
 
-            // Show confirmation summary
+            // For limited scope, ask how many batches
+            int? maxBatches = null;
+            if (scopeName == "limited")
+            {
+                maxBatches = AnsiConsole.Prompt(
+                    new TextPrompt<int>("[dodgerblue1]Number of batches to process:[/]")
+                        .PromptStyle("white")
+                        .DefaultValue(10)
+                        .Validate(n => n >= 1
+                            ? ValidationResult.Success()
+                            : ValidationResult.Error("[red]Must be at least 1[/]")));
+            }
+
+            // Step 5: Confirmation summary
             AnsiConsole.WriteLine();
             var confirmTable = new Table()
                 .Border(TableBorder.Rounded)
                 .AddColumn(new TableColumn("[bold]Setting[/]").NoWrap())
                 .AddColumn(new TableColumn("[bold]Value[/]"));
 
-            confirmTable.AddRow("Operation", Markup.Escape(operationName));
+            confirmTable.AddRow("Scope",
+                maxBatches.HasValue
+                    ? $"{maxBatches.Value} batch(es) x {batchSize:N0} = ~{maxBatches.Value * batchSize:N0} table IDs"
+                    : "All tables");
             confirmTable.AddRow("Batch Size", batchSize.ToString("N0"));
+            confirmTable.AddRow("Validation", "[green]Enabled[/] (Stage 3+4)");
 
             AnsiConsole.Write(confirmTable);
             AnsiConsole.WriteLine();
@@ -1746,15 +1846,9 @@ namespace MedRecProConsole.Helpers
                 return;
             }
 
-            // Execute
-            if (operationName == "validate")
-            {
-                await service.ExecuteValidateAsync(connectionString, batchSize, verboseMode, quiet: false);
-            }
-            else
-            {
-                await service.ExecuteParseAsync(connectionString, batchSize, verboseMode, quiet: false);
-            }
+            // Execute — always with validation
+            await service.ExecuteValidateAsync(
+                connectionString, batchSize, verboseMode, quiet: false, maxBatches: maxBatches);
 
             #endregion
         }

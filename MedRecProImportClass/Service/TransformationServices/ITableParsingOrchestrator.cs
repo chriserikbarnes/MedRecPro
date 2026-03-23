@@ -38,12 +38,14 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="batchSize">Number of TextTableIDs per batch (default 1000).</param>
         /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
         /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
+        /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Total number of observations written.</returns>
         Task<int> ProcessAllAsync(
             int batchSize = 1000,
             IProgress<TransformBatchProgress>? progress = null,
             int? resumeFromId = null,
+            int? maxBatches = null,
             CancellationToken ct = default);
 
         /**************************************************************/
@@ -72,12 +74,14 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="batchSize">Number of TextTableIDs per batch (default 1000).</param>
         /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
         /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
+        /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Validation report with coverage metrics, row/table issues, and concordance checks.</returns>
         Task<BatchValidationReport> ProcessAllWithValidationAsync(
             int batchSize = 1000,
             IProgress<TransformBatchProgress>? progress = null,
             int? resumeFromId = null,
+            int? maxBatches = null,
             CancellationToken ct = default);
     }
 }

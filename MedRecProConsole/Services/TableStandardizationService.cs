@@ -118,7 +118,7 @@ namespace MedRecProConsole.Services
                         });
 
                         totalObs = await orchestrator.ProcessAllAsync(
-                            batchSize, progress, resumeFromId, cts.Token);
+                            batchSize, progress, resumeFromId, ct: cts.Token);
 
                         task.Value = 100;
                         task.Description = $"Complete: {totalObs:N0} observations";
@@ -170,10 +170,11 @@ namespace MedRecProConsole.Services
         /// <param name="batchSize">Tables per batch (default 1000).</param>
         /// <param name="verbose">Enable verbose logging output.</param>
         /// <param name="quiet">Suppress non-essential output.</param>
+        /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ProcessAllWithValidationAsync"/>
         /// <seealso cref="BatchValidationReport"/>
-        public async Task<int> ExecuteValidateAsync(string connectionString, int batchSize, bool verbose, bool quiet)
+        public async Task<int> ExecuteValidateAsync(string connectionString, int batchSize, bool verbose, bool quiet, int? maxBatches = null)
         {
             #region implementation
 
@@ -246,7 +247,7 @@ namespace MedRecProConsole.Services
                         });
 
                         report = await orchestrator.ProcessAllWithValidationAsync(
-                            batchSize, progress, resumeFromId, cts.Token);
+                            batchSize, progress, resumeFromId, maxBatches, cts.Token);
 
                         task.Value = 100;
                         task.Description = $"Complete: {report.TotalObservations:N0} observations validated";

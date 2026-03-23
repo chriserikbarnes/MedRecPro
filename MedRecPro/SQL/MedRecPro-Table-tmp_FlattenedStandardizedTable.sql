@@ -9,7 +9,7 @@
  *
  * Re-runnable: IF NOT EXISTS guard. Truncate-on-rerun via orchestrator.
  ******************************************************************************/
-
+USE MedRecLocal
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'tmp_FlattenedStandardizedTable')
 BEGIN
     CREATE TABLE tmp_FlattenedStandardizedTable (
