@@ -74,6 +74,7 @@ MedRecProImportClass/
         ├── DosingTableParser.cs                # Stage 3: dosing parameter grids
         ├── TableParserRouter.cs                # Stage 3: section code → parser routing
         ├── TableParsingOrchestrator.cs         # Stage 3: batch loop + DB writes
+        ├── ClaudeApiCorrectionService.cs      # Stage 3.5: AI-powered post-parse correction
         ├── RowValidationService.cs             # Stage 4: per-observation checks
         ├── TableValidationService.cs           # Stage 4: cross-row checks
         └── BatchValidationService.cs           # Stage 4: aggregate reporting
@@ -89,6 +90,7 @@ MedRecProImportClass/
 | Microsoft.Extensions.Logging | 9.0.4 | Logging infrastructure |
 | Dapper | 2.1.66 | Micro-ORM for complex queries |
 | Newtonsoft.Json | 13.0.3 | JSON serialization |
+| Microsoft.Extensions.Http | 9.0.4 | HttpClient factory for Claude API |
 | HtmlAgilityPack | 1.12.1 | HTML parsing |
 | HtmlSanitizer | 9.0.884 | HTML sanitization |
 
@@ -226,6 +228,9 @@ Stage 2: Table Reconstruction
         │
 Stage 3: Section-Aware Parsing
   TableParserRouter → ITableParser (8 parsers) → List<ParsedObservation>
+        │
+Stage 3.5: Claude API Correction (optional)
+  ClaudeApiCorrectionService → corrected List<ParsedObservation>
   TableParsingOrchestrator → bulk write to tmp_FlattenedStandardizedTable
         │
 Stage 4: Validation
@@ -284,6 +289,31 @@ Stage 4: Validation
 #### Population Detection
 
 `PopulationDetector` auto-detects study population from Caption/SectionTitle using regex extraction and a keyword dictionary, with Levenshtein-based fuzzy cross-validation between sources.
+
+### Stage 3.5: Claude API Correction
+
+`ClaudeApiCorrectionService` performs AI-powered post-parse correction of `ParsedObservation` objects before database write. After Stage 3 parsers produce observations, the correction service sends table-level batches to Claude Haiku for semantic review and correction of misclassified fields.
+
+**Common corrections:**
+- PrimaryValueType misclassification (e.g., "Numeric" → "Percentage" when table caption indicates "n(%)")
+- SecondaryValueType confusion (e.g., "SD" vs "SE" vs "CV_Percent")
+- Swapped TreatmentArm/ParameterName (row vs column confusion)
+- Caption-derived hints not applied by regex parsers
+
+**Configuration:** Add `ClaudeApiCorrectionSettings` section to `appsettings.json`. API key must be stored in User Secrets:
+
+```bash
+dotnet user-secrets set "ClaudeApiCorrectionSettings:ApiKey" "sk-ant-..."
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `Enabled` | `true` | Master enable/disable switch |
+| `Model` | `claude-haiku-4-5-20251001` | Claude model (Haiku for speed/cost) |
+| `MaxObservationsPerRequest` | `50` | Max observations per API call |
+| `DelayBetweenRequestsMs` | `200` | Rate limiting delay between calls |
+
+**Audit trail:** Corrected fields are flagged with `AI_CORRECTED:{FieldName}` in `ValidationFlags`. The service fails gracefully — API errors return original observations unchanged.
 
 ### Stage 4: Validation
 

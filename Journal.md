@@ -955,3 +955,28 @@ Three issues discovered and resolved during first real-data runs of the standard
 - Validation flags: `CAPTION_REINTERPRET:n_pct→Mean(SD)` and `CAPTION_HINT:caption:Mean (SD)` for audit trail
 
 ---
+
+### 2026-03-23 4:00 PM EST — Claude API Correction Service (Stage 3.5)
+
+Added AI-powered post-parse correction to the SPL Table Normalization pipeline. After Stage 3 parsers produce `ParsedObservation` objects, the new `ClaudeApiCorrectionService` sends table-level batches to Claude Haiku for semantic review of misclassified fields (PrimaryValueType, SecondaryValueType, TreatmentArm, etc.) before database write.
+
+**New files created:**
+- `MedRecProImportClass/Models/ClaudeApiCorrectionSettings.cs` — Configuration model (model, rate limits, enable/disable)
+- `MedRecProImportClass/Service/TransformationServices/ClaudeApiCorrectionService.cs` — `IClaudeApiCorrectionService` interface + implementation with table-level grouping, sub-batch splitting, compact JSON payloads, audit flags (`AI_CORRECTED:{field}`), and graceful failure handling
+- `MedRecProTest/ClaudeApiCorrectionServiceTests.cs` — 13 MSTest + Moq tests covering happy path, disabled mode, API failures/timeouts, invalid JSON, table grouping, batch splitting, and invalid correction handling
+
+**Files modified:**
+- `MedRecProImportClass/MedRecProImportClass.csproj` — Added `Microsoft.Extensions.Http` package
+- `MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs` — Added optional `IClaudeApiCorrectionService` constructor parameter; injected correction call in both `ProcessBatchAsync` and `processBatchWithSkipTrackingAsync` (post-parse, pre-write)
+- `MedRecProConsole/MedRecProConsole.csproj` — Added `UserSecretsId` and `Microsoft.Extensions.Configuration.UserSecrets` package
+- `MedRecProConsole/appsettings.json` — Added `ClaudeApiCorrectionSettings` configuration section
+- `MedRecProConsole/Services/TableStandardizationService.cs` — Composite configuration (in-memory + appsettings.json + user secrets); registered `IClaudeApiCorrectionService` via `AddHttpClient`
+- `MedRecProImportClass/README.md` — Added Stage 3.5 documentation, updated architecture diagram and dependency table
+
+**Key decisions:**
+- Claude Haiku for speed/cost on high-volume batch processing
+- API key stored in User Secrets (never in appsettings.json)
+- Correction is optional and gracefully degrades — API failures return original observations unchanged
+- `OperationCanceledException` uses `when (ct.IsCancellationRequested)` filter to distinguish user cancellation from HTTP timeouts
+
+---

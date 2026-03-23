@@ -55,6 +55,12 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         private readonly IBatchValidationService? _batchValidator;
 
+        /**************************************************************/
+        /// <summary>
+        /// Optional Stage 3.5 Claude API correction service. Null if AI correction is not configured.
+        /// </summary>
+        private readonly IClaudeApiCorrectionService? _correctionService;
+
         #endregion Fields
 
         #region Constructor
@@ -69,13 +75,15 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="dbContext">Database context.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="batchValidator">Optional Stage 4 batch validation service. Pass null to skip validation.</param>
+        /// <param name="correctionService">Optional Stage 3.5 Claude API correction service. Pass null to skip AI correction.</param>
         public TableParsingOrchestrator(
             ITableReconstructionService reconstructionService,
             ITableCellContextService cellContextService,
             ITableParserRouter router,
             ApplicationDbContext dbContext,
             ILogger<TableParsingOrchestrator> logger,
-            IBatchValidationService? batchValidator = null)
+            IBatchValidationService? batchValidator = null,
+            IClaudeApiCorrectionService? correctionService = null)
         {
             #region implementation
 
@@ -85,6 +93,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             _dbContext = dbContext;
             _logger = logger;
             _batchValidator = batchValidator;
+            _correctionService = correctionService;
 
             #endregion
         }
@@ -125,6 +134,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var observations = parser.Parse(table);
                     if (observations.Count == 0)
                         continue;
+
+                    // Stage 3.5: Claude API correction (post-parse, pre-write)
+                    if (_correctionService != null)
+                    {
+                        observations = await _correctionService.CorrectBatchAsync(observations, ct);
+                    }
 
                     var entities = observations.Select(mapToEntity).ToList();
                     _dbContext.AddRange(entities);
@@ -472,6 +487,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                         }
 
                         continue;
+                    }
+
+                    // Stage 3.5: Claude API correction (post-parse, pre-write)
+                    if (_correctionService != null)
+                    {
+                        observations = await _correctionService.CorrectBatchAsync(observations, ct);
                     }
 
                     var entities = observations.Select(mapToEntity).ToList();

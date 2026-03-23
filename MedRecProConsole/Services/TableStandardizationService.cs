@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Spectre.Console;
 using System.Diagnostics;
 
@@ -409,10 +410,18 @@ namespace MedRecProConsole.Services
         {
             #region implementation
 
+            // Build composite configuration: in-memory settings + appsettings.json + user secrets
+            // appsettings.json provides ClaudeApiCorrectionSettings; user secrets provides the API key
+            var compositeConfiguration = new ConfigurationBuilder()
+                .AddConfiguration(configuration)
+                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+                .AddUserSecrets(typeof(Program).Assembly, optional: true)
+                .Build();
+
             var services = new ServiceCollection();
 
             // Add configuration
-            services.AddSingleton<IConfiguration>(configuration);
+            services.AddSingleton<IConfiguration>(compositeConfiguration);
 
             // Add logging — always show warnings (parse errors, skipped tables) to console;
             // verbose mode lowers to Debug for full detail
@@ -465,7 +474,22 @@ namespace MedRecProConsole.Services
                 services.AddScoped<IBatchValidationService, BatchValidationService>();
             }
 
-            // Orchestrator — IBatchValidationService is optional (nullable constructor param)
+            // Stage 3.5: Claude API Correction (optional — graceful no-op if API key missing)
+            services.Configure<ClaudeApiCorrectionSettings>(
+                compositeConfiguration.GetSection("ClaudeApiCorrectionSettings"));
+            services.AddHttpClient<IClaudeApiCorrectionService, ClaudeApiCorrectionService>(
+                (sp, client) =>
+                {
+                    var settings = sp.GetRequiredService<IOptions<ClaudeApiCorrectionSettings>>().Value;
+                    if (!string.IsNullOrWhiteSpace(settings.ApiKey))
+                    {
+                        client.DefaultRequestHeaders.Add("x-api-key", settings.ApiKey);
+                    }
+                    client.DefaultRequestHeaders.Add("anthropic-version", settings.AnthropicVersion);
+                    client.BaseAddress = new Uri("https://api.anthropic.com/");
+                });
+
+            // Orchestrator — IBatchValidationService and IClaudeApiCorrectionService are optional (nullable constructor params)
             services.AddScoped<ITableParsingOrchestrator, TableParsingOrchestrator>();
 
             return services.BuildServiceProvider();
