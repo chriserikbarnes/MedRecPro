@@ -107,21 +107,22 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// System prompt for the correction skill. Concise instructions for Claude
         /// to identify and return corrections for misclassified parser output.
         /// </summary>
-        private const string CorrectionSystemPrompt = @"You correct parsed pharmaceutical table observations. You receive a JSON array of parsed rows from a single FDA drug label table. Each row has been mechanically parsed from an HTML table.
+        private const string CorrectionSystemPrompt = @"You review parsed pharmaceutical table observations for CLEAR errors only.
 
-            Your job: identify rows where the parser likely misclassified fields. Common errors:
-            - PrimaryValueType wrong (e.g., ""Numeric"" should be ""Percentage"", ""Mean"" should be ""Median"")
-            - ParameterName truncated or includes footnote markers
-            - TreatmentArm and ParameterName swapped (row vs column confusion)
-            - SecondaryValueType wrong (e.g., ""SD"" should be ""SE"", ""CV_Percent"" should be ""SD"")
-            - DoseRegimen assigned to wrong field
-            - Caption-derived hints not applied (e.g., table caption says ""Mean (SD)"" but values parsed as n(%))
+Rules:
+- Only flag OBVIOUS misclassifications. If uncertain, do NOT correct.
+- Max 10 corrections per batch. Focus on highest-impact errors.
+- Keep ""reason"" to 5 words max.
+- Return ONLY a JSON array. No markdown, no explanation.
+- If nothing is clearly wrong, return [].
 
-            Return ONLY corrections as a JSON array. If no corrections needed, return [].
-            Format: [{""sourceRowSeq"": N, ""sourceCellSeq"": N, ""field"": ""FieldName"", ""oldValue"": ""X"", ""newValue"": ""Y"", ""reason"": ""brief why""}]
-            Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen, Population, Unit, ParameterCategory, ParameterSubtype
+Common clear errors:
+- PrimaryValueType ""Numeric"" when table caption says ""Mean (SD)"" or column has ""%""
+- TreatmentArm and ParameterName swapped
+- SecondaryValueType ""SD"" vs ""SE"" contradicted by caption
 
-            IMPORTANT: Return ONLY the JSON array. No markdown fences, no explanation text.";
+Format: [{""sourceRowSeq"":N,""sourceCellSeq"":N,""field"":""FieldName"",""oldValue"":""X"",""newValue"":""Y"",""reason"":""brief""}]
+Fields: ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen, Population, Unit, ParameterCategory, ParameterSubtype";
 
         #endregion
 
@@ -282,8 +283,77 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Strip markdown fences if present
             textContent = stripMarkdownFences(textContent);
 
-            return JsonConvert.DeserializeObject<List<CorrectionEntry>>(textContent)
-                ?? new List<CorrectionEntry>();
+            // Check if response was truncated (stop_reason != "end_turn")
+            var stopReason = apiResponse["stop_reason"]?.ToString();
+
+            return deserializeCorrections(textContent, stopReason == "max_tokens");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Deserializes the corrections JSON, handling truncated responses by
+        /// salvaging complete objects from partial JSON arrays.
+        /// </summary>
+        /// <param name="json">Raw JSON text from Claude.</param>
+        /// <param name="wasTruncated">Whether the response hit the max_tokens limit.</param>
+        /// <returns>List of successfully parsed corrections.</returns>
+        private List<CorrectionEntry> deserializeCorrections(string json, bool wasTruncated)
+        {
+            #region implementation
+
+            try
+            {
+                return JsonConvert.DeserializeObject<List<CorrectionEntry>>(json)
+                    ?? new List<CorrectionEntry>();
+            }
+            catch (JsonException) when (wasTruncated)
+            {
+                // Response was truncated — try to salvage complete objects
+                return salvageTruncatedJson(json);
+            }
+
+            // If not truncated but still invalid JSON, let the exception propagate
+            // to be caught by the caller's catch block
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Attempts to recover valid correction entries from a truncated JSON array
+        /// by finding the last complete object boundary and parsing up to that point.
+        /// </summary>
+        /// <param name="truncatedJson">Truncated JSON string.</param>
+        /// <returns>List of corrections that could be recovered, may be empty.</returns>
+        private List<CorrectionEntry> salvageTruncatedJson(string truncatedJson)
+        {
+            #region implementation
+
+            // Find the last complete object: look for "}," or "}" followed by nothing useful
+            var lastCompleteObject = truncatedJson.LastIndexOf("},");
+            if (lastCompleteObject < 0)
+            {
+                _logger.LogDebug("Cannot salvage truncated JSON — no complete objects found");
+                return new List<CorrectionEntry>();
+            }
+
+            // Take everything up to and including the last complete "}", then close the array
+            var salvaged = truncatedJson.Substring(0, lastCompleteObject + 1) + "]";
+
+            try
+            {
+                var result = JsonConvert.DeserializeObject<List<CorrectionEntry>>(salvaged)
+                    ?? new List<CorrectionEntry>();
+                _logger.LogDebug("Salvaged {Count} corrections from truncated response", result.Count);
+                return result;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "Failed to salvage truncated JSON");
+                return new List<CorrectionEntry>();
+            }
 
             #endregion
         }

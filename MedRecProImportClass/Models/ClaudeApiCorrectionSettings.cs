@@ -40,10 +40,10 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
-        /// Maximum tokens for the correction response. Corrections are compact JSON arrays,
-        /// so 2000 tokens is sufficient for most tables.
+        /// Maximum tokens for the correction response. With max 10 corrections per batch
+        /// (enforced by system prompt), 4000 tokens provides adequate headroom.
         /// </summary>
-        public int MaxTokens { get; set; } = 2000;
+        public int MaxTokens { get; set; } = 4000;
 
         /**************************************************************/
         /// <summary>
@@ -66,9 +66,10 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Maximum observations to include in a single API request. Tables with more
-        /// observations are split into multiple requests. Default 50.
+        /// observations are split into multiple requests. Default 20. Lower values
+        /// produce shorter responses that are less likely to be truncated.
         /// </summary>
-        public int MaxObservationsPerRequest { get; set; } = 50;
+        public int MaxObservationsPerRequest { get; set; } = 20;
 
         /**************************************************************/
         /// <summary>

@@ -137,7 +137,7 @@ namespace MedRecPro.Service.Test
             {
                 ApiKey = "test-api-key",
                 Enabled = true,
-                MaxObservationsPerRequest = 50,
+                MaxObservationsPerRequest = 20,
                 DelayBetweenRequestsMs = 0,
                 Model = "claude-haiku-4-5-20251001",
                 MaxTokens = 2000,
