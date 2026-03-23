@@ -71,29 +71,33 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(siteName))
                     continue;
 
-                foreach (var tp in timepoints)
+                // Fault-tolerant row processing: if any cell throws, the entire table is skipped
+                parseRowSafe(table, row, observations, (r, obs) =>
                 {
-                    var cell = getCellAtColumn(row, tp.columnIndex);
-                    if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
-                        continue;
-
-                    var obs = createBaseObservation(table, row, cell, TableCategory.BMD);
-                    obs.ParameterName = siteName;
-                    obs.Timepoint = tp.label;
-                    obs.Population = population;
-                    obs.Unit = "%";
-
-                    var parsed = ValueParser.Parse(cell.CleanedText);
-
-                    // BMD-specific: default type is MeanPercentChange
-                    if (parsed.PrimaryValueType == "Numeric" || parsed.PrimaryValueType == "Percentage")
+                    foreach (var tp in timepoints)
                     {
-                        parsed.PrimaryValueType = "MeanPercentChange";
-                    }
+                        var cell = getCellAtColumn(r, tp.columnIndex);
+                        if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                            continue;
 
-                    applyParsedValue(obs, parsed);
-                    observations.Add(obs);
-                }
+                        var o = createBaseObservation(table, r, cell, TableCategory.BMD);
+                        o.ParameterName = siteName;
+                        o.Timepoint = tp.label;
+                        o.Population = population;
+                        o.Unit = "%";
+
+                        var parsed = ValueParser.Parse(cell.CleanedText);
+
+                        // BMD-specific: default type is MeanPercentChange
+                        if (parsed.PrimaryValueType == "Numeric" || parsed.PrimaryValueType == "Percentage")
+                        {
+                            parsed.PrimaryValueType = "MeanPercentChange";
+                        }
+
+                        applyParsedValue(o, parsed);
+                        obs.Add(o);
+                    }
+                });
             }
 
             return observations;

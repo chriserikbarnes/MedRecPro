@@ -129,6 +129,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                     _dbContext.AddRange(entities);
                     totalObservations += entities.Count;
                 }
+                catch (TableParseException tpx)
+                {
+                    _logger.LogWarning(tpx,
+                        "Table-level fault: TextTableID={Id}, Row={Row}, Parser={Parser} — entire table skipped",
+                        tpx.TextTableID, tpx.RowSequence, tpx.ParserName);
+                }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
@@ -139,7 +145,18 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (totalObservations > 0)
             {
-                await _dbContext.SaveChangesAsync(ct);
+                try
+                {
+                    await _dbContext.SaveChangesAsync(ct);
+                }
+                catch (Exception ex)
+                {
+                    _dbContext.ChangeTracker.Clear();
+                    _logger.LogError(ex,
+                        "Failed to save batch — cleared {Count} tracked entities",
+                        totalObservations);
+                    throw;
+                }
             }
 
             _logger.LogDebug("Batch complete: {Count} observations from {Tables} tables",
@@ -363,11 +380,30 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     var observations = parser.Parse(table);
                     if (observations.Count == 0)
+                    {
+                        if (table.TextTableID.HasValue)
+                        {
+                            skipReasons[table.TextTableID.Value] = $"EMPTY:{parser.GetType().Name}";
+                        }
+
                         continue;
+                    }
 
                     var entities = observations.Select(mapToEntity).ToList();
                     _dbContext.AddRange(entities);
                     totalObservations += entities.Count;
+                }
+                catch (TableParseException tpx)
+                {
+                    if (table.TextTableID.HasValue)
+                    {
+                        skipReasons[table.TextTableID.Value] =
+                            $"ERROR:{tpx.ParserName}:Row{tpx.RowSequence}";
+                    }
+
+                    _logger.LogWarning(tpx,
+                        "Table-level fault: TextTableID={Id}, Row={Row}, Parser={Parser} — entire table skipped",
+                        tpx.TextTableID, tpx.RowSequence, tpx.ParserName);
                 }
                 catch (Exception ex)
                 {
@@ -384,7 +420,18 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (totalObservations > 0)
             {
-                await _dbContext.SaveChangesAsync(ct);
+                try
+                {
+                    await _dbContext.SaveChangesAsync(ct);
+                }
+                catch (Exception ex)
+                {
+                    _dbContext.ChangeTracker.Clear();
+                    _logger.LogError(ex,
+                        "Failed to save batch — cleared {Count} tracked entities",
+                        totalObservations);
+                    throw;
+                }
             }
 
             return (totalObservations, skipReasons);

@@ -75,21 +75,25 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (ratioCell == null || string.IsNullOrWhiteSpace(ratioCell.CleanedText))
                     continue;
 
-                var obs = createBaseObservation(table, row, ratioCell, TableCategory.TISSUE_DISTRIBUTION);
-                obs.ParameterName = tissueName;
-                obs.Population = population;
-                obs.Unit = "ratio";
-
-                var parsed = ValueParser.Parse(ratioCell.CleanedText);
-
-                // Tissue-specific: default type is Ratio
-                if (parsed.PrimaryValueType == "Numeric")
+                // Fault-tolerant row processing: if any cell throws, the entire table is skipped
+                parseRowSafe(table, row, observations, (r, obs) =>
                 {
-                    parsed.PrimaryValueType = "Ratio";
-                }
+                    var o = createBaseObservation(table, r, ratioCell, TableCategory.TISSUE_DISTRIBUTION);
+                    o.ParameterName = tissueName;
+                    o.Population = population;
+                    o.Unit = "ratio";
 
-                applyParsedValue(obs, parsed);
-                observations.Add(obs);
+                    var parsed = ValueParser.Parse(ratioCell.CleanedText);
+
+                    // Tissue-specific: default type is Ratio
+                    if (parsed.PrimaryValueType == "Numeric")
+                    {
+                        parsed.PrimaryValueType = "Ratio";
+                    }
+
+                    applyParsedValue(o, parsed);
+                    obs.Add(o);
+                });
             }
 
             return observations;

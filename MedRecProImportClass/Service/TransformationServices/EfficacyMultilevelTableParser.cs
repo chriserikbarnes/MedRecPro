@@ -124,36 +124,40 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(paramName))
                     continue;
 
-                // Extract row-level p-value from stat column
-                double? rowPValue = extractStatValue(row, statColumns, "pvalue");
-
-                // Arm data columns
-                for (int i = 0; i < arms.Count; i++)
+                // Fault-tolerant row processing: if any cell throws, the entire table is skipped
+                parseRowSafe(table, row, observations, (r, obs) =>
                 {
-                    var arm = arms[i];
-                    var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
-                    if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
-                        continue;
+                    // Extract row-level p-value from stat column
+                    double? rowPValue = extractStatValue(r, statColumns, "pvalue");
 
-                    var armN = pendingNs.TryGetValue(i, out var n) ? n : arm.SampleSize;
+                    // Arm data columns
+                    for (int i = 0; i < arms.Count; i++)
+                    {
+                        var arm = arms[i];
+                        var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
+                        if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                            continue;
 
-                    var obs = createBaseObservation(table, row, cell, TableCategory.EFFICACY);
-                    obs.ParameterName = paramName;
-                    obs.ParameterCategory = currentGroup;
-                    obs.TreatmentArm = arm.Name;
-                    obs.ArmN = armN;
-                    obs.StudyContext = arm.StudyContext;
-                    obs.Population = population;
-                    obs.PValue = rowPValue;
+                        var armN = pendingNs.TryGetValue(i, out var n) ? n : arm.SampleSize;
 
-                    var parsed = ValueParser.Parse(cell.CleanedText, armN);
-                    applyParsedValue(obs, parsed);
-                    observations.Add(obs);
-                }
+                        var o = createBaseObservation(table, r, cell, TableCategory.EFFICACY);
+                        o.ParameterName = paramName;
+                        o.ParameterCategory = currentGroup;
+                        o.TreatmentArm = arm.Name;
+                        o.ArmN = armN;
+                        o.StudyContext = arm.StudyContext;
+                        o.Population = population;
+                        o.PValue = rowPValue;
 
-                // RR/HR comparison column
-                emitRrComparison(table, row, paramName, currentGroup, population, rowPValue,
-                    statColumns, observations);
+                        var parsed = ValueParser.Parse(cell.CleanedText, armN);
+                        applyParsedValue(o, parsed);
+                        obs.Add(o);
+                    }
+
+                    // RR/HR comparison column
+                    emitRrComparison(table, r, paramName, currentGroup, population, rowPValue,
+                        statColumns, obs);
+                });
             }
 
             return observations;

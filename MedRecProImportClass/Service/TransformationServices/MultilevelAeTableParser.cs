@@ -88,33 +88,37 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(paramName))
                     continue;
 
-                // Map data cells to arms by column position
-                foreach (var arm in arms)
+                // Fault-tolerant row processing: if any cell throws, the entire table is skipped
+                parseRowSafe(table, row, observations, (r, obs) =>
                 {
-                    var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
-                    if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
-                        continue;
-
-                    var obs = createBaseObservation(table, row, cell, TableCategory.ADVERSE_EVENT);
-                    obs.ParameterName = paramName;
-                    obs.ParameterCategory = currentSoc;
-                    obs.TreatmentArm = arm.Name;
-                    obs.ArmN = arm.SampleSize;
-                    obs.StudyContext = arm.StudyContext;
-                    obs.Population = population;
-
-                    var parsed = ValueParser.Parse(cell.CleanedText, arm.SampleSize);
-
-                    // AE type promotion: Numeric → Percentage
-                    if (parsed.PrimaryValueType == "Numeric")
+                    // Map data cells to arms by column position
+                    foreach (var arm in arms)
                     {
-                        parsed.PrimaryValueType = "Percentage";
-                        parsed.Unit = "%";
-                    }
+                        var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
+                        if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                            continue;
 
-                    applyParsedValue(obs, parsed);
-                    observations.Add(obs);
-                }
+                        var o = createBaseObservation(table, r, cell, TableCategory.ADVERSE_EVENT);
+                        o.ParameterName = paramName;
+                        o.ParameterCategory = currentSoc;
+                        o.TreatmentArm = arm.Name;
+                        o.ArmN = arm.SampleSize;
+                        o.StudyContext = arm.StudyContext;
+                        o.Population = population;
+
+                        var parsed = ValueParser.Parse(cell.CleanedText, arm.SampleSize);
+
+                        // AE type promotion: Numeric → Percentage
+                        if (parsed.PrimaryValueType == "Numeric")
+                        {
+                            parsed.PrimaryValueType = "Percentage";
+                            parsed.Unit = "%";
+                        }
+
+                        applyParsedValue(o, parsed);
+                        obs.Add(o);
+                    }
+                });
             }
 
             return observations;

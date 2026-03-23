@@ -83,36 +83,40 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(doseRegimen))
                     continue;
 
-                // Each parameter column produces one observation
-                foreach (var param in paramDefs)
+                // Fault-tolerant row processing: if any cell throws, the entire table is skipped
+                parseRowSafe(table, row, observations, (r, obs) =>
                 {
-                    var cell = getCellAtColumn(row, param.columnIndex);
-                    if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
-                        continue;
-
-                    var obs = createBaseObservation(table, row, cell, TableCategory.PK);
-                    obs.ParameterName = param.name;
-                    obs.DoseRegimen = doseRegimen;
-                    obs.Population = population;
-                    obs.Unit = param.unit;
-
-                    // Parse value — PK cells often use value(CV%) format
-                    var parsed = ValueParser.Parse(cell.CleanedText);
-
-                    // PK-specific: bare Numeric → Mean
-                    if (parsed.PrimaryValueType == "Numeric")
+                    // Each parameter column produces one observation
+                    foreach (var param in paramDefs)
                     {
-                        parsed.PrimaryValueType = "Mean";
+                        var cell = getCellAtColumn(r, param.columnIndex);
+                        if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                            continue;
+
+                        var o = createBaseObservation(table, r, cell, TableCategory.PK);
+                        o.ParameterName = param.name;
+                        o.DoseRegimen = doseRegimen;
+                        o.Population = population;
+                        o.Unit = param.unit;
+
+                        // Parse value — PK cells often use value(CV%) format
+                        var parsed = ValueParser.Parse(cell.CleanedText);
+
+                        // PK-specific: bare Numeric → Mean
+                        if (parsed.PrimaryValueType == "Numeric")
+                        {
+                            parsed.PrimaryValueType = "Mean";
+                        }
+
+                        applyParsedValue(o, parsed);
+
+                        // Unit from header takes precedence over parsed unit
+                        if (!string.IsNullOrEmpty(param.unit))
+                            o.Unit = param.unit;
+
+                        obs.Add(o);
                     }
-
-                    applyParsedValue(obs, parsed);
-
-                    // Unit from header takes precedence over parsed unit
-                    if (!string.IsNullOrEmpty(param.unit))
-                        obs.Unit = param.unit;
-
-                    observations.Add(obs);
-                }
+                });
             }
 
             return observations;

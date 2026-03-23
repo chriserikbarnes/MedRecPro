@@ -69,22 +69,26 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(paramName))
                     continue;
 
-                // Each dose column
-                foreach (var dose in doseHeaders)
+                // Fault-tolerant row processing: if any cell throws, the entire table is skipped
+                parseRowSafe(table, row, observations, (r, obs) =>
                 {
-                    var cell = getCellAtColumn(row, dose.columnIndex);
-                    if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
-                        continue;
+                    // Each dose column
+                    foreach (var dose in doseHeaders)
+                    {
+                        var cell = getCellAtColumn(r, dose.columnIndex);
+                        if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                            continue;
 
-                    var obs = createBaseObservation(table, row, cell, TableCategory.DOSING);
-                    obs.ParameterName = paramName;
-                    obs.Population = population;
-                    obs.Unit = dose.headerText;
+                        var o = createBaseObservation(table, r, cell, TableCategory.DOSING);
+                        o.ParameterName = paramName;
+                        o.Population = population;
+                        o.Unit = dose.headerText;
 
-                    var parsed = ValueParser.Parse(cell.CleanedText);
-                    applyParsedValue(obs, parsed);
-                    observations.Add(obs);
-                }
+                        var parsed = ValueParser.Parse(cell.CleanedText);
+                        applyParsedValue(o, parsed);
+                        obs.Add(o);
+                    }
+                });
             }
 
             return observations;

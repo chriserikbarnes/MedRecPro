@@ -143,35 +143,39 @@ namespace MedRecProImportClass.Service.TransformationServices
                     continue;
                 }
 
-                // Extract p-value from stat column if present
-                double? rowPValue = extractPValue(row, statColumns);
-
-                // Arm data columns
-                foreach (var arm in arms)
+                // Fault-tolerant row processing: if any cell throws, the entire table is skipped
+                parseRowSafe(table, row, observations, (r, obs) =>
                 {
-                    var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
-                    if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
-                        continue;
+                    // Extract p-value from stat column if present
+                    double? rowPValue = extractPValue(r, statColumns);
 
-                    var obs = createBaseObservation(table, row, cell, category);
-                    obs.ParameterName = paramName;
-                    obs.ParameterSubtype = currentSubtype;
-                    obs.TreatmentArm = arm.Name;
-                    obs.ArmN = arm.SampleSize;
-                    obs.StudyContext = arm.StudyContext;
-                    obs.Population = population;
-                    obs.PValue = rowPValue;
+                    // Arm data columns
+                    foreach (var arm in arms)
+                    {
+                        var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
+                        if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                            continue;
 
-                    var parsed = ValueParser.Parse(cell.CleanedText, arm.SampleSize);
-                    parsed = applyTypePromotion(parsed, category, arm);
-                    applyParsedValue(obs, parsed);
+                        var o = createBaseObservation(table, r, cell, category);
+                        o.ParameterName = paramName;
+                        o.ParameterSubtype = currentSubtype;
+                        o.TreatmentArm = arm.Name;
+                        o.ArmN = arm.SampleSize;
+                        o.StudyContext = arm.StudyContext;
+                        o.Population = population;
+                        o.PValue = rowPValue;
 
-                    observations.Add(obs);
-                }
+                        var parsed = ValueParser.Parse(cell.CleanedText, arm.SampleSize);
+                        parsed = applyTypePromotion(parsed, category, arm);
+                        applyParsedValue(o, parsed);
 
-                // Stat/comparison columns
-                emitComparisonRows(table, row, category, paramName, currentSubtype,
-                    population, rowPValue, statColumns, observations);
+                        obs.Add(o);
+                    }
+
+                    // Stat/comparison columns
+                    emitComparisonRows(table, r, category, paramName, currentSubtype,
+                        population, rowPValue, statColumns, obs);
+                });
             }
 
             return observations;

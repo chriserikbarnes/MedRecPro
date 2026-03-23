@@ -862,3 +862,19 @@ Implemented Stage 4 (Validation) of the SPL Table Normalization pipeline — aut
 Build: 0 errors. Tests: 692/692 passed (37 new + 655 existing).
 
 ---
+
+### 2026-03-23 10:58 AM EST — SPL Table Transformation Fault Tolerance
+
+Added table-level atomicity to the Stage 3 table parsing pipeline. Previously, if a row-level error occurred inside a parser, cells were silently skipped and partial table data was written to the database. Now, any row exception causes the entire table to be skipped with zero data written.
+
+**Approach:** Base-class wrapper pattern — added `parseRowSafe()` to `BaseTableParser` that wraps each row's data-extraction logic in try/catch, rolls back any partial observations on failure, and throws a `TableParseException` with structured context (TextTableID, RowSequence, ParserName). The orchestrator's existing catch block handles the rest.
+
+**Changes:**
+- New `TableParseException` custom exception with structured error context
+- `BaseTableParser.parseRowSafe()` — row-level try/catch with observation rollback
+- All 8 parsers refactored to use `parseRowSafe()` (SimpleArm, MultilevelAe, AeWithSoc, Pk, Dosing, EfficacyMultilevel, Bmd, TissueRatio)
+- `TableParsingOrchestrator` — `TableParseException`-specific catch with structured logging, `ChangeTracker.Clear()` safety on `SaveChangesAsync` failure, and `EMPTY:{parser}` skip tracking to distinguish "no data" from "error"
+
+Build: 0 errors.
+
+---

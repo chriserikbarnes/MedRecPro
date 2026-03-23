@@ -437,5 +437,63 @@ namespace MedRecProImportClass.Service.TransformationServices
         }
 
         #endregion Protected Helpers — Value Application
+
+        #region Protected Helpers — Fault Tolerance
+
+        /**************************************************************/
+        /// <summary>
+        /// Wraps row-level parsing in a try/catch to enforce table-level atomicity.
+        /// If the row parser delegate throws, any observations added during this row
+        /// are rolled back and a <see cref="TableParseException"/> is thrown, causing
+        /// the entire table to be skipped.
+        /// </summary>
+        /// <remarks>
+        /// Call this inside each parser's <c>foreach (var row in dataRows)</c> loop.
+        /// SOC divider handling and subtype/group state updates should remain outside
+        /// this wrapper since they are structural navigation, not data parsing.
+        /// </remarks>
+        /// <param name="table">Source reconstructed table (for context in exception).</param>
+        /// <param name="row">The current data row being processed.</param>
+        /// <param name="observations">The shared observations list that the delegate appends to.</param>
+        /// <param name="rowParser">Delegate containing the row's data-extraction logic.</param>
+        /// <exception cref="TableParseException">
+        /// Thrown when the row parser delegate throws any exception. Contains structured
+        /// context (TextTableID, RowSequence, ParserName) and the original exception as InnerException.
+        /// </exception>
+        /// <seealso cref="TableParseException"/>
+        protected void parseRowSafe(
+            ReconstructedTable table,
+            ReconstructedRow row,
+            List<ParsedObservation> observations,
+            Action<ReconstructedRow, List<ParsedObservation>> rowParser)
+        {
+            #region implementation
+
+            var preCount = observations.Count;
+
+            try
+            {
+                rowParser(row, observations);
+            }
+            catch (Exception ex)
+            {
+                // Roll back any observations added during this row
+                if (observations.Count > preCount)
+                {
+                    observations.RemoveRange(preCount, observations.Count - preCount);
+                }
+
+                throw new TableParseException(
+                    $"Row {row.SequenceNumberTextTableRow} failed in {GetType().Name}: {ex.Message}",
+                    textTableId: table.TextTableID,
+                    rowSequence: row.SequenceNumberTextTableRow,
+                    parserName: GetType().Name,
+                    innerException: ex);
+            }
+
+            #endregion
+        }
+
+        #endregion Protected Helpers — Fault Tolerance
     }
 }
