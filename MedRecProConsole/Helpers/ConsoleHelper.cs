@@ -485,7 +485,7 @@ namespace MedRecProConsole.Helpers
 
                 // Show main menu prompt
                 var command = AnsiConsole.Prompt(
-                    new TextPrompt<string>("[grey]Enter command ([green]import[/], [orange1]orange-book[/], [cyan]database[/], [blue]help[/], [yellow]quit[/]):[/]")
+                    new TextPrompt<string>("[grey]Enter command ([green]import[/], [orange1]orange-book[/], [dodgerblue1]standardize-tables[/], [cyan]database[/], [blue]help[/], [yellow]quit[/]):[/]")
                         .PromptStyle("white")
                         .AllowEmpty());
 
@@ -560,6 +560,20 @@ namespace MedRecProConsole.Helpers
 
                         await runOrangeBookImportFromMenuAsync(
                             settings,
+                            currentConnectionString,
+                            verboseMode);
+                        break;
+
+                    case "standardize-tables":
+                    case "st":
+                        // Must have a database selected first
+                        if (string.IsNullOrEmpty(currentConnectionString))
+                        {
+                            AnsiConsole.MarkupLine("[yellow]Please select a database first using 'database' command.[/]");
+                            break;
+                        }
+
+                        await runStandardizeTablesFromMenuAsync(
                             currentConnectionString,
                             verboseMode);
                         break;
@@ -1019,6 +1033,7 @@ namespace MedRecProConsole.Helpers
 
             table.AddRow("[green]import, i[/]", "Import SPL ZIP files from a folder");
             table.AddRow("[orange1]orange-book, ob[/]", "Import Orange Book ZIP file (products.txt)");
+            table.AddRow("[dodgerblue1]standardize-tables, st[/]", "Parse and validate SPL table data (Stage 3+4)");
             table.AddRow("[cyan]database, db, d[/]", "Select or change database connection");
             table.AddRow("[magenta]summary, s[/]", "Display cumulative import summary");
             table.AddRow("[yellow]errors, e[/]", "Display error details from imports");
@@ -1626,6 +1641,120 @@ namespace MedRecProConsole.Helpers
             }
 
             return results;
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Table Standardization methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Runs an interactive table standardization operation from the main menu.
+        /// Prompts for operation type, batch size, and optional table ID.
+        /// </summary>
+        /// <param name="connectionString">Database connection string.</param>
+        /// <param name="verboseMode">Whether verbose mode is enabled.</param>
+        /// <seealso cref="Services.TableStandardizationService"/>
+        private static async Task runStandardizeTablesFromMenuAsync(
+            string connectionString,
+            bool verboseMode)
+        {
+            #region implementation
+
+            AnsiConsole.WriteLine();
+
+            // Prompt for operation
+            var operation = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[dodgerblue1]Select standardization operation:[/]")
+                    .HighlightStyle("dodgerblue1")
+                    .AddChoices(new[]
+                    {
+                        "parse       - Stage 3: Parse all tables into observations",
+                        "validate    - Stage 3+4: Parse all tables then validate with report",
+                        "truncate    - Wipe output table for a clean rerun",
+                        "parse-single - Debug: Parse a single table (no DB write)",
+                        "cancel      - Return to main menu"
+                    }));
+
+            // Extract operation name (first word before spaces/dash)
+            var operationName = operation.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+
+            if (operationName == "cancel")
+            {
+                AnsiConsole.MarkupLine("[grey]Table standardization cancelled.[/]");
+                return;
+            }
+
+            var service = new Services.TableStandardizationService();
+
+            // Handle truncate — no extra prompts needed
+            if (operationName == "truncate")
+            {
+                if (!AnsiConsole.Confirm(
+                    "[yellow]Truncate tmp_FlattenedStandardizedTable? This deletes all standardized data.[/]", false))
+                {
+                    AnsiConsole.MarkupLine("[grey]Truncation cancelled.[/]");
+                    return;
+                }
+
+                await service.ExecuteTruncateAsync(connectionString, quiet: false);
+                return;
+            }
+
+            // Handle parse-single — prompt for TextTableID
+            if (operationName == "parse-single")
+            {
+                var tableId = AnsiConsole.Prompt(
+                    new TextPrompt<int>("[dodgerblue1]Enter TextTableID to parse:[/]")
+                        .PromptStyle("white")
+                        .Validate(id => id > 0
+                            ? ValidationResult.Success()
+                            : ValidationResult.Error("[red]TextTableID must be a positive integer[/]")));
+
+                await service.ExecuteParseSingleAsync(connectionString, tableId, verboseMode);
+                return;
+            }
+
+            // Handle parse / validate — prompt for batch size
+            var batchSize = AnsiConsole.Prompt(
+                new TextPrompt<int>("[dodgerblue1]Batch size[/] [grey](tables per batch, 1-50000):[/]")
+                    .PromptStyle("white")
+                    .DefaultValue(1000)
+                    .Validate(bs => bs >= 1 && bs <= 50000
+                        ? ValidationResult.Success()
+                        : ValidationResult.Error("[red]Batch size must be between 1 and 50000[/]")));
+
+            // Show confirmation summary
+            AnsiConsole.WriteLine();
+            var confirmTable = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn(new TableColumn("[bold]Setting[/]").NoWrap())
+                .AddColumn(new TableColumn("[bold]Value[/]"));
+
+            confirmTable.AddRow("Operation", Markup.Escape(operationName));
+            confirmTable.AddRow("Batch Size", batchSize.ToString("N0"));
+
+            AnsiConsole.Write(confirmTable);
+            AnsiConsole.WriteLine();
+
+            if (!AnsiConsole.Confirm("[yellow]Proceed with table standardization?[/]", true))
+            {
+                AnsiConsole.MarkupLine("[grey]Table standardization cancelled.[/]");
+                return;
+            }
+
+            // Execute
+            if (operationName == "validate")
+            {
+                await service.ExecuteValidateAsync(connectionString, batchSize, verboseMode, quiet: false);
+            }
+            else
+            {
+                await service.ExecuteParseAsync(connectionString, batchSize, verboseMode, quiet: false);
+            }
 
             #endregion
         }
