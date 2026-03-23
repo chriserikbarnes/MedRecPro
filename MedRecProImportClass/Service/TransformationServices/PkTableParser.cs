@@ -65,6 +65,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var observations = new List<ParsedObservation>();
             var (population, popConfidence) = detectPopulation(table);
+            var captionHint = detectCaptionValueHint(table.Caption);
 
             // Extract parameter definitions from header (skip col 0 = dose label)
             var paramDefs = extractParameterDefinitions(table);
@@ -102,10 +103,18 @@ namespace MedRecProImportClass.Service.TransformationServices
                         // Parse value — PK cells often use value(CV%) format
                         var parsed = ValueParser.Parse(cell.CleanedText);
 
-                        // PK-specific: bare Numeric → Mean
+                        // Caption-based type inference (e.g., "Mean (SD)" reinterprets n_pct → mean_sd)
+                        if (!captionHint.IsEmpty)
+                        {
+                            parsed = applyCaptionHint(parsed, captionHint);
+                        }
+
+                        // PK fallback: bare Numeric → Mean (only if caption didn't already set it)
                         if (parsed.PrimaryValueType == "Numeric")
                         {
                             parsed.PrimaryValueType = "Mean";
+                            // Reduce confidence — fallback without caption confirmation
+                            parsed.ParseConfidence = parsed.ParseConfidence * 0.8;
                         }
 
                         applyParsedValue(o, parsed);

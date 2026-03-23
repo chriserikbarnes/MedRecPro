@@ -8,7 +8,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// <summary>
     /// Abstract base class for all Stage 3 table parsers. Provides shared helper methods
     /// for arm extraction, data row filtering, footnote resolution, observation creation,
-    /// type promotion, and population detection.
+    /// type promotion, caption-based value type inference, and population detection.
     /// </summary>
     /// <remarks>
     /// ## Shared Helpers
@@ -17,6 +17,8 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// - <see cref="resolveFootnoteText"/>: Joins footnote markers to their definitions
     /// - <see cref="createBaseObservation"/>: Pre-populates provenance + classification fields
     /// - <see cref="applyTypePromotion"/>: Promotes bare Numeric → Percentage in AE context
+    /// - <see cref="detectCaptionValueHint"/>: Extracts value type hints from table captions
+    /// - <see cref="applyCaptionHint"/>: Applies caption-derived type overrides to parsed values
     /// - <see cref="detectPopulation"/>: Calls <see cref="PopulationDetector"/> for auto-detection
     ///
     /// ## Usage Pattern
@@ -30,6 +32,130 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// <seealso cref="ReconstructedTable"/>
     public abstract class BaseTableParser : ITableParser
     {
+        #region Caption Value Hint Types
+
+        /**************************************************************/
+        /// <summary>
+        /// Carries value type hints extracted from a table caption. When a caption contains
+        /// statistical descriptors like "Mean (SD)" or "Median (Range)", this struct tells
+        /// parsers how to interpret the Number (Number) cell pattern.
+        /// </summary>
+        /// <remarks>
+        /// ## Confidence Adjustment
+        /// - 1.0 = exact match (caption explicitly states the format)
+        /// - 0.85 = bare match (caption says "Mean" but no parenthetical for secondary type)
+        /// - Parsers apply this as a multiplier to <see cref="ParsedValue.ParseConfidence"/>
+        /// </remarks>
+        /// <seealso cref="detectCaptionValueHint"/>
+        /// <seealso cref="applyCaptionHint"/>
+        protected readonly struct CaptionValueHint
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Primary value type inferred from caption (e.g., "Mean", "Median", "GeometricMean").
+            /// Null when caption provides no value type hint.
+            /// </summary>
+            public string? PrimaryValueType { get; init; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Secondary value type inferred from caption parenthetical (e.g., "SD", "SE", "CV_Percent").
+            /// Null when caption has no parenthetical or parenthetical is unrecognized.
+            /// </summary>
+            public string? SecondaryValueType { get; init; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Confidence multiplier: 1.0 = no change, 0.85 = reduce for ambiguous hints.
+            /// Applied to <see cref="ParsedValue.ParseConfidence"/> when this hint overrides types.
+            /// </summary>
+            public double ConfidenceAdjustment { get; init; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Diagnostic source string (e.g., "caption:Mean (SD)") for validation flags.
+            /// </summary>
+            public string? Source { get; init; }
+
+            /**************************************************************/
+            /// <summary>
+            /// True when no value type hint was detected from the caption.
+            /// </summary>
+            public bool IsEmpty => PrimaryValueType == null && SecondaryValueType == null;
+        }
+
+        #endregion Caption Value Hint Types
+
+        #region Caption Hint Dictionary (Compiled Patterns)
+
+        /**************************************************************/
+        /// <summary>
+        /// Compiled regex patterns for extracting value type hints from table captions.
+        /// Ordered by specificity (most specific first). First match wins.
+        /// </summary>
+        /// <remarks>
+        /// Patterns match common statistical descriptors in SPL table captions:
+        /// "Mean (SD)", "Geometric Mean (%CV)", "Median (Range)", "LS Mean (SE)", etc.
+        /// </remarks>
+        private static readonly (Regex pattern, CaptionValueHint hint)[] _captionHintPatterns =
+        {
+            // Mean (SD) / Mean (Standard Deviation)
+            (new Regex(@"Mean\s*\(\s*(?:SD|Standard\s*Deviation)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Mean", SecondaryValueType = "SD", ConfidenceAdjustment = 1.0, Source = "caption:Mean (SD)" }),
+
+            // Mean (SE) / Mean (Standard Error)
+            (new Regex(@"Mean\s*\(\s*(?:SE|Standard\s*Error)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Mean", SecondaryValueType = "SE", ConfidenceAdjustment = 1.0, Source = "caption:Mean (SE)" }),
+
+            // Mean (CV%) / Mean (%CV) / Mean (CV)
+            (new Regex(@"Mean\s*\(\s*(?:%?\s*CV\s*%?|CV\s*%)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Mean", SecondaryValueType = "CV_Percent", ConfidenceAdjustment = 1.0, Source = "caption:Mean (CV%)" }),
+
+            // Geometric Mean with CV/SD parenthetical
+            (new Regex(@"Geometric\s+Mean\s*\(\s*(?:%?\s*CV\s*%?|CV\s*%)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "GeometricMean", SecondaryValueType = "CV_Percent", ConfidenceAdjustment = 1.0, Source = "caption:GeometricMean (CV%)" }),
+
+            (new Regex(@"Geometric\s+Mean\s*\(\s*(?:SD|Standard\s*Deviation)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "GeometricMean", SecondaryValueType = "SD", ConfidenceAdjustment = 1.0, Source = "caption:GeometricMean (SD)" }),
+
+            // Geometric Mean bare (no parenthetical)
+            (new Regex(@"Geometric\s+Mean", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "GeometricMean", SecondaryValueType = null, ConfidenceAdjustment = 0.85, Source = "caption:GeometricMean" }),
+
+            // LS Mean / Least Squares Mean with SE/SD
+            (new Regex(@"(?:LS\s*Mean|Least[\s-]*Squares?\s*Mean)\s*\(\s*(?:SE|Standard\s*Error)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "LSMean", SecondaryValueType = "SE", ConfidenceAdjustment = 1.0, Source = "caption:LSMean (SE)" }),
+
+            (new Regex(@"(?:LS\s*Mean|Least[\s-]*Squares?\s*Mean)\s*\(\s*(?:SD|Standard\s*Deviation)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "LSMean", SecondaryValueType = "SD", ConfidenceAdjustment = 1.0, Source = "caption:LSMean (SD)" }),
+
+            // LS Mean bare
+            (new Regex(@"(?:LS\s*Mean|Least[\s-]*Squares?\s*Mean)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "LSMean", SecondaryValueType = null, ConfidenceAdjustment = 0.85, Source = "caption:LSMean" }),
+
+            // Median (Range) / Median (Min, Max)
+            (new Regex(@"Median\s*\(\s*(?:Range|Min\s*[,;]\s*Max)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Median", SecondaryValueType = null, ConfidenceAdjustment = 1.0, Source = "caption:Median (Range)" }),
+
+            // Median (IQR) / Median (Interquartile Range)
+            (new Regex(@"Median\s*\(\s*(?:IQR|Interquartile\s*Range?)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Median", SecondaryValueType = null, ConfidenceAdjustment = 1.0, Source = "caption:Median (IQR)" }),
+
+            // n (%) / Number (Percentage) — confirms n(%) pattern, no override needed
+            (new Regex(@"(?:^|\W)n\s*\(\s*%\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = null, SecondaryValueType = "Count", ConfidenceAdjustment = 1.0, Source = "caption:n(%)" }),
+
+            // Bare Mean (no parenthetical) — must come after all Mean+parenthetical patterns
+            (new Regex(@"(?<!\w)Mean(?!\s*\()", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Mean", SecondaryValueType = null, ConfidenceAdjustment = 0.85, Source = "caption:Mean" }),
+
+            // Bare Median (no parenthetical) — must come after all Median+parenthetical patterns
+            (new Regex(@"(?<!\w)Median(?!\s*\()", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Median", SecondaryValueType = null, ConfidenceAdjustment = 0.85, Source = "caption:Median" }),
+        };
+
+        #endregion Caption Hint Dictionary (Compiled Patterns)
+
         #region Compiled Regex Patterns
 
         // Pattern for detecting stat/comparison column headers
@@ -324,6 +450,149 @@ namespace MedRecProImportClass.Service.TransformationServices
         }
 
         #endregion Protected Helpers — Type Promotion
+
+        #region Protected Helpers — Caption Value Hint
+
+        /**************************************************************/
+        /// <summary>
+        /// Analyzes a table caption to extract value type hints. Searches for statistical
+        /// descriptors like "Mean (SD)", "Geometric Mean (%CV)", "Median (Range)" that
+        /// indicate how the Number (Number) cell pattern should be interpreted.
+        /// </summary>
+        /// <remarks>
+        /// Patterns are evaluated in specificity order (most specific first). For example,
+        /// "Mean (SD)" matches before bare "Mean". Returns <c>CaptionValueHint.IsEmpty == true</c>
+        /// when no statistical descriptor is found.
+        /// </remarks>
+        /// <param name="caption">Table caption text (may contain HTML remnants).</param>
+        /// <returns>
+        /// A <see cref="CaptionValueHint"/> with inferred types and confidence adjustment.
+        /// </returns>
+        /// <seealso cref="CaptionValueHint"/>
+        /// <seealso cref="applyCaptionHint"/>
+        protected static CaptionValueHint detectCaptionValueHint(string? caption)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(caption))
+                return default;
+
+            foreach (var (pattern, hint) in _captionHintPatterns)
+            {
+                if (pattern.IsMatch(caption))
+                    return hint;
+            }
+
+            return default;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies a caption-derived value type hint to a <see cref="ParsedValue"/>,
+        /// reinterpreting value types when the caption provides stronger context than
+        /// pattern matching alone. Handles the critical case where "3057 (980)" is
+        /// misidentified as n(%) when the caption indicates Mean (SD).
+        /// </summary>
+        /// <remarks>
+        /// ## Reinterpretation Cases
+        /// - **n_pct → mean_sd**: When ValueParser matches "3057 (980)" as n=3057/pct=980
+        ///   but caption says "Mean (SD)", swaps values: primary=3057 (Mean), secondary=980 (SD).
+        /// - **Numeric promotion**: When ValueParser returns bare "Numeric" and caption provides
+        ///   a specific type (Mean, Median, etc.), promotes the type.
+        /// - **SecondaryValueType fill**: When caption specifies a secondary type (SD, SE) and
+        ///   parsed has a secondary value with no type, applies the caption's type.
+        ///
+        /// ## Confidence Adjustment
+        /// Applies <see cref="CaptionValueHint.ConfidenceAdjustment"/> as a multiplier when
+        /// the hint overrides or augments the parsed type.
+        ///
+        /// ## Validation Flags
+        /// Appends <c>CAPTION_REINTERPRET:{old}→{new}</c> when values are reinterpreted,
+        /// or <c>CAPTION_HINT:{source}</c> when type is promoted.
+        /// </remarks>
+        /// <param name="parsed">The parsed value from <see cref="ValueParser"/>.</param>
+        /// <param name="hint">The caption-derived hint from <see cref="detectCaptionValueHint"/>.</param>
+        /// <returns>The same ParsedValue, potentially with reinterpreted types and values.</returns>
+        /// <seealso cref="CaptionValueHint"/>
+        /// <seealso cref="detectCaptionValueHint"/>
+        protected static ParsedValue applyCaptionHint(ParsedValue parsed, CaptionValueHint hint)
+        {
+            #region implementation
+
+            if (hint.IsEmpty)
+                return parsed;
+
+            // Case 1: n_pct was matched but caption says Mean/Median/etc.
+            // ValueParser parsed "3057 (980)" as: PrimaryValue=980 (Percentage), SecondaryValue=3057 (Count)
+            // Caption says Mean (SD): reinterpret as PrimaryValue=3057 (Mean), SecondaryValue=980 (SD)
+            if (parsed.ParseRule == "n_pct" &&
+                hint.PrimaryValueType != null &&
+                hint.PrimaryValueType != "Percentage" &&
+                hint.SecondaryValueType != null &&
+                hint.SecondaryValueType != "Count")
+            {
+                var oldPrimary = parsed.PrimaryValue;
+                var oldSecondary = parsed.SecondaryValue;
+
+                parsed.PrimaryValue = oldSecondary;        // count → mean
+                parsed.PrimaryValueType = hint.PrimaryValueType;
+                parsed.SecondaryValue = oldPrimary;        // pct → SD
+                parsed.SecondaryValueType = hint.SecondaryValueType;
+                parsed.Unit = null;                        // remove "%" unit from n_pct
+                parsed.ParseConfidence = parsed.ParseConfidence * hint.ConfidenceAdjustment;
+                parsed.ParseRule = $"caption_{hint.PrimaryValueType.ToLowerInvariant()}_{hint.SecondaryValueType.ToLowerInvariant()}";
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags,
+                    $"CAPTION_REINTERPRET:n_pct→{hint.PrimaryValueType}({hint.SecondaryValueType})");
+
+                return parsed;
+            }
+
+            // Case 2: Bare Numeric → promote to caption's PrimaryValueType
+            if (parsed.PrimaryValueType == "Numeric" && hint.PrimaryValueType != null)
+            {
+                parsed.PrimaryValueType = hint.PrimaryValueType;
+                parsed.ParseConfidence = parsed.ParseConfidence * hint.ConfidenceAdjustment;
+                parsed.ParseRule = $"{parsed.ParseRule}+caption";
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags,
+                    $"CAPTION_HINT:{hint.Source}");
+
+                return parsed;
+            }
+
+            // Case 3: Secondary type fill — parsed has secondary value but no type
+            if (hint.SecondaryValueType != null &&
+                parsed.SecondaryValue != null &&
+                string.IsNullOrEmpty(parsed.SecondaryValueType))
+            {
+                parsed.SecondaryValueType = hint.SecondaryValueType;
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags,
+                    $"CAPTION_HINT:{hint.Source}");
+            }
+
+            return parsed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Appends a flag to an existing semicolon-delimited validation flags string.
+        /// </summary>
+        /// <param name="existing">Current flags (may be null/empty).</param>
+        /// <param name="flag">New flag to append.</param>
+        /// <returns>Combined flags string.</returns>
+        private static string appendFlag(string? existing, string flag)
+        {
+            #region implementation
+
+            return string.IsNullOrEmpty(existing) ? flag : $"{existing}; {flag}";
+
+            #endregion
+        }
+
+        #endregion Protected Helpers — Caption Value Hint
 
         #region Protected Helpers — Population Detection
 

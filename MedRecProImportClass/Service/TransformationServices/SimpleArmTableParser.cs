@@ -83,6 +83,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var observations = new List<ParsedObservation>();
             var (population, popConfidence) = detectPopulation(table);
+            var captionHint = detectCaptionValueHint(table.Caption);
 
             // Extract arm definitions and identify stat columns
             var allArms = extractArmDefinitions(table);
@@ -166,6 +167,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.PValue = rowPValue;
 
                         var parsed = ValueParser.Parse(cell.CleanedText, arm.SampleSize);
+
+                        // Caption-based type inference (e.g., "Mean (SD)" in efficacy tables)
+                        if (!captionHint.IsEmpty)
+                        {
+                            parsed = applyCaptionHint(parsed, captionHint);
+                        }
+
                         parsed = applyTypePromotion(parsed, category, arm);
                         applyParsedValue(o, parsed);
 

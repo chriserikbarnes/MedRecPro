@@ -111,7 +111,7 @@ namespace MedRecProConsole.Services
                                 : 0;
                             task.Description =
                                 $"Batch {p.BatchNumber}/{p.TotalBatches} " +
-                                $"[{p.RangeStart}-{p.RangeEnd}] " +
+                                $"[[{p.RangeStart}-{p.RangeEnd}]] " +
                                 $"{p.CumulativeObservationCount:N0} obs";
 
                             progressTracker.UpdateProgressAsync(p).GetAwaiter().GetResult();
@@ -239,7 +239,7 @@ namespace MedRecProConsole.Services
                                 : 0;
                             task.Description =
                                 $"Batch {p.BatchNumber}/{p.TotalBatches} " +
-                                $"[{p.RangeStart}-{p.RangeEnd}] " +
+                                $"[[{p.RangeStart}-{p.RangeEnd}]] " +
                                 $"{p.CumulativeObservationCount:N0} obs, " +
                                 $"{p.TablesSkippedThisBatch} skipped";
 
@@ -414,18 +414,12 @@ namespace MedRecProConsole.Services
             // Add configuration
             services.AddSingleton<IConfiguration>(configuration);
 
-            // Add logging — suppress most output unless verbose mode
+            // Add logging — always show warnings (parse errors, skipped tables) to console;
+            // verbose mode lowers to Debug for full detail
             services.AddLogging(builder =>
             {
-                if (verbose)
-                {
-                    builder.AddConsole();
-                    builder.SetMinimumLevel(LogLevel.Warning);
-                }
-                else
-                {
-                    builder.SetMinimumLevel(LogLevel.None);
-                }
+                builder.AddConsole();
+                builder.SetMinimumLevel(verbose ? LogLevel.Debug : LogLevel.Warning);
             });
 
             // Add DbContext
@@ -578,6 +572,24 @@ namespace MedRecProConsole.Services
 
             AnsiConsole.Write(summary);
             AnsiConsole.WriteLine();
+
+            // Skip reasons breakdown — always show when tables were skipped
+            if (report.SkipReasons.Count > 0)
+            {
+                var skipTable = new Table()
+                    .Border(TableBorder.Rounded)
+                    .Title("[bold yellow]Skip Reasons[/]")
+                    .AddColumn(new TableColumn("[bold]Reason[/]").NoWrap())
+                    .AddColumn(new TableColumn("[bold]Count[/]"));
+
+                foreach (var kvp in report.SkipReasons.OrderByDescending(x => x.Value))
+                {
+                    skipTable.AddRow(Markup.Escape(kvp.Key), $"{kvp.Value:N0}");
+                }
+
+                AnsiConsole.Write(skipTable);
+                AnsiConsole.WriteLine();
+            }
 
             // Confidence distribution
             var confidence = new Table()

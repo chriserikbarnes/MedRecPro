@@ -132,6 +132,21 @@ namespace MedRecProImportClass.Data
             {
                 foreach (var entityType in nestedViewEntityTypes)
                 {
+                    // FlattenedStandardizedTable has a surrogate PK for EF Core change tracking
+                    // (AddRange bulk inserts). Configure it as a regular table, not a keyless view.
+                    if (entityType == typeof(LabelView.FlattenedStandardizedTable))
+                    {
+                        builder.Entity<LabelView.FlattenedStandardizedTable>(e =>
+                        {
+                            e.ToTable("tmp_FlattenedStandardizedTable");
+                            e.HasKey(x => x.Id);
+                            e.Property(x => x.Id)
+                                .HasColumnName("tmp_FlattenedStandardizedTableID")
+                                .ValueGeneratedOnAdd();
+                        });
+                        continue;
+                    }
+
                     var entityBuilder = builder.Entity(entityType);
 
                     // Check for [Table] attribute to get view name

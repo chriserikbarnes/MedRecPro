@@ -13,6 +13,9 @@ USE MedRecLocal
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'tmp_FlattenedStandardizedTable')
 BEGIN
     CREATE TABLE tmp_FlattenedStandardizedTable (
+        -- Surrogate PK: required for EF Core change tracking (AddRange + SaveChangesAsync)
+        tmp_FlattenedStandardizedTableID INT IDENTITY(1,1) PRIMARY KEY,
+
         -- Provenance (8): traces every value back to the exact source cell
         DocumentGUID            UNIQUEIDENTIFIER NULL,
         LabelerName             NVARCHAR(500)    NULL,
@@ -24,40 +27,40 @@ BEGIN
         SourceCellSeq           INT              NULL,
 
         -- Classification (4): routes queries and groups comparable data
-        TableCategory           NVARCHAR(50)     NULL,
+        TableCategory           NVARCHAR(100)    NULL,
         ParentSectionCode       NVARCHAR(50)     NULL,
-        ParentSectionTitle      NVARCHAR(500)    NULL,
-        SectionTitle            NVARCHAR(500)    NULL,
+        ParentSectionTitle      NVARCHAR(1000)   NULL,
+        SectionTitle            NVARCHAR(1000)   NULL,
 
         -- Observation Context (9): what was measured, in whom, under what conditions
-        ParameterName           NVARCHAR(500)    NULL,
+        ParameterName           NVARCHAR(1000)   NULL,
         ParameterCategory       NVARCHAR(500)    NULL,
         ParameterSubtype        NVARCHAR(500)    NULL,
-        TreatmentArm            NVARCHAR(500)    NULL,
+        TreatmentArm            NVARCHAR(1000)   NULL,
         ArmN                    INT              NULL,
-        StudyContext             NVARCHAR(500)    NULL,
-        DoseRegimen             NVARCHAR(500)    NULL,
+        StudyContext             NVARCHAR(1000)   NULL,
+        DoseRegimen             NVARCHAR(1000)   NULL,
         Population              NVARCHAR(500)    NULL,
-        Timepoint               NVARCHAR(200)    NULL,
+        Timepoint               NVARCHAR(500)    NULL,
 
         -- Decomposed Values (10): typed, queryable components of the raw cell text
-        RawValue                NVARCHAR(500)    NULL,
+        RawValue                NVARCHAR(2000)   NULL,
         PrimaryValue            FLOAT            NULL,
-        PrimaryValueType        NVARCHAR(50)     NULL,
+        PrimaryValueType        NVARCHAR(100)    NULL,
         SecondaryValue          FLOAT            NULL,
-        SecondaryValueType      NVARCHAR(50)     NULL,
+        SecondaryValueType      NVARCHAR(100)    NULL,
         LowerBound              FLOAT            NULL,
         UpperBound              FLOAT            NULL,
-        BoundType               NVARCHAR(20)     NULL,
+        BoundType               NVARCHAR(50)     NULL,
         PValue                  FLOAT            NULL,
-        Unit                    NVARCHAR(50)     NULL,
+        Unit                    NVARCHAR(500)    NULL,
 
         -- Validation (5): automated quality signals and confidence scores
         ParseConfidence         FLOAT            NULL,
-        ParseRule               NVARCHAR(50)     NULL,
-        FootnoteMarkers         NVARCHAR(200)    NULL,
+        ParseRule               NVARCHAR(100)    NULL,
+        FootnoteMarkers         NVARCHAR(500)    NULL,
         FootnoteText            NVARCHAR(MAX)    NULL,
-        ValidationFlags         NVARCHAR(500)    NULL
+        ValidationFlags         NVARCHAR(1000)   NULL
     );
 
     -- Nonclustered indexes for common query patterns

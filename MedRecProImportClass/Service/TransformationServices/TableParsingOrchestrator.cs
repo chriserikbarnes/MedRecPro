@@ -150,13 +150,18 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     await _dbContext.SaveChangesAsync(ct);
                 }
+                catch (OperationCanceledException)
+                {
+                    _dbContext.ChangeTracker.Clear();
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _dbContext.ChangeTracker.Clear();
-                    _logger.LogError(ex,
-                        "Failed to save batch — cleared {Count} tracked entities",
+                    _logger.LogWarning(ex,
+                        "Failed to save batch — cleared {Count} tracked entities, batch skipped",
                         totalObservations);
-                    throw;
+                    return 0;
                 }
             }
 
@@ -504,13 +509,18 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     await _dbContext.SaveChangesAsync(ct);
                 }
+                catch (OperationCanceledException)
+                {
+                    _dbContext.ChangeTracker.Clear();
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _dbContext.ChangeTracker.Clear();
-                    _logger.LogError(ex,
-                        "Failed to save batch — cleared {Count} tracked entities",
+                    _logger.LogWarning(ex,
+                        "Failed to save batch — cleared {Count} tracked entities, batch skipped",
                         totalObservations);
-                    throw;
+                    return (0, skipReasons);
                 }
             }
 

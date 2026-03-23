@@ -878,3 +878,80 @@ Added table-level atomicity to the Stage 3 table parsing pipeline. Previously, i
 Build: 0 errors.
 
 ---
+
+### 2026-03-23 1:19 PM EST — CLI Table Standardization Commands for MedRecProConsole
+
+Added `--standardize-tables` CLI mode and interactive `standardize-tables` / `st` command to MedRecProConsole, exposing the Stage 3+4 SPL table normalization pipeline (parsing + validation) through the console application.
+
+**New files (6):**
+- `MedRecProImportClass\Models\TransformBatchProgress.cs` — DTO for IProgress callback (batch number, ranges, counts, elapsed)
+- `MedRecProConsole\Models\StandardizationProgressFile.cs` — Serializable progress state for cancellation/resumption
+- `MedRecProConsole\Services\StandardizationProgressTracker.cs` — Atomic JSON progress tracking (SemaphoreSlim, write-to-temp-then-rename, SHA256 connection hash)
+- `MedRecProConsole\Services\TableStandardizationService.cs` — Main service bridging CLI to orchestrator with Spectre.Console progress bars, Ctrl+C handling, validation report display
+- `MedRecProTest\CommandLineArgsStandardizeTablesTests.cs` — 20 tests for CLI arg parsing
+- `MedRecProTest\StandardizationProgressTrackerTests.cs` — 8 tests for progress tracking
+- `MedRecProTest\TableParsingOrchestratorProgressTests.cs` — 5 tests for IProgress + resume
+
+**Modified files (8):**
+- `ITableParsingOrchestrator.cs` / `TableParsingOrchestrator.cs` — Added `IProgress<TransformBatchProgress>`, `int? resumeFromId`, `int? maxBatches` parameters to `ProcessAllAsync` and `ProcessAllWithValidationAsync`; Stopwatch for elapsed time; conditional truncate skip on resume; batch limit break
+- `CommandLineArgs.cs` — Added `--standardize-tables <op>`, `--batch-size <n>`, `--table-id <id>` parsing with mutual exclusion and validation rules
+- `Program.cs` — Added standardize-tables mode routing; extracted shared `resolveConnectionString()` (eliminated ~96 lines of duplication from unattended + orange-book methods)
+- `ConsoleHelper.cs` — Added interactive `standardize-tables` / `st` command with guided flow: resume previous session → truncate prompt → scope selection (all/limited/single) → batch size → confirmation → execute with validation always on
+- `HelpDocumentation.cs` — Added `DisplayStandardizeTablesModeInfo()` and usage examples
+- `appsettings.json` — Added help topic + command-line options
+- `README.md` — Added Table Standardization section with operations, examples, batch tuning, resumption, validation report docs
+
+**Key decisions:**
+- Validation always enabled — interactive mode always runs Stage 3+4 (no parse-only option)
+- `maxBatches` parameter for limited scope runs (e.g., 10 batches x 1000 = ~10K table IDs)
+- Resume via `.medrecpro-standardization-progress.json` — tracks last completed TextTableID, connection hash, cumulative stats
+- Ctrl+C saves progress atomically; re-running same command auto-resumes
+- `SynchronousProgress<T>` helper in tests to avoid `Progress<T>` ThreadPool callback timing issues
+
+Build: 0 errors. Tests: 725/725 pass (33 new).
+
+---
+
+### 2026-03-23 1:33 PM EST — Table Standardization: UX Refinements + Diagnostics
+
+**Interactive menu redesign** (`ConsoleHelper.runStandardizeTablesFromMenuAsync`):
+- Parse always includes validation (Stage 3+4) — removed standalone parse-only option
+- Added scope selection: All tables / Limited (N batches) / Single table ID / Cancel
+- Added resume prompt when `.medrecpro-standardization-progress.json` exists (shows session stats, offers Resume/Start fresh/Cancel)
+- Truncation moved to a yes/no step at the start of the flow, then continues to scope selection
+- Better aligned selection prompt labels with padded descriptions
+
+**`maxBatches` parameter** threaded through the full stack:
+- `ITableParsingOrchestrator.ProcessAllAsync` / `ProcessAllWithValidationAsync` — new `int? maxBatches` param; caps `totalBatches` and breaks loop when limit reached
+- `TableStandardizationService.ExecuteValidateAsync` — passes `maxBatches` through to orchestrator
+
+**Spectre.Console markup escape fix** — `[{RangeStart}-{RangeEnd}]` in progress bar descriptions crashed with `InvalidOperationException: Could not find color or style '1-100'`. Fixed by escaping to `[[...]]` (Spectre markup literal bracket syntax).
+
+**Diagnostics for skipped tables** — First run showed 0 observations, 74 tables skipped with no explanation:
+- Changed default logging from `LogLevel.None` to `LogLevel.Warning` so orchestrator parse errors and skip messages appear in console output
+- Added Skip Reasons table to validation report display, showing `BatchValidationReport.SkipReasons` breakdown (e.g., `SKIP:SKIP`, `EMPTY:ParserName`, `ERROR:ParserName:RowN`)
+
+---
+
+### 2026-03-23 3:03 PM EST — Table Standardization: PK Fix, Column Widening, Caption-Based Value Type Inference
+
+Three issues discovered and resolved during first real-data runs of the standardization pipeline:
+
+**1. EF Core keyless entity crash (100% failure rate):**
+- `FlattenedStandardizedTable` was configured as `.HasNoKey()` (keyless), which is fine for reads but `AddRange` + `SaveChangesAsync` requires EF Core change tracking, which requires a primary key
+- Fix: Added `tmp_FlattenedStandardizedTableID INT IDENTITY(1,1) PRIMARY KEY` surrogate column to `tmp_FlattenedStandardizedTable` DDL and updated entity configuration
+
+**2. Column truncation crash (`Unit` NVARCHAR(50) overflow):**
+- Parser placed long indication text into the `Unit` field, causing `String or binary data would be truncated` and killing the entire batch
+- Fix: Widened 16 columns in the DDL (e.g., `Unit` 50→500, `RawValue` 500→2000, `ParameterName` 500→1000, etc.)
+- Made `SaveChangesAsync` failures skip the batch instead of rethrowing — both `ProcessBatchAsync` and `processBatchWithSkipTrackingAsync` now catch, clear the change tracker, log a warning, and return 0. `OperationCanceledException` is still rethrown for Ctrl+C support.
+
+**3. Caption-based value type inference (new feature):**
+- Problem: PK table with caption "Mean (SD) Serum Pharmacokinetic Parameters..." had cells like "3057 (980)" misidentified as n(%) (pct=980, count=3057) instead of Mean=3057, SD=980
+- Added `CaptionValueHint` struct and 15-pattern compiled regex dictionary to `BaseTableParser` for detecting statistical descriptors in captions (Mean (SD), Geometric Mean (%CV), Median (Range), LS Mean (SE), etc.)
+- `detectCaptionValueHint()` scans caption once per table, returns typed hint
+- `applyCaptionHint()` reinterprets parsed values: swaps n_pct → mean_sd when caption confirms, promotes bare Numeric with confidence adjustment, fills secondary types
+- Wired into `PkTableParser` and `SimpleArmTableParser`; PK fallback `Numeric→Mean` now applies 0.8 confidence multiplier without caption confirmation
+- Validation flags: `CAPTION_REINTERPRET:n_pct→Mean(SD)` and `CAPTION_HINT:caption:Mean (SD)` for audit trail
+
+---

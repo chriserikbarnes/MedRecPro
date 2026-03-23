@@ -2744,14 +2744,24 @@ namespace MedRecProImportClass.Models
         /// Pipeline: Stage 2 (ReconstructedTable) → Parser → ParsedObservation →
         /// Orchestrator → **tmp_FlattenedStandardizedTable**
         ///
-        /// Keyless entity — uses nonclustered indexes. Registered via reflection
-        /// in ApplicationDbContext with .HasNoKey().ToView().
+        /// Has a surrogate IDENTITY PK to enable EF Core change tracking for AddRange
+        /// bulk inserts. Excluded from the LabelView reflection-based keyless registration
+        /// loop and configured explicitly in ApplicationDbContext.OnModelCreating.
         /// </remarks>
         /// <seealso cref="ParsedObservation"/>
         [System.ComponentModel.DataAnnotations.Schema.Table("tmp_FlattenedStandardizedTable")]
         public class FlattenedStandardizedTable
         {
             #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Surrogate primary key (IDENTITY). Required for EF Core change tracking.
+            /// Auto-generated on insert; reset on TRUNCATE TABLE.
+            /// </summary>
+            [System.ComponentModel.DataAnnotations.Key]
+            [System.ComponentModel.DataAnnotations.Schema.Column("tmp_FlattenedStandardizedTableID")]
+            public int Id { get; set; }
 
             /**************************************************************/
             /// <summary>Source SPL document identifier.</summary>
