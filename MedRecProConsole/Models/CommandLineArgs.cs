@@ -110,6 +110,29 @@ namespace MedRecProConsole.Models
 
         /**************************************************************/
         /// <summary>
+        /// Gets or sets the table standardization operation (--standardize-tables).
+        /// Valid values: parse, validate, truncate, parse-single.
+        /// </summary>
+        /// <seealso cref="IsStandardizeTablesMode"/>
+        public string? StandardizeTablesOperation { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the TextTableID for parse-single debug mode (--table-id).
+        /// Only valid when <see cref="StandardizeTablesOperation"/> is "parse-single".
+        /// </summary>
+        /// <seealso cref="StandardizeTablesOperation"/>
+        public int? StandardizeTableId { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the batch size for standardization operations (--batch-size).
+        /// Valid range: 1-50000. Default: 1000.
+        /// </summary>
+        public int? BatchSize { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets whether unattended SPL mode is enabled.
         /// True when --folder is specified.
         /// </summary>
@@ -122,6 +145,14 @@ namespace MedRecProConsole.Models
         /// </summary>
         /// <seealso cref="OrangeBookZipPath"/>
         public bool IsOrangeBookMode => !string.IsNullOrEmpty(OrangeBookZipPath);
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets whether table standardization mode is enabled.
+        /// True when --standardize-tables is specified.
+        /// </summary>
+        /// <seealso cref="StandardizeTablesOperation"/>
+        public bool IsStandardizeTablesMode => !string.IsNullOrEmpty(StandardizeTablesOperation);
 
         /**************************************************************/
         /// <summary>
@@ -256,6 +287,56 @@ namespace MedRecProConsole.Models
                     continue;
                 }
 
+                // Handle standardize-tables argument
+                if (lowerArg.StartsWith("--standardize-tables"))
+                {
+                    result.StandardizeTablesOperation = extractArgumentValue(args, ref i, arg, "--standardize-tables", result.Errors);
+                    continue;
+                }
+
+                // Handle batch-size argument
+                if (lowerArg.StartsWith("--batch-size"))
+                {
+                    var bsValue = extractArgumentValue(args, ref i, arg, "--batch-size", result.Errors);
+                    if (!string.IsNullOrEmpty(bsValue))
+                    {
+                        if (int.TryParse(bsValue, out var bs))
+                        {
+                            if (bs < 1 || bs > 50000)
+                            {
+                                result.Errors.Add($"--batch-size value must be between 1 and 50000: {bsValue}");
+                            }
+                            else
+                            {
+                                result.BatchSize = bs;
+                            }
+                        }
+                        else
+                        {
+                            result.Errors.Add($"--batch-size requires a numeric value: {bsValue}");
+                        }
+                    }
+                    continue;
+                }
+
+                // Handle table-id argument (for parse-single debug mode)
+                if (lowerArg.StartsWith("--table-id"))
+                {
+                    var tidValue = extractArgumentValue(args, ref i, arg, "--table-id", result.Errors);
+                    if (!string.IsNullOrEmpty(tidValue))
+                    {
+                        if (int.TryParse(tidValue, out var tid))
+                        {
+                            result.StandardizeTableId = tid;
+                        }
+                        else
+                        {
+                            result.Errors.Add($"--table-id requires a numeric value: {tidValue}");
+                        }
+                    }
+                    continue;
+                }
+
                 // Unknown argument
                 if (arg.StartsWith("-") || arg.StartsWith("/"))
                 {
@@ -291,6 +372,57 @@ namespace MedRecProConsole.Models
             if (result.OrangeBookNuke && string.IsNullOrEmpty(result.OrangeBookZipPath))
             {
                 result.Errors.Add("--nuke can only be used with --orange-book.");
+            }
+
+            // Validate --standardize-tables operation value
+            if (!string.IsNullOrEmpty(result.StandardizeTablesOperation))
+            {
+                var validOps = new[] { "parse", "validate", "truncate", "parse-single" };
+                if (!validOps.Contains(result.StandardizeTablesOperation.ToLowerInvariant()))
+                {
+                    result.Errors.Add(
+                        $"--standardize-tables operation must be one of: {string.Join(", ", validOps)}. Got: {result.StandardizeTablesOperation}");
+                }
+                else
+                {
+                    // Normalize to lowercase
+                    result.StandardizeTablesOperation = result.StandardizeTablesOperation.ToLowerInvariant();
+                }
+            }
+
+            // Validate --standardize-tables is mutually exclusive with --folder and --orange-book
+            if (result.IsStandardizeTablesMode && result.IsUnattendedMode)
+            {
+                result.Errors.Add("Cannot use --standardize-tables and --folder together. Choose one operation.");
+            }
+            if (result.IsStandardizeTablesMode && result.IsOrangeBookMode)
+            {
+                result.Errors.Add("Cannot use --standardize-tables and --orange-book together. Choose one operation.");
+            }
+
+            // Validate --table-id requires --standardize-tables parse-single
+            if (result.StandardizeTableId.HasValue && result.StandardizeTablesOperation != "parse-single")
+            {
+                result.Errors.Add("--table-id can only be used with --standardize-tables parse-single.");
+            }
+
+            // Validate --standardize-tables parse-single requires --table-id
+            if (result.StandardizeTablesOperation == "parse-single" && !result.StandardizeTableId.HasValue)
+            {
+                result.Errors.Add("--standardize-tables parse-single requires --table-id <id>.");
+            }
+
+            // Validate --batch-size only valid with parse or validate
+            if (result.BatchSize.HasValue && !string.IsNullOrEmpty(result.StandardizeTablesOperation))
+            {
+                if (result.StandardizeTablesOperation is not ("parse" or "validate"))
+                {
+                    result.Errors.Add("--batch-size can only be used with --standardize-tables parse or validate.");
+                }
+            }
+            if (result.BatchSize.HasValue && string.IsNullOrEmpty(result.StandardizeTablesOperation))
+            {
+                result.Errors.Add("--batch-size requires --standardize-tables.");
             }
 
             return result;

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MedRecProImportClass.Data;
 using MedRecProImportClass.Models;
 using Microsoft.EntityFrameworkCore;
@@ -172,23 +173,38 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Full corpus run: truncate → discover ID range → batch loop.
         /// </summary>
         /// <param name="batchSize">TextTableIDs per batch (default 1000).</param>
+        /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
+        /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Total observations written.</returns>
-        public async Task<int> ProcessAllAsync(int batchSize = 1000, CancellationToken ct = default)
+        public async Task<int> ProcessAllAsync(
+            int batchSize = 1000,
+            IProgress<TransformBatchProgress>? progress = null,
+            int? resumeFromId = null,
+            CancellationToken ct = default)
         {
             #region implementation
 
-            _logger.LogInformation("Stage 3 — Starting full corpus run (batch size={BatchSize})", batchSize);
+            var stopwatch = Stopwatch.StartNew();
 
-            await TruncateAsync(ct);
+            _logger.LogInformation("Stage 3 — Starting full corpus run (batch size={BatchSize}, resume={Resume})",
+                batchSize, resumeFromId.HasValue ? resumeFromId.Value : "fresh");
+
+            // Only truncate on fresh runs — resuming means data already exists
+            if (!resumeFromId.HasValue)
+            {
+                await TruncateAsync(ct);
+            }
 
             var (minId, maxId) = await _cellContextService.GetTextTableIdRangeAsync(ct);
             _logger.LogInformation("TextTableID range: {Min} to {Max}", minId, maxId);
 
+            var effectiveMinId = resumeFromId ?? minId;
+            var totalBatches = (int)Math.Ceiling((double)(maxId - effectiveMinId + 1) / batchSize);
             var totalObservations = 0;
             var batchNumber = 0;
 
-            for (int start = minId; start <= maxId; start += batchSize)
+            for (int start = effectiveMinId; start <= maxId; start += batchSize)
             {
                 ct.ThrowIfCancellationRequested();
                 batchNumber++;
@@ -204,12 +220,24 @@ namespace MedRecProImportClass.Service.TransformationServices
                 totalObservations += batchCount;
 
                 _logger.LogInformation(
-                    "Batch {Batch}: IDs [{Start}-{End}], {BatchCount} observations, {Total} cumulative",
-                    batchNumber, start, end, batchCount, totalObservations);
+                    "Batch {Batch}/{TotalBatches}: IDs [{Start}-{End}], {BatchCount} observations, {Total} cumulative",
+                    batchNumber, totalBatches, start, end, batchCount, totalObservations);
+
+                progress?.Report(new TransformBatchProgress
+                {
+                    BatchNumber = batchNumber,
+                    TotalBatches = totalBatches,
+                    RangeStart = start,
+                    RangeEnd = end,
+                    BatchObservationCount = batchCount,
+                    CumulativeObservationCount = totalObservations,
+                    Elapsed = stopwatch.Elapsed
+                });
             }
 
-            _logger.LogInformation("Stage 3 — Complete: {Total} total observations in {Batches} batches",
-                totalObservations, batchNumber);
+            stopwatch.Stop();
+            _logger.LogInformation("Stage 3 — Complete: {Total} total observations in {Batches} batches ({Elapsed})",
+                totalObservations, batchNumber, stopwatch.Elapsed);
 
             return totalObservations;
 
@@ -267,12 +295,18 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Full corpus run with Stage 4 validation: truncate → batch loop → validate → report.
         /// </summary>
         /// <param name="batchSize">TextTableIDs per batch (default 1000).</param>
+        /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
+        /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Validation report with coverage metrics and issues.</returns>
         /// <exception cref="InvalidOperationException">
         /// Thrown when IBatchValidationService was not provided in the constructor.
         /// </exception>
-        public async Task<BatchValidationReport> ProcessAllWithValidationAsync(int batchSize = 1000, CancellationToken ct = default)
+        public async Task<BatchValidationReport> ProcessAllWithValidationAsync(
+            int batchSize = 1000,
+            IProgress<TransformBatchProgress>? progress = null,
+            int? resumeFromId = null,
+            CancellationToken ct = default)
         {
             #region implementation
 
@@ -282,18 +316,27 @@ namespace MedRecProImportClass.Service.TransformationServices
                     "IBatchValidationService was not provided. Use ProcessAllAsync for runs without validation.");
             }
 
-            _logger.LogInformation("Stage 3+4 — Starting full corpus run with validation (batch size={BatchSize})", batchSize);
+            var stopwatch = Stopwatch.StartNew();
 
-            await TruncateAsync(ct);
+            _logger.LogInformation("Stage 3+4 — Starting full corpus run with validation (batch size={BatchSize}, resume={Resume})",
+                batchSize, resumeFromId.HasValue ? resumeFromId.Value : "fresh");
+
+            // Only truncate on fresh runs — resuming means data already exists
+            if (!resumeFromId.HasValue)
+            {
+                await TruncateAsync(ct);
+            }
 
             var (minId, maxId) = await _cellContextService.GetTextTableIdRangeAsync(ct);
             _logger.LogInformation("TextTableID range: {Min} to {Max}", minId, maxId);
 
+            var effectiveMinId = resumeFromId ?? minId;
+            var totalBatches = (int)Math.Ceiling((double)(maxId - effectiveMinId + 1) / batchSize);
             var totalObservations = 0;
             var batchNumber = 0;
             var skipReasons = new Dictionary<int, string>();
 
-            for (int start = minId; start <= maxId; start += batchSize)
+            for (int start = effectiveMinId; start <= maxId; start += batchSize)
             {
                 ct.ThrowIfCancellationRequested();
                 batchNumber++;
@@ -314,12 +357,24 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
 
                 _logger.LogInformation(
-                    "Batch {Batch}: IDs [{Start}-{End}], {BatchCount} observations, {Skipped} skipped, {Total} cumulative",
-                    batchNumber, start, end, batchCount, batchSkips.Count, totalObservations);
+                    "Batch {Batch}/{TotalBatches}: IDs [{Start}-{End}], {BatchCount} observations, {Skipped} skipped, {Total} cumulative",
+                    batchNumber, totalBatches, start, end, batchCount, batchSkips.Count, totalObservations);
+
+                progress?.Report(new TransformBatchProgress
+                {
+                    BatchNumber = batchNumber,
+                    TotalBatches = totalBatches,
+                    RangeStart = start,
+                    RangeEnd = end,
+                    BatchObservationCount = batchCount,
+                    CumulativeObservationCount = totalObservations,
+                    TablesSkippedThisBatch = batchSkips.Count,
+                    Elapsed = stopwatch.Elapsed
+                });
             }
 
-            _logger.LogInformation("Stage 3 — Complete: {Total} total observations in {Batches} batches. Starting validation...",
-                totalObservations, batchNumber);
+            _logger.LogInformation("Stage 3 — Complete: {Total} total observations in {Batches} batches ({Elapsed}). Starting validation...",
+                totalObservations, batchNumber, stopwatch.Elapsed);
 
             // Stage 4: Generate validation report from DB
             var report = await _batchValidator.GenerateReportFromDatabaseAsync(skipReasons, ct: ct);
@@ -328,8 +383,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             var discrepancies = await _batchValidator.CheckCrossVersionConcordanceAsync(ct);
             report.CrossVersionDiscrepancies = discrepancies;
 
-            _logger.LogInformation("Stage 4 — Validation complete. {Discrepancies} cross-version discrepancies",
-                discrepancies.Count);
+            stopwatch.Stop();
+            _logger.LogInformation("Stage 4 — Validation complete. {Discrepancies} cross-version discrepancies ({Elapsed})",
+                discrepancies.Count, stopwatch.Elapsed);
 
             return report;
 

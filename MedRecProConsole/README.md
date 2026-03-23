@@ -4,10 +4,11 @@ A console application for bulk importing SPL (Structured Product Labeling) ZIP f
 
 ## Overview
 
-This application supports two import modes:
+This application supports three operation modes:
 
 - **SPL Import**: Walks an entire directory tree, identifies ZIP files containing SPL XML data, and imports them into a specified database using the existing MedRecPro import infrastructure.
 - **Orange Book Import**: Imports FDA Orange Book `products.txt` data from a ZIP file, upserting applicants, products, and junction matches to existing SPL entities (organizations, ingredients, marketing categories).
+- **Table Standardization**: Parses SPL table data (Stage 3) and validates (Stage 4) using the table normalization pipeline, walking the data in configurable batches with progress tracking and resumption support.
 
 ## Features
 
@@ -40,15 +41,18 @@ MedRecProConsole/
 ├── automation-example.json         # Example automation config for Task Scheduler
 ├── Models/
 │   ├── AppSettings.cs              # Configuration model classes
-│   ├── CommandLineArgs.cs          # Command-line argument parsing (--folder, --orange-book, --nuke)
+│   ├── CommandLineArgs.cs          # Command-line argument parsing (--folder, --orange-book, --standardize-tables)
 │   ├── ImportParameters.cs         # User input parameters
 │   ├── ImportResults.cs            # Import statistics and results
 │   ├── ImportQueueItem.cs          # Individual file tracking model
-│   └── ImportProgressFile.cs       # Queue file root model
+│   ├── ImportProgressFile.cs       # Queue file root model
+│   └── StandardizationProgressFile.cs # Table standardization progress model
 ├── Services/
 │   ├── ImportService.cs            # SPL import orchestration
 │   ├── ImportProgressTracker.cs    # Async queue management service
-│   └── OrangeBookImportService.cs  # Orange Book import orchestration
+│   ├── OrangeBookImportService.cs  # Orange Book import orchestration
+│   ├── TableStandardizationService.cs # Table standardization orchestration
+│   └── StandardizationProgressTracker.cs # Standardization progress tracking
 └── Helpers/
     ├── ConsoleHelper.cs            # Console UI, interactive menu, and Orange Book prompts
     ├── ConfigurationHelper.cs      # Configuration management
@@ -188,8 +192,11 @@ The application supports fully automated operation for Windows Task Scheduler or
 | `--time <minutes>` | Maximum runtime in minutes (1-1440, SPL mode only) |
 | `--auto-quit` | Exit immediately after import completes |
 | `--config <path>` | Use alternate configuration file |
+| `--standardize-tables <op>` | Table standardization: `parse`, `validate`, `truncate`, `parse-single` |
+| `--batch-size <n>` | Tables per batch for standardization (1-50000, default: 1000) |
+| `--table-id <id>` | TextTableID for `--standardize-tables parse-single` debug mode |
 
-**Note:** `--folder` and `--orange-book` are mutually exclusive. Each selects a different import mode.
+**Note:** `--folder`, `--orange-book`, and `--standardize-tables` are mutually exclusive. Each selects a different operation mode.
 
 ### Example CLI Usage
 
@@ -347,6 +354,75 @@ The Orange Book import processes the FDA Orange Book `products.txt`, `patent.txt
 ### Idempotent Design
 
 The import is upsert-based, so running it multiple times on the same data is safe. Crash recovery queues are not needed since partial imports can simply be re-run.
+
+## Table Standardization
+
+The `--standardize-tables` mode runs the SPL table normalization pipeline (Stage 3 parsing and Stage 4 validation) against data already imported into the database.
+
+### Operations
+
+| Operation | Description |
+|-----------|-------------|
+| `parse` | Stage 3 only — parse all tables in batches, write observations to `tmp_FlattenedStandardizedTable` |
+| `validate` | Stage 3+4 — parse all tables then run validation with coverage reporting |
+| `truncate` | Wipe the output table for a clean rerun (also removes progress file) |
+| `parse-single` | Debug a single table by TextTableID — displays observations without DB write |
+
+### Example CLI Usage
+
+```bash
+# Parse all tables with default batch size
+MedRecProConsole.exe --standardize-tables parse
+
+# Parse with custom batch size and specific database
+MedRecProConsole.exe --standardize-tables parse --batch-size 500 --connection "Local Database Dev"
+
+# Parse and validate with coverage report
+MedRecProConsole.exe --standardize-tables validate --batch-size 500
+
+# Truncate the output table
+MedRecProConsole.exe --standardize-tables truncate
+
+# Debug a single table
+MedRecProConsole.exe --standardize-tables parse-single --table-id 12345 --verbose
+
+# Quiet mode for automation
+MedRecProConsole.exe --standardize-tables parse --quiet --auto-quit
+```
+
+### Batch Size Tuning
+
+The `--batch-size` parameter controls how many TextTableIDs are processed per batch (default: 1000). Larger batches reduce overhead but use more memory. Recommendations:
+
+- **500-1000**: Safe default for most systems
+- **2000-5000**: Higher throughput on systems with 16+ GB RAM
+- **100-500**: For constrained environments or when debugging
+
+### Cancellation and Resumption
+
+Press **Ctrl+C** during a parse or validate operation to cancel gracefully:
+
+1. The current batch completes
+2. Progress is saved to `.medrecpro-standardization-progress.json`
+3. Re-running the same command automatically resumes from the last completed batch
+
+The progress file tracks:
+- Last completed TextTableID range
+- Cumulative observation count
+- Connection string hash (prevents cross-database resumption)
+- Resume count and elapsed time
+
+To force a fresh start, use `--standardize-tables truncate` first.
+
+### Validation Report
+
+The `validate` operation produces a coverage report showing:
+- **Summary**: Tables processed/skipped, total observations, pass/warning flags
+- **Confidence Distribution**: High (>=0.9), Medium (0.5-0.9), Low (<0.5) parse confidence
+- **Category Breakdown**: Observations by table category (PK, ADVERSE_EVENT, EFFICACY, etc.)
+- **Parse Rule Breakdown**: Observations by value parsing rule (n_pct, plain_number, etc.)
+- **Issues**: Row-level issues, table-level issues, cross-version discrepancies
+- Use `--verbose` to see individual issues
 
 ## Output
 

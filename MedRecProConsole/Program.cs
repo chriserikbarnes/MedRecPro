@@ -107,7 +107,12 @@ namespace MedRecProConsole
             }
 
             // Determine operation mode
-            if (cmdArgs.IsOrangeBookMode)
+            if (cmdArgs.IsStandardizeTablesMode)
+            {
+                // Table standardization mode - parse, validate, truncate, or parse-single
+                return await runStandardizeTablesModeAsync(settings, cmdArgs);
+            }
+            else if (cmdArgs.IsOrangeBookMode)
             {
                 // Orange Book mode - import products.txt from ZIP
                 return await runOrangeBookModeAsync(settings, cmdArgs);
@@ -154,58 +159,10 @@ namespace MedRecProConsole
             }
 
             // Resolve database connection
-            string? connectionString = null;
-            string connectionName = "Unknown";
-
-            if (!string.IsNullOrEmpty(cmdArgs.ConnectionName))
+            var (connectionString, connectionName) = resolveConnectionString(settings, cmdArgs);
+            if (connectionString == null)
             {
-                // Use specified connection name
-                var conn = settings.DatabaseConnections.FirstOrDefault(
-                    c => c.Name.Equals(cmdArgs.ConnectionName, StringComparison.OrdinalIgnoreCase));
-
-                if (conn == null)
-                {
-                    Spectre.Console.AnsiConsole.MarkupLine(
-                        $"[red]Error: Database connection not found: {cmdArgs.ConnectionName}[/]");
-                    Spectre.Console.AnsiConsole.MarkupLine("[grey]Available connections:[/]");
-                    foreach (var db in settings.DatabaseConnections)
-                    {
-                        Spectre.Console.AnsiConsole.MarkupLine($"  [cyan]{db.Name}[/]");
-                    }
-                    return 1;
-                }
-
-                connectionString = conn.ConnectionString;
-                connectionName = conn.Name;
-            }
-            else if (!string.IsNullOrEmpty(settings.Automation.DefaultConnectionName))
-            {
-                // Use automation default connection
-                var conn = settings.DatabaseConnections.FirstOrDefault(
-                    c => c.Name.Equals(settings.Automation.DefaultConnectionName, StringComparison.OrdinalIgnoreCase));
-
-                if (conn != null)
-                {
-                    connectionString = conn.ConnectionString;
-                    connectionName = conn.Name;
-                }
-            }
-
-            // Fall back to default database if not found
-            if (string.IsNullOrEmpty(connectionString))
-            {
-                var defaultConn = settings.DatabaseConnections.FirstOrDefault(c => c.IsDefault)
-                    ?? settings.DatabaseConnections.FirstOrDefault();
-
-                if (defaultConn == null)
-                {
-                    Spectre.Console.AnsiConsole.MarkupLine(
-                        "[red]Error: No database connection configured[/]");
-                    return 1;
-                }
-
-                connectionString = defaultConn.ConnectionString;
-                connectionName = defaultConn.Name;
+                return 1;
             }
 
             // Resolve max runtime
@@ -267,59 +224,11 @@ namespace MedRecProConsole
                 ConsoleHelper.DisplayHeader(settings);
             }
 
-            // Resolve database connection (same pattern as runUnattendedModeAsync)
-            string? connectionString = null;
-            string connectionName = "Unknown";
-
-            if (!string.IsNullOrEmpty(cmdArgs.ConnectionName))
+            // Resolve database connection
+            var (connectionString, connectionName) = resolveConnectionString(settings, cmdArgs);
+            if (connectionString == null)
             {
-                // Use specified connection name
-                var conn = settings.DatabaseConnections.FirstOrDefault(
-                    c => c.Name.Equals(cmdArgs.ConnectionName, StringComparison.OrdinalIgnoreCase));
-
-                if (conn == null)
-                {
-                    Spectre.Console.AnsiConsole.MarkupLine(
-                        $"[red]Error: Database connection not found: {cmdArgs.ConnectionName}[/]");
-                    Spectre.Console.AnsiConsole.MarkupLine("[grey]Available connections:[/]");
-                    foreach (var db in settings.DatabaseConnections)
-                    {
-                        Spectre.Console.AnsiConsole.MarkupLine($"  [cyan]{db.Name}[/]");
-                    }
-                    return 1;
-                }
-
-                connectionString = conn.ConnectionString;
-                connectionName = conn.Name;
-            }
-            else if (!string.IsNullOrEmpty(settings.Automation.DefaultConnectionName))
-            {
-                // Use automation default connection
-                var conn = settings.DatabaseConnections.FirstOrDefault(
-                    c => c.Name.Equals(settings.Automation.DefaultConnectionName, StringComparison.OrdinalIgnoreCase));
-
-                if (conn != null)
-                {
-                    connectionString = conn.ConnectionString;
-                    connectionName = conn.Name;
-                }
-            }
-
-            // Fall back to default database if not found
-            if (string.IsNullOrEmpty(connectionString))
-            {
-                var defaultConn = settings.DatabaseConnections.FirstOrDefault(c => c.IsDefault)
-                    ?? settings.DatabaseConnections.FirstOrDefault();
-
-                if (defaultConn == null)
-                {
-                    Spectre.Console.AnsiConsole.MarkupLine(
-                        "[red]Error: No database connection configured[/]");
-                    return 1;
-                }
-
-                connectionString = defaultConn.ConnectionString;
-                connectionName = defaultConn.Name;
+                return 1;
             }
 
             // Display mode info (unless quiet)
@@ -412,6 +321,128 @@ namespace MedRecProConsole
 
                 return 1;
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Runs the application in table standardization mode.
+        /// Dispatches to the appropriate operation (parse, validate, truncate, parse-single).
+        /// </summary>
+        /// <param name="settings">Application settings.</param>
+        /// <param name="cmdArgs">Parsed command-line arguments.</param>
+        /// <returns>Exit code: 0 for success, 1 for failure.</returns>
+        /// <seealso cref="TableStandardizationService"/>
+        /// <seealso cref="CommandLineArgs.StandardizeTablesOperation"/>
+        private static async Task<int> runStandardizeTablesModeAsync(ConsoleAppSettings settings, CommandLineArgs cmdArgs)
+        {
+            #region implementation
+
+            // Display header (respect quiet mode)
+            if (!cmdArgs.QuietMode)
+            {
+                ConsoleHelper.DisplayHeader(settings);
+            }
+
+            // Resolve database connection
+            var (connectionString, connectionName) = resolveConnectionString(settings, cmdArgs);
+            if (connectionString == null)
+            {
+                return 1;
+            }
+
+            // Display mode info (unless quiet)
+            if (!cmdArgs.QuietMode)
+            {
+                HelpDocumentation.DisplayStandardizeTablesModeInfo(
+                    cmdArgs.StandardizeTablesOperation!,
+                    connectionName,
+                    cmdArgs.BatchSize ?? 1000,
+                    cmdArgs.StandardizeTableId);
+            }
+
+            // Execute the requested operation
+            var service = new TableStandardizationService();
+            var batchSize = cmdArgs.BatchSize ?? 1000;
+
+            return cmdArgs.StandardizeTablesOperation switch
+            {
+                "parse" => await service.ExecuteParseAsync(
+                    connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode),
+                "validate" => await service.ExecuteValidateAsync(
+                    connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode),
+                "truncate" => await service.ExecuteTruncateAsync(
+                    connectionString, cmdArgs.QuietMode),
+                "parse-single" => await service.ExecuteParseSingleAsync(
+                    connectionString, cmdArgs.StandardizeTableId!.Value, cmdArgs.VerboseMode),
+                _ => 1
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves the database connection string from CLI arguments and settings.
+        /// Uses the connection resolution hierarchy: CLI arg → automation default → IsDefault → first.
+        /// </summary>
+        /// <param name="settings">Application settings containing database connections.</param>
+        /// <param name="cmdArgs">Parsed command-line arguments.</param>
+        /// <returns>Tuple of (connectionString, connectionName). ConnectionString is null on failure.</returns>
+        /// <remarks>
+        /// Displays error messages directly to the console when resolution fails.
+        /// </remarks>
+        private static (string? connectionString, string connectionName) resolveConnectionString(
+            ConsoleAppSettings settings, CommandLineArgs cmdArgs)
+        {
+            #region implementation
+
+            // Try specified connection name first
+            if (!string.IsNullOrEmpty(cmdArgs.ConnectionName))
+            {
+                var conn = settings.DatabaseConnections.FirstOrDefault(
+                    c => c.Name.Equals(cmdArgs.ConnectionName, StringComparison.OrdinalIgnoreCase));
+
+                if (conn == null)
+                {
+                    Spectre.Console.AnsiConsole.MarkupLine(
+                        $"[red]Error: Database connection not found: {cmdArgs.ConnectionName}[/]");
+                    Spectre.Console.AnsiConsole.MarkupLine("[grey]Available connections:[/]");
+                    foreach (var db in settings.DatabaseConnections)
+                    {
+                        Spectre.Console.AnsiConsole.MarkupLine($"  [cyan]{db.Name}[/]");
+                    }
+                    return (null, "Unknown");
+                }
+
+                return (conn.ConnectionString, conn.Name);
+            }
+
+            // Try automation default connection
+            if (!string.IsNullOrEmpty(settings.Automation.DefaultConnectionName))
+            {
+                var conn = settings.DatabaseConnections.FirstOrDefault(
+                    c => c.Name.Equals(settings.Automation.DefaultConnectionName, StringComparison.OrdinalIgnoreCase));
+
+                if (conn != null)
+                {
+                    return (conn.ConnectionString, conn.Name);
+                }
+            }
+
+            // Fall back to default database
+            var defaultConn = settings.DatabaseConnections.FirstOrDefault(c => c.IsDefault)
+                ?? settings.DatabaseConnections.FirstOrDefault();
+
+            if (defaultConn == null)
+            {
+                Spectre.Console.AnsiConsole.MarkupLine(
+                    "[red]Error: No database connection configured[/]");
+                return (null, "Unknown");
+            }
+
+            return (defaultConn.ConnectionString, defaultConn.Name);
 
             #endregion
         }

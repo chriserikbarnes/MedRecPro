@@ -24,6 +24,7 @@
 	<ItemGroup>
 		 <ProjectReference Include="..\MedRecPro\MedRecPro.csproj" />
 		 <ProjectReference Include="..\MedRecProImportClass\MedRecProImportClass.csproj" />
+		 <ProjectReference Include="..\MedRecProConsole\MedRecProConsole.csproj" />
 	</ItemGroup>
 
 </Project>

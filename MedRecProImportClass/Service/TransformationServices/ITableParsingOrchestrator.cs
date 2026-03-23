@@ -36,9 +36,15 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Full corpus run: truncates the output table, then processes all tables in batches.
         /// </summary>
         /// <param name="batchSize">Number of TextTableIDs per batch (default 1000).</param>
+        /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
+        /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Total number of observations written.</returns>
-        Task<int> ProcessAllAsync(int batchSize = 1000, CancellationToken ct = default);
+        Task<int> ProcessAllAsync(
+            int batchSize = 1000,
+            IProgress<TransformBatchProgress>? progress = null,
+            int? resumeFromId = null,
+            CancellationToken ct = default);
 
         /**************************************************************/
         /// <summary>
@@ -64,8 +70,14 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// and <see cref="IBatchValidationService.CheckCrossVersionConcordanceAsync"/>.
         /// </summary>
         /// <param name="batchSize">Number of TextTableIDs per batch (default 1000).</param>
+        /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
+        /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Validation report with coverage metrics, row/table issues, and concordance checks.</returns>
-        Task<BatchValidationReport> ProcessAllWithValidationAsync(int batchSize = 1000, CancellationToken ct = default);
+        Task<BatchValidationReport> ProcessAllWithValidationAsync(
+            int batchSize = 1000,
+            IProgress<TransformBatchProgress>? progress = null,
+            int? resumeFromId = null,
+            CancellationToken ct = default);
     }
 }

@@ -193,6 +193,50 @@ namespace MedRecProConsole.Helpers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Displays information about table standardization mode.
+        /// </summary>
+        /// <param name="operation">The standardization operation (parse, validate, truncate, parse-single).</param>
+        /// <param name="connectionName">Database connection name.</param>
+        /// <param name="batchSize">Batch size for the operation.</param>
+        /// <param name="tableId">Optional TextTableID for parse-single mode.</param>
+        /// <seealso cref="Models.CommandLineArgs"/>
+        public static void DisplayStandardizeTablesModeInfo(
+            string operation,
+            string connectionName,
+            int batchSize,
+            int? tableId)
+        {
+            #region implementation
+
+            AnsiConsole.Write(new Rule("[bold cyan]Table Standardization Mode[/]").RuleStyle("grey"));
+            AnsiConsole.WriteLine();
+
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn(new TableColumn("[bold]Setting[/]").NoWrap())
+                .AddColumn(new TableColumn("[bold]Value[/]"));
+
+            table.AddRow("Operation", Markup.Escape(operation));
+            table.AddRow("Database", Markup.Escape(connectionName));
+
+            if (operation is "parse" or "validate")
+            {
+                table.AddRow("Batch Size", batchSize.ToString("N0"));
+            }
+
+            if (tableId.HasValue)
+            {
+                table.AddRow("TextTableID", tableId.Value.ToString());
+            }
+
+            AnsiConsole.Write(table);
+            AnsiConsole.WriteLine();
+
+            #endregion
+        }
+
         #endregion
 
         #region private methods
@@ -228,6 +272,15 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [orange1]--orange-book[/] [cyan]<zippath>[/] [red]--nuke[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [orange1]--orange-book[/] [cyan]<zippath>[/] [green]--connection[/] [cyan]<name>[/] [red]--nuke[/]");
             AnsiConsole.MarkupLine("    [grey]Import Orange Book products.txt from ZIP file[/]");
+            AnsiConsole.WriteLine();
+
+            AnsiConsole.MarkupLine("  [bold]Table Standardization[/]:");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]validate[/] [green]--batch-size[/] [cyan]500[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]truncate[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse-single[/] [green]--table-id[/] [cyan]12345[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse[/] [green]--connection[/] [cyan]<name>[/]");
+            AnsiConsole.MarkupLine("    [grey]Parse and validate SPL table data (Ctrl+C saves progress for resume)[/]");
             AnsiConsole.WriteLine();
 
             #endregion
