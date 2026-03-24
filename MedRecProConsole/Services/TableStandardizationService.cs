@@ -852,26 +852,35 @@ namespace MedRecProConsole.Services
                 AnsiConsole.WriteLine();
             }
 
-            // Confidence distribution
+            // Confidence distribution (5-band)
             var confidence = new Table()
                 .Border(TableBorder.Rounded)
                 .Title("[bold]Confidence Distribution[/]")
                 .AddColumn(new TableColumn("[bold]Level[/]").NoWrap())
-                .AddColumn(new TableColumn("[bold]Count[/]"))
-                .AddColumn(new TableColumn("[bold]Percentage[/]"));
+                .AddColumn(new TableColumn("[bold]Parse[/]"))
+                .AddColumn(new TableColumn("[bold]Parse %[/]"))
+                .AddColumn(new TableColumn("[bold]Adjusted[/]"))
+                .AddColumn(new TableColumn("[bold]Adj %[/]"));
 
             var total = Math.Max(report.TotalObservations, 1);
-            confidence.AddRow("[green]High (>= 0.9)[/]",
-                $"{report.HighConfidenceCount:N0}",
-                $"{(double)report.HighConfidenceCount / total:P1}");
-            confidence.AddRow("[yellow]Medium (0.5-0.9)[/]",
-                $"{report.MediumConfidenceCount:N0}",
-                $"{(double)report.MediumConfidenceCount / total:P1}");
-            confidence.AddRow("[red]Low (< 0.5)[/]",
-                $"{report.LowConfidenceCount:N0}",
-                $"{(double)report.LowConfidenceCount / total:P1}");
+            confidence.AddRow("[green]Very High (≥ 0.95)[/]",
+                $"{report.VeryHighConfidenceCount:N0}", $"{(double)report.VeryHighConfidenceCount / total:P1}",
+                $"{report.AdjustedVeryHighCount:N0}", $"{(double)report.AdjustedVeryHighCount / total:P1}");
+            confidence.AddRow("[green]High (0.80–0.95)[/]",
+                $"{report.HighConfidenceCount:N0}", $"{(double)report.HighConfidenceCount / total:P1}",
+                $"{report.AdjustedHighCount:N0}", $"{(double)report.AdjustedHighCount / total:P1}");
+            confidence.AddRow("[yellow]Medium (0.60–0.80)[/]",
+                $"{report.MediumConfidenceCount:N0}", $"{(double)report.MediumConfidenceCount / total:P1}",
+                $"{report.AdjustedMediumCount:N0}", $"{(double)report.AdjustedMediumCount / total:P1}");
+            confidence.AddRow("[darkorange]Low (0.40–0.60)[/]",
+                $"{report.LowConfidenceCount:N0}", $"{(double)report.LowConfidenceCount / total:P1}",
+                $"{report.AdjustedLowCount:N0}", $"{(double)report.AdjustedLowCount / total:P1}");
+            confidence.AddRow("[red]Very Low (< 0.40)[/]",
+                $"{report.VeryLowConfidenceCount:N0}", $"{(double)report.VeryLowConfidenceCount / total:P1}",
+                $"{report.AdjustedVeryLowCount:N0}", $"{(double)report.AdjustedVeryLowCount / total:P1}");
 
             AnsiConsole.Write(confidence);
+            AnsiConsole.MarkupLine($"[dim]Average Field Completeness: {report.AverageFieldCompleteness:P1}[/]");
             AnsiConsole.WriteLine();
 
             // Category breakdown

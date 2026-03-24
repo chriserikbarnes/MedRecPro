@@ -260,6 +260,15 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
+        /// Adjusted confidence after Stage 4 validation penalties. Starts as
+        /// <see cref="ParseConfidence"/> and is reduced by multipliers for missing required
+        /// fields, unexpected value types, time pairing issues, etc. Clamped to [0.0, 1.0].
+        /// </summary>
+        /// <seealso cref="ParseConfidence"/>
+        public double? AdjustedConfidence { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Which regex pattern matched: n_pct, frac_pct, rr_ci, diff_ci,
         /// value_cv, plain_number, letter_code, empty_or_na, text_descriptive.
         /// </summary>

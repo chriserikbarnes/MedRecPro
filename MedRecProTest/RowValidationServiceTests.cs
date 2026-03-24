@@ -525,5 +525,238 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Batch Validation Tests
+
+        #region Time/TimeUnit Validation Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Time present but TimeUnit null produces TIME_UNIT_MISMATCH warning.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_TimePresentUnitNull_ReturnsWarning()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            obs.Time = 7.0;
+            obs.TimeUnit = null;
+
+            var result = service.ValidateObservation(obs);
+
+            Assert.AreEqual(ValidationStatus.Warning, result.Status);
+            Assert.IsTrue(result.Issues.Any(i => i.Contains("TIME_UNIT_MISMATCH")));
+            Assert.IsTrue(obs.ValidationFlags!.Contains("TIME_UNIT_MISMATCH"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// TimeUnit present but Time null produces TIME_UNIT_MISMATCH warning.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_TimeNullUnitPresent_ReturnsWarning()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            obs.Time = null;
+            obs.TimeUnit = "days";
+
+            var result = service.ValidateObservation(obs);
+
+            Assert.AreEqual(ValidationStatus.Warning, result.Status);
+            Assert.IsTrue(result.Issues.Any(i => i.Contains("TIME_UNIT_MISMATCH")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Both Time and TimeUnit present with valid values produces no time-related warning.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_TimeAndUnitBothPresent_NoWarning()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            obs.Time = 7.0;
+            obs.TimeUnit = "days";
+
+            var result = service.ValidateObservation(obs);
+
+            Assert.IsFalse(result.Issues.Any(i => i.Contains("TIME_UNIT_MISMATCH")));
+            Assert.IsFalse(result.Issues.Any(i => i.Contains("UNREASONABLE_TIME")));
+            Assert.IsFalse(result.Issues.Any(i => i.Contains("INVALID_TIME_UNIT")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Time <= 0 produces UNREASONABLE_TIME warning.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_ZeroTime_ReturnsWarning()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            obs.Time = 0;
+            obs.TimeUnit = "days";
+
+            var result = service.ValidateObservation(obs);
+
+            Assert.IsTrue(result.Issues.Any(i => i.Contains("UNREASONABLE_TIME")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Unrecognized TimeUnit produces INVALID_TIME_UNIT warning.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_InvalidTimeUnit_ReturnsWarning()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            obs.Time = 7.0;
+            obs.TimeUnit = "fortnight";
+
+            var result = service.ValidateObservation(obs);
+
+            Assert.IsTrue(result.Issues.Any(i => i.Contains("INVALID_TIME_UNIT")));
+
+            #endregion
+        }
+
+        #endregion Time/TimeUnit Validation Tests
+
+        #region Field Completeness Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Fully populated PK observation returns field completeness of 1.0.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_FullPk_FieldCompleteness1()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            obs.Population = "Adult Healthy Volunteers";
+            obs.Timepoint = "7 days";
+            obs.Time = 7.0;
+            obs.TimeUnit = "days";
+
+            var result = service.ValidateObservation(obs);
+
+            Assert.AreEqual(1.0, result.FieldCompletenessScore, 0.01);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PK observation missing optional fields returns proportional completeness.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_PartialPk_FieldCompletenessProportional()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            // Has: ParameterName, DoseRegimen, Unit (3 of 7 expected)
+            // Missing: Population, Timepoint, Time, TimeUnit
+
+            var result = service.ValidateObservation(obs);
+
+            // 3 of 7 = ~0.43
+            Assert.IsTrue(result.FieldCompletenessScore > 0.4);
+            Assert.IsTrue(result.FieldCompletenessScore < 0.5);
+
+            #endregion
+        }
+
+        #endregion Field Completeness Tests
+
+        #region Adjusted Confidence Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Valid observation with no issues has AdjustedConfidence equal to ParseConfidence.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_NoIssues_AdjustedEqualsParseConfidence()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidAeObservation();
+
+            service.ValidateObservation(obs);
+
+            Assert.AreEqual(obs.ParseConfidence, obs.AdjustedConfidence);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Observation with missing required field has AdjustedConfidence reduced by penalty.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_MissingField_AdjustedConfidenceReduced()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            obs.DoseRegimen = null; // Missing required field
+
+            service.ValidateObservation(obs);
+
+            Assert.IsNotNull(obs.AdjustedConfidence);
+            Assert.IsTrue(obs.AdjustedConfidence < obs.ParseConfidence,
+                $"AdjustedConfidence ({obs.AdjustedConfidence}) should be less than ParseConfidence ({obs.ParseConfidence})");
+            // Expected: 1.0 * 0.85 = 0.85
+            Assert.AreEqual(0.85, obs.AdjustedConfidence!.Value, 0.01);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Multiple issues compound the penalty multipliers.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_MultipleIssues_AdjustedConfidenceCompounded()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            obs.DoseRegimen = null; // MISSING_DOSEREGIMEN → ×0.85
+            obs.PrimaryValueType = "Percentage"; // UNEXPECTED_VALUE_TYPE → ×0.90
+
+            service.ValidateObservation(obs);
+
+            // Expected: 1.0 * 0.85 * 0.90 = 0.765
+            Assert.AreEqual(0.765, obs.AdjustedConfidence!.Value, 0.01);
+
+            #endregion
+        }
+
+        #endregion Adjusted Confidence Tests
     }
 }

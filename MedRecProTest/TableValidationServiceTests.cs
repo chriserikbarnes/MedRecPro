@@ -318,5 +318,121 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Grouping Tests
+
+        #region Time Consistency Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// PK table with mixed Time extraction (some populated, some not) flags inconsistency.
+        /// </summary>
+        [TestMethod]
+        public void ValidateTable_PkTable_MixedTimeExtraction_FlagsInconsistency()
+        {
+            #region implementation
+
+            var service = createService();
+            var observations = new List<ParsedObservation>
+            {
+                new()
+                {
+                    TextTableID = 5, TableCategory = "PK",
+                    ParameterName = "Cmax", DoseRegimen = "50 mg oral (once daily x 7 days)",
+                    Timepoint = "7 days", Time = 7.0, TimeUnit = "days",
+                    PrimaryValue = 2.21, PrimaryValueType = "Mean",
+                    SourceRowSeq = 2, SourceCellSeq = 2
+                },
+                new()
+                {
+                    TextTableID = 5, TableCategory = "PK",
+                    ParameterName = "Cmax", DoseRegimen = "100 mg oral (unknown schedule)",
+                    Timepoint = null, Time = null, TimeUnit = null,
+                    PrimaryValue = 4.81, PrimaryValueType = "Mean",
+                    SourceRowSeq = 3, SourceCellSeq = 2
+                }
+            };
+
+            var result = service.ValidateTable(5, observations);
+
+            Assert.AreEqual(ValidationStatus.Warning, result.Status);
+            Assert.IsTrue(result.Issues.Any(i => i.StartsWith("TIME_EXTRACTION_INCONSISTENCY")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PK table with all Time values populated does not flag inconsistency.
+        /// </summary>
+        [TestMethod]
+        public void ValidateTable_PkTable_AllTimePopulated_NoFlag()
+        {
+            #region implementation
+
+            var service = createService();
+            var observations = new List<ParsedObservation>
+            {
+                new()
+                {
+                    TextTableID = 5, TableCategory = "PK",
+                    ParameterName = "Cmax", DoseRegimen = "50 mg oral (once daily x 7 days)",
+                    Timepoint = "7 days", Time = 7.0, TimeUnit = "days",
+                    PrimaryValue = 2.21, PrimaryValueType = "Mean",
+                    SourceRowSeq = 2, SourceCellSeq = 2
+                },
+                new()
+                {
+                    TextTableID = 5, TableCategory = "PK",
+                    ParameterName = "Cmax", DoseRegimen = "200 mg oral (once daily x 14 days)",
+                    Timepoint = "14 days", Time = 14.0, TimeUnit = "days",
+                    PrimaryValue = 10.12, PrimaryValueType = "Mean",
+                    SourceRowSeq = 3, SourceCellSeq = 2
+                }
+            };
+
+            var result = service.ValidateTable(5, observations);
+
+            Assert.IsFalse(result.Issues.Any(i => i.StartsWith("TIME_EXTRACTION_INCONSISTENCY")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PK table with single dose (null Time) excluded from inconsistency check.
+        /// </summary>
+        [TestMethod]
+        public void ValidateTable_PkTable_SingleDoseExcluded_NoFlag()
+        {
+            #region implementation
+
+            var service = createService();
+            var observations = new List<ParsedObservation>
+            {
+                new()
+                {
+                    TextTableID = 5, TableCategory = "PK",
+                    ParameterName = "Cmax", DoseRegimen = "50 mg oral (once daily x 7 days)",
+                    Timepoint = "7 days", Time = 7.0, TimeUnit = "days",
+                    PrimaryValue = 2.21, PrimaryValueType = "Mean",
+                    SourceRowSeq = 2, SourceCellSeq = 2
+                },
+                new()
+                {
+                    TextTableID = 5, TableCategory = "PK",
+                    ParameterName = "Cmax", DoseRegimen = "150 mg single oral",
+                    Timepoint = "single dose", Time = null, TimeUnit = null,
+                    PrimaryValue = 2.70, PrimaryValueType = "Mean",
+                    SourceRowSeq = 3, SourceCellSeq = 2
+                }
+            };
+
+            var result = service.ValidateTable(5, observations);
+
+            Assert.IsFalse(result.Issues.Any(i => i.StartsWith("TIME_EXTRACTION_INCONSISTENCY")));
+
+            #endregion
+        }
+
+        #endregion Time Consistency Tests
     }
 }

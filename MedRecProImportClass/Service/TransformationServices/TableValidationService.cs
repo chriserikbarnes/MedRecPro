@@ -34,6 +34,15 @@ namespace MedRecProImportClass.Service.TransformationServices
             "ADVERSE_EVENT", "EFFICACY"
         };
 
+        /**************************************************************/
+        /// <summary>
+        /// Categories where time extraction consistency checks apply.
+        /// </summary>
+        private static readonly HashSet<string> _timeBasedCategories = new()
+        {
+            "PK", "BMD"
+        };
+
         #endregion Fields
 
         #region Constructor
@@ -120,6 +129,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 // Check 3: Count reasonableness
                 checkCountReasonableness(tableObservations, result);
+            }
+
+            // Check 4: Time extraction consistency (PK/BMD only)
+            if (category != null && _timeBasedCategories.Contains(category))
+            {
+                checkTimeConsistency(tableObservations, result);
             }
 
             // Determine overall status
@@ -243,6 +258,40 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 result.Issues.Add(
                     $"COUNT_DEVIATION:expected ~{expected} ({distinctArms} arms × {distinctParams} params), got {actual} ({deviation:P0} deviation)");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks whether Time extraction is consistent within a PK or BMD table.
+        /// If some observations have Time populated and others do not (excluding single-dose
+        /// timepoints), flags an inconsistency warning.
+        /// </summary>
+        private static void checkTimeConsistency(List<ParsedObservation> observations, TableValidationResult result)
+        {
+            #region implementation
+
+            if (observations.Count == 0)
+                return;
+
+            // Exclude observations with "single dose" timepoint — these legitimately have no Time
+            var nonSingleDose = observations
+                .Where(o => !string.Equals(o.Timepoint, "single dose", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (nonSingleDose.Count == 0)
+                return;
+
+            var withTime = nonSingleDose.Count(o => o.Time.HasValue);
+            var withoutTime = nonSingleDose.Count - withTime;
+
+            // Flag if there's a mix (some have Time, some don't)
+            if (withTime > 0 && withoutTime > 0)
+            {
+                result.Issues.Add(
+                    $"TIME_EXTRACTION_INCONSISTENCY:{withoutTime} of {nonSingleDose.Count} observations missing Time");
             }
 
             #endregion

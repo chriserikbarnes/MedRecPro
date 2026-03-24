@@ -173,12 +173,16 @@ namespace MedRecPro.Service.Test
 
             var report = await service.GenerateReportAsync(observations);
 
-            // High (>=0.9): 3 observations (1.0, 1.0, 0.9)
-            Assert.AreEqual(3, report.HighConfidenceCount);
-            // Medium (0.5-0.9): 1 observation (0.7)
+            // VeryHigh (>=0.95): 2 observations (1.0, 1.0)
+            Assert.AreEqual(2, report.VeryHighConfidenceCount);
+            // High (0.80-0.95): 1 observation (0.9)
+            Assert.AreEqual(1, report.HighConfidenceCount);
+            // Medium (0.60-0.80): 1 observation (0.7)
             Assert.AreEqual(1, report.MediumConfidenceCount);
-            // Low (<0.5): 1 observation (0.3)
-            Assert.AreEqual(1, report.LowConfidenceCount);
+            // Low (0.40-0.60): 0 observations
+            Assert.AreEqual(0, report.LowConfidenceCount);
+            // VeryLow (<0.40): 1 observation (0.3)
+            Assert.AreEqual(1, report.VeryLowConfidenceCount);
 
             #endregion
         }

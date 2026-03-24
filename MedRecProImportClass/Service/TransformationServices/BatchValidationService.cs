@@ -108,7 +108,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 .ToList();
 
             // Aggregate statistics
-            populateAggregates(report, observations);
+            populateAggregates(report, observations, rowResults);
 
             // Skip reasons
             populateSkipReasons(report, skipReasons);
@@ -160,7 +160,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 .ToList();
 
             // Aggregate statistics
-            populateAggregates(report, observations);
+            populateAggregates(report, observations, rowResults);
 
             // Skip reasons
             populateSkipReasons(report, skipReasons);
@@ -265,9 +265,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Populates aggregate statistics on the report from observations.
+        /// Populates aggregate statistics on the report from observations and row validation results.
         /// </summary>
-        private static void populateAggregates(BatchValidationReport report, List<ParsedObservation> observations)
+        /// <param name="report">Report to populate.</param>
+        /// <param name="observations">Parsed observations (post-validation, with AdjustedConfidence set).</param>
+        /// <param name="rowResults">Row validation results containing field completeness scores.</param>
+        private static void populateAggregates(BatchValidationReport report, List<ParsedObservation> observations, List<RowValidationResult>? rowResults = null)
         {
             #region implementation
 
@@ -291,17 +294,35 @@ namespace MedRecProImportClass.Service.TransformationServices
                 .GroupBy(o => o.ParseRule!)
                 .ToDictionary(g => g.Key, g => g.Count());
 
-            // Confidence distribution
+            // ParseConfidence 5-band distribution
+            report.VeryHighConfidenceCount = observations
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= 0.95);
             report.HighConfidenceCount = observations
-                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= 0.9);
-
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= 0.80 && o.ParseConfidence.Value < 0.95);
             report.MediumConfidenceCount = observations
-                .Count(o => o.ParseConfidence.HasValue
-                    && o.ParseConfidence.Value >= 0.5
-                    && o.ParseConfidence.Value < 0.9);
-
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= 0.60 && o.ParseConfidence.Value < 0.80);
             report.LowConfidenceCount = observations
-                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value < 0.5);
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= 0.40 && o.ParseConfidence.Value < 0.60);
+            report.VeryLowConfidenceCount = observations
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value < 0.40);
+
+            // AdjustedConfidence 5-band distribution
+            report.AdjustedVeryHighCount = observations
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= 0.95);
+            report.AdjustedHighCount = observations
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= 0.80 && o.AdjustedConfidence.Value < 0.95);
+            report.AdjustedMediumCount = observations
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= 0.60 && o.AdjustedConfidence.Value < 0.80);
+            report.AdjustedLowCount = observations
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= 0.40 && o.AdjustedConfidence.Value < 0.60);
+            report.AdjustedVeryLowCount = observations
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value < 0.40);
+
+            // Average field completeness from row validation results
+            if (rowResults != null && rowResults.Count > 0)
+            {
+                report.AverageFieldCompleteness = rowResults.Average(r => r.FieldCompletenessScore);
+            }
 
             // Validation flags summary
             foreach (var obs in observations)
@@ -354,8 +375,15 @@ namespace MedRecProImportClass.Service.TransformationServices
                 report.TotalObservations, report.TotalTablesProcessed, report.TotalTablesSkipped);
 
             _logger.LogInformation(
-                "Confidence: High={High} (≥0.9), Medium={Medium} (0.5–0.9), Low={Low} (<0.5)",
-                report.HighConfidenceCount, report.MediumConfidenceCount, report.LowConfidenceCount);
+                "ParseConfidence: VeryHigh={VH} (≥0.95), High={H} (0.80–0.95), Medium={M} (0.60–0.80), Low={L} (0.40–0.60), VeryLow={VL} (<0.40)",
+                report.VeryHighConfidenceCount, report.HighConfidenceCount,
+                report.MediumConfidenceCount, report.LowConfidenceCount, report.VeryLowConfidenceCount);
+
+            _logger.LogInformation(
+                "AdjustedConfidence: VeryHigh={VH}, High={H}, Medium={M}, Low={L}, VeryLow={VL} | FieldCompleteness={FC:P0}",
+                report.AdjustedVeryHighCount, report.AdjustedHighCount,
+                report.AdjustedMediumCount, report.AdjustedLowCount, report.AdjustedVeryLowCount,
+                report.AverageFieldCompleteness);
 
             _logger.LogInformation(
                 "Flags: {Pass} PASS, {Warn} WARN | Row issues: {RowIssues} | Table issues: {TableIssues}",
@@ -405,6 +433,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 DoseRegimen = entity.DoseRegimen,
                 Population = entity.Population,
                 Timepoint = entity.Timepoint,
+                Time = entity.Time,
+                TimeUnit = entity.TimeUnit,
                 RawValue = entity.RawValue,
                 PrimaryValue = entity.PrimaryValue,
                 PrimaryValueType = entity.PrimaryValueType,

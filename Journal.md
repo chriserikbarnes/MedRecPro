@@ -1021,3 +1021,26 @@ Added dedicated `Time` (FLOAT) and `TimeUnit` (NVARCHAR(50)) columns to the stan
 6. **Tests** — 11 new tests covering PK duration extraction (multi-day, single dose, weekly, "for" pattern, null/empty, unrecognized) and BMD numeric timepoint parsing. All 755 tests pass.
 
 ---
+
+### 2026-03-24 10:36 AM EST — Refine Validation Components with Granular Scoring
+
+Enhanced the Stage 4 validation pipeline with Time/TimeUnit validation, field completeness scoring, adjusted confidence penalties, and a 5-band confidence distribution (replacing the previous 3-tier scheme).
+
+**Row-level validation (RowValidationService) — 3 new checks:**
+1. `TIME_UNIT_MISMATCH` — Time and TimeUnit must both be present or both absent
+2. `UNREASONABLE_TIME` — Time must be > 0 when set
+3. `INVALID_TIME_UNIT` — TimeUnit must be in {days, weeks, months, hours, years}
+
+**Field completeness scoring:** New `calculateFieldCompleteness()` scores each observation 0.0–1.0 based on how many expected fields (required + desirable) are populated for its TableCategory. PK expects 7 fields, AE expects 5, etc.
+
+**Adjusted confidence:** New `AdjustedConfidence` property on ParsedObservation. Starts from ParseConfidence and applies cumulative penalty multipliers per validation issue (MISSING_FIELD ×0.85, UNEXPECTED_VALUE_TYPE ×0.90, TIME_UNIT_MISMATCH ×0.90, etc.).
+
+**Table-level validation (TableValidationService):** New `TIME_EXTRACTION_INCONSISTENCY` check for PK/BMD tables — flags when some observations have Time populated and others don't (excluding single-dose timepoints).
+
+**Batch-level (BatchValidationService):** Confidence distribution expanded from 3 bands (High/Medium/Low) to 5 bands (VeryHigh ≥0.95, High 0.80–0.95, Medium 0.60–0.80, Low 0.40–0.60, VeryLow <0.40) for both ParseConfidence and AdjustedConfidence. Added AverageFieldCompleteness aggregate. Updated `mapFromEntity` to include Time/TimeUnit.
+
+**Console display:** Updated `ExecuteValidateAsync` to show side-by-side Parse vs Adjusted confidence in 5-band table with field completeness footer.
+
+**Tests:** 13 new tests (9 row-level: time pairing, range, vocabulary, completeness, adjusted confidence; 3 table-level: PK time consistency; 1 batch-level fix for 5-band). All 779 tests pass.
+
+---

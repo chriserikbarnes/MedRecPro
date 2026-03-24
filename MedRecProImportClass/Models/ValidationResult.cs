@@ -69,6 +69,13 @@ namespace MedRecProImportClass.Models
         /// Format: "CHECK_NAME:detail" (e.g., "MISSING_FIELD:DoseRegimen", "BOUND_INVERSION").
         /// </summary>
         public List<string> Issues { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Field completeness score 0.0–1.0 based on the ratio of populated expected fields
+        /// (required + desirable) for the observation's TableCategory.
+        /// </summary>
+        public double FieldCompletenessScore { get; set; }
     }
 
     /**************************************************************/
@@ -162,17 +169,57 @@ namespace MedRecProImportClass.Models
         /// </summary>
         public Dictionary<string, int> RowCountByParseRule { get; set; } = new();
 
+        #region ParseConfidence Distribution (5-band)
+
         /**************************************************************/
-        /// <summary>Observations with ParseConfidence >= 0.9.</summary>
+        /// <summary>Observations with ParseConfidence ≥ 0.95.</summary>
+        public int VeryHighConfidenceCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Observations with 0.80 ≤ ParseConfidence &lt; 0.95.</summary>
         public int HighConfidenceCount { get; set; }
 
         /**************************************************************/
-        /// <summary>Observations with 0.5 &lt;= ParseConfidence &lt; 0.9.</summary>
+        /// <summary>Observations with 0.60 ≤ ParseConfidence &lt; 0.80.</summary>
         public int MediumConfidenceCount { get; set; }
 
         /**************************************************************/
-        /// <summary>Observations with ParseConfidence &lt; 0.5.</summary>
+        /// <summary>Observations with 0.40 ≤ ParseConfidence &lt; 0.60.</summary>
         public int LowConfidenceCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Observations with ParseConfidence &lt; 0.40.</summary>
+        public int VeryLowConfidenceCount { get; set; }
+
+        #endregion ParseConfidence Distribution (5-band)
+
+        #region AdjustedConfidence Distribution (5-band)
+
+        /**************************************************************/
+        /// <summary>Observations with AdjustedConfidence ≥ 0.95.</summary>
+        public int AdjustedVeryHighCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Observations with 0.80 ≤ AdjustedConfidence &lt; 0.95.</summary>
+        public int AdjustedHighCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Observations with 0.60 ≤ AdjustedConfidence &lt; 0.80.</summary>
+        public int AdjustedMediumCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Observations with 0.40 ≤ AdjustedConfidence &lt; 0.60.</summary>
+        public int AdjustedLowCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Observations with AdjustedConfidence &lt; 0.40.</summary>
+        public int AdjustedVeryLowCount { get; set; }
+
+        #endregion AdjustedConfidence Distribution (5-band)
+
+        /**************************************************************/
+        /// <summary>Average field completeness score across all validated observations (0.0–1.0).</summary>
+        public double AverageFieldCompleteness { get; set; }
 
         /**************************************************************/
         /// <summary>Count of ValidationFlags containing "PASS".</summary>

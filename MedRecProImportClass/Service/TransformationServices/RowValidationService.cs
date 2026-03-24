@@ -51,6 +51,45 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Expected fields per TableCategory for field completeness scoring.
+        /// Includes both required and desirable fields.
+        /// </summary>
+        private static readonly Dictionary<string, List<string>> _completenessFieldsByCategory = new()
+        {
+            ["PK"] = new() { "ParameterName", "DoseRegimen", "Population", "Unit", "Timepoint", "Time", "TimeUnit" },
+            ["ADVERSE_EVENT"] = new() { "ParameterName", "TreatmentArm", "ArmN", "PrimaryValueType", "Unit" },
+            ["EFFICACY"] = new() { "ParameterName", "TreatmentArm", "ArmN", "PrimaryValueType", "StudyContext", "Unit" },
+            ["BMD"] = new() { "ParameterName", "Timepoint", "Population", "Time", "TimeUnit", "Unit" },
+            ["DOSING"] = new() { "ParameterName", "Unit", "DoseRegimen" },
+            ["TISSUE_DISTRIBUTION"] = new() { "ParameterName", "Unit" }
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Allowed TimeUnit values for vocabulary validation.
+        /// </summary>
+        private static readonly HashSet<string> _allowedTimeUnits = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "days", "weeks", "months", "hours", "years"
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Confidence penalty multipliers by issue type. Applied cumulatively to
+        /// <see cref="ParsedObservation.ParseConfidence"/> to produce <see cref="ParsedObservation.AdjustedConfidence"/>.
+        /// </summary>
+        private static readonly Dictionary<string, double> _confidencePenalties = new()
+        {
+            ["MISSING_FIELD"] = 0.85,
+            ["UNEXPECTED_VALUE_TYPE"] = 0.90,
+            ["TIME_UNIT_MISMATCH"] = 0.90,
+            ["UNREASONABLE_TIME"] = 0.85,
+            ["INVALID_TIME_UNIT"] = 0.90,
+            ["MISSING_ARM_N"] = 0.95
+        };
+
+        /**************************************************************/
+        /// <summary>
         /// Allowed PrimaryValueType values per TableCategory. Types outside these sets
         /// produce a Warning (not Error, since edge cases exist).
         /// </summary>
@@ -172,12 +211,41 @@ namespace MedRecProImportClass.Service.TransformationServices
                 newFlags.Add("BOUND_INVERSION");
             }
 
-            // Check 6: Low confidence
+            // Check 6: Low confidence (raw ParseConfidence)
             if (observation.ParseConfidence.HasValue && observation.ParseConfidence.Value < 0.5)
             {
                 result.Issues.Add($"LOW_CONFIDENCE:{observation.ParseConfidence:F2}");
                 newFlags.Add("LOW_CONFIDENCE");
             }
+
+            // Check 7: Time/TimeUnit pairing
+            if ((observation.Time.HasValue && string.IsNullOrWhiteSpace(observation.TimeUnit))
+                || (!observation.Time.HasValue && !string.IsNullOrWhiteSpace(observation.TimeUnit)))
+            {
+                result.Issues.Add("TIME_UNIT_MISMATCH:Time and TimeUnit must both be present or both absent");
+                newFlags.Add("TIME_UNIT_MISMATCH");
+            }
+
+            // Check 8: Time range
+            if (observation.Time.HasValue && observation.Time.Value <= 0)
+            {
+                result.Issues.Add($"UNREASONABLE_TIME:{observation.Time.Value}");
+                newFlags.Add("UNREASONABLE_TIME");
+            }
+
+            // Check 9: TimeUnit vocabulary
+            if (!string.IsNullOrWhiteSpace(observation.TimeUnit)
+                && !_allowedTimeUnits.Contains(observation.TimeUnit))
+            {
+                result.Issues.Add($"INVALID_TIME_UNIT:{observation.TimeUnit}");
+                newFlags.Add("INVALID_TIME_UNIT");
+            }
+
+            // Compute field completeness score
+            result.FieldCompletenessScore = calculateFieldCompleteness(observation);
+
+            // Compute adjusted confidence with penalty multipliers
+            observation.AdjustedConfidence = calculateAdjustedConfidence(observation, newFlags);
 
             // Determine overall status
             result.Status = determineStatus(result.Issues);
@@ -256,6 +324,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// Gets a string field value from a <see cref="ParsedObservation"/> by property name.
+        /// Supports both string and nullable numeric fields (returns non-null string for populated numerics).
         /// </summary>
         private static string? getFieldValue(ParsedObservation observation, string fieldName)
         {
@@ -268,8 +337,80 @@ namespace MedRecProImportClass.Service.TransformationServices
                 "DoseRegimen" => observation.DoseRegimen,
                 "Timepoint" => observation.Timepoint,
                 "Population" => observation.Population,
+                "Unit" => observation.Unit,
+                "PrimaryValueType" => observation.PrimaryValueType,
+                "StudyContext" => observation.StudyContext,
+                "TimeUnit" => observation.TimeUnit,
+                "ArmN" => observation.ArmN?.ToString(),
+                "Time" => observation.Time?.ToString(),
                 _ => null
             };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Calculates field completeness score (0.0–1.0) based on how many expected fields
+        /// (required + desirable) are populated for the observation's TableCategory.
+        /// </summary>
+        /// <param name="observation">The observation to score.</param>
+        /// <returns>Score from 0.0 (no fields populated) to 1.0 (all expected fields populated).</returns>
+        private static double calculateFieldCompleteness(ParsedObservation observation)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(observation.TableCategory))
+                return 0.0;
+
+            if (!_completenessFieldsByCategory.TryGetValue(observation.TableCategory, out var fields))
+                return 1.0; // Unknown category — don't penalize
+
+            if (fields.Count == 0)
+                return 1.0;
+
+            var populated = fields.Count(f => !string.IsNullOrWhiteSpace(getFieldValue(observation, f)));
+            return (double)populated / fields.Count;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Calculates adjusted confidence by applying cumulative penalty multipliers
+        /// based on validation issues found. Starts from <see cref="ParsedObservation.ParseConfidence"/>
+        /// and reduces by each applicable penalty.
+        /// </summary>
+        /// <param name="observation">The observation being validated.</param>
+        /// <param name="flags">Validation flags collected during this validation pass.</param>
+        /// <returns>Adjusted confidence clamped to [0.0, 1.0], or null if ParseConfidence is null.</returns>
+        private static double? calculateAdjustedConfidence(ParsedObservation observation, List<string> flags)
+        {
+            #region implementation
+
+            if (!observation.ParseConfidence.HasValue)
+                return null;
+
+            var adjusted = observation.ParseConfidence.Value;
+
+            foreach (var flag in flags)
+            {
+                // Extract the base flag name (before any colon detail)
+                var baseName = flag.Contains(':') ? flag[..flag.IndexOf(':')] : flag;
+
+                // MISSING_FIELD flags all start with "MISSING_" — map to MISSING_FIELD penalty
+                if (baseName.StartsWith("MISSING_") && baseName != "MISSING_CATEGORY")
+                {
+                    baseName = "MISSING_FIELD";
+                }
+
+                if (_confidencePenalties.TryGetValue(baseName, out var multiplier))
+                {
+                    adjusted *= multiplier;
+                }
+            }
+
+            return Math.Max(0.0, Math.Min(1.0, adjusted));
 
             #endregion
         }
