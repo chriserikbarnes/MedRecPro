@@ -1111,3 +1111,41 @@ Dolutegravir drug interaction table (TextTableID=118) uses "to" format: `"0.99 (
 **Tests:** 3 new (to-separator, to-no-space, range-non-interference), 6 renamed from `_Dash_` to `_CI_`. All 792 tests pass.
 
 ---
+
+### 2026-03-24 2:42 PM EST — Fix String Truncation in mapToEntity for All Fixed-Size Columns
+
+SQL error 2628 (`String or binary data would be truncated`) on `RawValue` column during batch SaveChangesAsync, losing the entire 64,783-entity batch.
+
+**Root cause:** While `RawValue` truncation (Truncate(1994) → 1998 ≤ 2000) was mathematically correct, 7 other fixed-size string columns had **no truncation at all** — any overflow in any field kills the entire batch. Additionally, a stale binary (pre-truncation build) may have been running.
+
+**Fix:** Added `XSM_TEXT_LENGTH = 94` (NVARCHAR(100)) and `TINY_TEXT_LENGTH = 44` (NVARCHAR(50)) constants. Applied truncation to all 7 unprotected fields: `ParentSectionCode`, `TimeUnit`, `BoundType` → TINY; `PrimaryValueType`, `SecondaryValueType`, `ParseRule` → XSM; `FootnoteMarkers` → SML. Every fixed-size string column now has defensive truncation. NVARCHAR(MAX) columns (`Caption`, `FootnoteText`) need none.
+
+**Clean rebuild:** Both ImportClass and Console app rebuilt with `--no-incremental`. All 792 tests pass.
+
+---
+
+### 2026-03-24 3:44 PM EST — Parse ± Values, Detect "n" as Sample Size, Population from Column 0
+
+TextTableID=346 (pediatric PK table) exposed three parsing gaps: ± values falling to text_descriptive, "n" column misidentified as Mean, and "Age Group (y)" column 0 values assigned as DoseRegimen instead of Population.
+
+**1. ValueParser — new Pattern 6c `value_plusminus`:**
+- Regex: `^(-?[\d.]+)\s*(?:±|\+/?-)\s*(-?[\d.]+)$`
+- Parses "1.1 ± 0.5", "580±450", "71 +/- 40", "55 +- 18"
+- Returns PrimaryValueType="Numeric" (PK promotes to Mean), SecondaryValueType="SD"
+- Computes LowerBound = primary - tolerance, UpperBound = primary + tolerance, BoundType="SD"
+- Added "Mean ± SD" caption hint pattern in BaseTableParser
+
+**2. PkTableParser — "n" column as sample size:**
+- Extended `extractParameterDefinitions` tuple to 5 fields: added `isSampleSize`
+- `_sampleSizeHeaders` HashSet: "n", "N", "n=", "sample size"
+- When `isSampleSize` is true, overrides Numeric → Count before PK Mean fallback
+- Prevents sample sizes from being promoted to Mean
+
+**3. PkTableParser — column 0 population detection:**
+- `_populationHeaderKeywords` HashSet: "age group", "age", "population", "patient group", "subgroup", "cohort"
+- `isColumn0Population()` checks column 0 header text against keywords
+- When true: column 0 values go to `Population` (not DoseRegimen), DoseRegimen set to null
+
+**Tests:** 7 new (5 ValueParser ± tests, 2 integration: n-column Count, Age Group population). All 799 tests pass.
+
+---

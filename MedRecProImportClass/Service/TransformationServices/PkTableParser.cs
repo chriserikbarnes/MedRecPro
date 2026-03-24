@@ -62,6 +62,27 @@ namespace MedRecProImportClass.Service.TransformationServices
             "days", "weeks", "months"
         };
 
+        /**************************************************************/
+        /// <summary>
+        /// Sample size column names. When a column header matches one of these exactly,
+        /// the column contains sample sizes (counts), not PK parameter measurements.
+        /// </summary>
+        private static readonly HashSet<string> _sampleSizeHeaders = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "n", "N", "n=", "sample size"
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Column 0 header keywords indicating a population descriptor rather than dose regimen.
+        /// When column 0 header contains one of these, row labels are treated as Population
+        /// instead of DoseRegimen.
+        /// </summary>
+        private static readonly HashSet<string> _populationHeaderKeywords = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "age group", "age", "population", "patient group", "subgroup", "cohort"
+        };
+
         #region ITableParser Implementation
 
         /**************************************************************/
@@ -99,22 +120,29 @@ namespace MedRecProImportClass.Service.TransformationServices
             var (population, popConfidence) = detectPopulation(table);
             var captionHint = detectCaptionValueHint(table.Caption);
 
-            // Extract parameter definitions from header (skip col 0 = dose label)
+            // Extract parameter definitions from header (skip col 0 = dose/population label)
             var paramDefs = extractParameterDefinitions(table);
             if (paramDefs.Count == 0)
                 return observations;
+
+            // Detect whether column 0 is a population descriptor (e.g., "Age Group (y)")
+            var col0IsPopulation = isColumn0Population(table);
 
             // Iterate data rows
             var dataRows = getDataBodyRows(table);
             foreach (var row in dataRows)
             {
-                // Column 0 = dose regimen label
+                // Column 0 = dose regimen or population label
                 var doseCell = getCellAtColumn(row, 0);
-                var doseRegimen = doseCell?.CleanedText?.Trim();
+                var col0Text = doseCell?.CleanedText?.Trim();
 
-                // Skip empty dose label rows
-                if (string.IsNullOrWhiteSpace(doseRegimen))
+                // Skip empty label rows
+                if (string.IsNullOrWhiteSpace(col0Text))
                     continue;
+
+                // Determine DoseRegimen vs Population based on column 0 header
+                var doseRegimen = col0IsPopulation ? null : col0Text;
+                var rowPopulation = col0IsPopulation ? col0Text : population;
 
                 // Extract duration from dose regimen text (once per row)
                 var (time, timeUnit, timepoint) = extractDuration(doseRegimen);
@@ -132,7 +160,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         var o = createBaseObservation(table, r, cell, TableCategory.PK);
                         o.ParameterName = param.name;
                         o.DoseRegimen = doseRegimen;
-                        o.Population = population;
+                        o.Population = rowPopulation;
                         o.Timepoint = timepoint;
                         o.Time = time;
                         o.TimeUnit = timeUnit;
@@ -141,6 +169,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                         // Parse value — PK cells often use value(CV%) format
                         var parsed = ValueParser.Parse(cell.CleanedText);
 
+                        // Sample size column: override Numeric → Count
+                        if (param.isSampleSize && parsed.PrimaryValueType == "Numeric")
+                        {
+                            parsed.PrimaryValueType = "Count";
+                            parsed.ParseConfidence = 0.90;
+                        }
+
                         // Caption-based type inference (e.g., "Mean (SD)" reinterprets n_pct → mean_sd)
                         if (!captionHint.IsEmpty)
                         {
@@ -148,6 +183,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         }
 
                         // PK fallback: bare Numeric → Mean (only if caption didn't already set it)
+                        // Skip for Count (sample size) — should not be promoted to Mean
                         if (parsed.PrimaryValueType == "Numeric")
                         {
                             parsed.PrimaryValueType = "Mean";
@@ -249,29 +285,26 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Extracts parameter name, unit, and time-measure flag from header columns.
-        /// Parses patterns like "Cmax (mcg/mL)" into name="Cmax", unit="mcg/mL", isTimeMeasure=false.
-        /// When the unit is a pure time unit (e.g., "hours"), isTimeMeasure is true, indicating
-        /// the parameter's PrimaryValue is itself a time measurement.
+        /// Extracts parameter name, unit, time-measure flag, and sample-size flag from header columns.
+        /// Parses patterns like "Cmax (mcg/mL)" into structured definitions.
         /// </summary>
         /// <example>
         /// <code>
-        /// "Cmax (mcg/mL)"      → ("Cmax", "mcg/mL", false)
-        /// "Half-life (hours)"   → ("Half-life", "hours", true)
-        /// "Tmax (hrs)"          → ("Tmax", "hrs", true)
-        /// "AUC (mcg·h/mL)"     → ("AUC", "mcg·h/mL", false) — composite, not pure time
+        /// "Cmax (mcg/mL)"      → ("Cmax", "mcg/mL", false, false)
+        /// "Half-life (hours)"   → ("Half-life", "hours", true, false)
+        /// "n"                   → ("n", null, false, true)
         /// </code>
         /// </example>
-        private static List<(int columnIndex, string name, string? unit, bool isTimeMeasure)> extractParameterDefinitions(
+        private static List<(int columnIndex, string name, string? unit, bool isTimeMeasure, bool isSampleSize)> extractParameterDefinitions(
             ReconstructedTable table)
         {
             #region implementation
 
-            var defs = new List<(int columnIndex, string name, string? unit, bool isTimeMeasure)>();
+            var defs = new List<(int columnIndex, string name, string? unit, bool isTimeMeasure, bool isSampleSize)>();
             if (table.Header?.Columns == null)
                 return defs;
 
-            // Skip column 0 (dose regimen label)
+            // Skip column 0 (dose regimen / population label)
             for (int i = 1; i < table.Header.Columns.Count; i++)
             {
                 var col = table.Header.Columns[i];
@@ -279,21 +312,54 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(text))
                     continue;
 
+                // Check if column is a sample size column
+                var isSampleSize = _sampleSizeHeaders.Contains(text);
+
                 var match = _paramUnitPattern.Match(text);
                 if (match.Success)
                 {
                     var name = match.Groups[1].Value.Trim();
                     var unit = match.Groups[2].Value.Trim();
                     var isTime = _timeUnitStrings.Contains(unit);
-                    defs.Add((col.ColumnIndex ?? i, name, unit, isTime));
+                    defs.Add((col.ColumnIndex ?? i, name, unit, isTime, isSampleSize));
                 }
                 else
                 {
-                    defs.Add((col.ColumnIndex ?? i, text, null, false));
+                    defs.Add((col.ColumnIndex ?? i, text, null, false, isSampleSize));
                 }
             }
 
             return defs;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks whether column 0 header text indicates a population descriptor
+        /// (e.g., "Age Group (y)", "Population") rather than a dose regimen.
+        /// </summary>
+        /// <param name="table">The reconstructed table.</param>
+        /// <returns>True when column 0 contains population-related keywords.</returns>
+        private static bool isColumn0Population(ReconstructedTable table)
+        {
+            #region implementation
+
+            if (table.Header?.Columns == null || table.Header.Columns.Count == 0)
+                return false;
+
+            var col0Text = table.Header.Columns[0].LeafHeaderText?.Trim();
+            if (string.IsNullOrWhiteSpace(col0Text))
+                return false;
+
+            // Check if the header contains any population keyword
+            foreach (var keyword in _populationHeaderKeywords)
+            {
+                if (col0Text.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
 
             #endregion
         }

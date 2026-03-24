@@ -30,9 +30,11 @@ namespace MedRecProImportClass.Service.TransformationServices
     {
         #region Fields
 
-        private const int MAX_TEXT_LENGTH = 1994;
-        private const int MED_TEXT_LENGTH = 994;
-        private const int SML_TEXT_LENGTH = 494;
+        private const int MAX_TEXT_LENGTH = 1994;  // NVARCHAR(2000): 1994 + " ..." = 1998 ≤ 2000
+        private const int MED_TEXT_LENGTH = 994;  // NVARCHAR(1000): 994 + " ..." = 998 ≤ 1000
+        private const int SML_TEXT_LENGTH = 494;  // NVARCHAR(500):  494 + " ..." = 498 ≤ 500
+        private const int XSM_TEXT_LENGTH = 94;   // NVARCHAR(100):  94 + " ..." = 98 ≤ 100
+        private const int TINY_TEXT_LENGTH = 44;  // NVARCHAR(50):   44 + " ..." = 48 ≤ 50
 
         /**************************************************************/
         /// <summary>Stage 2 reconstruction service.</summary>
@@ -811,7 +813,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 SourceRowSeq = obs.SourceRowSeq,
                 SourceCellSeq = obs.SourceCellSeq,
                 TableCategory = obs.TableCategory.Truncate(SML_TEXT_LENGTH),
-                ParentSectionCode = obs.ParentSectionCode,
+                ParentSectionCode = obs.ParentSectionCode.Truncate(TINY_TEXT_LENGTH),
                 ParentSectionTitle = obs.ParentSectionTitle.Truncate(MED_TEXT_LENGTH),
                 SectionTitle = obs.SectionTitle.Truncate(MED_TEXT_LENGTH),
                 ParameterName = obs.ParameterName.Truncate(MED_TEXT_LENGTH),
@@ -824,20 +826,20 @@ namespace MedRecProImportClass.Service.TransformationServices
                 Population = obs.Population.Truncate(SML_TEXT_LENGTH),
                 Timepoint = obs.Timepoint.Truncate(SML_TEXT_LENGTH),
                 Time = obs.Time,
-                TimeUnit = obs.TimeUnit,
+                TimeUnit = obs.TimeUnit.Truncate(TINY_TEXT_LENGTH),
                 RawValue = obs.RawValue.Truncate(MAX_TEXT_LENGTH),
                 PrimaryValue = obs.PrimaryValue,
-                PrimaryValueType = obs.PrimaryValueType,
+                PrimaryValueType = obs.PrimaryValueType.Truncate(XSM_TEXT_LENGTH),
                 SecondaryValue = obs.SecondaryValue,
-                SecondaryValueType = obs.SecondaryValueType,
+                SecondaryValueType = obs.SecondaryValueType.Truncate(XSM_TEXT_LENGTH),
                 LowerBound = obs.LowerBound,
                 UpperBound = obs.UpperBound,
-                BoundType = obs.BoundType,
+                BoundType = obs.BoundType.Truncate(TINY_TEXT_LENGTH),
                 PValue = obs.PValue,
                 Unit = obs.Unit.Truncate(SML_TEXT_LENGTH),
                 ParseConfidence = obs.ParseConfidence,
-                ParseRule = obs.ParseRule,
-                FootnoteMarkers = obs.FootnoteMarkers,
+                ParseRule = obs.ParseRule.Truncate(XSM_TEXT_LENGTH),
+                FootnoteMarkers = obs.FootnoteMarkers.Truncate(SML_TEXT_LENGTH),
                 FootnoteText = obs.FootnoteText,
                 ValidationFlags = obs.ValidationFlags.Truncate(MED_TEXT_LENGTH)
             };

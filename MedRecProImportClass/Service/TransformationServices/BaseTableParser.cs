@@ -106,6 +106,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </remarks>
         private static readonly (Regex pattern, CaptionValueHint hint)[] _captionHintPatterns =
         {
+            // Mean ± SD / Mean ± Standard Deviation / Mean (±SD)
+            (new Regex(@"Mean\s*(?:±|\+/?-)\s*(?:SD|Standard\s*Deviation)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Mean", SecondaryValueType = "SD", ConfidenceAdjustment = 1.0, Source = "caption:Mean ± SD" }),
+
             // Mean (SD) / Mean (Standard Deviation)
             (new Regex(@"Mean\s*\(\s*(?:SD|Standard\s*Deviation)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
                 new CaptionValueHint { PrimaryValueType = "Mean", SecondaryValueType = "SD", ConfidenceAdjustment = 1.0, Source = "caption:Mean (SD)" }),

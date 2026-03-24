@@ -406,6 +406,85 @@ namespace MedRecPro.Service.Test
 
         #endregion Value CI Tests
 
+        #region Value PlusMinus Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "1.1 ± 0.5" returns Numeric with SD bounds.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValuePlusMinus_Standard_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("1.1 ± 0.5");
+            Assert.AreEqual(1.1, result.PrimaryValue);
+            Assert.AreEqual("Numeric", result.PrimaryValueType);
+            Assert.AreEqual(0.5, result.SecondaryValue);
+            Assert.AreEqual("SD", result.SecondaryValueType);
+            Assert.AreEqual(0.6, result.LowerBound!.Value, 0.001);
+            Assert.AreEqual(1.6, result.UpperBound!.Value, 0.001);
+            Assert.AreEqual("SD", result.BoundType);
+            Assert.AreEqual("value_plusminus", result.ParseRule);
+            Assert.AreEqual(0.95, result.ParseConfidence);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "580±450" with no spaces still parses correctly.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValuePlusMinus_NoSpaces_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("580±450");
+            Assert.AreEqual(580.0, result.PrimaryValue);
+            Assert.AreEqual(450.0, result.SecondaryValue);
+            Assert.AreEqual(130.0, result.LowerBound!.Value, 0.001);
+            Assert.AreEqual(1030.0, result.UpperBound!.Value, 0.001);
+            Assert.AreEqual("value_plusminus", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "71 +/- 40" with +/- notation parses correctly.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValuePlusMinus_PlusSlashMinus_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("71 +/- 40");
+            Assert.AreEqual(71.0, result.PrimaryValue);
+            Assert.AreEqual(40.0, result.SecondaryValue);
+            Assert.AreEqual(31.0, result.LowerBound!.Value, 0.001);
+            Assert.AreEqual(111.0, result.UpperBound!.Value, 0.001);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "-2.5 ± 1.0" with negative primary parses correctly.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValuePlusMinus_NegativePrimary_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("-2.5 ± 1.0");
+            Assert.AreEqual(-2.5, result.PrimaryValue);
+            Assert.AreEqual(1.0, result.SecondaryValue);
+            Assert.AreEqual(-3.5, result.LowerBound!.Value, 0.001);
+            Assert.AreEqual(-1.5, result.UpperBound!.Value, 0.001);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "55 +- 18" with +- notation (no slash) parses correctly.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValuePlusMinus_PlusMinus_NoSlash_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("55 +- 18");
+            Assert.AreEqual(55.0, result.PrimaryValue);
+            Assert.AreEqual(18.0, result.SecondaryValue);
+            Assert.AreEqual("value_plusminus", result.ParseRule);
+        }
+
+        #endregion Value PlusMinus Tests
+
         #region Value CV Tests
 
         /**************************************************************/

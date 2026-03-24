@@ -1086,6 +1086,143 @@ namespace MedRecPro.Service.Test
 
         #endregion PK CI Dash Parsing Tests
 
+        #region PK Sample Size and Population Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// PK table with "n" column: sample sizes parsed as Count, not promoted to Mean.
+        /// </summary>
+        [TestMethod]
+        public void RouteAndParsePkTable_NColumn_ParsedAsSampleSize()
+        {
+            #region implementation
+
+            var (orchestrator, _, _) = createTestOrchestrator();
+
+            var pkTable = new ReconstructedTable
+            {
+                TextTableID = 346,
+                Caption = "PK Parameters",
+                DocumentGUID = Guid.NewGuid(),
+                Title = "Test Drug",
+                VersionNumber = 1,
+                ParentSectionCode = "34090-1",
+                LabelerName = "Test Lab",
+                TotalColumnCount = 3,
+                TotalRowCount = 2,
+                HasExplicitHeader = true,
+                HasInferredHeader = false,
+                HasFooter = false,
+                HasSocDividers = false,
+                Header = new ResolvedHeader
+                {
+                    HeaderRowCount = 1,
+                    ColumnCount = 3,
+                    Columns = new List<HeaderColumn>
+                    {
+                        new() { ColumnIndex = 0, LeafHeaderText = "Dose", HeaderPath = new List<string> { "Dose" } },
+                        new() { ColumnIndex = 1, LeafHeaderText = "n", HeaderPath = new List<string> { "n" } },
+                        new() { ColumnIndex = 2, LeafHeaderText = "Cmax (mcg/mL)", HeaderPath = new List<string> { "Cmax (mcg/mL)" } }
+                    }
+                },
+                Rows = new List<ReconstructedRow>
+                {
+                    new()
+                    {
+                        SequenceNumberTextTableRow = 2,
+                        Classification = RowClassification.DataBody,
+                        AbsoluteRowIndex = 1,
+                        Cells = new List<ProcessedCell>
+                        {
+                            new() { SequenceNumber = 1, ResolvedColumnStart = 0, ResolvedColumnEnd = 1, CleanedText = "50 mg oral", CellType = "td" },
+                            new() { SequenceNumber = 2, ResolvedColumnStart = 1, ResolvedColumnEnd = 2, CleanedText = "9", CellType = "td" },
+                            new() { SequenceNumber = 3, ResolvedColumnStart = 2, ResolvedColumnEnd = 3, CleanedText = "2.21", CellType = "td" }
+                        }
+                    }
+                }
+            };
+
+            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+
+            Assert.AreEqual(2, observations.Count);
+
+            // n column: Count, not Mean
+            var nObs = observations.First(o => o.ParameterName == "n");
+            Assert.AreEqual(9.0, nObs.PrimaryValue);
+            Assert.AreEqual("Count", nObs.PrimaryValueType);
+
+            // Cmax column: Mean (PK fallback for bare Numeric)
+            var cmaxObs = observations.First(o => o.ParameterName == "Cmax");
+            Assert.AreEqual(2.21, cmaxObs.PrimaryValue);
+            Assert.AreEqual("Mean", cmaxObs.PrimaryValueType);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PK table with "Age Group (y)" as column 0: values become Population, not DoseRegimen.
+        /// </summary>
+        [TestMethod]
+        public void RouteAndParsePkTable_AgeGroupColumn0_PopulatesPopulation()
+        {
+            #region implementation
+
+            var (orchestrator, _, _) = createTestOrchestrator();
+
+            var pkTable = new ReconstructedTable
+            {
+                TextTableID = 347,
+                Caption = "Pediatric PK",
+                DocumentGUID = Guid.NewGuid(),
+                Title = "Test Drug",
+                VersionNumber = 1,
+                ParentSectionCode = "34090-1",
+                LabelerName = "Test Lab",
+                TotalColumnCount = 2,
+                TotalRowCount = 2,
+                HasExplicitHeader = true,
+                HasInferredHeader = false,
+                HasFooter = false,
+                HasSocDividers = false,
+                Header = new ResolvedHeader
+                {
+                    HeaderRowCount = 1,
+                    ColumnCount = 2,
+                    Columns = new List<HeaderColumn>
+                    {
+                        new() { ColumnIndex = 0, LeafHeaderText = "Age Group (y)", HeaderPath = new List<string> { "Age Group (y)" } },
+                        new() { ColumnIndex = 1, LeafHeaderText = "Cmax (mcg/mL)", HeaderPath = new List<string> { "Cmax (mcg/mL)" } }
+                    }
+                },
+                Rows = new List<ReconstructedRow>
+                {
+                    new()
+                    {
+                        SequenceNumberTextTableRow = 2,
+                        Classification = RowClassification.DataBody,
+                        AbsoluteRowIndex = 1,
+                        Cells = new List<ProcessedCell>
+                        {
+                            new() { SequenceNumber = 1, ResolvedColumnStart = 0, ResolvedColumnEnd = 1, CleanedText = "5-11", CellType = "td" },
+                            new() { SequenceNumber = 2, ResolvedColumnStart = 1, ResolvedColumnEnd = 2, CleanedText = "3.5", CellType = "td" }
+                        }
+                    }
+                }
+            };
+
+            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+
+            Assert.AreEqual(1, observations.Count);
+            var obs = observations[0];
+            Assert.AreEqual("5-11", obs.Population);
+            Assert.IsNull(obs.DoseRegimen);
+
+            #endregion
+        }
+
+        #endregion PK Sample Size and Population Tests
+
         #region BMD Time Extraction Tests
 
         /**************************************************************/

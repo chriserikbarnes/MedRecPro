@@ -68,6 +68,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^(-?[\d.]+)\s*\(\s*(-?[\d.]+)\s*(?:[-–—]|to)\s*(-?[\d.]+)\s*\)$",
             RegexOptions.Compiled);
 
+        // Pattern 6c: Value ± tolerance — 1.1 ± 0.5 or 580±450 or 71 +/- 40
+        // Mean ± SD format common in PK tables. ± (U+00B1), +/-, +- supported.
+        private static readonly Regex _valuePlusMinusPattern = new(
+            @"^(-?[\d.]+)\s*(?:±|\+/?-)\s*(-?[\d.]+)$",
+            RegexOptions.Compiled);
+
         // Pattern 7: Value(CV%) — 0.29 (35%) or 125(32%)
         private static readonly Regex _valueCvPattern = new(
             @"^([\d.]+)\s*\((\d+)\s*%\s*\)\s*(.*)$",
@@ -180,6 +186,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Pattern 6b: Value with CI — 0.38 (0.31 - 0.46) or 0.99 (0.91 to 1.08)
             if (tryParseValueCI(text, out var ciResult))
                 return ciResult;
+
+            // Pattern 6c: Value ± tolerance — 1.1 ± 0.5 or 71 +/- 40
+            if (tryParseValuePlusMinus(text, out var pmResult))
+                return pmResult;
 
             // Pattern 7: Value(CV%) — 0.29 (35%)
             if (tryParseValueCV(text, out var cvResult))
@@ -545,6 +555,54 @@ namespace MedRecProImportClass.Service.TransformationServices
                 BoundType = "CI",
                 ParseConfidence = 0.95,
                 ParseRule = "value_ci"
+            };
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses value ± tolerance pattern: 1.1 ± 0.5, 580±450, 71 +/- 40.
+        /// Common Mean ± SD format in PK tables. Computes LowerBound and UpperBound
+        /// from primary ± secondary.
+        /// </summary>
+        /// <remarks>
+        /// Returns PrimaryValueType = "Numeric" (parser promotes to Mean in PK context).
+        /// SecondaryValueType = "SD". BoundType = "SD" (standard deviation bounds, not CI).
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// tryParseValuePlusMinus("1.1 ± 0.5", out var r)   → true, Primary=1.1, Secondary=0.5, Lower=0.6, Upper=1.6
+        /// tryParseValuePlusMinus("71 +/- 40", out var r)    → true, Primary=71, Secondary=40, Lower=31, Upper=111
+        /// tryParseValuePlusMinus("580±450", out var r)       → true, Primary=580, Secondary=450, Lower=130, Upper=1030
+        /// </code>
+        /// </example>
+        /// <seealso cref="tryParseValueCI"/>
+        internal static bool tryParseValuePlusMinus(string text, out ParsedValue result)
+        {
+            #region implementation
+
+            result = null!;
+            var match = _valuePlusMinusPattern.Match(text);
+
+            if (!match.Success)
+                return false;
+
+            var primary = double.Parse(match.Groups[1].Value);
+            var tolerance = double.Parse(match.Groups[2].Value);
+
+            result = new ParsedValue
+            {
+                PrimaryValue = primary,
+                PrimaryValueType = "Numeric",
+                SecondaryValue = tolerance,
+                SecondaryValueType = "SD",
+                LowerBound = primary - tolerance,
+                UpperBound = primary + tolerance,
+                BoundType = "SD",
+                ParseConfidence = 0.95,
+                ParseRule = "value_plusminus"
             };
             return true;
 
