@@ -763,19 +763,159 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(TableCategory.PK, category);
             Assert.AreEqual(4, observations.Count);
 
-            // Row 1: "50 mg oral (once daily x 7 days)" — both parameters should have Time=7
-            var row1Obs = observations.Where(o => o.DoseRegimen == "50 mg oral (once daily x 7 days)").ToList();
-            Assert.AreEqual(2, row1Obs.Count);
-            Assert.IsTrue(row1Obs.All(o => o.Time == 7.0));
-            Assert.IsTrue(row1Obs.All(o => o.TimeUnit == "days"));
-            Assert.IsTrue(row1Obs.All(o => o.Timepoint == "7 days"));
+            // Row 1, Cmax (non-time param): Time from dose regimen (7 days)
+            var row1Cmax = observations.First(o => o.DoseRegimen == "50 mg oral (once daily x 7 days)" && o.ParameterName == "Cmax");
+            Assert.AreEqual(7.0, row1Cmax.Time);
+            Assert.AreEqual("days", row1Cmax.TimeUnit);
+            Assert.AreEqual("7 days", row1Cmax.Timepoint);
 
-            // Row 2: "150 mg single oral" — Time should be null, Timepoint should be "single dose"
-            var row2Obs = observations.Where(o => o.DoseRegimen == "150 mg single oral").ToList();
-            Assert.AreEqual(2, row2Obs.Count);
-            Assert.IsTrue(row2Obs.All(o => o.Time == null));
-            Assert.IsTrue(row2Obs.All(o => o.TimeUnit == null));
-            Assert.IsTrue(row2Obs.All(o => o.Timepoint == "single dose"));
+            // Row 1, Half-life (time param): Time from PrimaryValue (26.6 hours)
+            var row1Hl = observations.First(o => o.DoseRegimen == "50 mg oral (once daily x 7 days)" && o.ParameterName == "Half-life");
+            Assert.AreEqual(26.6, row1Hl.Time);
+            Assert.AreEqual("hours", row1Hl.TimeUnit);
+            Assert.AreEqual("7 days", row1Hl.Timepoint); // Row-derived label preserved
+
+            // Row 2, Cmax (single dose): Time null
+            var row2Cmax = observations.First(o => o.DoseRegimen == "150 mg single oral" && o.ParameterName == "Cmax");
+            Assert.IsNull(row2Cmax.Time);
+            Assert.IsNull(row2Cmax.TimeUnit);
+            Assert.AreEqual("single dose", row2Cmax.Timepoint);
+
+            // Row 2, Half-life (time param, single dose): Time from PrimaryValue (34.1 hours)
+            var row2Hl = observations.First(o => o.DoseRegimen == "150 mg single oral" && o.ParameterName == "Half-life");
+            Assert.AreEqual(34.1, row2Hl.Time);
+            Assert.AreEqual("hours", row2Hl.TimeUnit);
+            Assert.AreEqual("single dose", row2Hl.Timepoint);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PK table with Tmax (hrs) header — abbreviated time unit detected as time measure,
+        /// Time overridden from PrimaryValue.
+        /// </summary>
+        [TestMethod]
+        public void RouteAndParsePkTable_TmaxHrs_DetectedAsTimeMeasure()
+        {
+            #region implementation
+
+            var (orchestrator, _, _) = createTestOrchestrator();
+
+            var pkTable = new ReconstructedTable
+            {
+                TextTableID = 201,
+                Caption = "Table 2: PK Parameters",
+                DocumentGUID = Guid.NewGuid(),
+                Title = "Test Drug",
+                VersionNumber = 1,
+                ParentSectionCode = "34090-1",
+                LabelerName = "Test Lab",
+                TotalColumnCount = 2,
+                TotalRowCount = 2,
+                HasExplicitHeader = true,
+                HasInferredHeader = false,
+                HasFooter = false,
+                HasSocDividers = false,
+                Header = new ResolvedHeader
+                {
+                    HeaderRowCount = 1,
+                    ColumnCount = 2,
+                    Columns = new List<HeaderColumn>
+                    {
+                        new() { ColumnIndex = 0, LeafHeaderText = "Dose", HeaderPath = new List<string> { "Dose" } },
+                        new() { ColumnIndex = 1, LeafHeaderText = "Tmax (hrs)", HeaderPath = new List<string> { "Tmax (hrs)" } }
+                    }
+                },
+                Rows = new List<ReconstructedRow>
+                {
+                    new()
+                    {
+                        SequenceNumberTextTableRow = 2,
+                        Classification = RowClassification.DataBody,
+                        AbsoluteRowIndex = 1,
+                        Cells = new List<ProcessedCell>
+                        {
+                            new() { SequenceNumber = 1, ResolvedColumnStart = 0, ResolvedColumnEnd = 1, CleanedText = "100 mg oral (once daily x 7 days)", CellType = "td" },
+                            new() { SequenceNumber = 2, ResolvedColumnStart = 1, ResolvedColumnEnd = 2, CleanedText = "1.5", CellType = "td" }
+                        }
+                    }
+                }
+            };
+
+            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+
+            Assert.AreEqual(1, observations.Count);
+            var obs = observations[0];
+            Assert.AreEqual("Tmax", obs.ParameterName);
+            Assert.AreEqual(1.5, obs.PrimaryValue);
+            Assert.AreEqual(1.5, obs.Time); // Column-derived from PrimaryValue
+            Assert.AreEqual("hours", obs.TimeUnit); // Normalized from "hrs"
+            Assert.AreEqual("7 days", obs.Timepoint); // Row-derived label preserved
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Non-time parameter "AUC (mcg·h/mL)" with composite unit is NOT detected as time measure.
+        /// </summary>
+        [TestMethod]
+        public void RouteAndParsePkTable_CompositeUnit_NotDetectedAsTimeMeasure()
+        {
+            #region implementation
+
+            var (orchestrator, _, _) = createTestOrchestrator();
+
+            var pkTable = new ReconstructedTable
+            {
+                TextTableID = 202,
+                Caption = "Table 3: PK Parameters",
+                DocumentGUID = Guid.NewGuid(),
+                Title = "Test Drug",
+                VersionNumber = 1,
+                ParentSectionCode = "34090-1",
+                LabelerName = "Test Lab",
+                TotalColumnCount = 2,
+                TotalRowCount = 2,
+                HasExplicitHeader = true,
+                HasInferredHeader = false,
+                HasFooter = false,
+                HasSocDividers = false,
+                Header = new ResolvedHeader
+                {
+                    HeaderRowCount = 1,
+                    ColumnCount = 2,
+                    Columns = new List<HeaderColumn>
+                    {
+                        new() { ColumnIndex = 0, LeafHeaderText = "Dose", HeaderPath = new List<string> { "Dose" } },
+                        new() { ColumnIndex = 1, LeafHeaderText = "AUC (mcg·h/mL)", HeaderPath = new List<string> { "AUC (mcg·h/mL)" } }
+                    }
+                },
+                Rows = new List<ReconstructedRow>
+                {
+                    new()
+                    {
+                        SequenceNumberTextTableRow = 2,
+                        Classification = RowClassification.DataBody,
+                        AbsoluteRowIndex = 1,
+                        Cells = new List<ProcessedCell>
+                        {
+                            new() { SequenceNumber = 1, ResolvedColumnStart = 0, ResolvedColumnEnd = 1, CleanedText = "50 mg oral (once daily x 7 days)", CellType = "td" },
+                            new() { SequenceNumber = 2, ResolvedColumnStart = 1, ResolvedColumnEnd = 2, CleanedText = "37.6", CellType = "td" }
+                        }
+                    }
+                }
+            };
+
+            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+
+            Assert.AreEqual(1, observations.Count);
+            var obs = observations[0];
+            Assert.AreEqual("AUC", obs.ParameterName);
+            Assert.AreEqual(37.6, obs.PrimaryValue);
+            Assert.AreEqual(7.0, obs.Time); // Row-derived (NOT overridden — composite unit)
+            Assert.AreEqual("days", obs.TimeUnit);
 
             #endregion
         }

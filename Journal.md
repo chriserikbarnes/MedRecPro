@@ -1044,3 +1044,27 @@ Enhanced the Stage 4 validation pipeline with Time/TimeUnit validation, field co
 **Tests:** 13 new tests (9 row-level: time pairing, range, vocabulary, completeness, adjusted confidence; 3 table-level: PK time consistency; 1 batch-level fix for 5-band). All 779 tests pass.
 
 ---
+
+### 2026-03-24 10:36 AM EST — Column-Derived Time for Time-Based PK Parameters
+
+Extended PkTableParser to detect when a PK column IS a time measurement (Half-life, Tmax) and override Time/TimeUnit with the measured value instead of the row-derived dosing duration.
+
+**Problem:** Half-life (hours) values like 26.6 had Time=7, TimeUnit="days" (from the dose regimen), losing the relationship between the time measurement and its value. The system only captured row-derived time, not column-derived time.
+
+**Solution — dual-source time capture:**
+- `Timepoint` (text) always holds the row-derived label ("7 days", "single dose") — dosing schedule context
+- `Time`/`TimeUnit` now holds the most semantically relevant numeric time:
+  - For time-based parameters (Half-life, Tmax): column-derived from PrimaryValue/Unit (e.g., 26.6 hours)
+  - For non-time parameters (Cmax, AUC): row-derived from dose regimen (e.g., 7 days)
+
+**Changes to PkTableParser:**
+1. Added `_timeUnitStrings` HashSet with known pure time units (hours, hrs, hr, h, minutes, min, seconds, sec, days, weeks, months)
+2. Extended `extractParameterDefinitions` to return 4-tuple `(columnIndex, name, unit, isTimeMeasure)` — detects when unit is a pure time string
+3. After `applyParsedValue`, overrides Time/TimeUnit from PrimaryValue when `isTimeMeasure` is true
+4. Improved `normalizeTimeUnit` to handle abbreviations (hrs→hours, min→minutes, sec→seconds, h→hours)
+
+**Composite units excluded:** "mcg·h/mL" is NOT detected as a time measure — only pure time units trigger the override.
+
+**Tests:** 2 new tests (Tmax hrs detection, composite unit exclusion) + 1 updated (mixed time/non-time assertions). All 781 tests pass.
+
+---

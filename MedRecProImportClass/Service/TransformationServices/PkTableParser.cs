@@ -45,6 +45,23 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"\b(single)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        /**************************************************************/
+        /// <summary>
+        /// Known pure time-unit strings. When a column header's unit matches one of these,
+        /// the parameter is a time measurement (e.g., Half-life, Tmax) and its PrimaryValue
+        /// should override the row-derived Time/TimeUnit.
+        /// </summary>
+        /// <remarks>
+        /// Composite units like "mcg·h/mL" are NOT matched — only pure time units.
+        /// </remarks>
+        private static readonly HashSet<string> _timeUnitStrings = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "hours", "hrs", "hr", "h",
+            "minutes", "min",
+            "seconds", "sec",
+            "days", "weeks", "months"
+        };
+
         #region ITableParser Implementation
 
         /**************************************************************/
@@ -144,6 +161,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                         if (!string.IsNullOrEmpty(param.unit))
                             o.Unit = param.unit;
 
+                        // Column-derived time: when the parameter IS a time measurement
+                        // (e.g., Half-life, Tmax), override Time/TimeUnit with the measured value
+                        if (param.isTimeMeasure && o.PrimaryValue.HasValue)
+                        {
+                            o.Time = o.PrimaryValue;
+                            o.TimeUnit = normalizeTimeUnit(param.unit ?? "hours");
+                        }
+
                         obs.Add(o);
                     }
                 });
@@ -160,15 +185,25 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Extracts parameter name and unit from header columns.
-        /// Parses patterns like "Cmax (mcg/mL)" into name="Cmax", unit="mcg/mL".
+        /// Extracts parameter name, unit, and time-measure flag from header columns.
+        /// Parses patterns like "Cmax (mcg/mL)" into name="Cmax", unit="mcg/mL", isTimeMeasure=false.
+        /// When the unit is a pure time unit (e.g., "hours"), isTimeMeasure is true, indicating
+        /// the parameter's PrimaryValue is itself a time measurement.
         /// </summary>
-        private static List<(int columnIndex, string name, string? unit)> extractParameterDefinitions(
+        /// <example>
+        /// <code>
+        /// "Cmax (mcg/mL)"      → ("Cmax", "mcg/mL", false)
+        /// "Half-life (hours)"   → ("Half-life", "hours", true)
+        /// "Tmax (hrs)"          → ("Tmax", "hrs", true)
+        /// "AUC (mcg·h/mL)"     → ("AUC", "mcg·h/mL", false) — composite, not pure time
+        /// </code>
+        /// </example>
+        private static List<(int columnIndex, string name, string? unit, bool isTimeMeasure)> extractParameterDefinitions(
             ReconstructedTable table)
         {
             #region implementation
 
-            var defs = new List<(int columnIndex, string name, string? unit)>();
+            var defs = new List<(int columnIndex, string name, string? unit, bool isTimeMeasure)>();
             if (table.Header?.Columns == null)
                 return defs;
 
@@ -183,11 +218,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var match = _paramUnitPattern.Match(text);
                 if (match.Success)
                 {
-                    defs.Add((col.ColumnIndex ?? i, match.Groups[1].Value.Trim(), match.Groups[2].Value.Trim()));
+                    var name = match.Groups[1].Value.Trim();
+                    var unit = match.Groups[2].Value.Trim();
+                    var isTime = _timeUnitStrings.Contains(unit);
+                    defs.Add((col.ColumnIndex ?? i, name, unit, isTime));
                 }
                 else
                 {
-                    defs.Add((col.ColumnIndex ?? i, text, null));
+                    defs.Add((col.ColumnIndex ?? i, text, null, false));
                 }
             }
 
@@ -254,21 +292,42 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Normalizes time unit strings to plural lowercase form.
+        /// Normalizes time unit strings to plural lowercase canonical form.
+        /// Handles abbreviations (hrs → hours, min → minutes, sec → seconds).
         /// </summary>
         /// <example>
         /// <code>
-        /// normalizeTimeUnit("day")   → "days"
-        /// normalizeTimeUnit("Week")  → "weeks"
+        /// normalizeTimeUnit("day")    → "days"
+        /// normalizeTimeUnit("Week")   → "weeks"
         /// normalizeTimeUnit("months") → "months"
+        /// normalizeTimeUnit("hrs")    → "hours"
+        /// normalizeTimeUnit("hr")     → "hours"
+        /// normalizeTimeUnit("h")      → "hours"
+        /// normalizeTimeUnit("min")    → "minutes"
+        /// normalizeTimeUnit("sec")    → "seconds"
         /// </code>
         /// </example>
-        private static string normalizeTimeUnit(string unit)
+        internal static string normalizeTimeUnit(string unit)
         {
             #region implementation
 
             var lower = unit.ToLowerInvariant().TrimEnd('s');
-            return lower + "s";
+
+            // Map abbreviations to canonical forms
+            return lower switch
+            {
+                "hr" or "h" => "hours",
+                "hour" => "hours",
+                "min" => "minutes",
+                "minute" => "minutes",
+                "sec" => "seconds",
+                "second" => "seconds",
+                "day" => "days",
+                "week" => "weeks",
+                "month" => "months",
+                "year" => "years",
+                _ => lower + "s"
+            };
 
             #endregion
         }
