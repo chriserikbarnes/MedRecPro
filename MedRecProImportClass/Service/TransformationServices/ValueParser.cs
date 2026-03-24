@@ -62,6 +62,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^(-?[\d.]+)\s*\(\s*(-?[\d.]+)\s*[,]\s*(-?[\d.]+)\s*\)$",
             RegexOptions.Compiled);
 
+        // Pattern 6b: Value with CI (dash-separated) — 0.38 (0.31 - 0.46) or 1.23 (0.95–1.55)
+        // Supports hyphen, en-dash, em-dash with optional spaces
+        private static readonly Regex _valueCiDashPattern = new(
+            @"^(-?[\d.]+)\s*\(\s*(-?[\d.]+)\s*[-–—]\s*(-?[\d.]+)\s*\)$",
+            RegexOptions.Compiled);
+
         // Pattern 7: Value(CV%) — 0.29 (35%) or 125(32%)
         private static readonly Regex _valueCvPattern = new(
             @"^([\d.]+)\s*\((\d+)\s*%\s*\)\s*(.*)$",
@@ -170,6 +176,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Pattern 6: Diff with CI — -4.4(-12.6, 3.8)
             if (tryParseDiffWithCI(text, out var diffResult))
                 return diffResult;
+
+            // Pattern 6b: Value with CI (dash) — 0.38 (0.31 - 0.46)
+            if (tryParseValueCIDash(text, out var ciDashResult))
+                return ciDashResult;
 
             // Pattern 7: Value(CV%) — 0.29 (35%)
             if (tryParseValueCV(text, out var cvResult))
@@ -477,6 +487,63 @@ namespace MedRecProImportClass.Service.TransformationServices
                 Unit = "pp",
                 ParseConfidence = 1.0,
                 ParseRule = "diff_ci"
+            };
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses value with dash-separated confidence interval: 0.38 (0.31 - 0.46).
+        /// Supports hyphen, en-dash, and em-dash separators with optional spaces.
+        /// Returns BoundType="CI" (generic, unspecified level) — caption hints or
+        /// table context detection refine this to "90CI"/"95CI" downstream.
+        /// </summary>
+        /// <remarks>
+        /// Validates lower &lt; upper to distinguish from malformed data.
+        /// Does not conflict with existing patterns:
+        /// - n_pct requires no dash inside parens
+        /// - rr_ci/diff_ci require comma separator
+        /// - value_cv requires % inside parens
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// tryParseValueCIDash("0.38 (0.31 - 0.46)", out var r) → true
+        /// // r.PrimaryValue=0.38, r.LowerBound=0.31, r.UpperBound=0.46, r.BoundType="CI"
+        /// tryParseValueCIDash("1.0 (0.94 – 1.13)", out var r)  → true  (en-dash)
+        /// tryParseValueCIDash("0.38 (0.46 - 0.31)", out var r) → false (lower > upper)
+        /// </code>
+        /// </example>
+        /// <seealso cref="tryParseRRWithCI"/>
+        /// <seealso cref="tryParseDiffWithCI"/>
+        internal static bool tryParseValueCIDash(string text, out ParsedValue result)
+        {
+            #region implementation
+
+            result = null!;
+            var match = _valueCiDashPattern.Match(text);
+
+            if (!match.Success)
+                return false;
+
+            var primary = double.Parse(match.Groups[1].Value);
+            var lower = double.Parse(match.Groups[2].Value);
+            var upper = double.Parse(match.Groups[3].Value);
+
+            // Validate: lower must be less than upper
+            if (lower >= upper)
+                return false;
+
+            result = new ParsedValue
+            {
+                PrimaryValue = primary,
+                PrimaryValueType = "Numeric",
+                LowerBound = lower,
+                UpperBound = upper,
+                BoundType = "CI",
+                ParseConfidence = 0.95,
+                ParseRule = "value_ci_dash"
             };
             return true;
 

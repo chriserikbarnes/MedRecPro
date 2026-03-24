@@ -922,6 +922,170 @@ namespace MedRecPro.Service.Test
 
         #endregion PK Time Extraction Tests
 
+        #region PK CI Dash Parsing Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// PK table with drug interaction data: "0.38 (0.31 - 0.46)" parses as value with CI bounds.
+        /// Footer row containing "90% CI" refines BoundType from "CI" to "90CI".
+        /// </summary>
+        [TestMethod]
+        public void RouteAndParsePkTable_DrugInteraction_ParsesCIDashWithFooterRefinement()
+        {
+            #region implementation
+
+            var (orchestrator, _, _) = createTestOrchestrator();
+
+            var pkTable = new ReconstructedTable
+            {
+                TextTableID = 289,
+                Caption = "Table 4 Effect of MYCAPSSA on Systemic Exposure of Co-administered Drugs",
+                DocumentGUID = Guid.NewGuid(),
+                Title = "MYCAPSSA",
+                VersionNumber = 1,
+                ParentSectionCode = "43682-4",
+                LabelerName = "Test Lab",
+                TotalColumnCount = 4,
+                TotalRowCount = 4,
+                HasExplicitHeader = true,
+                HasInferredHeader = false,
+                HasFooter = false,
+                HasSocDividers = false,
+                Header = new ResolvedHeader
+                {
+                    HeaderRowCount = 1,
+                    ColumnCount = 4,
+                    Columns = new List<HeaderColumn>
+                    {
+                        new() { ColumnIndex = 0, LeafHeaderText = "Co-administered drug and dosing regimen", HeaderPath = new List<string> { "Co-administered drug and dosing regimen" } },
+                        new() { ColumnIndex = 1, LeafHeaderText = "Dose (mg)", HeaderPath = new List<string> { "Dose (mg)" } },
+                        new() { ColumnIndex = 2, LeafHeaderText = "Change in AUC", HeaderPath = new List<string> { "Change in AUC" } },
+                        new() { ColumnIndex = 3, LeafHeaderText = "Change in Cmax", HeaderPath = new List<string> { "Change in Cmax" } }
+                    }
+                },
+                Rows = new List<ReconstructedRow>
+                {
+                    // Data row: Cyclosporine
+                    new()
+                    {
+                        SequenceNumberTextTableRow = 2,
+                        Classification = RowClassification.DataBody,
+                        AbsoluteRowIndex = 1,
+                        Cells = new List<ProcessedCell>
+                        {
+                            new() { SequenceNumber = 1, ResolvedColumnStart = 0, ResolvedColumnEnd = 1, CleanedText = "Cyclosporine 300 mg", CellType = "td" },
+                            new() { SequenceNumber = 2, ResolvedColumnStart = 1, ResolvedColumnEnd = 2, CleanedText = "20 mg", CellType = "td" },
+                            new() { SequenceNumber = 3, ResolvedColumnStart = 2, ResolvedColumnEnd = 3, CleanedText = "0.38 (0.31 - 0.46)", CellType = "td" },
+                            new() { SequenceNumber = 4, ResolvedColumnStart = 3, ResolvedColumnEnd = 4, CleanedText = "0.29 (0.22 - 0.37)", CellType = "td" }
+                        }
+                    },
+                    // Footer/annotation row containing CI definition
+                    new()
+                    {
+                        SequenceNumberTextTableRow = 3,
+                        Classification = RowClassification.DataBody,
+                        AbsoluteRowIndex = 2,
+                        Cells = new List<ProcessedCell>
+                        {
+                            new() { SequenceNumber = 1, ResolvedColumnStart = 0, ResolvedColumnEnd = 4, CleanedText = "Mean ratio with 90% CI (with/without co-administered drug)", CellType = "td" }
+                        }
+                    }
+                }
+            };
+
+            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+
+            Assert.AreEqual(TableCategory.PK, category);
+
+            // Filter to just the data observations (not the footer text which becomes text_descriptive)
+            var ciObs = observations.Where(o => o.LowerBound != null).ToList();
+            Assert.IsTrue(ciObs.Count >= 2, $"Expected at least 2 CI observations, got {ciObs.Count}");
+
+            // Check AUC observation
+            var aucObs = ciObs.First(o => o.ParameterName == "Change in AUC");
+            Assert.AreEqual(0.38, aucObs.PrimaryValue);
+            Assert.AreEqual(0.31, aucObs.LowerBound);
+            Assert.AreEqual(0.46, aucObs.UpperBound);
+            Assert.AreEqual("90CI", aucObs.BoundType); // Refined from footer row
+
+            // Check Cmax observation
+            var cmaxObs = ciObs.First(o => o.ParameterName == "Change in Cmax");
+            Assert.AreEqual(0.29, cmaxObs.PrimaryValue);
+            Assert.AreEqual(0.22, cmaxObs.LowerBound);
+            Assert.AreEqual(0.37, cmaxObs.UpperBound);
+            Assert.AreEqual("90CI", cmaxObs.BoundType);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PK table with CI dash values but NO footer CI info — BoundType stays generic "CI".
+        /// </summary>
+        [TestMethod]
+        public void RouteAndParsePkTable_CIDash_NoFooter_BoundTypeStaysCI()
+        {
+            #region implementation
+
+            var (orchestrator, _, _) = createTestOrchestrator();
+
+            var pkTable = new ReconstructedTable
+            {
+                TextTableID = 290,
+                Caption = "Table 5: PK Interaction Study",
+                DocumentGUID = Guid.NewGuid(),
+                Title = "Test Drug",
+                VersionNumber = 1,
+                ParentSectionCode = "43682-4",
+                LabelerName = "Test Lab",
+                TotalColumnCount = 2,
+                TotalRowCount = 2,
+                HasExplicitHeader = true,
+                HasInferredHeader = false,
+                HasFooter = false,
+                HasSocDividers = false,
+                Header = new ResolvedHeader
+                {
+                    HeaderRowCount = 1,
+                    ColumnCount = 2,
+                    Columns = new List<HeaderColumn>
+                    {
+                        new() { ColumnIndex = 0, LeafHeaderText = "Drug", HeaderPath = new List<string> { "Drug" } },
+                        new() { ColumnIndex = 1, LeafHeaderText = "Change in AUC", HeaderPath = new List<string> { "Change in AUC" } }
+                    }
+                },
+                Rows = new List<ReconstructedRow>
+                {
+                    new()
+                    {
+                        SequenceNumberTextTableRow = 2,
+                        Classification = RowClassification.DataBody,
+                        AbsoluteRowIndex = 1,
+                        Cells = new List<ProcessedCell>
+                        {
+                            new() { SequenceNumber = 1, ResolvedColumnStart = 0, ResolvedColumnEnd = 1, CleanedText = "Drug A 100 mg", CellType = "td" },
+                            new() { SequenceNumber = 2, ResolvedColumnStart = 1, ResolvedColumnEnd = 2, CleanedText = "1.40 (1.21 - 1.61)", CellType = "td" }
+                        }
+                    }
+                }
+            };
+
+            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+
+            var ciObs = observations.Where(o => o.LowerBound != null).ToList();
+            Assert.AreEqual(1, ciObs.Count);
+
+            var obs = ciObs[0];
+            Assert.AreEqual(1.40, obs.PrimaryValue);
+            Assert.AreEqual(1.21, obs.LowerBound);
+            Assert.AreEqual(1.61, obs.UpperBound);
+            Assert.AreEqual("CI", obs.BoundType); // No footer info → stays generic
+
+            #endregion
+        }
+
+        #endregion PK CI Dash Parsing Tests
+
         #region BMD Time Extraction Tests
 
         /**************************************************************/

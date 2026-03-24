@@ -1068,3 +1068,32 @@ Extended PkTableParser to detect when a PK column IS a time measurement (Half-li
 **Tests:** 2 new tests (Tmax hrs detection, composite unit exclusion) + 1 updated (mixed time/non-time assertions). All 781 tests pass.
 
 ---
+
+### 2026-03-24 10:36 AM EST — Parse Dash-Separated Confidence Intervals in PK Tables
+
+Added support for parsing values with dash-separated confidence intervals like `"0.38 (0.31 - 0.46)"` which were previously falling through to `text_descriptive` at 0.50 confidence.
+
+**Problem:** ValueParser Pattern 5 (rr_ci) and Pattern 6 (diff_ci) both require COMMA separators inside parentheses. Drug interaction PK tables use DASH format `VALUE (LOWER - UPPER)` for mean ratios with 90% CI, which matched no pattern.
+
+**Solution — 3 layers:**
+
+1. **ValueParser — new Pattern 6b `value_ci_dash`:**
+   - Regex: `^(-?[\d.]+)\s*\(\s*(-?[\d.]+)\s*[-–—]\s*(-?[\d.]+)\s*\)$`
+   - Handles hyphen, en-dash, em-dash with optional spaces
+   - Returns `PrimaryValueType = "Numeric"`, `BoundType = "CI"` (generic), `ParseConfidence = 0.95`
+   - Validates lower < upper (rejects inverted bounds → falls to text)
+   - PK fallback promotes "Numeric" → "Mean" downstream
+
+2. **BaseTableParser — CaptionValueHint extended:**
+   - Added `BoundType` field to `CaptionValueHint` struct
+   - New caption patterns: "Mean ratio with 90% CI" → `Ratio`+`90CI`, "Mean ratio with 95% CI" → `Ratio`+`95CI`, generic "90% CI"/"95% CI", bare "Mean ratio" → `Ratio`
+   - New Case 4 in `applyCaptionHint`: refines generic "CI" → "90CI"/"95CI" from caption
+
+3. **PkTableParser — table text CI level detection:**
+   - `detectCILevelFromTableText()` scans caption, footer rows, and data body rows for "N% CI" pattern
+   - Post-parse: if any observations have `BoundType == "CI"`, scans table text and refines to "90CI"/"95CI"
+   - Handles the common case where CI level is in a footer/annotation row rather than caption
+
+**Tests:** 8 new tests (6 ValueParser: standard, no-spaces, en-dash, negatives, invalid bounds, comma non-interference; 2 integration: footer refinement to 90CI, no-footer stays generic CI). All 789 tests pass.
+
+---

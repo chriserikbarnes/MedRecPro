@@ -79,9 +79,16 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             /**************************************************************/
             /// <summary>
+            /// Bound type inferred from caption (e.g., "90CI", "95CI").
+            /// Used to refine the generic "CI" BoundType returned by value_ci_dash pattern.
+            /// </summary>
+            public string? BoundType { get; init; }
+
+            /**************************************************************/
+            /// <summary>
             /// True when no value type hint was detected from the caption.
             /// </summary>
-            public bool IsEmpty => PrimaryValueType == null && SecondaryValueType == null;
+            public bool IsEmpty => PrimaryValueType == null && SecondaryValueType == null && BoundType == null;
         }
 
         #endregion Caption Value Hint Types
@@ -144,6 +151,26 @@ namespace MedRecProImportClass.Service.TransformationServices
             // n (%) / Number (Percentage) — confirms n(%) pattern, no override needed
             (new Regex(@"(?:^|\W)n\s*\(\s*%\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
                 new CaptionValueHint { PrimaryValueType = null, SecondaryValueType = "Count", ConfidenceAdjustment = 1.0, Source = "caption:n(%)" }),
+
+            // Mean ratio with 90% CI / Geometric Mean Ratio with 90% CI
+            (new Regex(@"(?:Geometric\s+)?Mean\s+[Rr]atio.*?90\s*%\s*CI", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Ratio", BoundType = "90CI", ConfidenceAdjustment = 1.0, Source = "caption:Ratio (90% CI)" }),
+
+            // Mean ratio with 95% CI
+            (new Regex(@"(?:Geometric\s+)?Mean\s+[Rr]atio.*?95\s*%\s*CI", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Ratio", BoundType = "95CI", ConfidenceAdjustment = 1.0, Source = "caption:Ratio (95% CI)" }),
+
+            // Bare "Mean ratio" — after specific CI patterns
+            (new Regex(@"(?:Geometric\s+)?Mean\s+[Rr]atio", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = "Ratio", BoundType = null, ConfidenceAdjustment = 0.85, Source = "caption:Ratio" }),
+
+            // Generic 90% CI (no value type specified)
+            (new Regex(@"90\s*%\s*CI\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = null, BoundType = "90CI", ConfidenceAdjustment = 1.0, Source = "caption:90% CI" }),
+
+            // Generic 95% CI (no value type specified)
+            (new Regex(@"95\s*%\s*CI\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new CaptionValueHint { PrimaryValueType = null, BoundType = "95CI", ConfidenceAdjustment = 1.0, Source = "caption:95% CI" }),
 
             // Bare Mean (no parenthetical) — must come after all Mean+parenthetical patterns
             (new Regex(@"(?<!\w)Mean(?!\s*\()", RegexOptions.Compiled | RegexOptions.IgnoreCase),
@@ -567,6 +594,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                 string.IsNullOrEmpty(parsed.SecondaryValueType))
             {
                 parsed.SecondaryValueType = hint.SecondaryValueType;
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags,
+                    $"CAPTION_HINT:{hint.Source}");
+            }
+
+            // Case 4: BoundType refinement — caption specifies CI level (e.g., "90% CI" → "90CI")
+            if (hint.BoundType != null && parsed.BoundType == "CI")
+            {
+                parsed.BoundType = hint.BoundType;
                 parsed.ValidationFlags = appendFlag(parsed.ValidationFlags,
                     $"CAPTION_HINT:{hint.Source}");
             }

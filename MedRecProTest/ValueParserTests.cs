@@ -271,6 +271,95 @@ namespace MedRecPro.Service.Test
 
         #endregion Diff with CI Tests
 
+        #region Value CI Dash Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "0.38 (0.31 - 0.46)" returns Numeric with CI bounds (dash-separated).
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCIDash_StandardFormat_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("0.38 (0.31 - 0.46)");
+            Assert.AreEqual(0.38, result.PrimaryValue);
+            Assert.AreEqual("Numeric", result.PrimaryValueType);
+            Assert.AreEqual(0.31, result.LowerBound);
+            Assert.AreEqual(0.46, result.UpperBound);
+            Assert.AreEqual("CI", result.BoundType);
+            Assert.AreEqual("value_ci_dash", result.ParseRule);
+            Assert.AreEqual(0.95, result.ParseConfidence);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "1.23(0.95-1.55)" with no spaces still parses correctly.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCIDash_NoSpaces_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("1.23(0.95-1.55)");
+            Assert.AreEqual(1.23, result.PrimaryValue);
+            Assert.AreEqual(0.95, result.LowerBound);
+            Assert.AreEqual(1.55, result.UpperBound);
+            Assert.AreEqual("CI", result.BoundType);
+            Assert.AreEqual("value_ci_dash", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "0.94 (0.86–1.03)" with en-dash separator parses correctly.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCIDash_EnDash_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("0.94 (0.86\u20131.03)"); // \u2013 = en-dash
+            Assert.AreEqual(0.94, result.PrimaryValue);
+            Assert.AreEqual(0.86, result.LowerBound);
+            Assert.AreEqual(1.03, result.UpperBound);
+            Assert.AreEqual("CI", result.BoundType);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "-2.5 (-4.1 - -0.9)" with negative primary and bounds parses correctly.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCIDash_NegativeValues_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("-2.5 (-4.1 - -0.9)");
+            Assert.AreEqual(-2.5, result.PrimaryValue);
+            Assert.AreEqual(-4.1, result.LowerBound);
+            Assert.AreEqual(-0.9, result.UpperBound);
+            Assert.AreEqual("CI", result.BoundType);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "0.38 (0.46 - 0.31)" with lower > upper is rejected (falls to text).
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCIDash_InvalidBoundsOrder_FallsToText()
+        {
+            var result = ValueParser.Parse("0.38 (0.46 - 0.31)");
+            Assert.AreEqual("Text", result.PrimaryValueType);
+            Assert.AreEqual("text_descriptive", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dash CI pattern does not steal from existing comma-based patterns.
+        /// "-4.4(-12.6, 3.8)" still matches diff_ci, not value_ci_dash.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCIDash_CommaFormat_StillMatchesDiffCI()
+        {
+            var result = ValueParser.Parse("-4.4(-12.6, 3.8)");
+            Assert.AreEqual("diff_ci", result.ParseRule);
+            Assert.AreEqual("95CI", result.BoundType);
+        }
+
+        #endregion Value CI Dash Tests
+
         #region Value CV Tests
 
         /**************************************************************/

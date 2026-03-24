@@ -174,6 +174,18 @@ namespace MedRecProImportClass.Service.TransformationServices
                 });
             }
 
+            // Post-parse: refine generic "CI" bound type from table context
+            // (footer rows, spanning data rows that contain "N% CI" text)
+            if (observations.Any(o => o.BoundType == "CI"))
+            {
+                var ciLevel = detectCILevelFromTableText(table);
+                if (ciLevel != null)
+                {
+                    foreach (var o in observations.Where(o => o.BoundType == "CI"))
+                        o.BoundType = ciLevel;
+                }
+            }
+
             return observations;
 
             #endregion
@@ -182,6 +194,58 @@ namespace MedRecProImportClass.Service.TransformationServices
         #endregion ITableParser Implementation
 
         #region Private Helpers
+
+        // Pattern for detecting CI level in table text: "90% CI", "95% CI"
+        private static readonly Regex _ciLevelPattern = new(
+            @"(\d+)\s*%\s*CI\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Scans table footer rows, caption, and spanning data rows for CI level indicators
+        /// (e.g., "90% CI", "95% CI"). Returns the BoundType string ("90CI", "95CI") or null.
+        /// </summary>
+        /// <remarks>
+        /// Drug interaction PK tables often specify the CI level in a footer or spanning
+        /// annotation row rather than in the caption. This method searches all non-header
+        /// row text to find the CI specification.
+        /// </remarks>
+        /// <param name="table">The reconstructed table to scan.</param>
+        /// <returns>"90CI", "95CI", or null if no CI level found.</returns>
+        private static string? detectCILevelFromTableText(ReconstructedTable table)
+        {
+            #region implementation
+
+            // Check caption first
+            if (!string.IsNullOrWhiteSpace(table.Caption))
+            {
+                var captionMatch = _ciLevelPattern.Match(table.Caption);
+                if (captionMatch.Success)
+                    return $"{captionMatch.Groups[1].Value}CI";
+            }
+
+            // Check footer rows and data body rows for CI level text
+            foreach (var row in table.Rows ?? Enumerable.Empty<ReconstructedRow>())
+            {
+                if (row.Classification != RowClassification.Footer &&
+                    row.Classification != RowClassification.DataBody)
+                    continue;
+
+                foreach (var cell in row.Cells ?? Enumerable.Empty<ProcessedCell>())
+                {
+                    if (string.IsNullOrWhiteSpace(cell.CleanedText))
+                        continue;
+
+                    var match = _ciLevelPattern.Match(cell.CleanedText);
+                    if (match.Success)
+                        return $"{match.Groups[1].Value}CI";
+                }
+            }
+
+            return null;
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
