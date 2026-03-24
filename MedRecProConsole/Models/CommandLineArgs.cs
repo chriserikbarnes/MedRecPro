@@ -133,6 +133,14 @@ namespace MedRecProConsole.Models
 
         /**************************************************************/
         /// <summary>
+        /// Gets or sets whether Claude AI correction (Stage 3.5) is disabled (--no-claude).
+        /// Only valid with --standardize-tables operations.
+        /// </summary>
+        /// <seealso cref="StandardizeTablesOperation"/>
+        public bool NoClaude { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets whether unattended SPL mode is enabled.
         /// True when --folder is specified.
         /// </summary>
@@ -337,6 +345,13 @@ namespace MedRecProConsole.Models
                     continue;
                 }
 
+                // Handle no-claude flag (disable Claude AI correction)
+                if (lowerArg is "--no-claude")
+                {
+                    result.NoClaude = true;
+                    continue;
+                }
+
                 // Unknown argument
                 if (arg.StartsWith("-") || arg.StartsWith("/"))
                 {
@@ -410,6 +425,12 @@ namespace MedRecProConsole.Models
             if (result.StandardizeTablesOperation == "parse-single" && !result.StandardizeTableId.HasValue)
             {
                 result.Errors.Add("--standardize-tables parse-single requires --table-id <id>.");
+            }
+
+            // Validate --no-claude requires --standardize-tables
+            if (result.NoClaude && !result.IsStandardizeTablesMode)
+            {
+                result.Errors.Add("--no-claude can only be used with --standardize-tables.");
             }
 
             // Validate --batch-size only valid with parse or validate

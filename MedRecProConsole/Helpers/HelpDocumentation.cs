@@ -201,12 +201,14 @@ namespace MedRecProConsole.Helpers
         /// <param name="connectionName">Database connection name.</param>
         /// <param name="batchSize">Batch size for the operation.</param>
         /// <param name="tableId">Optional TextTableID for parse-single mode.</param>
+        /// <param name="noClaude">Whether Claude AI correction is disabled.</param>
         /// <seealso cref="Models.CommandLineArgs"/>
         public static void DisplayStandardizeTablesModeInfo(
             string operation,
             string connectionName,
             int batchSize,
-            int? tableId)
+            int? tableId,
+            bool noClaude = false)
         {
             #region implementation
 
@@ -230,6 +232,10 @@ namespace MedRecProConsole.Helpers
             {
                 table.AddRow("TextTableID", tableId.Value.ToString());
             }
+
+            table.AddRow("Claude AI", noClaude
+                ? "[red]Disabled (--no-claude)[/]"
+                : "[green]Enabled[/]");
 
             AnsiConsole.Write(table);
             AnsiConsole.WriteLine();
@@ -279,8 +285,10 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]validate[/] [green]--batch-size[/] [cyan]500[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]truncate[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse-single[/] [green]--table-id[/] [cyan]12345[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse-single[/] [green]--table-id[/] [cyan]12345[/] [red]--no-claude[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse[/] [green]--connection[/] [cyan]<name>[/]");
             AnsiConsole.MarkupLine("    [grey]Parse and validate SPL table data (Ctrl+C saves progress for resume)[/]");
+            AnsiConsole.MarkupLine("    [grey]Use --no-claude to disable Claude AI correction (Stage 3.5)[/]");
             AnsiConsole.WriteLine();
 
             #endregion

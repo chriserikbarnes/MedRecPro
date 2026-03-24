@@ -30,6 +30,21 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^(.+?)\s*\((.+?)\)\s*$",
             RegexOptions.Compiled);
 
+        // Pattern for "x 7 days", "x 14 days", "x 4 weeks" — multiplier schedules
+        private static readonly Regex _durationMultiplierPattern = new(
+            @"x\s*(\d+)\s*(days?|weeks?|months?|hours?)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Pattern for "for 14 days", "for 4 weeks" — duration phrases
+        private static readonly Regex _durationForPattern = new(
+            @"for\s+(\d+)\s*(days?|weeks?|months?|hours?)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Pattern for single-dose regimens
+        private static readonly Regex _singleDosePattern = new(
+            @"\b(single)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         #region ITableParser Implementation
 
         /**************************************************************/
@@ -84,6 +99,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(doseRegimen))
                     continue;
 
+                // Extract duration from dose regimen text (once per row)
+                var (time, timeUnit, timepoint) = extractDuration(doseRegimen);
+
                 // Fault-tolerant row processing: if any cell throws, the entire table is skipped
                 parseRowSafe(table, row, observations, (r, obs) =>
                 {
@@ -98,6 +116,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.ParameterName = param.name;
                         o.DoseRegimen = doseRegimen;
                         o.Population = population;
+                        o.Timepoint = timepoint;
+                        o.Time = time;
+                        o.TimeUnit = timeUnit;
                         o.Unit = param.unit;
 
                         // Parse value — PK cells often use value(CV%) format
@@ -171,6 +192,83 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return defs;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the dosing duration from a dose regimen string.
+        /// Recognizes "x N days/weeks/months", "for N days/weeks", and "single" dose patterns.
+        /// </summary>
+        /// <param name="doseRegimen">Dose regimen text (e.g., "50 mg oral (once daily x 7 days)").</param>
+        /// <returns>
+        /// Tuple of (time, timeUnit, timepoint):
+        /// - time: numeric duration value, or null for single/unrecognized doses
+        /// - timeUnit: normalized unit ("days", "weeks", "months", "hours"), or null
+        /// - timepoint: human-readable label ("7 days", "single dose"), or null if unrecognized
+        /// </returns>
+        /// <example>
+        /// <code>
+        /// extractDuration("50 mg oral (once daily x 7 days)")  → (7, "days", "7 days")
+        /// extractDuration("150 mg single oral")                → (null, null, "single dose")
+        /// extractDuration("400 mg IV (once weekly x 4 weeks)") → (4, "weeks", "4 weeks")
+        /// extractDuration("unknown format")                    → (null, null, null)
+        /// </code>
+        /// </example>
+        internal static (double? time, string? timeUnit, string? timepoint) extractDuration(string? doseRegimen)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(doseRegimen))
+                return (null, null, null);
+
+            // Try "x N days/weeks/months/hours" pattern first (most common in PK tables)
+            var match = _durationMultiplierPattern.Match(doseRegimen);
+            if (match.Success)
+            {
+                var value = double.Parse(match.Groups[1].Value);
+                var unit = normalizeTimeUnit(match.Groups[2].Value);
+                return (value, unit, $"{(int)value} {unit}");
+            }
+
+            // Try "for N days/weeks/months" pattern
+            match = _durationForPattern.Match(doseRegimen);
+            if (match.Success)
+            {
+                var value = double.Parse(match.Groups[1].Value);
+                var unit = normalizeTimeUnit(match.Groups[2].Value);
+                return (value, unit, $"{(int)value} {unit}");
+            }
+
+            // Check for single-dose pattern
+            if (_singleDosePattern.IsMatch(doseRegimen))
+            {
+                return (null, null, "single dose");
+            }
+
+            return (null, null, null);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes time unit strings to plural lowercase form.
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// normalizeTimeUnit("day")   → "days"
+        /// normalizeTimeUnit("Week")  → "weeks"
+        /// normalizeTimeUnit("months") → "months"
+        /// </code>
+        /// </example>
+        private static string normalizeTimeUnit(string unit)
+        {
+            #region implementation
+
+            var lower = unit.ToLowerInvariant().TrimEnd('s');
+            return lower + "s";
 
             #endregion
         }

@@ -436,7 +436,244 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Processes a batch of tables with full stage visibility, capturing intermediate results
+        /// at each stage boundary. Same pipeline as <see cref="ProcessBatchAsync"/> but returns
+        /// a <see cref="BatchStageResult"/> with reconstructed tables, routing decisions,
+        /// pre/post-correction observations, and skip reasons.
+        /// </summary>
+        /// <param name="filter">Filter for table ID range.</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>Batch stage result with all intermediate data.</returns>
+        /// <seealso cref="ProcessBatchAsync"/>
+        /// <seealso cref="BatchStageResult"/>
+        public async Task<BatchStageResult> ProcessBatchWithStagesAsync(TableCellContextFilter filter, CancellationToken ct = default)
+        {
+            #region implementation
+
+            var result = new BatchStageResult();
+
+            // Stage 2: Reconstruct tables
+            var tables = await _reconstructionService.ReconstructTablesAsync(filter, ct);
+            result.ReconstructedTables = tables;
+
+            var allObservations = new List<ParsedObservation>();
+
+            // Stage 3: Route + Parse each table
+            foreach (var table in tables)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var (category, parser) = _router.Route(table);
+
+                var decision = new TableRoutingDecision
+                {
+                    TextTableID = table.TextTableID ?? 0,
+                    Category = category,
+                    ParserName = parser?.GetType().Name
+                };
+
+                if (category == TableCategory.SKIP || parser == null)
+                {
+                    decision.ObservationCount = 0;
+                    result.RoutingDecisions.Add(decision);
+
+                    if (table.TextTableID.HasValue)
+                    {
+                        result.SkipReasons[table.TextTableID.Value] = $"SKIP:{category}";
+                    }
+
+                    _logger.LogDebug("Skipping TextTableID={Id} — category={Category}",
+                        table.TextTableID, category);
+                    continue;
+                }
+
+                try
+                {
+                    var observations = parser.Parse(table);
+                    decision.ObservationCount = observations.Count;
+                    result.RoutingDecisions.Add(decision);
+
+                    if (observations.Count == 0)
+                    {
+                        if (table.TextTableID.HasValue)
+                        {
+                            result.SkipReasons[table.TextTableID.Value] = $"EMPTY:{parser.GetType().Name}";
+                        }
+                        continue;
+                    }
+
+                    allObservations.AddRange(observations);
+                }
+                catch (TableParseException tpx)
+                {
+                    decision.ObservationCount = 0;
+                    result.RoutingDecisions.Add(decision);
+
+                    if (table.TextTableID.HasValue)
+                    {
+                        result.SkipReasons[table.TextTableID.Value] =
+                            $"ERROR:{tpx.ParserName}:Row{tpx.RowSequence}";
+                    }
+
+                    _logger.LogWarning(tpx,
+                        "Table-level fault: TextTableID={Id}, Row={Row}, Parser={Parser} — entire table skipped",
+                        tpx.TextTableID, tpx.RowSequence, tpx.ParserName);
+                }
+                catch (Exception ex)
+                {
+                    decision.ObservationCount = 0;
+                    result.RoutingDecisions.Add(decision);
+
+                    if (table.TextTableID.HasValue)
+                    {
+                        result.SkipReasons[table.TextTableID.Value] = $"ERROR:{parser.GetType().Name}";
+                    }
+
+                    _logger.LogWarning(ex,
+                        "Failed to parse TextTableID={Id} with {Parser} — skipping",
+                        table.TextTableID, parser.GetType().Name);
+                }
+            }
+
+            result.PreCorrectionObservations = allObservations;
+
+            // Stage 3.5: Claude AI Correction
+            if (_correctionService != null && allObservations.Count > 0)
+            {
+                var preCorrectionFlags = allObservations
+                    .Select(o => o.ValidationFlags)
+                    .ToList();
+
+                allObservations = await _correctionService.CorrectBatchAsync(allObservations, ct);
+
+                // Count corrections by checking ValidationFlags changes
+                result.CorrectionCount = allObservations
+                    .Select((o, i) => o.ValidationFlags != preCorrectionFlags[i] ? 1 : 0)
+                    .Sum();
+            }
+
+            result.PostCorrectionObservations = allObservations;
+
+            // DB Write
+            if (allObservations.Count > 0)
+            {
+                try
+                {
+                    var entities = allObservations.Select(mapToEntity).ToList();
+                    _dbContext.AddRange(entities);
+                    await _dbContext.SaveChangesAsync(ct);
+                    result.ObservationsWritten = entities.Count;
+                }
+                catch (OperationCanceledException)
+                {
+                    _dbContext.ChangeTracker.Clear();
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _dbContext.ChangeTracker.Clear();
+                    _logger.LogWarning(ex,
+                        "Failed to save batch — cleared {Count} tracked entities, batch skipped",
+                        allObservations.Count);
+                    result.ObservationsWritten = 0;
+                }
+            }
+
+            _logger.LogDebug("Batch with stages complete: {Count} observations from {Tables} tables",
+                result.ObservationsWritten, tables.Count);
+
+            return result;
+
+            #endregion
+        }
+
         #endregion ITableParsingOrchestrator Implementation
+
+        #region Stage-by-Stage Diagnostic Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 2 only: reconstructs a single table by TextTableID without routing or parsing.
+        /// Thin facade over <see cref="ITableReconstructionService.ReconstructTableAsync"/>.
+        /// </summary>
+        /// <param name="textTableId">The TextTableID to reconstruct.</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>
+        /// A <see cref="ReconstructedTable"/> with classified rows and resolved headers,
+        /// or null if no cells exist for the given TextTableID.
+        /// </returns>
+        /// <seealso cref="RouteAndParseSingleTable"/>
+        public async Task<ReconstructedTable?> ReconstructSingleTableAsync(int textTableId, CancellationToken ct = default)
+        {
+            #region implementation
+
+            return await _reconstructionService.ReconstructTableAsync(textTableId, ct);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3 only: routes a reconstructed table to a parser and parses it. Does not
+        /// write to the database or apply Claude correction.
+        /// </summary>
+        /// <param name="table">A reconstructed table from <see cref="ReconstructSingleTableAsync"/>.</param>
+        /// <returns>
+        /// Tuple of (category, parserName, observations):
+        /// - category: the <see cref="TableCategory"/> determined by the router
+        /// - parserName: the concrete parser type name, or null if SKIP
+        /// - observations: parsed observations, or empty list if skipped
+        /// </returns>
+        /// <seealso cref="ReconstructSingleTableAsync"/>
+        /// <seealso cref="CorrectObservationsAsync"/>
+        public (TableCategory category, string? parserName, List<ParsedObservation> observations) RouteAndParseSingleTable(ReconstructedTable table)
+        {
+            #region implementation
+
+            var (category, parser) = _router.Route(table);
+
+            if (category == TableCategory.SKIP || parser == null)
+            {
+                _logger.LogDebug("TextTableID={Id} categorized as {Category} — no parser",
+                    table.TextTableID, category);
+                return (category, null, new List<ParsedObservation>());
+            }
+
+            var observations = parser.Parse(table);
+            return (category, parser.GetType().Name, observations);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3.5 only: applies Claude AI correction to a list of parsed observations.
+        /// Returns the original list unmodified if the correction service is not configured.
+        /// </summary>
+        /// <param name="observations">Observations from <see cref="RouteAndParseSingleTable"/>.</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>
+        /// The corrected observations with <c>AI_CORRECTED:*</c> flags appended to
+        /// <see cref="ParsedObservation.ValidationFlags"/> for each correction applied.
+        /// </returns>
+        /// <seealso cref="IClaudeApiCorrectionService.CorrectBatchAsync"/>
+        public async Task<List<ParsedObservation>> CorrectObservationsAsync(List<ParsedObservation> observations, CancellationToken ct = default)
+        {
+            #region implementation
+
+            if (_correctionService == null || observations.Count == 0)
+            {
+                return observations;
+            }
+
+            return await _correctionService.CorrectBatchAsync(observations, ct);
+
+            #endregion
+        }
+
+        #endregion Stage-by-Stage Diagnostic Methods
 
         #region Private Helpers
 
@@ -581,6 +818,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 DoseRegimen = obs.DoseRegimen,
                 Population = obs.Population,
                 Timepoint = obs.Timepoint,
+                Time = obs.Time,
+                TimeUnit = obs.TimeUnit,
                 RawValue = obs.RawValue,
                 PrimaryValue = obs.PrimaryValue,
                 PrimaryValueType = obs.PrimaryValueType,

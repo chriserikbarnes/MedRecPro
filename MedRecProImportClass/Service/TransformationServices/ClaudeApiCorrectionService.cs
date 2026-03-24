@@ -99,7 +99,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             "ParameterName", "PrimaryValueType", "SecondaryValueType",
             "TreatmentArm", "DoseRegimen", "Population", "Unit",
-            "ParameterCategory", "ParameterSubtype"
+            "ParameterCategory", "ParameterSubtype", "Timepoint", "TimeUnit"
         };
 
         /**************************************************************/
@@ -109,20 +109,20 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         private const string CorrectionSystemPrompt = @"You review parsed pharmaceutical table observations for CLEAR errors only.
 
-Rules:
-- Only flag OBVIOUS misclassifications. If uncertain, do NOT correct.
-- Max 10 corrections per batch. Focus on highest-impact errors.
-- Keep ""reason"" to 5 words max.
-- Return ONLY a JSON array. No markdown, no explanation.
-- If nothing is clearly wrong, return [].
+            Rules:
+            - Only flag OBVIOUS misclassifications. If uncertain, do NOT correct.
+            - Max 10 corrections per batch. Focus on highest-impact errors.
+            - Keep ""reason"" to 5 words max.
+            - Return ONLY a JSON array. No markdown, no explanation.
+            - If nothing is clearly wrong, return [].
 
-Common clear errors:
-- PrimaryValueType ""Numeric"" when table caption says ""Mean (SD)"" or column has ""%""
-- TreatmentArm and ParameterName swapped
-- SecondaryValueType ""SD"" vs ""SE"" contradicted by caption
+            Common clear errors:
+            - PrimaryValueType ""Numeric"" when table caption says ""Mean (SD)"" or column has ""%""
+            - TreatmentArm and ParameterName swapped
+            - SecondaryValueType ""SD"" vs ""SE"" contradicted by caption
 
-Format: [{""sourceRowSeq"":N,""sourceCellSeq"":N,""field"":""FieldName"",""oldValue"":""X"",""newValue"":""Y"",""reason"":""brief""}]
-Fields: ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen, Population, Unit, ParameterCategory, ParameterSubtype";
+            Format: [{""sourceRowSeq"":N,""sourceCellSeq"":N,""field"":""FieldName"",""oldValue"":""X"",""newValue"":""Y"",""reason"":""brief""}]
+            Fields: ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen, Population, Unit, ParameterCategory, ParameterSubtype";
 
         #endregion
 

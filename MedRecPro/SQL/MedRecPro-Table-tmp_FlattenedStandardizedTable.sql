@@ -42,6 +42,8 @@ BEGIN
         DoseRegimen             NVARCHAR(1000)   NULL,
         Population              NVARCHAR(500)    NULL,
         Timepoint               NVARCHAR(500)    NULL,
+        [Time]                  FLOAT            NULL,
+        TimeUnit                NVARCHAR(50)     NULL,
 
         -- Decomposed Values (10): typed, queryable components of the raw cell text
         RawValue                NVARCHAR(2000)   NULL,

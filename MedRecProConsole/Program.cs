@@ -359,7 +359,8 @@ namespace MedRecProConsole
                     cmdArgs.StandardizeTablesOperation!,
                     connectionName,
                     cmdArgs.BatchSize ?? 1000,
-                    cmdArgs.StandardizeTableId);
+                    cmdArgs.StandardizeTableId,
+                    cmdArgs.NoClaude);
             }
 
             // Execute the requested operation
@@ -369,13 +370,16 @@ namespace MedRecProConsole
             return cmdArgs.StandardizeTablesOperation switch
             {
                 "parse" => await service.ExecuteParseAsync(
-                    connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode),
+                    connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode,
+                    disableClaude: cmdArgs.NoClaude),
                 "validate" => await service.ExecuteValidateAsync(
-                    connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode),
+                    connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode,
+                    disableClaude: cmdArgs.NoClaude),
                 "truncate" => await service.ExecuteTruncateAsync(
                     connectionString, cmdArgs.QuietMode),
                 "parse-single" => await service.ExecuteParseSingleAsync(
-                    connectionString, cmdArgs.StandardizeTableId!.Value, cmdArgs.VerboseMode),
+                    connectionString, cmdArgs.StandardizeTableId!.Value, cmdArgs.VerboseMode,
+                    useClaude: !cmdArgs.NoClaude),
                 _ => 1
             };
 

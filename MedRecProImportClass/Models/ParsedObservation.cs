@@ -164,8 +164,22 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Timepoint for BMD and longitudinal tables: "12 Months", "Day 49", "Week 12".
+        /// For PK tables: extracted schedule duration label (e.g., "7 days", "single dose").
         /// </summary>
         public string? Timepoint { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Numeric time value extracted from DoseRegimen (PK) or Timepoint (BMD).
+        /// Examples: 7 (from "x 7 days"), 12 (from "12 Months"), null (single dose).
+        /// </summary>
+        public double? Time { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Unit for <see cref="Time"/>. Values: "days", "weeks", "months", "hours".
+        /// </summary>
+        public string? TimeUnit { get; set; }
 
         #endregion Observation Context Properties
 

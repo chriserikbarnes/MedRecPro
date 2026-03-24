@@ -980,3 +980,44 @@ Added AI-powered post-parse correction to the SPL Table Normalization pipeline. 
 - `OperationCanceledException` uses `when (ct.IsCancellationRequested)` filter to distinguish user cancellation from HTTP timeouts
 
 ---
+
+### 2026-03-24 9:30 AM EST — Stage Visibility, Refactoring, and Pivoted Table Display
+
+**Session 1:** Added stage-by-stage batch orchestration with `ProcessBatchWithStagesAsync` returning `BatchStageResult` DTO capturing intermediates at each pipeline boundary. Added interactive prompts for Claude AI enable/disable and stage detail level (None/Concise/Full) to the `standardize-tables` menu. Created `ExecuteParseWithStagesAsync` in the console service with per-batch stage display. Added `StageDetailLevel` enum and `BatchStageResult` model. All 753 tests pass with 3 new batch stage tests.
+
+**Session 2:** Three improvements applied:
+
+1. **Pivoted table display in Full mode** — `displayBatchStageDetail` now calls `displayReconstructedTable` for each non-skipped table, showing metadata, column headers, body rows, and footnotes inline per batch. This gives full diagnostic visibility into the Stage 2 pivot output.
+
+2. **Refactored `TableStandardizationService`** — Extracted `RunContext` record and three lifecycle helpers (`initializeRunAsync`, `handleCompletionAsync`, `handleCancellationAsync`, `handleErrorAsync`) to eliminate duplicated service provider setup, progress tracking, and error handling across `ExecuteParseAsync`, `ExecuteValidateAsync`, and `ExecuteParseWithStagesAsync`. Public methods reduced from 100-145 lines to 50-75 lines each.
+
+3. **Stage renumbering aligned with ImportClass** — All UI labels and XML doc comments now use consistent 1-based numbering matching `MedRecProImportClass/Service/TransformationServices/`:
+   - Stage 1: Get Data (`TableCellContextService`)
+   - Stage 2: Pivot Table (`TableReconstructionService`)
+   - Stage 3: Standardize (`TableParserRouter` + parsers)
+   - Stage 3.5: Claude Enhance (`ClaudeApiCorrectionService`)
+   - Stage 4: Validate (`BatchValidationService`)
+
+4. **Method reordering** — Public methods in `TableStandardizationService` now follow stage-sequential order: Truncate → ParseSingle (1→2→3→3.5) → Parse (3 batch) → ParseWithStages (1→2→3→3.5 batch) → Validate (3+4 batch).
+
+5. **Tests** — 2 new tests added (`CapturesPreCorrectionObservations`, `WithCorrectionService_RecordsCorrectionCount`). All 755 tests pass, 0 failures.
+
+---
+
+### 2026-03-24 10:30 AM EST — Add Time/TimeUnit Columns to Table Standardization
+
+Added dedicated `Time` (FLOAT) and `TimeUnit` (NVARCHAR(50)) columns to the standardized table schema to capture temporal dimensions from PK and BMD tables in a structured, queryable format.
+
+**Problem:** PK table standardization embedded dosing duration (e.g., "once daily x 7 days") inside the DoseRegimen text string with Timepoint always NULL, making it impossible to query or filter by time without downstream string parsing.
+
+**Evaluation decision:** Chose dedicated Time/TimeUnit columns over overloading SecondaryValue because (1) SecondaryValue is already used for CV%, SD, and Count in PK cells, (2) time is a dimensional/contextual field not a companion value, and (3) dedicated columns enable clean SQL filtering (`WHERE Time > 5 AND TimeUnit = 'days'`).
+
+**Changes across 9 files:**
+1. **Schema** — Added Time/TimeUnit to SQL DDL, ParsedObservation DTO, both LabelView entities (ImportClass + API), and FlattenedStandardizedTableDto.
+2. **PkTableParser** — New `extractDuration()` method parses dose regimen text using regex for "x N days/weeks", "for N days", and "single" patterns. Populates Time, TimeUnit, and Timepoint on every observation from the same dose row.
+3. **BmdTableParser** — New `parseTimepointNumeric()` method extracts numeric time from existing Timepoint labels ("12 Months" → Time=12, TimeUnit="months"; "Week 12" → Time=12, TimeUnit="weeks").
+4. **TableParsingOrchestrator** — Added Time/TimeUnit to `mapToEntity()` mapping.
+5. **ClaudeApiCorrectionService** — Added Timepoint and TimeUnit to correctable fields.
+6. **Tests** — 11 new tests covering PK duration extraction (multi-day, single dose, weekly, "for" pattern, null/empty, unrecognized) and BMD numeric timepoint parsing. All 755 tests pass.
+
+---

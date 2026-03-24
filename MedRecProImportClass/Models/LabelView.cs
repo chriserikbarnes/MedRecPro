@@ -2848,6 +2848,14 @@ namespace MedRecProImportClass.Models
             public string? Timepoint { get; set; }
 
             /**************************************************************/
+            /// <summary>Numeric time value extracted from DoseRegimen or Timepoint.</summary>
+            public double? Time { get; set; }
+
+            /**************************************************************/
+            /// <summary>Unit for Time: "days", "weeks", "months", "hours".</summary>
+            public string? TimeUnit { get; set; }
+
+            /**************************************************************/
             /// <summary>Original cell text.</summary>
             public string? RawValue { get; set; }
 

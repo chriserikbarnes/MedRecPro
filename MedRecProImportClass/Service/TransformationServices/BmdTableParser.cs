@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
 
 namespace MedRecProImportClass.Service.TransformationServices
@@ -84,6 +85,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.ParameterName = siteName;
                         o.Timepoint = tp.label;
                         o.Population = population;
+
+                        // Extract numeric time from timepoint label
+                        var (time, timeUnit) = parseTimepointNumeric(tp.label);
+                        o.Time = time;
+                        o.TimeUnit = timeUnit;
                         o.Unit = "%";
 
                         var parsed = ValueParser.Parse(cell.CleanedText);
@@ -135,6 +141,74 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return timepoints;
+
+            #endregion
+        }
+
+        // Pattern for "12 Months", "24 Months", "36 Months" — number then unit
+        private static readonly Regex _numUnitPattern = new(
+            @"^(\d+(?:\.\d+)?)\s*(months?|weeks?|days?|hours?|years?)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Pattern for "Week 12", "Day 49", "Month 6" — unit then number
+        private static readonly Regex _unitNumPattern = new(
+            @"^(months?|weeks?|days?|hours?|years?)\s*(\d+(?:\.\d+)?)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts a numeric time value and unit from a timepoint label string.
+        /// Handles both "12 Months" and "Week 12" patterns.
+        /// </summary>
+        /// <param name="label">Timepoint label (e.g., "12 Months", "Week 12", "Day 49").</param>
+        /// <returns>Tuple of (time, timeUnit), both null if pattern not recognized.</returns>
+        /// <example>
+        /// <code>
+        /// parseTimepointNumeric("12 Months") → (12, "months")
+        /// parseTimepointNumeric("Week 12")   → (12, "weeks")
+        /// parseTimepointNumeric("Day 49")    → (49, "days")
+        /// </code>
+        /// </example>
+        internal static (double? time, string? timeUnit) parseTimepointNumeric(string? label)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(label))
+                return (null, null);
+
+            // Try "12 Months" pattern first (most common in BMD tables)
+            var match = _numUnitPattern.Match(label);
+            if (match.Success)
+            {
+                var value = double.Parse(match.Groups[1].Value);
+                var unit = normalizeTimeUnit(match.Groups[2].Value);
+                return (value, unit);
+            }
+
+            // Try "Week 12" pattern
+            match = _unitNumPattern.Match(label);
+            if (match.Success)
+            {
+                var value = double.Parse(match.Groups[2].Value);
+                var unit = normalizeTimeUnit(match.Groups[1].Value);
+                return (value, unit);
+            }
+
+            return (null, null);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes time unit strings to plural lowercase form.
+        /// </summary>
+        private static string normalizeTimeUnit(string unit)
+        {
+            #region implementation
+
+            var lower = unit.ToLowerInvariant().TrimEnd('s');
+            return lower + "s";
 
             #endregion
         }

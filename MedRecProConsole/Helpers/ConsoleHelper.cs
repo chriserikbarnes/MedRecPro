@@ -1033,7 +1033,7 @@ namespace MedRecProConsole.Helpers
 
             table.AddRow("[green]import, i[/]", "Import SPL ZIP files from a folder");
             table.AddRow("[orange1]orange-book, ob[/]", "Import Orange Book ZIP file (products.txt)");
-            table.AddRow("[dodgerblue1]standardize-tables, st[/]", "Parse and validate SPL table data (Stage 3+4)");
+            table.AddRow("[dodgerblue1]standardize-tables, st[/]", "Standardize SPL table data (Stages 1→2→3→3.5→4)");
             table.AddRow("[cyan]database, db, d[/]", "Select or change database connection");
             table.AddRow("[magenta]summary, s[/]", "Display cumulative import summary");
             table.AddRow("[yellow]errors, e[/]", "Display error details from imports");
@@ -1663,7 +1663,7 @@ namespace MedRecProConsole.Helpers
         /// 2. Truncate prompt → if yes, truncate then continue to scope
         /// 3. Scope selection: all tables, N tables, single table ID, cancel
         /// 4. Batch size prompt (for all/N tables)
-        /// 5. Confirmation → execute with validation (Stage 3+4)
+        /// 5. Confirmation → execute with stage visibility (Stages 1→2→3→3.5)
         /// </remarks>
         /// <seealso cref="Services.TableStandardizationService"/>
         private static async Task runStandardizeTablesFromMenuAsync(
@@ -1719,7 +1719,7 @@ namespace MedRecProConsole.Helpers
 
                     if (choice == "resume")
                     {
-                        // Resume — prompt for batch size then go
+                        // Resume — prompt for batch size, Claude, and detail level
                         var resumeBatchSize = AnsiConsole.Prompt(
                             new TextPrompt<int>("[dodgerblue1]Batch size[/] [grey](tables per batch, 1-50000):[/]")
                                 .PromptStyle("white")
@@ -1728,7 +1728,14 @@ namespace MedRecProConsole.Helpers
                                     ? ValidationResult.Success()
                                     : ValidationResult.Error("[red]Batch size must be between 1 and 50000[/]")));
 
-                        await service.ExecuteValidateAsync(connectionString, resumeBatchSize, verboseMode, quiet: false);
+                        var resumeUseClaude = AnsiConsole.Confirm(
+                            "[dodgerblue1]Enable Claude AI correction (Stage 3.5)?[/]", defaultValue: true);
+
+                        var resumeDetailLevel = promptForStageDetailLevel();
+
+                        await service.ExecuteParseWithStagesAsync(
+                            connectionString, resumeBatchSize, verboseMode, quiet: false,
+                            disableClaude: !resumeUseClaude, detailLevel: resumeDetailLevel);
                         return;
                     }
 
@@ -1787,7 +1794,7 @@ namespace MedRecProConsole.Helpers
                 return;
             }
 
-            // Handle single table — prompt for TextTableID
+            // Handle single table — prompt for TextTableID and Claude
             if (scopeName == "single")
             {
                 var tableId = AnsiConsole.Prompt(
@@ -1797,7 +1804,11 @@ namespace MedRecProConsole.Helpers
                             ? ValidationResult.Success()
                             : ValidationResult.Error("[red]TextTableID must be a positive integer[/]")));
 
-                await service.ExecuteParseSingleAsync(connectionString, tableId, verboseMode);
+                var singleUseClaude = AnsiConsole.Confirm(
+                    "[dodgerblue1]Enable Claude AI correction (Stage 3.5)?[/]", defaultValue: true);
+
+                await service.ExecuteParseSingleAsync(connectionString, tableId, verboseMode,
+                    useClaude: singleUseClaude);
                 return;
             }
 
@@ -1823,6 +1834,13 @@ namespace MedRecProConsole.Helpers
                             : ValidationResult.Error("[red]Must be at least 1[/]")));
             }
 
+            // Step 4.5: Claude AI correction prompt
+            var useClaude = AnsiConsole.Confirm(
+                "[dodgerblue1]Enable Claude AI correction (Stage 3.5)?[/]", defaultValue: true);
+
+            // Step 4.6: Stage detail level
+            var detailLevel = promptForStageDetailLevel();
+
             // Step 5: Confirmation summary
             AnsiConsole.WriteLine();
             var confirmTable = new Table()
@@ -1835,7 +1853,9 @@ namespace MedRecProConsole.Helpers
                     ? $"{maxBatches.Value} batch(es) x {batchSize:N0} = ~{maxBatches.Value * batchSize:N0} table IDs"
                     : "All tables");
             confirmTable.AddRow("Batch Size", batchSize.ToString("N0"));
-            confirmTable.AddRow("Validation", "[green]Enabled[/] (Stage 3+4)");
+            confirmTable.AddRow("Claude AI", useClaude ? "[green]Enabled[/]" : "[red]Disabled[/]");
+            confirmTable.AddRow("Stage Detail", detailLevel.ToString());
+            confirmTable.AddRow("Validation", "[green]Enabled[/] (Stage 4)");
 
             AnsiConsole.Write(confirmTable);
             AnsiConsole.WriteLine();
@@ -1846,9 +1866,42 @@ namespace MedRecProConsole.Helpers
                 return;
             }
 
-            // Execute — always with validation
-            await service.ExecuteValidateAsync(
-                connectionString, batchSize, verboseMode, quiet: false, maxBatches: maxBatches);
+            // Execute with stage visibility
+            await service.ExecuteParseWithStagesAsync(
+                connectionString, batchSize, verboseMode, quiet: false,
+                disableClaude: !useClaude, maxBatches: maxBatches, detailLevel: detailLevel);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prompts the user to select a stage detail level for batch operations.
+        /// </summary>
+        /// <returns>The selected <see cref="StageDetailLevel"/>.</returns>
+        private static StageDetailLevel promptForStageDetailLevel()
+        {
+            #region implementation
+
+            var detailChoice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[dodgerblue1]Stage detail level:[/]")
+                    .HighlightStyle("dodgerblue1")
+                    .AddChoices(new[]
+                    {
+                        "None             Progress bar only (fastest)",
+                        "Concise          Summary per batch (tables, observations, skipped)",
+                        "Full             Per-table routing and parse details"
+                    }));
+
+            var detailName = detailChoice.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
+
+            return detailName switch
+            {
+                "concise" => StageDetailLevel.Concise,
+                "full" => StageDetailLevel.Full,
+                _ => StageDetailLevel.None
+            };
 
             #endregion
         }
