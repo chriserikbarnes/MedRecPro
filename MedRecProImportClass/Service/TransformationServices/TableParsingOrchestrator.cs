@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Humanizer;
 using MedRecProImportClass.Data;
 using MedRecProImportClass.Models;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +29,10 @@ namespace MedRecProImportClass.Service.TransformationServices
     public class TableParsingOrchestrator : ITableParsingOrchestrator
     {
         #region Fields
+
+        private const int MAX_TEXT_LENGTH = 1994;
+        private const int MED_TEXT_LENGTH = 994;
+        private const int SML_TEXT_LENGTH = 494;
 
         /**************************************************************/
         /// <summary>Stage 2 reconstruction service.</summary>
@@ -798,29 +803,29 @@ namespace MedRecProImportClass.Service.TransformationServices
             return new LabelView.FlattenedStandardizedTable
             {
                 DocumentGUID = obs.DocumentGUID,
-                LabelerName = obs.LabelerName,
-                ProductTitle = obs.ProductTitle,
+                LabelerName = obs.LabelerName.Truncate(SML_TEXT_LENGTH),
+                ProductTitle = obs.ProductTitle.Truncate(SML_TEXT_LENGTH),
                 VersionNumber = obs.VersionNumber,
                 TextTableID = obs.TextTableID,
                 Caption = obs.Caption,
                 SourceRowSeq = obs.SourceRowSeq,
                 SourceCellSeq = obs.SourceCellSeq,
-                TableCategory = obs.TableCategory,
+                TableCategory = obs.TableCategory.Truncate(SML_TEXT_LENGTH),
                 ParentSectionCode = obs.ParentSectionCode,
-                ParentSectionTitle = obs.ParentSectionTitle,
-                SectionTitle = obs.SectionTitle,
-                ParameterName = obs.ParameterName,
-                ParameterCategory = obs.ParameterCategory,
-                ParameterSubtype = obs.ParameterSubtype,
-                TreatmentArm = obs.TreatmentArm,
+                ParentSectionTitle = obs.ParentSectionTitle.Truncate(MED_TEXT_LENGTH),
+                SectionTitle = obs.SectionTitle.Truncate(MED_TEXT_LENGTH),
+                ParameterName = obs.ParameterName.Truncate(MED_TEXT_LENGTH),
+                ParameterCategory = obs.ParameterCategory.Truncate(SML_TEXT_LENGTH),
+                ParameterSubtype = obs.ParameterSubtype.Truncate(SML_TEXT_LENGTH),
+                TreatmentArm = obs.TreatmentArm.Truncate(MED_TEXT_LENGTH),
                 ArmN = obs.ArmN,
-                StudyContext = obs.StudyContext,
-                DoseRegimen = obs.DoseRegimen,
-                Population = obs.Population,
-                Timepoint = obs.Timepoint,
+                StudyContext = obs.StudyContext.Truncate(MED_TEXT_LENGTH),
+                DoseRegimen = obs.DoseRegimen.Truncate(MED_TEXT_LENGTH),
+                Population = obs.Population.Truncate(SML_TEXT_LENGTH),
+                Timepoint = obs.Timepoint.Truncate(SML_TEXT_LENGTH),
                 Time = obs.Time,
                 TimeUnit = obs.TimeUnit,
-                RawValue = obs.RawValue,
+                RawValue = obs.RawValue.Truncate(MAX_TEXT_LENGTH),
                 PrimaryValue = obs.PrimaryValue,
                 PrimaryValueType = obs.PrimaryValueType,
                 SecondaryValue = obs.SecondaryValue,
@@ -829,12 +834,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 UpperBound = obs.UpperBound,
                 BoundType = obs.BoundType,
                 PValue = obs.PValue,
-                Unit = obs.Unit,
+                Unit = obs.Unit.Truncate(SML_TEXT_LENGTH),
                 ParseConfidence = obs.ParseConfidence,
                 ParseRule = obs.ParseRule,
                 FootnoteMarkers = obs.FootnoteMarkers,
                 FootnoteText = obs.FootnoteText,
-                ValidationFlags = obs.ValidationFlags
+                ValidationFlags = obs.ValidationFlags.Truncate(MED_TEXT_LENGTH)
             };
 
             #endregion

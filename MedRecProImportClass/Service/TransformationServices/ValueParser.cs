@@ -62,10 +62,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^(-?[\d.]+)\s*\(\s*(-?[\d.]+)\s*[,]\s*(-?[\d.]+)\s*\)$",
             RegexOptions.Compiled);
 
-        // Pattern 6b: Value with CI (dash-separated) — 0.38 (0.31 - 0.46) or 1.23 (0.95–1.55)
-        // Supports hyphen, en-dash, em-dash with optional spaces
-        private static readonly Regex _valueCiDashPattern = new(
-            @"^(-?[\d.]+)\s*\(\s*(-?[\d.]+)\s*[-–—]\s*(-?[\d.]+)\s*\)$",
+        // Pattern 6b: Value with CI — 0.38 (0.31 - 0.46) or 0.99 (0.91 to 1.08) or 1.23 (0.95–1.55)
+        // Supports dash/en-dash/em-dash and "to" word separators with optional spaces
+        private static readonly Regex _valueCiPattern = new(
+            @"^(-?[\d.]+)\s*\(\s*(-?[\d.]+)\s*(?:[-–—]|to)\s*(-?[\d.]+)\s*\)$",
             RegexOptions.Compiled);
 
         // Pattern 7: Value(CV%) — 0.29 (35%) or 125(32%)
@@ -177,9 +177,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (tryParseDiffWithCI(text, out var diffResult))
                 return diffResult;
 
-            // Pattern 6b: Value with CI (dash) — 0.38 (0.31 - 0.46)
-            if (tryParseValueCIDash(text, out var ciDashResult))
-                return ciDashResult;
+            // Pattern 6b: Value with CI — 0.38 (0.31 - 0.46) or 0.99 (0.91 to 1.08)
+            if (tryParseValueCI(text, out var ciResult))
+                return ciResult;
 
             // Pattern 7: Value(CV%) — 0.29 (35%)
             if (tryParseValueCV(text, out var cvResult))
@@ -495,34 +495,35 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses value with dash-separated confidence interval: 0.38 (0.31 - 0.46).
-        /// Supports hyphen, en-dash, and em-dash separators with optional spaces.
+        /// Parses value with confidence interval: 0.38 (0.31 - 0.46) or 0.99 (0.91 to 1.08).
+        /// Supports dash (hyphen, en-dash, em-dash) and "to" word separators with optional spaces.
         /// Returns BoundType="CI" (generic, unspecified level) — caption hints or
         /// table context detection refine this to "90CI"/"95CI" downstream.
         /// </summary>
         /// <remarks>
         /// Validates lower &lt; upper to distinguish from malformed data.
         /// Does not conflict with existing patterns:
-        /// - n_pct requires no dash inside parens
+        /// - n_pct requires no separator inside parens
         /// - rr_ci/diff_ci require comma separator
         /// - value_cv requires % inside parens
+        /// - range requires no leading value or parens (anchored to ^)
         /// </remarks>
         /// <example>
         /// <code>
-        /// tryParseValueCIDash("0.38 (0.31 - 0.46)", out var r) → true
-        /// // r.PrimaryValue=0.38, r.LowerBound=0.31, r.UpperBound=0.46, r.BoundType="CI"
-        /// tryParseValueCIDash("1.0 (0.94 – 1.13)", out var r)  → true  (en-dash)
-        /// tryParseValueCIDash("0.38 (0.46 - 0.31)", out var r) → false (lower > upper)
+        /// tryParseValueCI("0.38 (0.31 - 0.46)", out var r)   → true  (dash)
+        /// tryParseValueCI("0.99 (0.91 to 1.08)", out var r)  → true  ("to" separator)
+        /// tryParseValueCI("1.0 (0.94 – 1.13)", out var r)    → true  (en-dash)
+        /// tryParseValueCI("0.38 (0.46 - 0.31)", out var r)   → false (lower > upper)
         /// </code>
         /// </example>
         /// <seealso cref="tryParseRRWithCI"/>
         /// <seealso cref="tryParseDiffWithCI"/>
-        internal static bool tryParseValueCIDash(string text, out ParsedValue result)
+        internal static bool tryParseValueCI(string text, out ParsedValue result)
         {
             #region implementation
 
             result = null!;
-            var match = _valueCiDashPattern.Match(text);
+            var match = _valueCiPattern.Match(text);
 
             if (!match.Success)
                 return false;
@@ -543,7 +544,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 UpperBound = upper,
                 BoundType = "CI",
                 ParseConfidence = 0.95,
-                ParseRule = "value_ci_dash"
+                ParseRule = "value_ci"
             };
             return true;
 

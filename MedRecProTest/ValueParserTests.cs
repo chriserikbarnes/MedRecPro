@@ -271,14 +271,14 @@ namespace MedRecPro.Service.Test
 
         #endregion Diff with CI Tests
 
-        #region Value CI Dash Tests
+        #region Value CI Tests
 
         /**************************************************************/
         /// <summary>
         /// "0.38 (0.31 - 0.46)" returns Numeric with CI bounds (dash-separated).
         /// </summary>
         [TestMethod]
-        public void Parse_ValueCIDash_StandardFormat_ParsesCorrectly()
+        public void Parse_ValueCI_DashFormat_ParsesCorrectly()
         {
             var result = ValueParser.Parse("0.38 (0.31 - 0.46)");
             Assert.AreEqual(0.38, result.PrimaryValue);
@@ -286,7 +286,7 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(0.31, result.LowerBound);
             Assert.AreEqual(0.46, result.UpperBound);
             Assert.AreEqual("CI", result.BoundType);
-            Assert.AreEqual("value_ci_dash", result.ParseRule);
+            Assert.AreEqual("value_ci", result.ParseRule);
             Assert.AreEqual(0.95, result.ParseConfidence);
         }
 
@@ -295,14 +295,14 @@ namespace MedRecPro.Service.Test
         /// "1.23(0.95-1.55)" with no spaces still parses correctly.
         /// </summary>
         [TestMethod]
-        public void Parse_ValueCIDash_NoSpaces_ParsesCorrectly()
+        public void Parse_ValueCI_NoSpaces_ParsesCorrectly()
         {
             var result = ValueParser.Parse("1.23(0.95-1.55)");
             Assert.AreEqual(1.23, result.PrimaryValue);
             Assert.AreEqual(0.95, result.LowerBound);
             Assert.AreEqual(1.55, result.UpperBound);
             Assert.AreEqual("CI", result.BoundType);
-            Assert.AreEqual("value_ci_dash", result.ParseRule);
+            Assert.AreEqual("value_ci", result.ParseRule);
         }
 
         /**************************************************************/
@@ -310,7 +310,7 @@ namespace MedRecPro.Service.Test
         /// "0.94 (0.86–1.03)" with en-dash separator parses correctly.
         /// </summary>
         [TestMethod]
-        public void Parse_ValueCIDash_EnDash_ParsesCorrectly()
+        public void Parse_ValueCI_EnDash_ParsesCorrectly()
         {
             var result = ValueParser.Parse("0.94 (0.86\u20131.03)"); // \u2013 = en-dash
             Assert.AreEqual(0.94, result.PrimaryValue);
@@ -321,10 +321,42 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// "0.99 (0.91 to 1.08)" with "to" separator parses correctly.
+        /// Common in drug interaction PK tables (Geometric Mean Ratio with 90% CI).
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCI_ToSeparator_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("0.99 (0.91 to 1.08)");
+            Assert.AreEqual(0.99, result.PrimaryValue);
+            Assert.AreEqual("Numeric", result.PrimaryValueType);
+            Assert.AreEqual(0.91, result.LowerBound);
+            Assert.AreEqual(1.08, result.UpperBound);
+            Assert.AreEqual("CI", result.BoundType);
+            Assert.AreEqual("value_ci", result.ParseRule);
+            Assert.AreEqual(0.95, result.ParseConfidence);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// "1.66(1.53 to 1.81)" with "to" separator and no spaces before parens.
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCI_ToSeparator_NoLeadingSpace_ParsesCorrectly()
+        {
+            var result = ValueParser.Parse("1.66(1.53 to 1.81)");
+            Assert.AreEqual(1.66, result.PrimaryValue);
+            Assert.AreEqual(1.53, result.LowerBound);
+            Assert.AreEqual(1.81, result.UpperBound);
+            Assert.AreEqual("value_ci", result.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// "-2.5 (-4.1 - -0.9)" with negative primary and bounds parses correctly.
         /// </summary>
         [TestMethod]
-        public void Parse_ValueCIDash_NegativeValues_ParsesCorrectly()
+        public void Parse_ValueCI_NegativeValues_ParsesCorrectly()
         {
             var result = ValueParser.Parse("-2.5 (-4.1 - -0.9)");
             Assert.AreEqual(-2.5, result.PrimaryValue);
@@ -338,7 +370,7 @@ namespace MedRecPro.Service.Test
         /// "0.38 (0.46 - 0.31)" with lower > upper is rejected (falls to text).
         /// </summary>
         [TestMethod]
-        public void Parse_ValueCIDash_InvalidBoundsOrder_FallsToText()
+        public void Parse_ValueCI_InvalidBoundsOrder_FallsToText()
         {
             var result = ValueParser.Parse("0.38 (0.46 - 0.31)");
             Assert.AreEqual("Text", result.PrimaryValueType);
@@ -347,18 +379,32 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Dash CI pattern does not steal from existing comma-based patterns.
-        /// "-4.4(-12.6, 3.8)" still matches diff_ci, not value_ci_dash.
+        /// CI pattern does not steal from existing comma-based patterns.
+        /// "-4.4(-12.6, 3.8)" still matches diff_ci, not value_ci.
         /// </summary>
         [TestMethod]
-        public void Parse_ValueCIDash_CommaFormat_StillMatchesDiffCI()
+        public void Parse_ValueCI_CommaFormat_StillMatchesDiffCI()
         {
             var result = ValueParser.Parse("-4.4(-12.6, 3.8)");
             Assert.AreEqual("diff_ci", result.ParseRule);
             Assert.AreEqual("95CI", result.BoundType);
         }
 
-        #endregion Value CI Dash Tests
+        /**************************************************************/
+        /// <summary>
+        /// "to" separator does not interfere with range pattern.
+        /// "10.7 to 273" still matches range, not value_ci (no parens).
+        /// </summary>
+        [TestMethod]
+        public void Parse_ValueCI_ToSeparator_DoesNotStealFromRange()
+        {
+            var result = ValueParser.Parse("10.7 to 273");
+            Assert.AreEqual("Range", result.BoundType);
+            Assert.AreEqual(10.7, result.LowerBound);
+            Assert.AreEqual(273.0, result.UpperBound);
+        }
+
+        #endregion Value CI Tests
 
         #region Value CV Tests
 

@@ -1097,3 +1097,17 @@ Added support for parsing values with dash-separated confidence intervals like `
 **Tests:** 8 new tests (6 ValueParser: standard, no-spaces, en-dash, negatives, invalid bounds, comma non-interference; 2 integration: footer refinement to 90CI, no-footer stays generic CI). All 789 tests pass.
 
 ---
+
+### 2026-03-24 2:09 PM EST — Broaden CI Pattern to Accept "to" Separator
+
+Dolutegravir drug interaction table (TextTableID=118) uses "to" format: `"0.99 (0.91 to 1.08)"`. The previous `value_ci_dash` pattern only matched dash/en-dash/em-dash separators, missing this common format entirely.
+
+**Root cause:** Regex `[-–—]` doesn't match the word "to". All "to"-separated CI values fell through to text_descriptive at 0.50 confidence.
+
+**Fix:** Broadened separator group from `[-–—]` to `(?:[-–—]|to)` in the regex. Renamed pattern/method/rule: `_valueCiDashPattern` → `_valueCiPattern`, `tryParseValueCIDash` → `tryParseValueCI`, `"value_ci_dash"` → `"value_ci"`.
+
+**No conflicts:** verified "to" separator doesn't interfere with Pattern 8 (range `"10.7 to 273"`) which is `^`-anchored and requires no parens.
+
+**Tests:** 3 new (to-separator, to-no-space, range-non-interference), 6 renamed from `_Dash_` to `_CI_`. All 792 tests pass.
+
+---
