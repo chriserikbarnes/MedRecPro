@@ -64,6 +64,19 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Optional Stage 3.25 column standardization service. Null if standardization is not configured.
+        /// Applies deterministic rules to correct misclassified TreatmentArm/ArmN/DoseRegimen/StudyContext.
+        /// </summary>
+        private readonly IColumnStandardizationService? _columnStandardizer;
+
+        /**************************************************************/
+        /// <summary>
+        /// Whether the column standardizer has been initialized (lazy init on first batch).
+        /// </summary>
+        private bool _columnStdInitialized;
+
+        /**************************************************************/
+        /// <summary>
         /// Optional Stage 3.5 Claude API correction service. Null if AI correction is not configured.
         /// </summary>
         private readonly IClaudeApiCorrectionService? _correctionService;
@@ -82,6 +95,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="dbContext">Database context.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="batchValidator">Optional Stage 4 batch validation service. Pass null to skip validation.</param>
+        /// <param name="columnStandardizer">Optional Stage 3.25 column standardization service. Pass null to skip standardization.</param>
         /// <param name="correctionService">Optional Stage 3.5 Claude API correction service. Pass null to skip AI correction.</param>
         public TableParsingOrchestrator(
             ITableReconstructionService reconstructionService,
@@ -90,6 +104,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             ApplicationDbContext dbContext,
             ILogger<TableParsingOrchestrator> logger,
             IBatchValidationService? batchValidator = null,
+            IColumnStandardizationService? columnStandardizer = null,
             IClaudeApiCorrectionService? correctionService = null)
         {
             #region implementation
@@ -100,6 +115,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             _dbContext = dbContext;
             _logger = logger;
             _batchValidator = batchValidator;
+            _columnStandardizer = columnStandardizer;
             _correctionService = correctionService;
 
             #endregion
@@ -119,6 +135,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         public async Task<int> ProcessBatchAsync(TableCellContextFilter filter, CancellationToken ct = default)
         {
             #region implementation
+
+            // Lazy-initialize column standardizer dictionary on first batch
+            if (_columnStandardizer != null && !_columnStdInitialized)
+            {
+                await _columnStandardizer.InitializeAsync(ct);
+                _columnStdInitialized = true;
+            }
 
             var tables = await _reconstructionService.ReconstructTablesAsync(filter, ct);
             var totalObservations = 0;
@@ -141,6 +164,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var observations = parser.Parse(table);
                     if (observations.Count == 0)
                         continue;
+
+                    // Stage 3.25: Column standardization (deterministic, pre-AI)
+                    if (_columnStandardizer != null &&
+                        (category == TableCategory.ADVERSE_EVENT || category == TableCategory.EFFICACY))
+                    {
+                        observations = _columnStandardizer.Standardize(observations);
+                    }
 
                     // Stage 3.5: Claude API correction (post-parse, pre-write)
                     if (_correctionService != null)
@@ -546,6 +576,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             result.PreCorrectionObservations = allObservations;
 
+            // Stage 3.25: Column standardization (deterministic, pre-AI)
+            if (_columnStandardizer != null && allObservations.Count > 0)
+            {
+                allObservations = _columnStandardizer.Standardize(allObservations);
+            }
+
             // Stage 3.5: Claude AI Correction
             if (_correctionService != null && allObservations.Count > 0)
             {
@@ -731,6 +767,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                         }
 
                         continue;
+                    }
+
+                    // Stage 3.25: Column standardization (deterministic, pre-AI)
+                    if (_columnStandardizer != null &&
+                        (category == TableCategory.ADVERSE_EVENT || category == TableCategory.EFFICACY))
+                    {
+                        observations = _columnStandardizer.Standardize(observations);
                     }
 
                     // Stage 3.5: Claude API correction (post-parse, pre-write)

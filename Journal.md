@@ -1175,3 +1175,30 @@ Fixed additional misalignments in TextTableID=54 (multi-indication AE) and TextT
 - **Tests**: 7 new tests (trailing % stripping, dose enrichment, N= enrichment, format hint enrichment, multi-row enrichment, multilevel trailing %). All 32 pass.
 
 ---
+
+### 2026-03-25 3:48 PM EST — Column Standardization Service (Stage 3.25)
+
+Built a deterministic, rule-based post-parse service that detects and corrects systematic column misclassification in ADVERSE_EVENT and EFFICACY table observations. Analysis of ~7,700 parsed rows revealed 9 distinct patterns where TreatmentArm, ArmN, DoseRegimen, StudyContext, and ParameterSubtype values end up in the wrong columns due to non-standard SPL table layouts.
+
+**New files:**
+- `IColumnStandardizationService.cs` — interface with `InitializeAsync()` and `Standardize()` methods
+- `ColumnStandardizationService.cs` — implementation with drug name dictionary (loaded from `vw_ProductsByIngredient`), 13-step content classifier, and 9 prioritized correction rules
+- `ColumnStandardizationServiceTests.cs` — 44 MSTest tests covering all 9 rules, category filtering, edge cases, and multi-observation batches
+
+**Modified files:**
+- `TableParsingOrchestrator.cs` — injected as optional Stage 3.25 (between parser output and Claude AI correction), with lazy dictionary initialization on first batch; added to all 3 processing methods
+
+**9 correction rules (most-specific first):**
+R1: Arm contains N= value → parse to ArmN, recover drug from context
+R2: Arm contains format hint (%, #) → discard, recover drug from context
+R3: Arm contains severity grade → move to ParameterSubtype
+R4: Arm contains pure dose → move to DoseRegimen, extract drug from context
+R5: Arm is bare number + context has dose descriptor → reconstruct dose, extract drug
+R6: Arm is drug+dose combined → split into TreatmentArm + DoseRegimen
+R7: Context contains arm name with N= → split to TreatmentArm + ArmN
+R8: Context is drug name, arm is not → swap
+R9: Context is descriptor/format hint → clear
+
+**Bugs found during testing:** (1) `isDrugName` partial-match was too aggressive — "Placebo N=300" matched via first-word "Placebo"; fixed by rejecting partial matches containing embedded N= patterns. (2) Rule 7 wouldn't overwrite Unknown-type arms; fixed condition to only protect DrugName arms. All corrections flagged in `ValidationFlags` with `COL_STD:*` prefix for audit trail.
+
+---
