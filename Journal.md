@@ -1202,3 +1202,24 @@ R9: Context is descriptor/format hint → clear
 **Bugs found during testing:** (1) `isDrugName` partial-match was too aggressive — "Placebo N=300" matched via first-word "Placebo"; fixed by rejecting partial matches containing embedded N= patterns. (2) Rule 7 wouldn't overwrite Unknown-type arms; fixed condition to only protect DrugName arms. All corrections flagged in `ValidationFlags` with `COL_STD:*` prefix for audit trail.
 
 ---
+
+### 2026-03-25 4:20 PM EST — Column Standardization: Rules 10–11, Drug Dictionary Resolution
+
+Extended the ColumnStandardizationService with two additional correction rules identified from production data review.
+
+**Rule 10 — Trailing % in TreatmentArm:**
+Handles "MYCAPSSA %", "PLACEBO %" where the format hint `%` got concatenated with the drug name during parsing. Strips the trailing hint and promotes `PrimaryValueType` from "Numeric" → "Percentage" when applicable. The regex requires whitespace before `%` to avoid false-matching concentration strings like "Pimecrolimus Cream; 1%".
+
+**Rule 11 — Bracketed [N=xxx] in TreatmentArm:**
+Handles composite values like "75 mg/day [N=77]", "Placebo [N=459]", "All PGB [N=979]". Extracts N → ArmN, strips "All" prefix, then classifies the remaining text: drug names stay in TreatmentArm, dose regimens move to DoseRegimen with the drug name resolved from the drug dictionary.
+
+**Drug dictionary resolution (`resolveDrugNameFromProductTitle`):**
+New helper method that searches the loaded drug dictionary (ProductName + SubstanceName from `vw_ProductsByIngredient`) for entries appearing as substrings of the observation's ProductTitle. Returns the longest match to prefer specific names. This replaces the previous raw ProductTitle fallback in Rule 4 as well.
+
+**Other fixes:**
+- Rule 9 extended to also clear StudyContext when it contains a FormatHint (e.g., "% of Patients")
+- Rule 4 updated to use dictionary resolution instead of raw ProductTitle fallback
+
+**Tests:** 56 total (7 new for Rule 10/11), all passing. Key test: batch simulation of the actual LYRICA/pregabalin table from the screenshot — all 6 arm variants correctly decomposed.
+
+---

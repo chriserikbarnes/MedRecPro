@@ -187,6 +187,37 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^(.+?)\s*\(\s*[Nn]\s*=\s*(\d+)\s*\)\s*(?:n\s*\(\s*%\s*\)|%)\s*$",
             RegexOptions.Compiled);
 
+        /**************************************************************/
+        /// <summary>
+        /// Trailing format hint on TreatmentArm — drug name followed by % or n(%).
+        /// Matches: "MYCAPSSA %", "PLACEBO %", "Drug n(%)", "Paroxetine n (%)"
+        /// Captures: Group 1 = drug name, Group 2 = format hint
+        /// </summary>
+        private static readonly Regex _trailingFormatHintPattern = new(
+            @"^(.+?)\s+(n\s*\(\s*%\s*\)|%)\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Bracketed N= value at end of TreatmentArm — drug/dose followed by [N=xxx].
+        /// Matches: "Placebo [N=459]", "75 mg/day [N=77]", "All PGB [N=979]",
+        ///          "600 mg/day [N=369]", "Drug [n=100]"
+        /// Captures: Group 1 = text before bracket, Group 2 = N value
+        /// </summary>
+        private static readonly Regex _bracketedNPattern = new(
+            @"^(.+?)\s*\[\s*[Nn]\s*=\s*(\d+)\s*\]\s*$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// "All" prefix on drug/arm names — e.g., "All PGB", "All Doses".
+        /// Used to strip "All" prefix when recovering drug name after bracket extraction.
+        /// Captures: Group 1 = the actual name after "All".
+        /// </summary>
+        private static readonly Regex _allPrefixPattern = new(
+            @"^All\s+(.+)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         #endregion Compiled Regex Patterns
 
         #region Content Classification
@@ -345,6 +376,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.Equals(obs.TreatmentArm, "Comparison", StringComparison.OrdinalIgnoreCase))
                     continue;
 
+                // Rule 11 (structural): bracketed [N=xxx] in TreatmentArm — runs first
+                // because it's a specific structural pattern that other rules could misclassify
+                if (applyRule11_ArmHasBracketedN(obs))
+                {
+                    correctionCount++;
+                }
+
                 var armType = classifyContent(obs.TreatmentArm);
                 var ctxType = classifyContent(obs.StudyContext);
 
@@ -369,6 +407,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                     correctionCount++;
 
                 if (applyRule9_CtxIsDescriptor(obs, ctxType))
+                    correctionCount++;
+
+                // Rule 10: Strip trailing % from arm name and promote Numeric → Percentage
+                if (applyRule10_ArmHasTrailingPercent(obs))
                     correctionCount++;
             }
 
@@ -529,8 +571,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     }
                     else
                     {
-                        // Use ProductTitle as fallback
-                        obs.TreatmentArm = obs.ProductTitle;
+                        // Use drug dictionary match against ProductTitle as fallback
+                        obs.TreatmentArm = resolveDrugNameFromProductTitle(obs.ProductTitle);
                         obs.StudyContext = null;
                     }
                 }
@@ -739,6 +781,133 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Rule 10: TreatmentArm has a trailing format hint (e.g., "MYCAPSSA %", "PLACEBO %",
+        /// "Drug n(%)"). Strips the hint from the arm name and promotes PrimaryValueType
+        /// from "Numeric" to "Percentage" when the hint contains %.
+        /// </summary>
+        /// <remarks>
+        /// This handles cases where the parser's <c>_trailingFormatHintPattern</c> failed to
+        /// strip the hint (e.g., due to non-breaking spaces or other whitespace variations),
+        /// or where the format hint was stripped but the type promotion was not applied.
+        /// </remarks>
+        /// <returns>True if a correction was applied.</returns>
+        private static bool applyRule10_ArmHasTrailingPercent(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(obs.TreatmentArm))
+                return false;
+
+            var hintMatch = _trailingFormatHintPattern.Match(obs.TreatmentArm);
+            if (!hintMatch.Success)
+                return false;
+
+            var cleanName = hintMatch.Groups[1].Value.Trim();
+            var hint = hintMatch.Groups[2].Value.Trim();
+
+            // Strip the format hint from the arm name
+            obs.TreatmentArm = cleanName;
+
+            // Promote Numeric → Percentage when the hint contains %
+            if (hint.Contains('%') &&
+                string.Equals(obs.PrimaryValueType, "Numeric", StringComparison.OrdinalIgnoreCase))
+            {
+                obs.PrimaryValueType = "Percentage";
+                obs.Unit = "%";
+            }
+
+            appendFlag(obs, "COL_STD:ARM_STRIP_PCT");
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Rule 11: TreatmentArm contains a bracketed [N=xxx] value, optionally preceded
+        /// by a drug name, dose regimen, or "All Drug" prefix.
+        /// Extracts N → ArmN, identifies the remaining text as drug name or dose,
+        /// and routes accordingly. When TreatmentArm resolves to a dose (not a drug),
+        /// the drug name is recovered from the drug dictionary by matching against
+        /// the observation's ProductTitle.
+        /// </summary>
+        /// <remarks>
+        /// Examples:
+        /// - "Placebo [N=459]" → TreatmentArm="Placebo", ArmN=459
+        /// - "75 mg/day [N=77]" → DoseRegimen="75 mg/day", ArmN=77, TreatmentArm from dictionary
+        /// - "All PGB [N=979]" → TreatmentArm="PGB" (abbreviation), ArmN=979
+        /// - "600 mg/day [N=369]" → DoseRegimen="600 mg/day", ArmN=369, TreatmentArm from dictionary
+        ///
+        /// Drug name recovery searches the drug dictionary for a name that appears
+        /// as a substring of ProductTitle (e.g., ProductTitle="LYRICA- pregabalin capsule"
+        /// matches dictionary entry "pregabalin" or "LYRICA").
+        /// </remarks>
+        /// <returns>True if a correction was applied.</returns>
+        private bool applyRule11_ArmHasBracketedN(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(obs.TreatmentArm))
+                return false;
+
+            var bracketMatch = _bracketedNPattern.Match(obs.TreatmentArm);
+            if (!bracketMatch.Success)
+                return false;
+
+            var textBeforeBracket = bracketMatch.Groups[1].Value.Trim();
+            if (int.TryParse(bracketMatch.Groups[2].Value, out var n))
+            {
+                obs.ArmN = n;
+            }
+
+            // Strip "All" prefix if present (e.g., "All PGB" → "PGB")
+            var allMatch = _allPrefixPattern.Match(textBeforeBracket);
+            var coreText = allMatch.Success ? allMatch.Groups[1].Value.Trim() : textBeforeBracket;
+
+            // Classify what's left: is it a drug name or a dose regimen?
+            if (isDrugName(coreText))
+            {
+                // Drug name — keep in TreatmentArm
+                obs.TreatmentArm = coreText;
+            }
+            else if (_pureDosePattern.IsMatch(coreText))
+            {
+                // Dose regimen — move to DoseRegimen, recover drug name from dictionary
+                if (string.IsNullOrEmpty(obs.DoseRegimen))
+                {
+                    obs.DoseRegimen = coreText;
+                }
+
+                obs.TreatmentArm = resolveDrugNameFromProductTitle(obs.ProductTitle);
+            }
+            else
+            {
+                // Unknown content — try partial drug name match, else leave as-is
+                var resolved = resolveDrugNameFromProductTitle(obs.ProductTitle);
+                if (resolved != null)
+                {
+                    // If the remaining text looks like it could be a dose (has numbers),
+                    // move it to DoseRegimen
+                    if (Regex.IsMatch(coreText, @"\d") && string.IsNullOrEmpty(obs.DoseRegimen))
+                    {
+                        obs.DoseRegimen = coreText;
+                    }
+                    obs.TreatmentArm = resolved;
+                }
+                else
+                {
+                    obs.TreatmentArm = coreText;
+                }
+            }
+
+            appendFlag(obs, "COL_STD:ARM_BRACKET_N");
+            return true;
+
+            #endregion
+        }
+
         #endregion Rule Methods
 
         #region Classification Methods
@@ -895,6 +1064,48 @@ namespace MedRecProImportClass.Service.TransformationServices
             obs.ValidationFlags = string.IsNullOrEmpty(obs.ValidationFlags)
                 ? flag
                 : $"{obs.ValidationFlags}; {flag}";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves a drug name from the drug dictionary by matching against the observation's
+        /// ProductTitle. Searches for any dictionary entry (ProductName or SubstanceName) that
+        /// appears as a case-insensitive substring of ProductTitle.
+        /// </summary>
+        /// <remarks>
+        /// Returns the longest matching drug name to prefer specific matches over short ones
+        /// (e.g., "pregabalin" over "PGB" when ProductTitle is "LYRICA- pregabalin capsule").
+        /// Returns null if no match is found or ProductTitle is empty.
+        /// </remarks>
+        /// <param name="productTitle">The observation's ProductTitle field.</param>
+        /// <returns>The best-matching drug name from the dictionary, or null.</returns>
+        private string? resolveDrugNameFromProductTitle(string? productTitle)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(productTitle))
+                return null;
+
+            string? bestMatch = null;
+            int bestLength = 0;
+
+            foreach (var drugName in _drugNames)
+            {
+                // Skip very short names (3 chars or less) to avoid false substring matches
+                if (drugName.Length <= 3)
+                    continue;
+
+                if (productTitle.Contains(drugName, StringComparison.OrdinalIgnoreCase) &&
+                    drugName.Length > bestLength)
+                {
+                    bestMatch = drugName;
+                    bestLength = drugName.Length;
+                }
+            }
+
+            return bestMatch;
 
             #endregion
         }
