@@ -1149,3 +1149,29 @@ TextTableID=346 (pediatric PK table) exposed three parsing gaps: ± values falli
 **Tests:** 7 new (5 ValueParser ± tests, 2 integration: n-column Count, Age Group population). All 799 tests pass.
 
 ---
+
+### 2026-03-25 12:16 PM EST — AE Table Parsing: Arm N, ParameterCategory, ValueType Fixes
+
+Fixed 5 issues in Stage 3 AE table parsing for Paroxetine label (DocumentGUID 9CDE2EF4-FD50-ED21-0628-CB6CD8A6153F):
+
+**Round 1 — Regex and category fixes:**
+- **ValueParser.cs**: Updated `_armHeaderPattern` to handle lowercase `n` and spaces (`[Nn]\s*=\s*`). Added `_armHeaderNoParenPattern` for no-parentheses format like `"Placebo n = 51 %"`. Refactored `ParseArmHeader` to try both patterns via shared `buildArmFromMatch` helper.
+- **SimpleArmTableParser.cs**: Added `currentCategory` state. In AE context, empty-data rows now set `ParameterCategory` (SOC body systems) instead of `ParameterSubtype`.
+- **ArmDefinition.cs**: Documentation updated for dual regex patterns.
+- **Tests**: 7 new tests covering all 5 issues. All 25 pass.
+
+---
+
+### 2026-03-25 1:13 PM EST — AE Table Parsing: Header Format Hints, Body-Row Enrichment, DoseRegimen
+
+Fixed additional misalignments in TextTableID=54 (multi-indication AE) and TextTableID=58 (dose-comparison Table 7):
+
+**Round 2 — Format hints and body-row enrichment:**
+- **BaseTableParser.cs**: Added `_trailingFormatHintPattern` to strip trailing `%` or `n(%)` from arm headers without N= (e.g., "Paroxetine %" → Name="Paroxetine", FormatHint="%"). Added 3 enrichment detection regexes (`_doseRegimenPattern`, `_nEqualsCellPattern`, `_formatHintCellPattern`). New shared helpers: `classifyEnrichmentRow` (detects dose/N=/format rows), `enrichArmsFromBodyRows` (scans first ≤5 body rows, enriches arm definitions, returns skip count), `applyEnrichmentRow` (applies per-type enrichment).
+- **ArmDefinition.cs**: Added `DoseRegimen` property for dose-specific arms.
+- **MultilevelAeTableParser.cs**: Format-hint stripping in fallback arm creation, enrichment call, DoseRegimen propagation.
+- **SimpleArmTableParser.cs**: Enrichment call before data loop, DoseRegimen propagation.
+- **AeWithSocTableParser.cs**: Same enrichment + DoseRegimen pattern.
+- **Tests**: 7 new tests (trailing % stripping, dose enrichment, N= enrichment, format hint enrichment, multi-row enrichment, multilevel trailing %). All 32 pass.
+
+---

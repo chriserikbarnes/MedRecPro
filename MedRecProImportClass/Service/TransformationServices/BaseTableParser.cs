@@ -199,6 +199,26 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"(?:(?:Week|Month|Year|Day)\s*\d+|\d+\s*(?:Weeks?|Months?|Years?|Days?))",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        // Pattern for trailing format hint in arm headers without N= (e.g., "Paroxetine %", "Drug n(%)")
+        protected static readonly Regex _trailingFormatHintPattern = new(
+            @"^(.+?)\s+(n\s*\(\s*%\s*\)|%)\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Pattern for dose regimen cells: "10 mg", "20 mg oral", "50 mcg once daily"
+        private static readonly Regex _doseRegimenPattern = new(
+            @"^\d+\s*(?:mg|mcg|µg|g|ml|mL)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Pattern for n= declaration cells: "n = 102" or "N=51"
+        private static readonly Regex _nEqualsCellPattern = new(
+            @"^[Nn]\s*=\s*(\d+)$",
+            RegexOptions.Compiled);
+
+        // Pattern for format hint cells: "%" or "n(%)" or "n (%)"
+        private static readonly Regex _formatHintCellPattern = new(
+            @"^(?:n\s*\(\s*%\s*\)|%)\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         #endregion Compiled Regex Patterns
 
         #region Abstract / Virtual Members
@@ -276,10 +296,16 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
                 else
                 {
-                    // No N= found — create basic arm definition
+                    // No N= found — check for trailing format hint (e.g., "Paroxetine %")
+                    var trimmed = leafText.Trim();
+                    var hintMatch = _trailingFormatHintPattern.Match(trimmed);
+                    var armName = hintMatch.Success ? hintMatch.Groups[1].Value.Trim() : trimmed;
+                    var formatHint = hintMatch.Success ? hintMatch.Groups[2].Value.Trim() : (string?)null;
+
                     arms.Add(new ArmDefinition
                     {
-                        Name = leafText.Trim(),
+                        Name = armName,
+                        FormatHint = formatHint,
                         ColumnIndex = col.ColumnIndex,
                         StudyContext = col.HeaderPath != null && col.HeaderPath.Count > 1
                             ? col.HeaderPath[0]
@@ -803,5 +829,134 @@ namespace MedRecProImportClass.Service.TransformationServices
         }
 
         #endregion Protected Helpers — Fault Tolerance
+
+        #region Protected Helpers — Body Row Enrichment
+
+        /**************************************************************/
+        /// <summary>
+        /// Scans the first few body rows for header-continuation metadata (dose regimen,
+        /// sample size, format hints) and enriches arm definitions accordingly. Returns
+        /// the number of enrichment rows consumed so callers can skip them.
+        /// </summary>
+        /// <remarks>
+        /// Stops scanning at the first non-enrichment row. Each enrichment type
+        /// (dose, n_equals, format_hint) is applied at most once.
+        /// </remarks>
+        /// <param name="dataRows">The filtered data body rows.</param>
+        /// <param name="arms">Arm definitions to enrich (modified in place).</param>
+        /// <returns>The number of leading enrichment rows to skip.</returns>
+        /// <seealso cref="classifyEnrichmentRow"/>
+        protected static int enrichArmsFromBodyRows(List<ReconstructedRow> dataRows, List<ArmDefinition> arms)
+        {
+            #region implementation
+
+            int enrichmentCount = 0;
+            var consumed = new HashSet<string>();
+            var limit = Math.Min(dataRows.Count, 5);
+
+            for (int r = 0; r < limit; r++)
+            {
+                var row = dataRows[r];
+                if (row.Classification == RowClassification.SocDivider)
+                    break;
+
+                var rowType = classifyEnrichmentRow(row, arms);
+                if (rowType == null || consumed.Contains(rowType))
+                    break;
+
+                consumed.Add(rowType);
+                enrichmentCount++;
+                applyEnrichmentRow(row, arms, rowType);
+            }
+
+            return enrichmentCount;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Classifies a body row as a specific enrichment type if most data cells match
+        /// a single metadata pattern (dose, N=, or format hint).
+        /// </summary>
+        /// <param name="row">The body row to classify.</param>
+        /// <param name="arms">Current arm definitions for column lookup.</param>
+        /// <returns>"dose", "n_equals", "format_hint", or null for data rows.</returns>
+        private static string? classifyEnrichmentRow(ReconstructedRow row, List<ArmDefinition> arms)
+        {
+            #region implementation
+
+            if (arms.Count == 0) return null;
+
+            int doseCount = 0, nCount = 0, fmtCount = 0, cellCount = 0;
+
+            foreach (var arm in arms)
+            {
+                var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
+                if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                    continue;
+
+                cellCount++;
+                var text = cell.CleanedText.Trim();
+
+                if (_doseRegimenPattern.IsMatch(text)) doseCount++;
+                else if (_nEqualsCellPattern.IsMatch(text)) nCount++;
+                else if (_formatHintCellPattern.IsMatch(text)) fmtCount++;
+            }
+
+            if (cellCount == 0) return null;
+
+            // Require majority match (>= 50% of non-empty cells)
+            if (doseCount * 2 >= cellCount) return "dose";
+            if (nCount * 2 >= cellCount) return "n_equals";
+            if (fmtCount * 2 >= cellCount) return "format_hint";
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies enrichment data from a classified body row to arm definitions.
+        /// </summary>
+        /// <param name="row">The enrichment row.</param>
+        /// <param name="arms">Arm definitions to update (modified in place).</param>
+        /// <param name="rowType">The enrichment type: "dose", "n_equals", or "format_hint".</param>
+        private static void applyEnrichmentRow(
+            ReconstructedRow row, List<ArmDefinition> arms, string rowType)
+        {
+            #region implementation
+
+            for (int i = 0; i < arms.Count; i++)
+            {
+                var cell = getCellAtColumn(row, arms[i].ColumnIndex ?? 0);
+                if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                    continue;
+
+                var text = cell.CleanedText.Trim();
+
+                switch (rowType)
+                {
+                    case "dose":
+                        arms[i].DoseRegimen = text;
+                        break;
+
+                    case "n_equals":
+                        var nMatch = _nEqualsCellPattern.Match(text);
+                        if (nMatch.Success && int.TryParse(nMatch.Groups[1].Value, out var n))
+                            arms[i].SampleSize = n;
+                        break;
+
+                    case "format_hint":
+                        arms[i].FormatHint = text;
+                        break;
+                }
+            }
+
+            #endregion
+        }
+
+        #endregion Protected Helpers — Body Row Enrichment
     }
 }

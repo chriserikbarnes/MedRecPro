@@ -73,6 +73,13 @@ namespace MedRecProImportClass.Service.TransformationServices
             string? currentSoc = null;
             var dataRows = getDataBodyRows(table);
 
+            // Enrich arms from body-row header metadata (dose, N=, format hints)
+            var skipRows = enrichArmsFromBodyRows(dataRows, arms);
+            if (skipRows > 0)
+            {
+                dataRows = dataRows.Skip(skipRows).ToList();
+            }
+
             foreach (var row in dataRows)
             {
                 // SOC divider — update current category
@@ -101,6 +108,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.TreatmentArm = arm.Name;
                         o.ArmN = arm.SampleSize;
                         o.StudyContext = arm.StudyContext;
+                        o.DoseRegimen = arm.DoseRegimen;
                         o.Population = population;
 
                         var parsed = ValueParser.Parse(cell.CleanedText, arm.SampleSize);

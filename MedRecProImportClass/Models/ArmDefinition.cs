@@ -75,5 +75,13 @@ namespace MedRecProImportClass.Models
         /// Example: "Treatment", "Prevention", "Study 1". Null for single-level headers.
         /// </summary>
         public string? StudyContext { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dose regimen extracted from body-row header enrichment (e.g., "10 mg", "20 mg once daily").
+        /// Null for arms without dose-specific data. Propagated to <see cref="ParsedObservation.DoseRegimen"/>.
+        /// </summary>
+        /// <seealso cref="ParsedObservation"/>
+        public string? DoseRegimen { get; set; }
     }
 }

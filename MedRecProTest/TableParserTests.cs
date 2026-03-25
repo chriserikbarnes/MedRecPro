@@ -900,5 +900,229 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion MultilevelAeTableParser — Lowercase N Header Tests
+
+        #region Trailing Format Hint Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that headers like "Paroxetine %" strip the trailing "%"
+        /// into FormatHint, leaving only the drug name as the arm Name.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_TrailingPercentHeader_StripsFormatHint()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Paroxetine %", "Placebo %" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "15", "5" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            var parox = results.First(r => r.TreatmentArm == "Paroxetine");
+            Assert.AreEqual("Paroxetine", parox.TreatmentArm);
+            Assert.AreEqual("Percentage", parox.PrimaryValueType);
+            Assert.AreEqual("%", parox.Unit);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies type promotion works when FormatHint comes from trailing "%" stripping
+        /// rather than from the N= regex.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_TrailingPercentHeader_PromotesToPercentage()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Drug A %", "Drug B %" },
+                new List<string?[]>
+                {
+                    new[] { "Headache", "12", "8" },
+                    new[] { "Nausea", "26", "9" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.IsTrue(results.All(r => r.PrimaryValueType == "Percentage"));
+
+            #endregion
+        }
+
+        #endregion Trailing Format Hint Tests
+
+        #region Body Row Enrichment Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that body rows with dose regimen cells (e.g., "10 mg", "20 mg")
+        /// are consumed as enrichment and populate DoseRegimen on observations.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_DoseEnrichmentRows_ExtractsDoseRegimen()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Paroxetine", "Paroxetine" },
+                new List<string?[]>
+                {
+                    new[] { "-", "10 mg", "20 mg" },           // dose enrichment row
+                    new[] { "Headache", "5", "8" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            // Only the data row should produce observations (dose row consumed)
+            Assert.AreEqual(2, results.Count);
+            Assert.AreEqual("10 mg", results[0].DoseRegimen);
+            Assert.AreEqual("20 mg", results[1].DoseRegimen);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that body rows with n= cells are consumed as enrichment
+        /// and set ArmN on observations.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_NEqualsEnrichmentRow_SetsArmN()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Paroxetine", "Placebo" },
+                new List<string?[]>
+                {
+                    new[] { "-", "n = 102", "n = 50" },        // N= enrichment row
+                    new[] { "Nausea", "15", "5" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.AreEqual(102, results.First(r => r.TreatmentArm == "Paroxetine").ArmN);
+            Assert.AreEqual(50, results.First(r => r.TreatmentArm == "Placebo").ArmN);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that body rows with "%" cells are consumed as enrichment
+        /// and set FormatHint which drives type promotion.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_FormatHintEnrichmentRow_SetsFormatHint()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Paroxetine", "Placebo" },
+                new List<string?[]>
+                {
+                    new[] { "-", "%", "%" },                    // format hint enrichment row
+                    new[] { "Nausea", "15", "5" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.All(r => r.PrimaryValueType == "Percentage"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that multiple consecutive enrichment rows (dose + N= + format)
+        /// are all consumed and applied to arm definitions.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_MultiRowEnrichment_SkipsAllThree()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Paroxetine", "Paroxetine" },
+                new List<string?[]>
+                {
+                    new[] { "-", "10 mg", "20 mg" },           // dose
+                    new[] { "-", "n = 102", "n = 104" },       // N=
+                    new[] { "-", "%", "%" },                    // format hint
+                    new[] { "Nausea", "15", "25" }              // actual data
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            // Only the data row should produce observations
+            Assert.AreEqual(2, results.Count);
+
+            var arm10 = results.First(r => r.DoseRegimen == "10 mg");
+            Assert.AreEqual(102, arm10.ArmN);
+            Assert.AreEqual("Percentage", arm10.PrimaryValueType);
+            Assert.AreEqual(15.0, arm10.PrimaryValue);
+
+            var arm20 = results.First(r => r.DoseRegimen == "20 mg");
+            Assert.AreEqual(104, arm20.ArmN);
+            Assert.AreEqual(25.0, arm20.PrimaryValue);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies MultilevelAeTableParser strips trailing "%" from headers
+        /// that have no N= value and promotes to Percentage.
+        /// </summary>
+        [TestMethod]
+        public void MultilevelAeParser_TrailingPercentHeader_ParsesCorrectly()
+        {
+            #region implementation
+
+            var table = createMultilevelTable(
+                new[] { "MDD", "MDD", "OCD", "OCD" },
+                new[] { "Paroxetine %", "Placebo %", "Paroxetine %", "Placebo %" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "23", "10", "15", "8" }
+                });
+
+            var parser = new MultilevelAeTableParser();
+            Assert.IsTrue(parser.CanParse(table));
+
+            var results = parser.Parse(table);
+            Assert.AreEqual(4, results.Count);
+
+            var mddParox = results.First(r => r.StudyContext == "MDD" && r.TreatmentArm == "Paroxetine");
+            Assert.AreEqual("Paroxetine", mddParox.TreatmentArm);
+            Assert.AreEqual("Percentage", mddParox.PrimaryValueType);
+            Assert.AreEqual(23.0, mddParox.PrimaryValue);
+
+            #endregion
+        }
+
+        #endregion Body Row Enrichment Tests
     }
 }
