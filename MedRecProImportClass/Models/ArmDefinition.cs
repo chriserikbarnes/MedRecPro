@@ -7,10 +7,18 @@ namespace MedRecProImportClass.Models
     /// pattern <c>ArmName(N=SampleSize)FormatHint</c>.
     /// </summary>
     /// <remarks>
-    /// ## Parsing Pattern
-    /// The arm header regex <c>^(.+?)\s*\(N=(\d+)\)\s*(.*)$</c> extracts:
+    /// ## Parsing Patterns
+    /// Two arm header patterns are supported (tried in order):
+    ///
+    /// 1. Parenthesized: <c>^(.+?)\s*\([Nn]\s*=\s*(\d+)\)\s*(.*)$</c>
+    ///    - Matches: "EVISTA(N=2557)n(%)", "Paroxetine (n = 421) %", "Drug (N=100) %"
+    ///
+    /// 2. No-parentheses: <c>^(.+?)\s+[Nn]\s*=\s*(\d+)\s*(.*)$</c>
+    ///    - Matches: "Placebo n = 51 %", "Drug N=188 n(%)"
+    ///
+    /// Both patterns extract:
     /// - <see cref="Name"/>: Treatment arm name (e.g., "EVISTA", "Placebo", "Fluconazole")
-    /// - <see cref="SampleSize"/>: N from (N=xxx) — used for PCT_CHECK validation
+    /// - <see cref="SampleSize"/>: N from N=xxx — used for PCT_CHECK validation
     /// - <see cref="FormatHint"/>: Format after N (e.g., "n(%)", "%", "") — drives type promotion
     ///
     /// ## Multi-Level Headers
@@ -19,8 +27,14 @@ namespace MedRecProImportClass.Models
     ///
     /// ## Usage
     /// <code>
-    /// var arm = ValueParser.ParseArmHeader("EVISTA(N=2557)n(%)");
-    /// // arm.Name = "EVISTA", arm.SampleSize = 2557, arm.FormatHint = "n(%)"
+    /// var arm1 = ValueParser.ParseArmHeader("EVISTA(N=2557)n(%)");
+    /// // arm1.Name = "EVISTA", arm1.SampleSize = 2557, arm1.FormatHint = "n(%)"
+    ///
+    /// var arm2 = ValueParser.ParseArmHeader("Paroxetine (n = 421) %");
+    /// // arm2.Name = "Paroxetine", arm2.SampleSize = 421, arm2.FormatHint = "%"
+    ///
+    /// var arm3 = ValueParser.ParseArmHeader("Placebo n = 51 %");
+    /// // arm3.Name = "Placebo", arm3.SampleSize = 51, arm3.FormatHint = "%"
     /// </code>
     /// </remarks>
     /// <seealso cref="ParsedValue"/>

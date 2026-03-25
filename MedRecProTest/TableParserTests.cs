@@ -321,7 +321,8 @@ namespace MedRecPro.Service.Test
             var results = parser.Parse(table);
 
             Assert.AreEqual(2, results.Count); // only Death row produces data
-            Assert.AreEqual("Components of primary endpoint", results[0].ParameterSubtype);
+            // In AE context, empty-data rows set ParameterCategory (SOC) not ParameterSubtype
+            Assert.AreEqual("Components of primary endpoint", results[0].ParameterCategory);
         }
 
         #endregion SimpleArmTableParser Tests
@@ -686,5 +687,218 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion TableParserRouter Tests
+
+        #region Arm Header Parsing Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies lowercase n with spaces in parenthesized format is parsed correctly.
+        /// Covers Issue 1: "Paroxetine (n = 421) %" was not matched by original regex.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_LowercaseNWithSpaces_ExtractsCorrectly()
+        {
+            #region implementation
+
+            var arm = ValueParser.ParseArmHeader("Paroxetine (n = 421) %");
+
+            Assert.IsNotNull(arm);
+            Assert.AreEqual("Paroxetine", arm.Name);
+            Assert.AreEqual(421, arm.SampleSize);
+            Assert.AreEqual("%", arm.FormatHint);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies no-parentheses N format is parsed correctly.
+        /// Covers Issue 4: "Placebo n = 51 %" has no parentheses around N clause.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_NoParentheses_ExtractsCorrectly()
+        {
+            #region implementation
+
+            var arm = ValueParser.ParseArmHeader("Placebo n = 51 %");
+
+            Assert.IsNotNull(arm);
+            Assert.AreEqual("Placebo", arm.Name);
+            Assert.AreEqual(51, arm.SampleSize);
+            Assert.AreEqual("%", arm.FormatHint);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Regression guard: original uppercase N with no spaces still works.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_UppercaseNNoSpaces_StillWorks()
+        {
+            #region implementation
+
+            var arm = ValueParser.ParseArmHeader("EVISTA(N=2557)n(%)");
+
+            Assert.IsNotNull(arm);
+            Assert.AreEqual("EVISTA", arm.Name);
+            Assert.AreEqual(2557, arm.SampleSize);
+            Assert.AreEqual("n(%)", arm.FormatHint);
+
+            #endregion
+        }
+
+        #endregion Arm Header Parsing Tests
+
+        #region SimpleArmTableParser — AE Category Propagation Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that empty-data rows in AE tables set ParameterCategory (SOC)
+        /// rather than ParameterSubtype.
+        /// Covers Issue 2: ParameterCategory was NULL for all rows.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_AeTable_EmptyDataRowsSetsCategory()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Body System/ Adverse Reaction", "Paroxetine (n = 421) %", "Placebo (n = 421) %" },
+                new List<string?[]>
+                {
+                    new[] { "Body as a Whole", null, null },
+                    new[] { "Headache", "18", "17" },
+                    new[] { "Asthenia", "15", "6" },
+                    new[] { "Cardiovascular", null, null },
+                    new[] { "Palpitation", "3", "1" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            // 3 data rows x 2 arms = 6 observations
+            Assert.AreEqual(6, results.Count);
+
+            var headache = results.First(r => r.ParameterName == "Headache" && r.TreatmentArm == "Paroxetine");
+            Assert.AreEqual("Body as a Whole", headache.ParameterCategory);
+            Assert.AreEqual(18.0, headache.PrimaryValue);
+            Assert.AreEqual(421, headache.ArmN);
+
+            var palpitation = results.First(r => r.ParameterName == "Palpitation" && r.TreatmentArm == "Paroxetine");
+            Assert.AreEqual("Cardiovascular", palpitation.ParameterCategory);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies bare numbers are promoted to Percentage when arm header contains "%".
+        /// Covers Issue 3: PrimaryValueType was "Numeric" instead of "Percentage".
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_LowercaseNHeader_PromotesToPercentage()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Drug (n = 100) %", "Placebo (n = 100) %" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "15", "5" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.All(r => r.PrimaryValueType == "Percentage"));
+            Assert.IsTrue(results.All(r => r.ArmN == 100));
+            Assert.IsTrue(results.All(r => r.Unit == "%"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies no-parentheses N format extracts ArmN and promotes to Percentage.
+        /// Covers Issue 4: "N = 51 %" in Table 7 was not parsed.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_NoParenNFormat_ExtractsArmN()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Drug n = 51 %", "Placebo n = 48 %" },
+                new List<string?[]>
+                {
+                    new[] { "Headache", "10", "8" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            var drug = results.First(r => r.TreatmentArm == "Drug");
+            Assert.AreEqual(51, drug.ArmN);
+            Assert.AreEqual("Percentage", drug.PrimaryValueType);
+
+            var placebo = results.First(r => r.TreatmentArm == "Placebo");
+            Assert.AreEqual(48, placebo.ArmN);
+            Assert.AreEqual("Percentage", placebo.PrimaryValueType);
+
+            #endregion
+        }
+
+        #endregion SimpleArmTableParser — AE Category Propagation Tests
+
+        #region MultilevelAeTableParser — Lowercase N Header Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies MultilevelAeTableParser correctly parses multi-indication tables
+        /// with lowercase n arm headers. StudyContext should capture the indication.
+        /// Covers Issue 5: Multi-indication table was entirely skipped.
+        /// </summary>
+        [TestMethod]
+        public void MultilevelAeParser_LowercaseNHeaders_ParsesCorrectly()
+        {
+            #region implementation
+
+            var table = createMultilevelTable(
+                new[] { "OCD", "OCD", "Panic Disorder", "Panic Disorder" },
+                new[] { "Paroxetine (n = 542) %", "Placebo (n = 265) %",
+                        "Paroxetine (n = 469) %", "Placebo (n = 324) %" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "23", "10", "22", "17" }
+                });
+
+            var parser = new MultilevelAeTableParser();
+            Assert.IsTrue(parser.CanParse(table));
+
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+
+            var ocdParoxetine = results.First(r =>
+                r.StudyContext == "OCD" && r.TreatmentArm == "Paroxetine");
+            Assert.AreEqual(542, ocdParoxetine.ArmN);
+            Assert.AreEqual("Percentage", ocdParoxetine.PrimaryValueType);
+            Assert.AreEqual(23.0, ocdParoxetine.PrimaryValue);
+
+            var panicPlacebo = results.First(r =>
+                r.StudyContext == "Panic Disorder" && r.TreatmentArm == "Placebo");
+            Assert.AreEqual(324, panicPlacebo.ArmN);
+            Assert.AreEqual(17.0, panicPlacebo.PrimaryValue);
+
+            #endregion
+        }
+
+        #endregion MultilevelAeTableParser — Lowercase N Header Tests
     }
 }

@@ -119,6 +119,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Iterate data rows
             string? currentSubtype = null;
+            string? currentCategory = null; // SOC category for AE tables (from empty-data rows)
             var dataRows = getDataBodyRows(table);
 
             foreach (var row in dataRows)
@@ -140,7 +141,17 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 if (!hasData)
                 {
-                    currentSubtype = paramName;
+                    if (category == TableCategory.ADVERSE_EVENT)
+                    {
+                        // In AE tables, empty-data rows are SOC dividers
+                        // (e.g., "Body as a Whole", "Cardiovascular")
+                        currentCategory = paramName;
+                        currentSubtype = null; // Reset subtype on new category
+                    }
+                    else
+                    {
+                        currentSubtype = paramName;
+                    }
                     continue;
                 }
 
@@ -159,6 +170,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                         var o = createBaseObservation(table, r, cell, category);
                         o.ParameterName = paramName;
+                        o.ParameterCategory = currentCategory;
                         o.ParameterSubtype = currentSubtype;
                         o.TreatmentArm = arm.Name;
                         o.ArmN = arm.SampleSize;

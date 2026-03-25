@@ -104,9 +104,16 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^-?[\d,]+\.?\d*$",
             RegexOptions.Compiled);
 
-        // Arm header pattern: DrugName(N=188)n(%)
+        // Arm header pattern (parenthesized): DrugName(N=188)n(%) or Drug (n = 421) %
+        // Supports uppercase/lowercase N and optional spaces around =
         private static readonly Regex _armHeaderPattern = new(
-            @"^(.+?)\s*\(N=(\d+)\)\s*(.*)$",
+            @"^(.+?)\s*\([Nn]\s*=\s*(\d+)\)\s*(.*)$",
+            RegexOptions.Compiled);
+
+        // Arm header pattern (no parentheses): Placebo n = 51 % or Drug N=188 n(%)
+        // Requires whitespace before N to avoid false matches on drug names ending in 'n'
+        private static readonly Regex _armHeaderNoParenPattern = new(
+            @"^(.+?)\s+[Nn]\s*=\s*(\d+)\s*(.*)$",
             RegexOptions.Compiled);
 
         // Footnote marker pattern for parameter name cleaning
@@ -230,17 +237,25 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// Parses a header cell text to extract treatment arm definition.
-        /// Matches the pattern <c>ArmName(N=SampleSize)FormatHint</c>.
+        /// Tries two patterns in order:
+        /// 1. Parenthesized: <c>ArmName([Nn] = SampleSize)FormatHint</c>
+        /// 2. No-parentheses: <c>ArmName [Nn] = SampleSize FormatHint</c>
         /// </summary>
         /// <param name="headerText">Header cell text.</param>
         /// <returns>
-        /// An <see cref="ArmDefinition"/> if the pattern matches, or null if the text
+        /// An <see cref="ArmDefinition"/> if either pattern matches, or null if the text
         /// does not contain an arm definition.
         /// </returns>
         /// <example>
         /// <code>
-        /// var arm = ValueParser.ParseArmHeader("EVISTA(N=2557)n(%)");
-        /// // arm.Name = "EVISTA", arm.SampleSize = 2557, arm.FormatHint = "n(%)"
+        /// var arm1 = ValueParser.ParseArmHeader("EVISTA(N=2557)n(%)");
+        /// // arm1.Name = "EVISTA", arm1.SampleSize = 2557, arm1.FormatHint = "n(%)"
+        ///
+        /// var arm2 = ValueParser.ParseArmHeader("Paroxetine (n = 421) %");
+        /// // arm2.Name = "Paroxetine", arm2.SampleSize = 421, arm2.FormatHint = "%"
+        ///
+        /// var arm3 = ValueParser.ParseArmHeader("Placebo n = 51 %");
+        /// // arm3.Name = "Placebo", arm3.SampleSize = 51, arm3.FormatHint = "%"
         /// </code>
         /// </example>
         /// <seealso cref="ArmDefinition"/>
@@ -251,9 +266,33 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.IsNullOrWhiteSpace(headerText))
                 return null;
 
-            var match = _armHeaderPattern.Match(headerText.Trim());
-            if (!match.Success)
-                return null;
+            var text = headerText.Trim();
+
+            // Try parenthesized pattern first: "Drug (N=100) %" or "Drug (n = 421) %"
+            var match = _armHeaderPattern.Match(text);
+            if (match.Success)
+                return buildArmFromMatch(match);
+
+            // Try no-parentheses pattern: "Placebo n = 51 %"
+            match = _armHeaderNoParenPattern.Match(text);
+            if (match.Success)
+                return buildArmFromMatch(match);
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds an <see cref="ArmDefinition"/> from a successful regex match.
+        /// Group 1 = arm name, Group 2 = sample size, Group 3 = format hint.
+        /// </summary>
+        /// <param name="match">Successful regex match with 3 capture groups.</param>
+        /// <returns>Populated <see cref="ArmDefinition"/>.</returns>
+        private static ArmDefinition buildArmFromMatch(Match match)
+        {
+            #region implementation
 
             return new ArmDefinition
             {
