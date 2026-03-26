@@ -1251,3 +1251,28 @@ Refactored the Stage 3.25 `ColumnStandardizationService` from a single-pass AE/E
 **Tests:** 88 total (35 new + 53 existing), all passing. New tests cover each Phase 2 sub-method, Phase 3 migration paths, Phase 4 contract enforcement, and cross-category processing verification.
 
 ---
+
+### 2026-03-26 3:18 PM EST — README Update and ClaudeApiCorrectionService Skill Expansion
+
+Two tasks completed using four reference files: `table-types.md`, `column-contracts.md`, `normalization-rules.md`, and `TABLE_STANDARDIZATION_SKILL.md`.
+
+**README.md update (`MedRecProImportClass/README.md`):**
+Rewrote the SPL Table Normalization section to incorporate all reference file content. Added Stage 3.25 (Column Standardization) to the pipeline architecture, expanded the TableCategory table with source LOINC sections, full Tier 1 Decision Tree (9-step classification algorithm), Tier 2 ML.NET classifier summary (21 features, LightGBM, target Macro F1 ≥ 0.85), complete Column Contracts matrix (7 categories × 13 columns with R/E/O/N requirement levels), all enum definitions (PrimaryValueType 15-value tightened enum, SecondaryValueType, BoundType, ParseRule 16 values), static dictionary inventory (8 dictionaries with sizes and sources), and `ColumnStandardizationService.cs` added to the project structure file tree.
+
+**ClaudeApiCorrectionService.cs update (Stage 3.5 AI correction):**
+Replaced the minimal 3-rule system prompt with a comprehensive normalization skill covering all six normalization domains from the reference files:
+- `PrimaryValueType` — full 15-value enum with migration rules for all old values (Mean→GeometricMean/ArithmeticMean by category, Percentage→Proportion, RelativeRiskReduction→HR/OR/RR, Numeric resolved by TableCategory + Caption context)
+- `DoseRegimen` triage — priority-ordered routing of PK sub-params, actual doses (keep), co-admin drug names, population patterns, timepoint patterns, and header echoes
+- `Unit` scrub — header leak detection (>30 chars, drug names, keyword list), variant spelling normalization
+- `ParameterName` cleanup — caption/header echo detection, bare dose integer routing, DDI drug name routing, HTML entity decoding
+- `TreatmentArm` cleanup — header echo nulling, N=xxx extraction, embedded dose extraction, generic label nulling, study name routing to StudyContext
+- `ParameterCategory` SOC mapping — 16 canonical MedDRA SOC names with variant corrections for AdverseEvent/Laboratory only
+- `BoundType` inference — category-based defaults (90CI for PK/DDI, 95CI for Efficacy/BMD)
+
+**Code fixes in the same file:**
+- Added `StudyContext` and `BoundType` to `CorrectableFields` (were missing)
+- Added `timepoint`, `timeunit`, `studycontext`, `boundtype` cases to `setFieldValue()` (bug: Timepoint and TimeUnit were in CorrectableFields but had no setter cases)
+- Expanded `buildCompactPayload()` to include `Timepoint`, `TimeUnit`, `StudyContext`, `LowerBound`, `UpperBound`, `BoundType` so Claude has full context for triage and BoundType inference decisions
+- Added `ParentSectionCode` and `ObservationCount` to the per-request context header sent to Claude
+
+---
