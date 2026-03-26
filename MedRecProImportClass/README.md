@@ -11,7 +11,7 @@ This library was created to enable single-file publishing for the `MedRecProCons
 - **SPL XML Parsing**: Complete parsing infrastructure for FDA SPL documents
 - **FDA Orange Book Import**: Parses `products.txt`, `patent.txt`, and `exclusivity.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data, plus embedded patent use code definitions
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
-- **SPL Table Normalization**: 4-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 36-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product meta-analysis with classical ML — includes table reconstruction, 8 section-aware parsers, and automated validation
+- **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 36-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product meta-analysis with classical ML — includes table reconstruction, 8 section-aware parsers, 4-phase column standardization with per-category contract enforcement, and automated validation
 - **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
@@ -73,8 +73,9 @@ MedRecProImportClass/
         ├── TissueRatioTableParser.cs           # Stage 3: tissue-to-plasma ratio
         ├── DosingTableParser.cs                # Stage 3: dosing parameter grids
         ├── TableParserRouter.cs                # Stage 3: section code → parser routing
+        ├── ColumnStandardizationService.cs     # Stage 3.25: 4-phase column contracts
         ├── TableParsingOrchestrator.cs         # Stage 3: batch loop + DB writes
-        ├── ClaudeApiCorrectionService.cs      # Stage 3.5: AI-powered post-parse correction
+        ├── ClaudeApiCorrectionService.cs       # Stage 3.5: AI-powered post-parse correction
         ├── RowValidationService.cs             # Stage 4: per-observation checks
         ├── TableValidationService.cs           # Stage 4: cross-row checks
         └── BatchValidationService.cs           # Stage 4: aggregate reporting
@@ -215,7 +216,7 @@ Phase D is idempotent — existing records with changed definitions are updated,
 
 ## SPL Table Standardization Pipeline
 
-A 4-stage pipeline that transforms heterogeneous FDA drug label table data into a uniform 36-column analytical schema for cross-product meta-analysis with classical ML. The full corpus is 250K+ labels; the pipeline supports batch processing by TextTableID range.
+A multi-stage pipeline that transforms heterogeneous FDA drug label table data into a uniform 36-column analytical schema for cross-product meta-analysis with classical ML. The full corpus is 250K+ labels; the pipeline supports batch processing by TextTableID range.
 
 ### Architecture
 
@@ -228,6 +229,9 @@ Stage 2: Table Reconstruction
         │
 Stage 3: Section-Aware Parsing
   TableParserRouter → ITableParser (8 parsers) → List<ParsedObservation>
+        │
+Stage 3.25: Column Standardization (deterministic)
+  ColumnStandardizationService → 4-phase pipeline (all categories)
         │
 Stage 3.5: Claude API Correction (optional)
   ClaudeApiCorrectionService → corrected List<ParsedObservation>
@@ -253,23 +257,44 @@ Stage 4: Validation
 
 ### Stage 3: Section-Aware Parsing
 
-`TableParserRouter` maps `ParentSectionCode` to a `TableCategory` and selects the most specific parser via priority ordering. `TableParsingOrchestrator` runs the batch loop: reconstruct → route → parse → write to `tmp_FlattenedStandardizedTable`.
+`TableParserRouter` maps `ParentSectionCode` to a `TableCategory` and selects the most specific parser via priority ordering. `TableParsingOrchestrator` runs the batch loop: reconstruct → route → parse → standardize → write to `tmp_FlattenedStandardizedTable`.
 
-#### Table Categories
+### Table Categories
 
-| Category | Description |
-|----------|-------------|
-| `PK` | Pharmacokinetic parameter tables |
-| `ADVERSE_EVENT` | Adverse reaction incidence tables |
-| `EFFICACY` | Clinical study efficacy/outcomes tables |
-| `DOSING` | Dosage and administration tables |
-| `BMD` | Bone mineral density / timepoint tables |
-| `TISSUE_DISTRIBUTION` | Tissue-to-plasma ratio tables |
-| `DRUG_INTERACTION` | Drug interaction tables (stub) |
-| `OTHER` | Unclassified but parseable tables |
-| `SKIP` | Tables to exclude (patient info, NDC, formulas) |
+The `TableCategory` column is the single most important classification value — all downstream normalization rules, PrimaryValueType assignment, BoundType defaults, and ParameterSubtype interpretation depend on it.
 
-#### Parsers
+| Category | Description | Typical Source Section |
+|----------|-------------|------------------------|
+| `ADVERSE_EVENT` | Incidence/frequency of adverse events by treatment arm | 34084-4 Adverse Reactions |
+| `PK` | Pharmacokinetic parameters (Cmax, AUC, t½, etc.) | 43685-7 Clinical Pharmacology |
+| `DRUG_INTERACTION` | Co-admin drug effects on PK parameters (geometric mean ratios) | 34073-7 Drug Interactions |
+| `EFFICACY` | Comparative efficacy outcomes with risk measures and CIs | 34076-0 Clinical Studies |
+| `DOSING` | Recommended doses, titration schedules, adjustments | 34068-7 Dosage and Administration |
+| `BMD` | Bone mineral density at anatomical sites over time | 34076-0 Clinical Studies |
+| `TISSUE_DISTRIBUTION` | Drug concentration across body tissues and fluids | 43685-7 Clinical Pharmacology |
+| `DEMOGRAPHIC` | Baseline patient characteristics | 34076-0 Clinical Studies |
+| `LABORATORY` | Lab parameter changes/shifts | 34084-4 Adverse Reactions |
+| `TEXT_DESCRIPTIVE` | 100% text cells — instructions, descriptions | Various |
+| `UNCLASSIFIED` | Could not be classified deterministically | Various |
+| `SKIP` | Tables to exclude (patient info, NDC, formulas) | Various |
+
+#### Classification Decision Tree (Tier 1)
+
+Tables are classified by applying tests in priority order against all rows sharing a TextTableID, plus Caption and ParentSectionCode. First match wins:
+
+1. 100% of PrimaryValueType = "Text" → **TextDescriptive**
+2. MedDRA PT dictionary match (>=3 ParameterNames or >=2 SOC categories) → **AdverseEvent**
+3. PK parameter dictionary match (Cmax, AUC, t½, CL/F, Vss, etc.) → **PK** or **DrugInteraction** (DDI if caption contains "drug interaction", "co-administered", "in the presence of")
+4. PrimaryValueType contains RelativeRiskReduction or RiskDifference → **Efficacy**
+5. Dosing keywords in ParameterName → **Dosing**
+6. BMD anatomical site dictionary match → **BMD**
+7. Tissue/organ dictionary match with concentration units → **TissueDistribution**
+8. ParentSectionCode fallback (34084-4 → AE, 43685-7 → PK, 34068-7 → Dosing, 34073-7 → DDI)
+9. No match → **Unclassified**
+
+Tables landing in Unclassified (~28%) are candidates for Tier 2 ML.NET classification using `LightGbmMulticlassTrainer` with 21 aggregated features per TextTableID (target: Macro F1 >= 0.85).
+
+### Parsers
 
 | Parser | Category | Structural Trigger |
 |--------|----------|--------------------|
@@ -282,13 +307,109 @@ Stage 4: Validation
 | `TissueRatioTableParser` | TISSUE_DISTRIBUTION | Two-column tissue/ratio tables |
 | `DosingTableParser` | DOSING | Dosing parameter grid tables |
 
-#### Value Decomposition
+### Value Decomposition
 
 `ValueParser` applies 13 regex patterns in priority order to decompose cell text into structured components: PrimaryValue, SecondaryValue, CI bounds, P-value, unit, and confidence score. Includes PCT_CHECK validation when arm sample size is available.
 
-#### Population Detection
+### Population Detection
 
 `PopulationDetector` auto-detects study population from Caption/SectionTitle using regex extraction and a keyword dictionary, with Levenshtein-based fuzzy cross-validation between sources.
+
+### Stage 3.25: Column Standardization
+
+`ColumnStandardizationService` is a deterministic, rule-based service that processes ALL table categories (except SKIP) through a 4-phase pipeline. It corrects systematic misclassification caused by the diversity of FDA table layouts — doses appearing as column headers, N-values in arm positions, study names in the wrong header row, etc.
+
+#### Phase 1: Arm/Context Corrections (AE + EFFICACY only)
+
+11 ordered rules applied most-specific to least-specific, relocating misclassified content from TreatmentArm and StudyContext to their correct columns:
+
+| Rule | Pattern | Action |
+|------|---------|--------|
+| 11 | Bracketed `[N=xxx]` in TreatmentArm | Extract N → ArmN, classify remaining text |
+| 1 | TreatmentArm is `(N=267)` or `N=677` | Move N → ArmN, recover arm from StudyContext |
+| 2 | TreatmentArm is format hint (`%`, `#`, `n(%)`) | Discard, recover arm from StudyContext |
+| 3 | TreatmentArm is severity grade (`Severe`, `Grades 3/4`) | Move → ParameterSubtype |
+| 4 | TreatmentArm is pure dose (`10 mg daily`) | Move → DoseRegimen |
+| 5 | TreatmentArm is bare number + StudyContext has dose descriptor | Reconstruct DoseRegimen, extract drug name |
+| 6 | TreatmentArm is drug+dose combined | Split drug → TreatmentArm, dose → DoseRegimen |
+| 7 | StudyContext contains arm with embedded N= | Split drug → TreatmentArm, N → ArmN |
+| 8 | StudyContext contains drug name, TreatmentArm does not | Swap |
+| 9 | StudyContext is descriptor hint (`Incidence`, `Reaction`) | Clear StudyContext |
+| 10 | TreatmentArm has trailing `%` | Strip format hint, promote Numeric → Proportion |
+
+Drug name identification uses an exact-match dictionary loaded from `vw_ProductsByIngredient` at initialization, supplemented by 13 known abbreviations (AZA, MMF, CsA, etc.) and first-word partial matching.
+
+#### Phase 2: Content Normalization (ALL categories)
+
+Five sub-passes clean up column content across all table categories:
+
+| Sub-pass | Target Column | Key Operations |
+|----------|---------------|----------------|
+| `normalizeDoseRegimen` | DoseRegimen | Routes PK sub-params (Cmax, AUC, etc.) → ParameterSubtype; co-admin drug names → ParameterSubtype; residual population/timepoint → their correct columns |
+| `normalizeParameterName` | ParameterName | Removes caption echoes ("Table 3..."), header echoes ("n"), bare dose integers; decodes HTML entities; collapses OCR artifacts |
+| `normalizeTreatmentArm` | TreatmentArm | Removes header echoes ("Number of Patients"), generic labels ("Treatment", "PD"); extracts embedded N= and doses; routes study names → StudyContext |
+| `normalizeUnit` | Unit | Detects leaked column headers (>30 chars, drug names, keywords); normalizes variant spellings (`mcg h/mL` → `mcg·h/mL`); extracts real units from verbose descriptions |
+| `normalizeParameterCategory` | ParameterCategory | Canonical MedDRA SOC mapping (~55 variants → 26 canonical names) with OCR artifact repair. AE tables only. |
+
+#### Phase 3: PrimaryValueType Migration (ALL categories)
+
+Maps old PrimaryValueType strings to a tightened 15-value enum using TableCategory, Caption, and bounds context:
+
+| Old Value | New Value | Resolution Logic |
+|-----------|-----------|------------------|
+| `Mean` | `GeometricMean` | PK or DDI (category default) |
+| `Mean` | `ArithmeticMean` | AE, BMD, or caption says "arithmetic" |
+| `Mean` | `LSMean` | Caption says "LS mean" or "least square" |
+| `Percentage` | `Proportion` | Direct rename (all categories) |
+| `MeanPercentChange` | `PercentChange` | Direct rename |
+| `RelativeRiskReduction` | `HazardRatio` | Caption contains "hazard" |
+| `RelativeRiskReduction` | `OddsRatio` | Caption contains "odds" |
+| `RelativeRiskReduction` | `RelativeRisk` | Default |
+| `Ratio` | `GeometricMeanRatio` | DDI category |
+| `Numeric` | context-resolved | AE+% → Proportion, AE+int → Count, PK → GeometricMean, DDI → GeometricMeanRatio, BMD → PercentChange, Efficacy+bounds → HazardRatio |
+
+#### Phase 4: Column Contract Enforcement (ALL categories)
+
+Enforces per-TableCategory contracts defining which columns are Required (R), Expected (E), Optional (O), or Not Applicable (N) for each table type:
+
+- **NULL enforcement**: Columns marked N/A are set to null (e.g., Timepoint for AdverseEvent, ParameterCategory for PK)
+- **Missing required flagging**: Columns marked Required that are empty produce `COL_STD:MISSING_R_{Column}` flags
+- **Default BoundType**: When LowerBound/UpperBound are populated but BoundType is null, applies category defaults (90CI for PK/DDI, 95CI for Efficacy/BMD)
+
+All corrections across all phases are flagged in `ValidationFlags` with `COL_STD:` prefixed audit flags.
+
+### Column Contracts by Table Category
+
+Each observation context column has a strict, context-dependent definition locked to the row's TableCategory. The same column name carries different semantic meaning depending on the table type.
+
+**Legend:** **R** = Required (flag if missing), **E** = Expected (usually populated), **O** = Optional, **N** = NULL (not applicable — enforced by Phase 4)
+
+| Column | AdverseEvent | PK | DrugInteraction | Efficacy | Dosing | BMD | TissueDistribution |
+|--------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| ParameterName | R: MedDRA PT | R: PK param | R: PK param | R: Endpoint | R: Dose descriptor | R: Anatomical site | R: Tissue/fluid |
+| ParameterCategory | E: Canonical SOC | N | N | N | N | N | N |
+| ParameterSubtype | O: Severity | O: PK qualifier | R: **Co-admin drug** | O: Analysis pop | O: Adjustment ctx | N | N |
+| TreatmentArm | R: Drug/Placebo | O | E: Index drug | R: Drug vs comparator | O | R: Drug/Placebo | O |
+| ArmN | E | O | O | E | N | E | O |
+| StudyContext | O | O | O | O | N | O | N |
+| DoseRegimen | O | E | E | O | E | O | E |
+| Population | O | O | O | O | E | O | O |
+| Timepoint | N | O | N | O | O | E | E |
+| PrimaryValueType | R: Proportion/Count | R: GM/AM/Median | R: GMR | R: HR/OR/RR/Proportion | O: Numeric | R: PercentChange/AM | R: AM/GM |
+| Unit | E: % | R: conc/time/vol | O: ratio | O: % | O: mg/kg | E: %/g/cm² | R: conc |
+| Default BoundType | 95CI | 90CI | 90CI | 95CI | — | 95CI | — |
+
+**Cross-table comparison keys** (columns that must match for meaningful comparison):
+
+| Category | Comparison Key |
+|----------|----------------|
+| AdverseEvent | ParameterName + TreatmentArm + DoseRegimen |
+| PK | ParameterName + DoseRegimen + Population + Timepoint + PrimaryValueType + Unit |
+| DrugInteraction | ParameterName + ParameterSubtype + TreatmentArm |
+| Efficacy | ParameterName + TreatmentArm + PrimaryValueType |
+| Dosing | ParameterName + Population + DoseRegimen |
+| BMD | ParameterName + TreatmentArm + Timepoint |
+| TissueDistribution | ParameterName + DoseRegimen + Timepoint + Unit |
 
 ### Stage 3.5: Claude API Correction
 
@@ -329,13 +450,61 @@ Validation results are returned as in-memory DTOs (`BatchValidationReport`) and 
 
 ### Output Schema
 
-`tmp_FlattenedStandardizedTable` — 36 columns organized into:
+`tmp_FlattenedStandardizedTable` — 36 columns organized into 5 groups:
 
 - **Provenance (8)**: DocumentGUID, LabelerName, ProductTitle, VersionNumber, TextTableID, Caption, SourceRowSeq, SourceCellSeq
 - **Classification (4)**: TableCategory, ParentSectionCode, ParentSectionTitle, SectionTitle
 - **Observation Context (9)**: ParameterName, ParameterCategory, ParameterSubtype, TreatmentArm, ArmN, StudyContext, DoseRegimen, Population, Timepoint
 - **Decomposed Values (10)**: RawValue, PrimaryValue, PrimaryValueType, SecondaryValue, SecondaryValueType, LowerBound, UpperBound, BoundType, PValue, Unit
 - **Validation (5)**: ParseConfidence, ParseRule, FootnoteMarkers, FootnoteText, ValidationFlags
+
+### Enum Definitions
+
+#### PrimaryValueType (canonical, tightened)
+
+```
+ArithmeticMean · GeometricMean · GeometricMeanRatio · Median ·
+Proportion · Count · PercentChange · HazardRatio · OddsRatio ·
+RelativeRisk · RiskDifference · LSMean · Numeric · Text · PValue
+```
+
+#### SecondaryValueType
+
+```
+SD · CV · Count
+```
+
+#### BoundType
+
+```
+90CI · 95CI · 99CI · CI · Range · SD · IQR
+```
+
+#### ParseRule
+
+```
+empty_or_na · pvalue · frac_pct · n_pct · caption_mean_sd ·
+value_cv · value_plusminus · value_ci · rr_ci · diff_ci ·
+range_to · percentage · plain_number · text_descriptive ·
+plain_number+caption · value_ci+caption
+```
+
+### Static Dictionaries
+
+The pipeline uses several static in-class dictionaries for deterministic normalization:
+
+| Dictionary | Size | Purpose |
+|-----------|------|---------|
+| Drug Names | ~500+ (from DB) | Exact-match drug name identification via `vw_ProductsByIngredient` |
+| Drug Abbreviations | 13 | Common abbreviations not in formal product DB (AZA, MMF, CsA, etc.) |
+| PK Sub-Parameters | ~35 | PK parameter names for DoseRegimen triage (Cmax, AUC, t½, CL/F, etc.) |
+| Known Units | ~80 | Canonical unit strings for Unit scrub validation |
+| Unit Normalization | ~12 | Variant spelling → canonical form (e.g., `mcg h/mL` → `mcg·h/mL`) |
+| Unit Header Keywords | 13 | Leak detection keywords (Regimen, Dosage, Patients, etc.) |
+| Canonical SOC Map | ~55 | MedDRA SOC variant → canonical name mapping |
+| PVT Direct Map | 9 | Direct 1:1 PrimaryValueType migration mappings |
+| Column Contracts | 7 categories × 13 columns | Per-category R/E/O/N requirement definitions |
+| Default BoundType | 5 entries | Category → default BoundType when bounds present |
 
 ## Relationship to MedRecPro
 

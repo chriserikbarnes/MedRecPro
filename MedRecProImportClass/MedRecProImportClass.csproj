@@ -41,6 +41,7 @@
 
     <!-- HTTP Client Factory -->
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.4" />
+    <PackageReference Include="Microsoft.ML" Version="5.0.0" />
 
     <!-- Utilities -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />

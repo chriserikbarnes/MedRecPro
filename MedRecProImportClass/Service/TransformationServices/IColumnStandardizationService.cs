@@ -5,9 +5,8 @@ namespace MedRecProImportClass.Service.TransformationServices
     /**************************************************************/
     /// <summary>
     /// Stage 3.25 column standardization service for the SPL Table Normalization pipeline.
-    /// Detects and corrects systematic misclassification of values across TreatmentArm,
-    /// ArmN, DoseRegimen, StudyContext, and ParameterSubtype columns for ADVERSE_EVENT
-    /// and EFFICACY table categories.
+    /// Detects and corrects systematic misclassification of values across all observation
+    /// context columns for ALL table categories (except SKIP).
     /// </summary>
     /// <remarks>
     /// ## Pipeline Position
@@ -20,16 +19,15 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// applies deterministic rules + a drug name dictionary to relocate values to their
     /// correct columns.
     ///
-    /// ## Correction Patterns
-    /// 1. TreatmentArm contains N= value → move to ArmN
-    /// 2. TreatmentArm contains format hint (%, #) → discard, recover arm from StudyContext
-    /// 3. TreatmentArm contains severity grade → move to ParameterSubtype
-    /// 4. TreatmentArm contains dose regimen → move to DoseRegimen
-    /// 5. TreatmentArm contains bare number + StudyContext has dose descriptor → reconstruct
-    /// 6. TreatmentArm contains drug+dose combined → split
-    /// 7. StudyContext contains arm name with N= → split to TreatmentArm + ArmN
-    /// 8. StudyContext contains drug name (swap needed) → swap with TreatmentArm
-    /// 9. StudyContext contains descriptor hint → clear
+    /// ## 4-Phase Processing Pipeline
+    /// 1. **Phase 1: Arm/Context Corrections** — (AE + EFFICACY) 11 ordered rules to fix
+    ///    misclassified TreatmentArm/StudyContext values
+    /// 2. **Phase 2: Content Normalization** — (ALL) DoseRegimen triage, ParameterName cleanup,
+    ///    TreatmentArm cleanup, Unit scrub, SOC mapping
+    /// 3. **Phase 3: PrimaryValueType Migration** — (ALL) Map old type strings to tightened
+    ///    enum using table category and caption context
+    /// 4. **Phase 4: Column Contract Enforcement** — (ALL) NULL out N/A columns, flag missing
+    ///    required columns, apply default BoundType
     ///
     /// All corrections are flagged in <see cref="ParsedObservation.ValidationFlags"/>
     /// with <c>COL_STD:</c> prefixed flags for audit trail.
@@ -49,9 +47,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Applies column standardization rules to the given observations. Only processes
-        /// observations with TableCategory == "ADVERSE_EVENT" or "EFFICACY"; others pass through
-        /// unchanged. Modifies observations in-place and returns the same list.
+        /// Applies 4-phase column standardization to the given observations. Processes ALL
+        /// table categories except SKIP. Modifies observations in-place and returns the same list.
         /// </summary>
         /// <param name="observations">Parsed observations from Stage 3.</param>
         /// <returns>The same list with corrected column assignments and validation flags appended.</returns>

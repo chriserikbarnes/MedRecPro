@@ -46,7 +46,8 @@ namespace MedRecProTest
             "Glycopyrrolate", "Losartan", "KANUMA", "EMPAVELI",
             "LYTGOBI", "Risperidone", "Cetirizine", "Diltiazem",
             "Warfarin", "VIAGRA", "Alogliptin", "Venlafaxine",
-            "Metformin", "Progesterone", "Clarithromycin", "Amoxicillin"
+            "Metformin", "Progesterone", "Clarithromycin", "Amoxicillin",
+            "MYCAPSSA"
         };
 
         private static readonly string[] _seedSubstanceNames = new[]
@@ -360,10 +361,12 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that PK observations are not modified by the standardization service.
+        /// Verifies that PK observations skip Phase 1 (arm correction) but Phases 2-4 still run.
+        /// Phase 1 does NOT fire for PK, so TreatmentArm stays as "(N=267)".
+        /// Phase 3 migrates Percentage→Proportion; Phase 4 nulls ParameterCategory (N/A for PK).
         /// </summary>
         [TestMethod]
-        public async Task Standardize_PkCategory_Unchanged()
+        public async Task Standardize_PkCategory_Phase1Skipped_OtherPhasesRun()
         {
             #region implementation
 
@@ -372,8 +375,11 @@ namespace MedRecProTest
             var obs = createObservation("(N=267)", "Placebo", category: "PK");
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
+            // Phase 1 skipped — TreatmentArm unchanged
             Assert.AreEqual("(N=267)", result[0].TreatmentArm);
-            assertNoFlags(result[0]);
+            // Phase 1 flags should NOT be present
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("COL_STD:ARM_") == true,
+                "Phase 1 arm correction flags should not fire for PK");
 
             context.Dispose();
             sentinel.Dispose();
@@ -895,9 +901,10 @@ namespace MedRecProTest
             var obs = createObservation("200", "Heart Study");
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            // No rule matches: bare number without dose descriptor context
+            // No Phase 1 rule matches: bare number without dose descriptor context
             Assert.AreEqual("200", result[0].TreatmentArm);
-            assertNoFlags(result[0]);
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("COL_STD:ARM_") == true,
+                "No Phase 1 arm correction should fire for bare number without dose descriptor");
 
             context.Dispose();
             sentinel.Dispose();
@@ -955,7 +962,8 @@ namespace MedRecProTest
             // Should not split because DoseRegimen already populated
             Assert.AreEqual("Mycophenolate Mofetil 2g/day", result[0].TreatmentArm);
             Assert.AreEqual("existing dose", result[0].DoseRegimen);
-            assertNoFlags(result[0]);
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("COL_STD:SPLIT_DRUG_DOSE") == true,
+                "Should not split when DoseRegimen already populated");
 
             context.Dispose();
             sentinel.Dispose();
@@ -1267,7 +1275,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// TreatmentArm="MYCAPSSA %", PrimaryValueType="Numeric"
-        /// Expected: TreatmentArm="MYCAPSSA", PrimaryValueType="Percentage".
+        /// Expected: TreatmentArm="MYCAPSSA", PrimaryValueType="Proportion" (Phase 1 sets Percentage, Phase 3 migrates to Proportion).
         /// </summary>
         [TestMethod]
         public async Task Rule10_ArmHasTrailingPercent_StrippedAndPromoted()
@@ -1283,7 +1291,7 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("MYCAPSSA", result[0].TreatmentArm);
-            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
+            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
             Assert.AreEqual("%", result[0].Unit);
             assertHasFlag(result[0], "COL_STD:ARM_STRIP_PCT");
 
@@ -1296,7 +1304,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// TreatmentArm="PLACEBO %", PrimaryValueType="Numeric"
-        /// Expected: TreatmentArm="PLACEBO", PrimaryValueType="Percentage".
+        /// Expected: TreatmentArm="PLACEBO", PrimaryValueType="Proportion" (Phase 1 sets Percentage, Phase 3 migrates to Proportion).
         /// </summary>
         [TestMethod]
         public async Task Rule10_PlaceboWithPercent_StrippedAndPromoted()
@@ -1311,7 +1319,7 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("PLACEBO", result[0].TreatmentArm);
-            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
+            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
             assertHasFlag(result[0], "COL_STD:ARM_STRIP_PCT");
 
             context.Dispose();
@@ -1323,7 +1331,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// TreatmentArm="Drug n(%)", PrimaryValueType="Numeric"
-        /// Expected: TreatmentArm="Drug", PrimaryValueType="Percentage".
+        /// Expected: TreatmentArm="Drug", PrimaryValueType="Proportion" (Phase 1 sets Percentage, Phase 3 migrates to Proportion).
         /// </summary>
         [TestMethod]
         public async Task Rule10_ArmHasTrailingNPct_StrippedAndPromoted()
@@ -1338,7 +1346,7 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("Placebo", result[0].TreatmentArm);
-            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
+            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
             assertHasFlag(result[0], "COL_STD:ARM_STRIP_PCT");
 
             context.Dispose();
@@ -1349,8 +1357,8 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// TreatmentArm="MYCAPSSA %", PrimaryValueType="Percentage" (already correct).
-        /// Expected: Arm stripped, but PrimaryValueType stays "Percentage" (no change needed).
+        /// TreatmentArm="MYCAPSSA %", PrimaryValueType="Percentage" (already set by source).
+        /// Expected: Arm stripped, PrimaryValueType migrated to "Proportion" by Phase 3.
         /// </summary>
         [TestMethod]
         public async Task Rule10_ArmHasPercent_AlreadyPercentage_StillStrips()
@@ -1366,7 +1374,7 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("MYCAPSSA", result[0].TreatmentArm);
-            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
+            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
             assertHasFlag(result[0], "COL_STD:ARM_STRIP_PCT");
 
             context.Dispose();
@@ -1659,7 +1667,9 @@ namespace MedRecProTest
             Assert.AreEqual("EVISTA", result[0].TreatmentArm);
             Assert.AreEqual("Kidney Studies", result[0].StudyContext);
             Assert.AreEqual(2557, result[0].ArmN);
-            assertNoFlags(result[0]);
+            // Phase 1 should not fire — arm is already a drug name with correct placement
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("COL_STD:ARM_") == true,
+                "No Phase 1 arm correction should fire for already-correct data");
 
             context.Dispose();
             sentinel.Dispose();
@@ -1682,7 +1692,9 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.IsNull(result[0].TreatmentArm);
-            assertNoFlags(result[0]);
+            // Phase 1 should not fire on null fields
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("COL_STD:ARM_") == true,
+                "No Phase 1 arm correction should fire for null TreatmentArm");
 
             context.Dispose();
             sentinel.Dispose();
@@ -1768,9 +1780,10 @@ namespace MedRecProTest
             // Rule 3
             Assert.AreEqual("Severe", result[2].ParameterSubtype);
 
-            // Already correct — no flag
+            // Already correct — no Phase 1 flag
             Assert.AreEqual("EVISTA", result[3].TreatmentArm);
-            assertNoFlags(result[3]);
+            Assert.IsFalse(result[3].ValidationFlags?.Contains("COL_STD:ARM_") == true,
+                "No Phase 1 arm correction should fire for already-correct EVISTA");
 
             // Rule 4
             Assert.AreEqual("10 mg", result[4].DoseRegimen);
@@ -1825,7 +1838,11 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("Heart Study", result[0].StudyContext);
-            assertNoFlags(result[0]);
+            // Phase 1 should not fire — study context is legitimate
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("COL_STD:ARM_") == true,
+                "No Phase 1 arm correction should fire for legitimate study context");
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("COL_STD:CTX_") == true,
+                "No Phase 1 context correction should fire for legitimate study context");
 
             context.Dispose();
             sentinel.Dispose();
@@ -1834,5 +1851,886 @@ namespace MedRecProTest
         }
 
         #endregion Edge Case Tests
+
+        #region Phase 2 Tests — DoseRegimen Triage
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2a: PK sub-parameter in DoseRegimen → routes to ParameterSubtype.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_DoseRegimenTriage_PkSubParam_RoutesToParameterSubtype()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.DoseRegimen = "Cmax";
+            obs.ParameterSubtype = null;
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].DoseRegimen, "DoseRegimen should be null after PK sub-param routing");
+            Assert.AreEqual("Cmax", result[0].ParameterSubtype);
+            assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_ROUTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2a: Actual dose value in DoseRegimen is preserved.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_DoseRegimenTriage_ActualDose_Preserved()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.DoseRegimen = "50 mg once daily";
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("50 mg once daily", result[0].DoseRegimen, "Actual dose should be preserved");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2a: Drug name in DoseRegimen for DDI → routes to ParameterSubtype.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_DoseRegimenTriage_CoAdminDrug_RoutesToParameterSubtype()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "DRUG_INTERACTION");
+            obs.DoseRegimen = "Omeprazole";
+            obs.ParameterSubtype = null;
+            obs.PrimaryValueType = "Ratio";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].DoseRegimen);
+            Assert.AreEqual("Omeprazole", result[0].ParameterSubtype);
+            assertHasFlag(result[0], "COL_STD:COADMIN_ROUTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2a: Residual population in DoseRegimen → routes to Population.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_DoseRegimenTriage_ResidualPopulation_RoutesToPopulation()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.DoseRegimen = "elderly";
+            obs.Population = null;
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].DoseRegimen);
+            Assert.AreEqual("elderly", result[0].Population);
+            assertHasFlag(result[0], "COL_STD:POPULATION_EXTRACTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2a: Residual timepoint in DoseRegimen → routes to Timepoint.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_DoseRegimenTriage_ResidualTimepoint_RoutesToTimepoint()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.DoseRegimen = "steady state";
+            obs.Timepoint = null;
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].DoseRegimen);
+            Assert.AreEqual("steady state", result[0].Timepoint);
+            assertHasFlag(result[0], "COL_STD:TIMEPOINT_EXTRACTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 2 Tests — DoseRegimen Triage
+
+        #region Phase 2 Tests — ParameterName Cleanup
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2b: Caption echo in ParameterName → nulled.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_ParameterName_CaptionEcho_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.ParameterName = "Table 3. Pharmacokinetic Parameters";
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].ParameterName);
+            assertHasFlag(result[0], "COL_STD:ROW_TYPE=CAPTION");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2b: Header echo "n" in ParameterName → nulled.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_ParameterName_HeaderEcho_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.ParameterName = "n";
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].ParameterName);
+            assertHasFlag(result[0], "COL_STD:ROW_TYPE=HEADER");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2b: HTML entities in ParameterName → decoded.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_ParameterName_HtmlEntities_Decoded()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.ParameterName = "ALT &gt; 3x ULN";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("ALT > 3x ULN", result[0].ParameterName);
+            assertHasFlag(result[0], "COL_STD:HTML_ENTITY_DECODED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 2 Tests — ParameterName Cleanup
+
+        #region Phase 2 Tests — TreatmentArm Cleanup
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2c: Header echo "Number of Patients" in TreatmentArm → nulled.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_TreatmentArm_HeaderEcho_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation(null, category: "PK");
+            obs.TreatmentArm = "Number of Patients";
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].TreatmentArm);
+            assertHasFlag(result[0], "COL_STD:ARM_WAS_HEADER");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2c: Generic arm label "Treatment" → nulled.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_TreatmentArm_GenericLabel_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation(null, category: "PK");
+            obs.TreatmentArm = "Treatment";
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].TreatmentArm);
+            assertHasFlag(result[0], "COL_STD:ARM_WAS_GENERIC");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 2 Tests — TreatmentArm Cleanup
+
+        #region Phase 2 Tests — Unit Scrub
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2d: Known unit passes through unchanged.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_KnownUnit_Preserved()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "mcg/mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("mcg/mL", result[0].Unit);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2d: Long unit (> 30 chars) detected as header leak → nulled.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_HeaderLeak_LongString_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "Drug Delivery Rate Including Infusion Therapy";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_HEADER_LEAK");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2d: Unit containing header keyword → nulled.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_HeaderKeyword_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "Dosage Regimen";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_HEADER_LEAK");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2d: Variant unit spelling normalized to canonical form.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_VariantSpelling_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "mcg h/mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("mcg·h/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 2 Tests — Unit Scrub
+
+        #region Phase 2 Tests — SOC Mapping
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2e: SOC variant normalized to canonical name.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_SOC_VariantNormalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.ParameterCategory = "gastrointestinal";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Gastrointestinal Disorders", result[0].ParameterCategory);
+            assertHasFlag(result[0], "COL_STD:SOC_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2e: SOC mapping only applies to ADVERSE_EVENT category.
+        /// Phase 4 nulls ParameterCategory for PK (N/A), so the value is null — but NOT
+        /// because of SOC normalization. Verify no SOC_NORMALIZED flag is present.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_SOC_NonAeCategory_Unchanged()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.ParameterCategory = "gastrointestinal";
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            // ParameterCategory is null due to Phase 4 contract enforcement (N/A for PK),
+            // NOT because of SOC normalization — verify no SOC_NORMALIZED flag
+            Assert.IsNull(result[0].ParameterCategory, "Phase 4 should null ParameterCategory for PK");
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("COL_STD:SOC_NORMALIZED") == true,
+                "SOC normalization should not apply to PK category");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 2 Tests — SOC Mapping
+
+        #region Phase 3 Tests — PrimaryValueType Migration
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3: "Mean" in PK context → "GeometricMean".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase3_PVT_MeanInPK_BecomesGeometricMean()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.PrimaryValueType = "Mean";
+            obs.Unit = "mcg/mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("GeometricMean", result[0].PrimaryValueType);
+            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Mean→GeometricMean");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3: "Mean" in AE context → "ArithmeticMean".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase3_PVT_MeanInAE_BecomesArithmeticMean()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("ArithmeticMean", result[0].PrimaryValueType);
+            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Mean→ArithmeticMean");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3: "Percentage" → "Proportion".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase3_PVT_Percentage_BecomesProportionInAllCategories()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.PrimaryValueType = "Percentage";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
+            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Percentage→Proportion");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3: "Numeric" in AE with Unit="%" → "Proportion".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase3_PVT_NumericAeWithPercent_BecomesProportionCount()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.PrimaryValueType = "Numeric";
+            obs.Unit = "%";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
+            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Numeric→Proportion");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3: "Numeric" in DDI → "GeometricMeanRatio".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase3_PVT_NumericInDDI_BecomesGeometricMeanRatio()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "DRUG_INTERACTION");
+            obs.PrimaryValueType = "Numeric";
+            obs.Unit = "ratio";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("GeometricMeanRatio", result[0].PrimaryValueType);
+            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Numeric→GeometricMeanRatio");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3: "Ratio" in DDI → "GeometricMeanRatio".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase3_PVT_RatioInDDI_BecomesGeometricMeanRatio()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "DRUG_INTERACTION");
+            obs.PrimaryValueType = "Ratio";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("GeometricMeanRatio", result[0].PrimaryValueType);
+            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Ratio→GeometricMeanRatio");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3: "RelativeRiskReduction" with "hazard" in caption → "HazardRatio".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase3_PVT_RRR_WithHazardCaption_BecomesHazardRatio()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "EFFICACY");
+            obs.PrimaryValueType = "RelativeRiskReduction";
+            obs.Caption = "Hazard Ratio for Overall Survival";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("HazardRatio", result[0].PrimaryValueType);
+            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:RelativeRiskReduction→HazardRatio");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 3 Tests — PrimaryValueType Migration
+
+        #region Phase 4 Tests — Column Contract Enforcement
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 4: N/A columns are nulled for PK (e.g., ParameterCategory).
+        /// </summary>
+        [TestMethod]
+        public async Task Phase4_NullEnforcement_PK_ParameterCategoryNulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.ParameterCategory = "Some leftover category";
+            obs.PrimaryValueType = "Mean";
+            obs.Unit = "mcg/mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].ParameterCategory, "ParameterCategory should be NULL for PK");
+            assertHasFlag(result[0], "COL_STD:NULL_ParameterCategory");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 4: N/A columns are nulled for AE (Timepoint, Time, TimeUnit).
+        /// </summary>
+        [TestMethod]
+        public async Task Phase4_NullEnforcement_AE_TimepointColumnsNulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Timepoint = "Week 24";
+            obs.Time = 24.0;
+            obs.TimeUnit = "weeks";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Timepoint, "Timepoint should be NULL for AE");
+            Assert.IsNull(result[0].Time, "Time should be NULL for AE");
+            Assert.IsNull(result[0].TimeUnit, "TimeUnit should be NULL for AE");
+            assertHasFlag(result[0], "COL_STD:NULL_Timepoint");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 4: Missing required column is flagged.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase4_MissingRequired_AE_MissingTreatmentArm_Flagged()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation(null);
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            assertHasFlag(result[0], "COL_STD:MISSING_R_TreatmentArm");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 4: Default BoundType applied for DDI with bounds but no BoundType.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase4_DefaultBoundType_DDI_Gets90CI()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "DRUG_INTERACTION");
+            obs.PrimaryValueType = "Ratio";
+            obs.LowerBound = 0.80;
+            obs.UpperBound = 1.25;
+            obs.BoundType = null;
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("90CI", result[0].BoundType);
+            assertHasFlag(result[0], "COL_STD:BOUND_TYPE_INFERRED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 4: Default BoundType applied for EFFICACY with bounds → 95CI.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase4_DefaultBoundType_Efficacy_Gets95CI()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "EFFICACY");
+            obs.PrimaryValueType = "RelativeRiskReduction";
+            obs.LowerBound = 0.45;
+            obs.UpperBound = 0.88;
+            obs.BoundType = null;
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("95CI", result[0].BoundType);
+            assertHasFlag(result[0], "COL_STD:BOUND_TYPE_INFERRED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 4: Existing BoundType is NOT overwritten.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase4_DefaultBoundType_ExistingBoundType_Preserved()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.PrimaryValueType = "Mean";
+            obs.LowerBound = 10.0;
+            obs.UpperBound = 20.0;
+            obs.BoundType = "90CI";
+            obs.Unit = "mcg/mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("90CI", result[0].BoundType, "Existing BoundType should not be overwritten");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 4 Tests — Column Contract Enforcement
+
+        #region Cross-Category Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// PK observations are now processed (not skipped).
+        /// </summary>
+        [TestMethod]
+        public async Task CrossCategory_PK_NowProcessed()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.PrimaryValueType = "Mean";
+            obs.Unit = "mcg/mL";
+            obs.ParameterCategory = "ShouldBeNulled";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            // Phase 3 should migrate Mean → GeometricMean for PK
+            Assert.AreEqual("GeometricMean", result[0].PrimaryValueType);
+            // Phase 4 should null ParameterCategory (N/A for PK)
+            Assert.IsNull(result[0].ParameterCategory);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// DOSING observations are now processed.
+        /// </summary>
+        [TestMethod]
+        public async Task CrossCategory_Dosing_NowProcessed()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation(null, category: "DOSING");
+            obs.ParameterName = "Starting Dose";
+            obs.PrimaryValueType = "Numeric";
+            obs.DoseRegimen = "20 mg";
+            obs.Population = "Adult";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            // Phase 3: Numeric stays as Numeric for DOSING (prescriptive)
+            Assert.AreEqual("Numeric", result[0].PrimaryValueType);
+            // Phase 4: ArmN should be null (N/A for DOSING)
+            Assert.IsNull(result[0].ArmN);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// SKIP category is still skipped by all phases.
+        /// </summary>
+        [TestMethod]
+        public async Task CrossCategory_Skip_StillSkipped()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "SKIP");
+            obs.PrimaryValueType = "Mean";
+            obs.ParameterCategory = "ShouldNotBeNulled";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            // Nothing should change for SKIP
+            Assert.AreEqual("Mean", result[0].PrimaryValueType);
+            Assert.AreEqual("ShouldNotBeNulled", result[0].ParameterCategory);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Cross-Category Tests
     }
 }

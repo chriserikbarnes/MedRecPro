@@ -1223,3 +1223,31 @@ New helper method that searches the loaded drug dictionary (ProductName + Substa
 **Tests:** 56 total (7 new for Rule 10/11), all passing. Key test: batch simulation of the actual LYRICA/pregabalin table from the screenshot — all 6 arm variants correctly decomposed.
 
 ---
+
+### 2026-03-26 2:04 PM EST — Implement Column Contracts in ColumnStandardizationService
+
+Refactored the Stage 3.25 `ColumnStandardizationService` from a single-pass AE/EFFICACY-only column fixer into a 4-phase pipeline that processes ALL table categories (PK, DDI, Dosing, BMD, TissueDistribution, etc.). This enforces the per-TableCategory column contracts defined in the data dictionary skill.
+
+**Phase 1 (unchanged):** Existing 11 arm/context correction rules for AE+EFFICACY — wrapped into `applyPhase1_ArmContextCorrections()` with zero logic changes.
+
+**Phase 2 (new) — Content Normalization:** Five sub-methods running on all categories:
+- `normalizeDoseRegimen` — triages PK sub-params (Cmax, AUC, etc.) and co-admin drug names out of DoseRegimen into ParameterSubtype; routes residual population/timepoint to their correct columns
+- `normalizeParameterName` — detects and nulls caption echoes ("Table 3...") and header echoes ("n"), routes bare dose integers to DoseRegimen, decodes HTML entities
+- `normalizeTreatmentArm` — nulls header echoes ("Number of Patients"), generic labels ("Treatment", "PD"), extracts study names to StudyContext
+- `normalizeUnit` — detects leaked column headers (>30 chars, drug names, keywords like "Regimen"/"Dosage"), normalizes variant spellings ("mcg h/mL" → "mcg·h/mL"), extracts real units from verbose descriptions
+- `normalizeParameterCategory` — canonical MedDRA SOC mapping (~55 variants → 26 canonical names) with OCR artifact repair, AE-only
+
+**Phase 3 (new) — PrimaryValueType Migration:** Maps old enum values to the tightened 15-value enum using TableCategory + Caption context. Key mappings: Mean → GeometricMean (PK/DDI) or ArithmeticMean (AE), Percentage → Proportion, RelativeRiskReduction → HazardRatio/OddsRatio/RelativeRisk based on caption, Numeric → context-resolved per category.
+
+**Phase 4 (new) — Column Contract Enforcement:** Static `_columnContracts` dictionary defines R/E/O/N requirements for 13 observation context columns across 7 table categories. NULLs out N/A columns (e.g., Timepoint for AE, ParameterCategory for PK), flags missing Required columns (`COL_STD:MISSING_R_{Column}`), applies default BoundType when bounds are present but type is missing (90CI for PK/DDI, 95CI for Efficacy/BMD).
+
+**Supporting changes:**
+- `TableParsingOrchestrator.cs` — removed AE/EFFICACY category gate at 2 call sites
+- `RowValidationService.cs` — added new PVT values (GeometricMean, ArithmeticMean, Proportion, HazardRatio, etc.) to allowed sets + new DRUG_INTERACTION entry
+- `IColumnStandardizationService.cs` — updated XML docs to reflect all-category processing
+
+**Static dictionaries added:** `_pkSubParams` (35 PK parameter names), `_knownUnits` (~80 canonical units), `_unitNormalizationMap` (variant→canonical), `_unitHeaderKeywords` (13 leak indicators), `_socCanonicalMap` (~55 SOC variants), `_pvtDirectMap` (9 direct PVT mappings), `_columnContracts` (7 categories × 13 columns), `_defaultBoundType` (5 category defaults).
+
+**Tests:** 88 total (35 new + 53 existing), all passing. New tests cover each Phase 2 sub-method, Phase 3 migration paths, Phase 4 contract enforcement, and cross-category processing verification.
+
+---

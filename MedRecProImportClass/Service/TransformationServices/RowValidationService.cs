@@ -95,12 +95,23 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         private static readonly Dictionary<string, HashSet<string>> _allowedValueTypesByCategory = new()
         {
-            ["PK"] = new() { "Mean", "Median", "Numeric", "Ratio", "Text", "CodedExclusion", "SampleSize" },
-            ["ADVERSE_EVENT"] = new() { "Percentage", "Count", "Numeric", "CodedExclusion", "Text", "RiskDifference", "RelativeRiskReduction", "PValue", "SampleSize" },
-            ["EFFICACY"] = new() { "Percentage", "Count", "Numeric", "Mean", "Median", "RiskDifference", "RelativeRiskReduction", "Ratio", "PValue", "Text", "CodedExclusion", "SampleSize", "MeanPercentChange" },
-            ["BMD"] = new() { "MeanPercentChange", "Percentage", "Numeric", "Mean", "Text" },
-            ["TISSUE_DISTRIBUTION"] = new() { "Ratio", "Numeric", "Text" },
-            ["DOSING"] = new() { "Numeric", "Percentage", "Mean", "Text", "SampleSize" }
+            ["PK"] = new() { "Mean", "Median", "Numeric", "Ratio", "Text", "CodedExclusion", "SampleSize",
+                             "GeometricMean", "ArithmeticMean", "LSMean", "GeometricMeanRatio" },
+            ["ADVERSE_EVENT"] = new() { "Percentage", "Count", "Numeric", "CodedExclusion", "Text", "RiskDifference",
+                                        "RelativeRiskReduction", "PValue", "SampleSize",
+                                        "Proportion" },
+            ["EFFICACY"] = new() { "Percentage", "Count", "Numeric", "Mean", "Median", "RiskDifference",
+                                    "RelativeRiskReduction", "Ratio", "PValue", "Text", "CodedExclusion",
+                                    "SampleSize", "MeanPercentChange",
+                                    "Proportion", "HazardRatio", "OddsRatio", "RelativeRisk", "PercentChange",
+                                    "ArithmeticMean", "GeometricMean", "LSMean" },
+            ["BMD"] = new() { "MeanPercentChange", "Percentage", "Numeric", "Mean", "Text",
+                              "PercentChange", "ArithmeticMean" },
+            ["TISSUE_DISTRIBUTION"] = new() { "Ratio", "Numeric", "Text",
+                                               "ArithmeticMean", "GeometricMean" },
+            ["DOSING"] = new() { "Numeric", "Percentage", "Mean", "Text", "SampleSize" },
+            ["DRUG_INTERACTION"] = new() { "GeometricMeanRatio", "GeometricMean", "Ratio", "Numeric", "Text",
+                                           "Mean", "Median" }
         };
 
         #endregion Fields

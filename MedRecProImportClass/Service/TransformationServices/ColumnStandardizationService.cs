@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
 using Microsoft.EntityFrameworkCore;
@@ -8,8 +9,8 @@ namespace MedRecProImportClass.Service.TransformationServices
     /**************************************************************/
     /// <summary>
     /// Deterministic, rule-based column standardization service that detects and corrects
-    /// systematic misclassification of values across TreatmentArm, ArmN, DoseRegimen,
-    /// StudyContext, and ParameterSubtype columns.
+    /// systematic misclassification of values across all observation context columns.
+    /// Processes ALL table categories (except SKIP) through a 4-phase pipeline.
     /// </summary>
     /// <remarks>
     /// ## Drug Name Dictionary
@@ -18,14 +19,17 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// doses, sample sizes, and other metadata.
     ///
     /// ## Processing Phases
-    /// 1. **Classify** — Determine what type of content is in TreatmentArm and StudyContext
-    /// 2. **Correct** — Apply 9 ordered rules to relocate values to correct columns
-    /// 3. **Flag** — Append audit flags to ValidationFlags
+    /// 1. **Phase 1: Arm/Context Corrections** — (AE + EFFICACY only) Apply 11 ordered rules
+    ///    to relocate misclassified TreatmentArm/StudyContext values
+    /// 2. **Phase 2: Content Normalization** — (ALL categories) DoseRegimen triage,
+    ///    ParameterName cleanup, TreatmentArm cleanup, Unit scrub, SOC mapping
+    /// 3. **Phase 3: PrimaryValueType Migration** — (ALL categories) Map old type strings
+    ///    to tightened enum values using table category and caption context
+    /// 4. **Phase 4: Column Contract Enforcement** — (ALL categories) NULL out N/A columns,
+    ///    flag missing required columns, apply default BoundType
     ///
-    /// ## Rule Ordering
-    /// Rules are applied most-specific to least-specific:
-    /// N= values → format hints → severity grades → pure doses → bare numbers →
-    /// drug+dose splits → embedded N in context → arm/context swap → descriptor clearing
+    /// All corrections are flagged in <see cref="ParsedObservation.ValidationFlags"/>
+    /// with <c>COL_STD:</c> prefixed flags for audit trail.
     /// </remarks>
     /// <seealso cref="IColumnStandardizationService"/>
     /// <seealso cref="ParsedObservation"/>
@@ -79,6 +83,432 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>Whether the dictionary has been loaded.</summary>
         private bool _initialized;
+
+        /**************************************************************/
+        /// <summary>Whether the category should skip Phase 1 arm/context corrections (only AE+EFFICACY apply).</summary>
+        private static bool isPhase1Category(string? category) =>
+            string.Equals(category, "ADVERSE_EVENT", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(category, "EFFICACY", StringComparison.OrdinalIgnoreCase);
+
+        #region Phase 2 Static Dictionaries
+
+        /**************************************************************/
+        /// <summary>
+        /// PK sub-parameter names that should NOT be in DoseRegimen.
+        /// When found in DoseRegimen, route to ParameterSubtype.
+        /// </summary>
+        private static readonly HashSet<string> _pkSubParams = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Cmax", "Cmin", "Tmax", "AUC", "AUC0-inf", "AUC0-t", "AUC0-24", "AUCtau",
+            "AUC(0-inf)", "AUC(0-t)", "AUC(0-24)", "AUClast",
+            "t1/2", "t½", "half-life", "elimination half-life",
+            "CL/F", "CLss/F", "CL", "CLss", "Clearance", "Apparent Clearance",
+            "V/F", "Vd/F", "Vss", "Vd", "Vz/F", "Volume of Distribution",
+            "ke", "MRT", "MAT", "F(%)", "Bioavailability",
+            "CV(%)", "Cavg", "Cthrough", "Ctrough"
+        };
+
+        /**************************************************************/
+        /// <summary>Regex to detect PK sub-parameter names in DoseRegimen (prefix match).</summary>
+        private static readonly Regex _pkSubParamPrefixPattern = new(
+            @"^(?:AUC|Cmax|Cmin|Tmax|CL(?:/F|ss)?|V(?:d|ss|z)?(?:/F)?|t(?:1/2|½)|half-?life|clearance|volume\s+of\s+distribution|MRT|MAT|ke|bioavailability|F\s*\(?\s*%\s*\)?|CV\s*\(?\s*%\s*\)?|Serum\b)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>Regex to detect residual population content in DoseRegimen.</summary>
+        private static readonly Regex _residualPopulationPattern = new(
+            @"^(?:adult|pediatric|elderly|geriatric|renal|hepatic|child(?:ren)?|healthy|volunteer|neonat|\d+-\d+\s*(?:kg|years?))",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>Regex to detect residual timepoint content in DoseRegimen.</summary>
+        private static readonly Regex _residualTimepointPattern = new(
+            @"^(?:day|week|month|cycle|baseline|steady[\s\-]?state|single[\s\-]?dose|pre[\s\-]?dose|visit|hour)\s*\d*",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>Regex to detect actual dose content — keeps DoseRegimen value.</summary>
+        private static readonly Regex _actualDosePattern = new(
+            @"\d+\.?\d*\s*(?:mg|mcg|µg|g|mL|units?|IU)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>Regex to detect caption echo rows in ParameterName.</summary>
+        private static readonly Regex _captionEchoPattern = new(
+            @"^Table\s+\d|Pharmacokinetic\s+Parameters|Geometric\s+Mean\s+Ratio\s*\(|Drug\s+Interactions\s*:",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>Regex to detect header echo rows in ParameterName (bare "n" or "N").</summary>
+        private static readonly Regex _paramHeaderEchoPattern = new(
+            @"^[nN]\s*(?:\(|$)",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>Common bare dose integers that indicate a dose level, not a parameter name.</summary>
+        private static readonly HashSet<string> _bareDoseLevels = new()
+        {
+            "5", "10", "15", "20", "25", "30", "40", "50", "100", "150", "200",
+            "250", "300", "400", "500", "600", "800", "1200", "1600", "2400", "3600"
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Regex to detect header echo patterns in TreatmentArm.
+        /// Matches: "Number of Patients", "Percent of Subjects", "Percentage Reporting"
+        /// </summary>
+        private static readonly Regex _armHeaderEchoPattern = new(
+            @"(?:Number|Percent(?:age)?)\s+(?:of\s+)?(?:Patients|Subjects|Reporting)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>Generic arm labels that carry no semantic information.</summary>
+        private static readonly HashSet<string> _genericArmLabels = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Comparison", "Treatment", "PD", "SAD"
+        };
+
+        /**************************************************************/
+        /// <summary>Regex to detect study name patterns (all-caps short tokens).</summary>
+        private static readonly Regex _studyNamePattern = new(
+            @"^[A-Z][A-Z0-9\-]{2,15}(?:\s+\d+)?$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>Regex to extract embedded dose from TreatmentArm (e.g., "150 mg/d").</summary>
+        private static readonly Regex _armEmbeddedDosePattern = new(
+            @"(\d+\.?\d*\s*(?:mg|mcg|µg|g|mL|IU|units?)(?:\s*/\s*(?:day|d|kg|m²))?)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Known canonical units — values that are legitimate Unit field content.
+        /// </summary>
+        private static readonly HashSet<string> _knownUnits = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "%", "%CV", "h", "hr", "min", "days", "weeks", "months", "years",
+            "mg", "mcg", "µg", "g", "kg",
+            "mcg/mL", "ng/mL", "pg/mL", "µg/mL", "mg/L", "ng/dL", "mg/dL",
+            "mcg·h/mL", "ng·h/mL", "µg·h/mL", "pg·h/mL",
+            "mL/min", "mL/min/kg", "L/h", "L/h/kg", "mL/h/kg",
+            "L", "mL", "L/kg",
+            "mcg/kg/min", "mg/h", "IU/mL",
+            "mg/kg", "mcg/kg", "mg/m²", "mg/kg/day",
+            "ratio", "g/cm²", "beats/min", "mmHg", "mEq/L", "mOsm/kg",
+            "percentage points", "subjects", "events", "patients",
+            "ng/g", "mcg/g",
+            "mg/day", "mg/d", "mcg/day"
+        };
+
+        /**************************************************************/
+        /// <summary>Unit variant normalization map — non-canonical spelling → canonical form.</summary>
+        private static readonly Dictionary<string, string> _unitNormalizationMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["mcg h/mL"] = "mcg·h/mL",
+            ["mcgh/mL"] = "mcg·h/mL",
+            ["ng h/mL"] = "ng·h/mL",
+            ["ngh/mL"] = "ng·h/mL",
+            ["nghr/mL"] = "ng·h/mL",
+            ["ug/mL"] = "mcg/mL",
+            ["ug/mL"] = "mcg/mL",
+            ["L/kghr"] = "L/kg/h",
+            ["hrs"] = "h",
+            ["hr"] = "h",
+            ["pp"] = "percentage points",
+            ["percent"] = "%",
+            ["pct"] = "%"
+        };
+
+        /**************************************************************/
+        /// <summary>Keywords indicating a Unit value is actually a leaked column header.</summary>
+        private static readonly HashSet<string> _unitHeaderKeywords = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Regimen", "Dosage", "Patients", "Titration", "Starting",
+            "Recommended", "Duration", "TAKING", "Tablets", "Injection",
+            "Therapy", "Combination", "Divided", "Subjects"
+        };
+
+        /**************************************************************/
+        /// <summary>Regex to extract a real unit from inside a verbose description.</summary>
+        private static readonly Regex _extractableUnitPattern = new(
+            @"\(([^)]{1,20})\)\s*$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Canonical MedDRA SOC mapping — normalizes ~140 variants to 26 canonical names.
+        /// Only applies when TableCategory = ADVERSE_EVENT.
+        /// </summary>
+        private static readonly Dictionary<string, string> _socCanonicalMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // Blood and Lymphatic System Disorders
+            ["blood and lymphatic system disorders"] = "Blood and Lymphatic System Disorders",
+            ["blood and lymphatic"] = "Blood and Lymphatic System Disorders",
+            ["hematologic"] = "Blood and Lymphatic System Disorders",
+            ["hemic and lymphatic system"] = "Blood and Lymphatic System Disorders",
+            // Cardiac Disorders
+            ["cardiac disorders"] = "Cardiac Disorders",
+            ["cardiac"] = "Cardiac Disorders",
+            // Ear and Labyrinth Disorders
+            ["ear and labyrinth disorders"] = "Ear and Labyrinth Disorders",
+            ["ear disorders"] = "Ear and Labyrinth Disorders",
+            // Endocrine Disorders
+            ["endocrine disorders"] = "Endocrine Disorders",
+            // Eye Disorders
+            ["eye disorders"] = "Eye Disorders",
+            ["special senses"] = "Eye Disorders",
+            ["eye disorders (other than field or acuity changes)"] = "Eye Disorders",
+            // Gastrointestinal Disorders
+            ["gastrointestinal disorders"] = "Gastrointestinal Disorders",
+            ["gastrointestinal"] = "Gastrointestinal Disorders",
+            ["digestive system"] = "Gastrointestinal Disorders",
+            ["gastro - intestinal system disorders"] = "Gastrointestinal Disorders",
+            ["gastro-intestinal system disorders"] = "Gastrointestinal Disorders",
+            // General Disorders and Administration Site Conditions
+            ["general disorders and administration site conditions"] = "General Disorders",
+            ["general disorders"] = "General Disorders",
+            ["body as a whole"] = "General Disorders",
+            // Hepatobiliary Disorders
+            ["hepatobiliary disorders"] = "Hepatobiliary Disorders",
+            ["liver and biliary system disorders"] = "Hepatobiliary Disorders",
+            // Immune System Disorders
+            ["immune system disorders"] = "Immune System Disorders",
+            // Infections and Infestations
+            ["infections and infestations"] = "Infections and Infestations",
+            ["resistance mechanism disorders"] = "Infections and Infestations",
+            // Injury, Poisoning and Procedural Complications
+            ["injury, poisoning and procedural complications"] = "Injury, Poisoning and Procedural Complications",
+            // Investigations
+            ["investigations"] = "Investigations",
+            // Metabolism and Nutrition Disorders
+            ["metabolism and nutrition disorders"] = "Metabolism and Nutrition Disorders",
+            ["metabolic and nutritional"] = "Metabolism and Nutrition Disorders",
+            // Musculoskeletal and Connective Tissue Disorders
+            ["musculoskeletal and connective tissue disorders"] = "Musculoskeletal Disorders",
+            ["musculoskeletal disorders"] = "Musculoskeletal Disorders",
+            ["musculo-skeletal system disorders"] = "Musculoskeletal Disorders",
+            // Neoplasms Benign, Malignant and Unspecified
+            ["neoplasms benign, malignant and unspecified"] = "Neoplasms",
+            // Nervous System Disorders
+            ["nervous system disorders"] = "Nervous System Disorders",
+            ["nervous system"] = "Nervous System Disorders",
+            ["central & peripheral nervous system disorders"] = "Nervous System Disorders",
+            ["central and peripheral nervous system disorders"] = "Nervous System Disorders",
+            ["cns"] = "Nervous System Disorders",
+            // Psychiatric Disorders
+            ["psychiatric disorders"] = "Psychiatric Disorders",
+            ["psychiatric"] = "Psychiatric Disorders",
+            // Renal and Urinary Disorders
+            ["renal and urinary disorders"] = "Renal and Urinary Disorders",
+            ["urogenital system"] = "Renal and Urinary Disorders",
+            // Reproductive System and Breast Disorders
+            ["reproductive system and breast disorders"] = "Reproductive System and Breast Disorders",
+            // Respiratory, Thoracic and Mediastinal Disorders
+            ["respiratory, thoracic and mediastinal disorders"] = "Respiratory Disorders",
+            ["respiratory disorders"] = "Respiratory Disorders",
+            ["respiratory system"] = "Respiratory Disorders",
+            // Skin and Subcutaneous Tissue Disorders
+            ["skin and subcutaneous tissue disorders"] = "Skin and Subcutaneous Tissue Disorders",
+            ["skin and subcutaneous tissues disorders"] = "Skin and Subcutaneous Tissue Disorders",
+            ["skin"] = "Skin and Subcutaneous Tissue Disorders",
+            ["dermatologic"] = "Skin and Subcutaneous Tissue Disorders",
+            // Vascular Disorders
+            ["vascular disorders"] = "Vascular Disorders",
+            ["cardiovascular"] = "Vascular Disorders"
+        };
+
+        /**************************************************************/
+        /// <summary>Regex to collapse OCR spacing artifacts in SOC names.</summary>
+        private static readonly Regex _ocrSpacingPattern = new(
+            @"(?<=\w)\s+(?=\w(?:\s+\w)*ders\b)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>Regex to collapse isolated single characters with spaces (OCR artifacts).</summary>
+        private static readonly Regex _ocrSingleCharPattern = new(
+            @"(?<=[A-Za-z])\s([A-Za-z])\s(?=[A-Za-z])",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>Regex to detect HTML entities in text.</summary>
+        private static readonly Regex _htmlEntityPattern = new(
+            @"&(?:gt|lt|amp|quot|apos|nbsp);",
+            RegexOptions.Compiled);
+
+        #endregion Phase 2 Static Dictionaries
+
+        #region Phase 3 Static Dictionaries
+
+        /**************************************************************/
+        /// <summary>
+        /// PrimaryValueType direct migration map — old value → new value.
+        /// Context-dependent migrations (Mean, Numeric, RelativeRiskReduction)
+        /// are handled in code, not in this map.
+        /// </summary>
+        private static readonly Dictionary<string, string> _pvtDirectMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Percentage"] = "Proportion",
+            ["MeanPercentChange"] = "PercentChange",
+            ["RiskDifference"] = "RiskDifference",
+            ["Median"] = "Median",
+            ["Count"] = "Count",
+            ["Text"] = "Text",
+            ["PValue"] = "PValue",
+            ["SampleSize"] = "SampleSize",
+            ["CodedExclusion"] = "CodedExclusion"
+        };
+
+        #endregion Phase 3 Static Dictionaries
+
+        #region Phase 4 Column Contract Definitions
+
+        /**************************************************************/
+        /// <summary>Column requirement level for contract enforcement.</summary>
+        private enum ColumnRequirement
+        {
+            /// <summary>Must be populated — flag if missing.</summary>
+            Required,
+            /// <summary>Usually populated — no flag, but tracked in completeness.</summary>
+            Expected,
+            /// <summary>Populated when data stratifies on this dimension.</summary>
+            Optional,
+            /// <summary>Must be NULL for this table type — enforce null.</summary>
+            NotApplicable
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Per-TableCategory column contracts. Keys are observation context column names.
+        /// Provenance, Classification, and Validation columns are not enforced here (always populated by parser).
+        /// </summary>
+        private static readonly Dictionary<string, Dictionary<string, ColumnRequirement>> _columnContracts = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ADVERSE_EVENT"] = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ParameterName"] = ColumnRequirement.Required,
+                ["ParameterCategory"] = ColumnRequirement.Expected,
+                ["ParameterSubtype"] = ColumnRequirement.Optional,
+                ["TreatmentArm"] = ColumnRequirement.Required,
+                ["ArmN"] = ColumnRequirement.Expected,
+                ["StudyContext"] = ColumnRequirement.Optional,
+                ["DoseRegimen"] = ColumnRequirement.Optional,
+                ["Population"] = ColumnRequirement.Optional,
+                ["Timepoint"] = ColumnRequirement.NotApplicable,
+                ["Time"] = ColumnRequirement.NotApplicable,
+                ["TimeUnit"] = ColumnRequirement.NotApplicable,
+                ["PrimaryValueType"] = ColumnRequirement.Required,
+                ["Unit"] = ColumnRequirement.Expected
+            },
+            ["PK"] = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ParameterName"] = ColumnRequirement.Required,
+                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
+                ["ParameterSubtype"] = ColumnRequirement.Optional,
+                ["TreatmentArm"] = ColumnRequirement.Optional,
+                ["ArmN"] = ColumnRequirement.Optional,
+                ["StudyContext"] = ColumnRequirement.Optional,
+                ["DoseRegimen"] = ColumnRequirement.Expected,
+                ["Population"] = ColumnRequirement.Optional,
+                ["Timepoint"] = ColumnRequirement.Optional,
+                ["Time"] = ColumnRequirement.Optional,
+                ["TimeUnit"] = ColumnRequirement.Optional,
+                ["PrimaryValueType"] = ColumnRequirement.Required,
+                ["Unit"] = ColumnRequirement.Required
+            },
+            ["DRUG_INTERACTION"] = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ParameterName"] = ColumnRequirement.Required,
+                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
+                ["ParameterSubtype"] = ColumnRequirement.Required,
+                ["TreatmentArm"] = ColumnRequirement.Expected,
+                ["ArmN"] = ColumnRequirement.Optional,
+                ["StudyContext"] = ColumnRequirement.Optional,
+                ["DoseRegimen"] = ColumnRequirement.Expected,
+                ["Population"] = ColumnRequirement.Optional,
+                ["Timepoint"] = ColumnRequirement.NotApplicable,
+                ["Time"] = ColumnRequirement.NotApplicable,
+                ["TimeUnit"] = ColumnRequirement.NotApplicable,
+                ["PrimaryValueType"] = ColumnRequirement.Required,
+                ["Unit"] = ColumnRequirement.Optional
+            },
+            ["EFFICACY"] = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ParameterName"] = ColumnRequirement.Required,
+                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
+                ["ParameterSubtype"] = ColumnRequirement.Optional,
+                ["TreatmentArm"] = ColumnRequirement.Required,
+                ["ArmN"] = ColumnRequirement.Expected,
+                ["StudyContext"] = ColumnRequirement.Optional,
+                ["DoseRegimen"] = ColumnRequirement.Optional,
+                ["Population"] = ColumnRequirement.Optional,
+                ["Timepoint"] = ColumnRequirement.Optional,
+                ["Time"] = ColumnRequirement.Optional,
+                ["TimeUnit"] = ColumnRequirement.Optional,
+                ["PrimaryValueType"] = ColumnRequirement.Required,
+                ["Unit"] = ColumnRequirement.Optional
+            },
+            ["DOSING"] = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ParameterName"] = ColumnRequirement.Required,
+                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
+                ["ParameterSubtype"] = ColumnRequirement.Optional,
+                ["TreatmentArm"] = ColumnRequirement.Optional,
+                ["ArmN"] = ColumnRequirement.NotApplicable,
+                ["StudyContext"] = ColumnRequirement.NotApplicable,
+                ["DoseRegimen"] = ColumnRequirement.Expected,
+                ["Population"] = ColumnRequirement.Expected,
+                ["Timepoint"] = ColumnRequirement.Optional,
+                ["Time"] = ColumnRequirement.Optional,
+                ["TimeUnit"] = ColumnRequirement.Optional,
+                ["PrimaryValueType"] = ColumnRequirement.Optional,
+                ["Unit"] = ColumnRequirement.Optional
+            },
+            ["BMD"] = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ParameterName"] = ColumnRequirement.Required,
+                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
+                ["ParameterSubtype"] = ColumnRequirement.NotApplicable,
+                ["TreatmentArm"] = ColumnRequirement.Required,
+                ["ArmN"] = ColumnRequirement.Expected,
+                ["StudyContext"] = ColumnRequirement.Optional,
+                ["DoseRegimen"] = ColumnRequirement.Optional,
+                ["Population"] = ColumnRequirement.Optional,
+                ["Timepoint"] = ColumnRequirement.Expected,
+                ["Time"] = ColumnRequirement.Expected,
+                ["TimeUnit"] = ColumnRequirement.Expected,
+                ["PrimaryValueType"] = ColumnRequirement.Required,
+                ["Unit"] = ColumnRequirement.Expected
+            },
+            ["TISSUE_DISTRIBUTION"] = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ParameterName"] = ColumnRequirement.Required,
+                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
+                ["ParameterSubtype"] = ColumnRequirement.NotApplicable,
+                ["TreatmentArm"] = ColumnRequirement.Optional,
+                ["ArmN"] = ColumnRequirement.Optional,
+                ["StudyContext"] = ColumnRequirement.NotApplicable,
+                ["DoseRegimen"] = ColumnRequirement.Expected,
+                ["Population"] = ColumnRequirement.Optional,
+                ["Timepoint"] = ColumnRequirement.Expected,
+                ["Time"] = ColumnRequirement.Expected,
+                ["TimeUnit"] = ColumnRequirement.Expected,
+                ["PrimaryValueType"] = ColumnRequirement.Required,
+                ["Unit"] = ColumnRequirement.Required
+            }
+        };
+
+        /**************************************************************/
+        /// <summary>Default BoundType by TableCategory when bounds are present but BoundType is null.</summary>
+        private static readonly Dictionary<string, string> _defaultBoundType = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PK"] = "90CI",
+            ["DRUG_INTERACTION"] = "90CI",
+            ["EFFICACY"] = "95CI",
+            ["BMD"] = "95CI",
+            ["ADVERSE_EVENT"] = "95CI"
+        };
+
+        #endregion Phase 4 Column Contract Definitions
 
         #endregion Fields
 
@@ -349,11 +779,11 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Applies column standardization rules to observations. Only processes ADVERSE_EVENT
-        /// and EFFICACY categories. Modifies observations in-place.
+        /// Applies 4-phase column standardization to all observations. Processes ALL table
+        /// categories (except SKIP). Modifies observations in-place.
         /// </summary>
         /// <param name="observations">Parsed observations from Stage 3.</param>
-        /// <returns>The same list with corrected column assignments.</returns>
+        /// <returns>The same list with corrected column assignments and validation flags appended.</returns>
         public List<ParsedObservation> Standardize(List<ParsedObservation> observations)
         {
             #region implementation
@@ -368,50 +798,28 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             foreach (var obs in observations)
             {
-                // Only process ADVERSE_EVENT and EFFICACY
-                if (!isTargetCategory(obs.TableCategory))
+                // Skip non-processable categories
+                if (string.Equals(obs.TableCategory, "SKIP", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 // Skip comparison/stat rows
                 if (string.Equals(obs.TreatmentArm, "Comparison", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                // Rule 11 (structural): bracketed [N=xxx] in TreatmentArm — runs first
-                // because it's a specific structural pattern that other rules could misclassify
-                if (applyRule11_ArmHasBracketedN(obs))
+                // Phase 1: Arm/context corrections (AE + EFFICACY only — existing Rules 1-11)
+                if (isPhase1Category(obs.TableCategory))
                 {
-                    correctionCount++;
+                    correctionCount += applyPhase1_ArmContextCorrections(obs);
                 }
 
-                var armType = classifyContent(obs.TreatmentArm);
-                var ctxType = classifyContent(obs.StudyContext);
+                // Phase 2: Content normalization (ALL categories)
+                correctionCount += applyPhase2_ContentNormalization(obs);
 
-                // Apply rules in priority order (most specific first)
-                if (applyRule1_ArmIsN(obs, armType, ctxType) ||
-                    applyRule2_ArmIsFormatHint(obs, armType, ctxType) ||
-                    applyRule3_ArmIsSeverity(obs, armType, ctxType) ||
-                    applyRule4_ArmIsDose(obs, armType, ctxType) ||
-                    applyRule5_ArmIsBareNumber(obs, armType, ctxType) ||
-                    applyRule6_ArmIsDrugPlusDose(obs, armType))
-                {
-                    correctionCount++;
-                    // Re-classify after arm correction for subsequent context rules
-                    ctxType = classifyContent(obs.StudyContext);
-                }
+                // Phase 3: PrimaryValueType migration (ALL categories)
+                correctionCount += applyPhase3_PrimaryValueTypeMigration(obs);
 
-                // Context rules (can apply independently or after arm correction)
-                if (applyRule7_CtxIsArmWithN(obs, ctxType))
-                    correctionCount++;
-
-                if (applyRule8_CtxIsDrugName(obs, ctxType))
-                    correctionCount++;
-
-                if (applyRule9_CtxIsDescriptor(obs, ctxType))
-                    correctionCount++;
-
-                // Rule 10: Strip trailing % from arm name and promote Numeric → Percentage
-                if (applyRule10_ArmHasTrailingPercent(obs))
-                    correctionCount++;
+                // Phase 4: Column contract enforcement (ALL categories)
+                correctionCount += applyPhase4_ColumnContractEnforcement(obs);
             }
 
             if (correctionCount > 0)
@@ -426,6 +834,60 @@ namespace MedRecProImportClass.Service.TransformationServices
         }
 
         #endregion IColumnStandardizationService Implementation
+
+        #region Phase 1: Arm/Context Corrections
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 1: Applies the original 11 arm/context correction rules.
+        /// Only runs for ADVERSE_EVENT and EFFICACY categories.
+        /// </summary>
+        /// <returns>Number of corrections applied.</returns>
+        private int applyPhase1_ArmContextCorrections(ParsedObservation obs)
+        {
+            #region implementation
+
+            int corrections = 0;
+
+            // Rule 11 (structural): bracketed [N=xxx] in TreatmentArm — runs first
+            if (applyRule11_ArmHasBracketedN(obs))
+                corrections++;
+
+            var armType = classifyContent(obs.TreatmentArm);
+            var ctxType = classifyContent(obs.StudyContext);
+
+            // Apply rules in priority order (most specific first)
+            if (applyRule1_ArmIsN(obs, armType, ctxType) ||
+                applyRule2_ArmIsFormatHint(obs, armType, ctxType) ||
+                applyRule3_ArmIsSeverity(obs, armType, ctxType) ||
+                applyRule4_ArmIsDose(obs, armType, ctxType) ||
+                applyRule5_ArmIsBareNumber(obs, armType, ctxType) ||
+                applyRule6_ArmIsDrugPlusDose(obs, armType))
+            {
+                corrections++;
+                ctxType = classifyContent(obs.StudyContext);
+            }
+
+            // Context rules (can apply independently or after arm correction)
+            if (applyRule7_CtxIsArmWithN(obs, ctxType))
+                corrections++;
+
+            if (applyRule8_CtxIsDrugName(obs, ctxType))
+                corrections++;
+
+            if (applyRule9_CtxIsDescriptor(obs, ctxType))
+                corrections++;
+
+            // Rule 10: Strip trailing % from arm name
+            if (applyRule10_ArmHasTrailingPercent(obs))
+                corrections++;
+
+            return corrections;
+
+            #endregion
+        }
+
+        #endregion Phase 1: Arm/Context Corrections
 
         #region Rule Methods
 
@@ -1032,23 +1494,767 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #endregion Classification Methods
 
-        #region Helper Methods
+        #region Phase 2: Content Normalization
 
         /**************************************************************/
         /// <summary>
-        /// Checks if the table category is one of the target categories for standardization.
+        /// Phase 2: Applies content normalization across ALL table categories.
+        /// Runs 5 sub-passes: DoseRegimen triage, ParameterName cleanup, TreatmentArm cleanup,
+        /// Unit scrub, and SOC mapping.
         /// </summary>
-        /// <param name="category">Table category string.</param>
-        /// <returns>True if ADVERSE_EVENT or EFFICACY.</returns>
-        private static bool isTargetCategory(string? category)
+        /// <returns>Number of corrections applied.</returns>
+        private int applyPhase2_ContentNormalization(ParsedObservation obs)
         {
             #region implementation
 
-            return string.Equals(category, "ADVERSE_EVENT", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(category, "EFFICACY", StringComparison.OrdinalIgnoreCase);
+            int corrections = 0;
+
+            if (normalizeDoseRegimen(obs)) corrections++;
+            if (normalizeParameterName(obs)) corrections++;
+            if (normalizeTreatmentArm(obs)) corrections++;
+            if (normalizeUnit(obs)) corrections++;
+            if (normalizeParameterCategory(obs)) corrections++;
+
+            return corrections;
 
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2a: DoseRegimen triage — routes PK sub-parameters, co-admin drug names,
+        /// residual population/timepoint content out of DoseRegimen.
+        /// </summary>
+        /// <returns>True if a correction was applied.</returns>
+        private bool normalizeDoseRegimen(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(obs.DoseRegimen))
+                return false;
+
+            var val = obs.DoseRegimen.Trim();
+
+            // Priority 1: PK sub-parameter match → route to ParameterSubtype
+            if (_pkSubParams.Contains(val) || _pkSubParamPrefixPattern.IsMatch(val))
+            {
+                if (string.IsNullOrEmpty(obs.ParameterSubtype))
+                    obs.ParameterSubtype = val;
+                obs.DoseRegimen = null;
+                appendFlag(obs, "COL_STD:PK_SUBPARAM_ROUTED");
+                return true;
+            }
+
+            // Priority 2: Actual dose regex → keep
+            if (_actualDosePattern.IsMatch(val))
+                return false;
+
+            // Priority 3: Drug name match AND category is PK or DDI → route to ParameterSubtype
+            if (isDrugName(val) &&
+                (string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (string.IsNullOrEmpty(obs.ParameterSubtype))
+                    obs.ParameterSubtype = val;
+                obs.DoseRegimen = null;
+                appendFlag(obs, "COL_STD:COADMIN_ROUTED");
+                return true;
+            }
+
+            // Priority 4: Residual population pattern
+            if (_residualPopulationPattern.IsMatch(val))
+            {
+                if (string.IsNullOrEmpty(obs.Population))
+                    obs.Population = val;
+                obs.DoseRegimen = null;
+                appendFlag(obs, "COL_STD:POPULATION_EXTRACTED");
+                return true;
+            }
+
+            // Priority 5: Residual timepoint pattern
+            if (_residualTimepointPattern.IsMatch(val))
+            {
+                if (string.IsNullOrEmpty(obs.Timepoint))
+                    obs.Timepoint = val;
+                obs.DoseRegimen = null;
+                appendFlag(obs, "COL_STD:TIMEPOINT_EXTRACTED");
+                return true;
+            }
+
+            // Priority 6: "Co-administered Drug" literal header echo
+            if (val.Equals("Co-administered Drug", StringComparison.OrdinalIgnoreCase) ||
+                val.Equals("Coadministered Drug", StringComparison.OrdinalIgnoreCase))
+            {
+                obs.DoseRegimen = null;
+                appendFlag(obs, "COL_STD:ROW_TYPE=HEADER");
+                return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2b: ParameterName cleanup — removes caption echoes, header echoes,
+        /// routes bare dose numbers, drug names in DDI, decodes HTML entities.
+        /// </summary>
+        /// <returns>True if a correction was applied.</returns>
+        private bool normalizeParameterName(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(obs.ParameterName))
+                return false;
+
+            var val = obs.ParameterName.Trim();
+            bool changed = false;
+
+            // Priority 1: Caption echo
+            if (_captionEchoPattern.IsMatch(val) || val.Length > 60)
+            {
+                // Only null out if it really looks like a caption (has "Table" prefix or is very long)
+                if (_captionEchoPattern.IsMatch(val))
+                {
+                    obs.ParameterName = null;
+                    appendFlag(obs, "COL_STD:ROW_TYPE=CAPTION");
+                    return true;
+                }
+            }
+
+            // Priority 2: Header echo (bare "n" or "N")
+            if (_paramHeaderEchoPattern.IsMatch(val))
+            {
+                obs.ParameterName = null;
+                appendFlag(obs, "COL_STD:ROW_TYPE=HEADER");
+                return true;
+            }
+
+            // Priority 3: Bare integer matching common dose level
+            if (_bareDoseLevels.Contains(val) &&
+                (string.Equals(obs.TableCategory, "DOSING", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (string.IsNullOrEmpty(obs.DoseRegimen))
+                    obs.DoseRegimen = val;
+                obs.ParameterName = null;
+                appendFlag(obs, "COL_STD:PARAM_WAS_DOSE");
+                return true;
+            }
+
+            // Priority 4: DDI drug name (not a PK param) → route to ParameterSubtype
+            if (string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase) &&
+                isDrugName(val) && !_pkSubParams.Contains(val) && !_pkSubParamPrefixPattern.IsMatch(val))
+            {
+                if (string.IsNullOrEmpty(obs.ParameterSubtype))
+                    obs.ParameterSubtype = val;
+                obs.ParameterName = null;
+                appendFlag(obs, "COL_STD:COADMIN_ROUTED");
+                return true;
+            }
+
+            // Priority 5: HTML entity decode
+            if (_htmlEntityPattern.IsMatch(val))
+            {
+                obs.ParameterName = WebUtility.HtmlDecode(val);
+                appendFlag(obs, "COL_STD:HTML_ENTITY_DECODED");
+                changed = true;
+            }
+
+            // Priority 6: OCR spacing artifact collapse
+            var collapsed = _ocrSingleCharPattern.Replace(obs.ParameterName ?? val, "$1");
+            if (collapsed != (obs.ParameterName ?? val))
+            {
+                obs.ParameterName = collapsed;
+                changed = true;
+            }
+
+            return changed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2c: TreatmentArm cleanup — removes header echoes, extracts embedded N=,
+        /// extracts embedded doses, nulls generic labels, routes study names.
+        /// </summary>
+        /// <returns>True if a correction was applied.</returns>
+        private bool normalizeTreatmentArm(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(obs.TreatmentArm))
+                return false;
+
+            var val = obs.TreatmentArm.Trim();
+
+            // Priority 1: Header echo ("Number of Patients", "Percent of Subjects")
+            if (_armHeaderEchoPattern.IsMatch(val))
+            {
+                obs.TreatmentArm = null;
+                appendFlag(obs, "COL_STD:ARM_WAS_HEADER");
+                return true;
+            }
+
+            // Priority 2: Embedded [N=xxx] — already handled in Phase 1 for AE/EFFICACY,
+            // but needed here for other categories
+            if (!isPhase1Category(obs.TableCategory))
+            {
+                var bracketMatch = _bracketedNPattern.Match(val);
+                if (bracketMatch.Success)
+                {
+                    if (int.TryParse(bracketMatch.Groups[2].Value, out var n))
+                        obs.ArmN = n;
+                    obs.TreatmentArm = bracketMatch.Groups[1].Value.Trim();
+                    appendFlag(obs, "COL_STD:ARM_BRACKET_N");
+                    return true;
+                }
+
+                // Also check simple embedded N= pattern
+                var embMatch = _embeddedNPattern.Match(val);
+                if (embMatch.Success)
+                {
+                    if (int.TryParse(embMatch.Groups[2].Value, out var n2))
+                        obs.ArmN = n2;
+                    obs.TreatmentArm = embMatch.Groups[1].Value.Trim();
+                    appendFlag(obs, "COL_STD:ARM_BRACKET_N");
+                    return true;
+                }
+            }
+
+            // Priority 3: Embedded dose in arm (e.g., "Drug 150 mg/d")
+            if (!isPhase1Category(obs.TableCategory))
+            {
+                var doseMatch = _armEmbeddedDosePattern.Match(val);
+                if (doseMatch.Success && isDrugName(val[..doseMatch.Index].Trim()))
+                {
+                    if (string.IsNullOrEmpty(obs.DoseRegimen))
+                        obs.DoseRegimen = doseMatch.Groups[1].Value.Trim();
+                    obs.TreatmentArm = val[..doseMatch.Index].Trim();
+                    appendFlag(obs, "COL_STD:DOSE_EXTRACTED");
+                    return true;
+                }
+            }
+
+            // Priority 4: Generic arm labels
+            if (_genericArmLabels.Contains(val))
+            {
+                obs.TreatmentArm = null;
+                appendFlag(obs, "COL_STD:ARM_WAS_GENERIC");
+                return true;
+            }
+
+            // Priority 5: Study name (all-caps short token) — only if it's NOT a drug name
+            if (_studyNamePattern.IsMatch(val) && !isDrugName(val) && !_pkSubParams.Contains(val))
+            {
+                if (string.IsNullOrEmpty(obs.StudyContext))
+                    obs.StudyContext = val;
+                obs.TreatmentArm = null;
+                appendFlag(obs, "COL_STD:ARM_WAS_STUDY");
+                return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2d: Unit scrub — detects header leaks, normalizes variant spellings,
+        /// extracts real units from verbose descriptions.
+        /// </summary>
+        /// <returns>True if a correction was applied.</returns>
+        private bool normalizeUnit(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(obs.Unit))
+                return false;
+
+            var val = obs.Unit.Trim();
+
+            // Rule 1: Exact match in known units → keep
+            if (_knownUnits.Contains(val))
+                return false;
+
+            // Rule 2: len > 30 → likely a leaked column header
+            if (val.Length > 30)
+            {
+                obs.Unit = null;
+                appendFlag(obs, "COL_STD:UNIT_HEADER_LEAK");
+                return true;
+            }
+
+            // Rule 3: Contains a drug name → leaked header
+            if (isDrugName(val))
+            {
+                obs.Unit = null;
+                appendFlag(obs, "COL_STD:UNIT_HEADER_LEAK");
+                return true;
+            }
+
+            // Rule 4: Contains header keywords → leaked header
+            foreach (var keyword in _unitHeaderKeywords)
+            {
+                if (val.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    obs.Unit = null;
+                    appendFlag(obs, "COL_STD:UNIT_HEADER_LEAK");
+                    return true;
+                }
+            }
+
+            // Rule 5: Extractable real unit inside parentheses
+            var extractMatch = _extractableUnitPattern.Match(val);
+            if (extractMatch.Success)
+            {
+                var extracted = extractMatch.Groups[1].Value.Trim();
+                if (_knownUnits.Contains(extracted))
+                {
+                    obs.Unit = extracted;
+                    appendFlag(obs, "COL_STD:UNIT_NORMALIZED");
+                    return true;
+                }
+            }
+
+            // Rule 6: Variant spelling normalization
+            if (_unitNormalizationMap.TryGetValue(val, out var canonical))
+            {
+                obs.Unit = canonical;
+                appendFlag(obs, "COL_STD:UNIT_NORMALIZED");
+                return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2e: ParameterCategory SOC mapping — normalizes MedDRA SOC variants to
+        /// canonical names. Only applies to ADVERSE_EVENT tables.
+        /// </summary>
+        /// <returns>True if a correction was applied.</returns>
+        private bool normalizeParameterCategory(ParsedObservation obs)
+        {
+            #region implementation
+
+            // Only applies to AE tables
+            if (!string.Equals(obs.TableCategory, "ADVERSE_EVENT", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(obs.ParameterCategory))
+                return false;
+
+            var val = obs.ParameterCategory.Trim();
+
+            // OCR artifact repair: collapse isolated single chars
+            var repaired = _ocrSingleCharPattern.Replace(val, "$1");
+
+            // Canonical lookup
+            if (_socCanonicalMap.TryGetValue(repaired, out var canonicalSoc))
+            {
+                if (!string.Equals(obs.ParameterCategory, canonicalSoc, StringComparison.Ordinal))
+                {
+                    obs.ParameterCategory = canonicalSoc;
+                    appendFlag(obs, "COL_STD:SOC_NORMALIZED");
+                    return true;
+                }
+                return false;
+            }
+
+            // If original (pre-repair) was different, try that too
+            if (repaired != val && _socCanonicalMap.TryGetValue(val, out canonicalSoc))
+            {
+                obs.ParameterCategory = canonicalSoc;
+                appendFlag(obs, "COL_STD:SOC_NORMALIZED");
+                return true;
+            }
+
+            // No match — flag if it doesn't already match a canonical value
+            if (!_socCanonicalMap.ContainsValue(val) && !_socCanonicalMap.ContainsValue(repaired))
+            {
+                appendFlag(obs, "COL_STD:SOC_UNMATCHED");
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        #endregion Phase 2: Content Normalization
+
+        #region Phase 3: PrimaryValueType Migration
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3: Migrates old PrimaryValueType strings to the tightened enum.
+        /// Uses TableCategory, Unit, Caption, and bounds to resolve ambiguous mappings.
+        /// </summary>
+        /// <returns>Number of corrections applied (0 or 1).</returns>
+        private int applyPhase3_PrimaryValueTypeMigration(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(obs.PrimaryValueType))
+                return 0;
+
+            var oldType = obs.PrimaryValueType.Trim();
+            string? newType = null;
+
+            // Direct 1:1 mappings
+            if (_pvtDirectMap.TryGetValue(oldType, out var directMapping))
+            {
+                if (!string.Equals(oldType, directMapping, StringComparison.Ordinal))
+                {
+                    newType = directMapping;
+                }
+                else
+                {
+                    return 0; // Already canonical
+                }
+            }
+            // Context-dependent: "Mean"
+            else if (string.Equals(oldType, "Mean", StringComparison.OrdinalIgnoreCase))
+            {
+                newType = resolveMeanType(obs);
+            }
+            // Context-dependent: "GeometricMean" — already correct, no change
+            else if (string.Equals(oldType, "GeometricMean", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(oldType, "LSMean", StringComparison.OrdinalIgnoreCase))
+            {
+                return 0; // Already in new enum
+            }
+            // Context-dependent: "RelativeRiskReduction"
+            else if (string.Equals(oldType, "RelativeRiskReduction", StringComparison.OrdinalIgnoreCase))
+            {
+                newType = resolveRiskType(obs);
+            }
+            // Context-dependent: "Ratio"
+            else if (string.Equals(oldType, "Ratio", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
+                    newType = "GeometricMeanRatio";
+                else
+                    return 0; // Keep as Ratio for other categories
+            }
+            // Context-dependent: "Numeric"
+            else if (string.Equals(oldType, "Numeric", StringComparison.OrdinalIgnoreCase))
+            {
+                newType = resolveNumericType(obs);
+                if (string.Equals(newType, "Numeric", StringComparison.OrdinalIgnoreCase))
+                    return 0; // Couldn't resolve — leave as-is (flag already set in resolveNumericType)
+            }
+            else
+            {
+                return 0; // Unknown type — leave as-is
+            }
+
+            if (newType != null && !string.Equals(oldType, newType, StringComparison.OrdinalIgnoreCase))
+            {
+                obs.PrimaryValueType = newType;
+                appendFlag(obs, $"COL_STD:PVT_MIGRATED:{oldType}→{newType}");
+                return 1;
+            }
+
+            return 0;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves "Mean" → ArithmeticMean or GeometricMean based on table category and caption.
+        /// </summary>
+        private static string resolveMeanType(ParsedObservation obs)
+        {
+            #region implementation
+
+            var caption = obs.Caption ?? "";
+
+            // Caption explicit mentions override category defaults
+            if (caption.Contains("arithmetic", StringComparison.OrdinalIgnoreCase))
+                return "ArithmeticMean";
+            if (caption.Contains("geometric", StringComparison.OrdinalIgnoreCase))
+                return "GeometricMean";
+            if (caption.Contains("LS mean", StringComparison.OrdinalIgnoreCase) ||
+                caption.Contains("least square", StringComparison.OrdinalIgnoreCase))
+                return "LSMean";
+
+            // Category-based defaults
+            if (string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
+                return "GeometricMean";
+
+            return "ArithmeticMean";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves "RelativeRiskReduction" → HazardRatio, OddsRatio, or RelativeRisk based on caption.
+        /// </summary>
+        private static string resolveRiskType(ParsedObservation obs)
+        {
+            #region implementation
+
+            var caption = obs.Caption ?? "";
+
+            if (caption.Contains("hazard", StringComparison.OrdinalIgnoreCase))
+                return "HazardRatio";
+            if (caption.Contains("odds", StringComparison.OrdinalIgnoreCase))
+                return "OddsRatio";
+
+            return "RelativeRisk";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves "Numeric" → specific type using TableCategory, Unit, bounds, and caption context.
+        /// Returns "Numeric" (unchanged) when resolution is not possible.
+        /// </summary>
+        private string resolveNumericType(ParsedObservation obs)
+        {
+            #region implementation
+
+            var category = obs.TableCategory ?? "";
+            var unit = obs.Unit ?? "";
+            var caption = obs.Caption ?? "";
+
+            // AE: % → Proportion, null + integer → Count
+            if (string.Equals(category, "ADVERSE_EVENT", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(unit, "%", StringComparison.OrdinalIgnoreCase))
+                    return "Proportion";
+                if (string.IsNullOrEmpty(unit) && obs.PrimaryValue.HasValue &&
+                    obs.PrimaryValue.Value == Math.Floor(obs.PrimaryValue.Value))
+                    return "Count";
+            }
+
+            // PK → GeometricMean
+            if (string.Equals(category, "PK", StringComparison.OrdinalIgnoreCase))
+                return "GeometricMean";
+
+            // DDI → GeometricMeanRatio
+            if (string.Equals(category, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
+                return "GeometricMeanRatio";
+
+            // BMD → PercentChange
+            if (string.Equals(category, "BMD", StringComparison.OrdinalIgnoreCase))
+                return "PercentChange";
+
+            // EFFICACY + bounds → HazardRatio
+            if (string.Equals(category, "EFFICACY", StringComparison.OrdinalIgnoreCase) &&
+                (obs.LowerBound.HasValue || obs.UpperBound.HasValue))
+                return "HazardRatio";
+
+            // DOSING → keep as Numeric (prescriptive)
+            if (string.Equals(category, "DOSING", StringComparison.OrdinalIgnoreCase))
+                return "Numeric";
+
+            // Caption-based resolution (any category)
+            if (caption.Contains("geometric mean", StringComparison.OrdinalIgnoreCase))
+                return "GeometricMean";
+            if (caption.Contains("arithmetic mean", StringComparison.OrdinalIgnoreCase))
+                return "ArithmeticMean";
+            if (caption.Contains("LS mean", StringComparison.OrdinalIgnoreCase) ||
+                caption.Contains("least square", StringComparison.OrdinalIgnoreCase))
+                return "LSMean";
+            if (caption.Contains("median", StringComparison.OrdinalIgnoreCase))
+                return "Median";
+
+            // Unresolved
+            appendFlag(obs, "COL_STD:PVT_UNRESOLVED");
+            return "Numeric";
+
+            #endregion
+        }
+
+        #endregion Phase 3: PrimaryValueType Migration
+
+        #region Phase 4: Column Contract Enforcement
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 4: Enforces per-TableCategory column contracts — NULLs out N/A columns,
+        /// flags missing required columns, applies default BoundType.
+        /// </summary>
+        /// <returns>Number of corrections applied.</returns>
+        private int applyPhase4_ColumnContractEnforcement(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(obs.TableCategory))
+                return 0;
+
+            if (!_columnContracts.TryGetValue(obs.TableCategory, out var contract))
+                return 0;
+
+            int corrections = 0;
+
+            // NULL enforcement: set N/A columns to null
+            corrections += enforceNullColumns(obs, contract);
+
+            // Missing required: flag R columns that are null/empty
+            flagMissingRequired(obs, contract);
+
+            // Default BoundType: apply when bounds present but type missing
+            if (applyDefaultBoundType(obs))
+                corrections++;
+
+            return corrections;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Sets columns marked NotApplicable to null for the row's TableCategory.
+        /// </summary>
+        /// <returns>Number of columns nulled out.</returns>
+        private static int enforceNullColumns(ParsedObservation obs, Dictionary<string, ColumnRequirement> contract)
+        {
+            #region implementation
+
+            int nulled = 0;
+
+            foreach (var (column, requirement) in contract)
+            {
+                if (requirement != ColumnRequirement.NotApplicable)
+                    continue;
+
+                var currentValue = getColumnValue(obs, column);
+                if (currentValue == null)
+                    continue;
+
+                setColumnValue(obs, column, null);
+                appendFlag(obs, $"COL_STD:NULL_{column}");
+                nulled++;
+            }
+
+            return nulled;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Flags columns marked Required that are null or empty.
+        /// Does not modify data — only appends validation flags.
+        /// </summary>
+        private static void flagMissingRequired(ParsedObservation obs, Dictionary<string, ColumnRequirement> contract)
+        {
+            #region implementation
+
+            foreach (var (column, requirement) in contract)
+            {
+                if (requirement != ColumnRequirement.Required)
+                    continue;
+
+                var currentValue = getColumnValue(obs, column);
+                if (string.IsNullOrWhiteSpace(currentValue?.ToString()))
+                {
+                    appendFlag(obs, $"COL_STD:MISSING_R_{column}");
+                }
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies default BoundType when bounds are populated but BoundType is null.
+        /// </summary>
+        /// <returns>True if a default was applied.</returns>
+        private static bool applyDefaultBoundType(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (!string.IsNullOrWhiteSpace(obs.BoundType))
+                return false;
+
+            if (!obs.LowerBound.HasValue && !obs.UpperBound.HasValue)
+                return false;
+
+            if (obs.TableCategory != null && _defaultBoundType.TryGetValue(obs.TableCategory, out var defaultType))
+            {
+                obs.BoundType = defaultType;
+                appendFlag(obs, "COL_STD:BOUND_TYPE_INFERRED");
+                return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the current value of a named column from the observation using reflection-free switching.
+        /// </summary>
+        private static object? getColumnValue(ParsedObservation obs, string column)
+        {
+            #region implementation
+
+            return column switch
+            {
+                "ParameterName" => obs.ParameterName,
+                "ParameterCategory" => obs.ParameterCategory,
+                "ParameterSubtype" => obs.ParameterSubtype,
+                "TreatmentArm" => obs.TreatmentArm,
+                "ArmN" => obs.ArmN,
+                "StudyContext" => obs.StudyContext,
+                "DoseRegimen" => obs.DoseRegimen,
+                "Population" => obs.Population,
+                "Timepoint" => obs.Timepoint,
+                "Time" => obs.Time,
+                "TimeUnit" => obs.TimeUnit,
+                "PrimaryValueType" => obs.PrimaryValueType,
+                "Unit" => obs.Unit,
+                _ => null
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Sets a named column to null on the observation using reflection-free switching.
+        /// </summary>
+        private static void setColumnValue(ParsedObservation obs, string column, object? value)
+        {
+            #region implementation
+
+            switch (column)
+            {
+                case "ParameterName": obs.ParameterName = value as string; break;
+                case "ParameterCategory": obs.ParameterCategory = value as string; break;
+                case "ParameterSubtype": obs.ParameterSubtype = value as string; break;
+                case "TreatmentArm": obs.TreatmentArm = value as string; break;
+                case "ArmN": obs.ArmN = value as int?; break;
+                case "StudyContext": obs.StudyContext = value as string; break;
+                case "DoseRegimen": obs.DoseRegimen = value as string; break;
+                case "Population": obs.Population = value as string; break;
+                case "Timepoint": obs.Timepoint = value as string; break;
+                case "Time": obs.Time = value as double?; break;
+                case "TimeUnit": obs.TimeUnit = value as string; break;
+                case "PrimaryValueType": obs.PrimaryValueType = value as string; break;
+                case "Unit": obs.Unit = value as string; break;
+            }
+
+            #endregion
+        }
+
+        #endregion Phase 4: Column Contract Enforcement
+
+        #region Helper Methods
 
         /**************************************************************/
         /// <summary>

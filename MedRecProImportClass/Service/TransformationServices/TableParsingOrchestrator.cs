@@ -166,8 +166,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         continue;
 
                     // Stage 3.25: Column standardization (deterministic, pre-AI)
-                    if (_columnStandardizer != null &&
-                        (category == TableCategory.ADVERSE_EVENT || category == TableCategory.EFFICACY))
+                    if (_columnStandardizer != null)
                     {
                         observations = _columnStandardizer.Standardize(observations);
                     }
@@ -770,8 +769,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     }
 
                     // Stage 3.25: Column standardization (deterministic, pre-AI)
-                    if (_columnStandardizer != null &&
-                        (category == TableCategory.ADVERSE_EVENT || category == TableCategory.EFFICACY))
+                    if (_columnStandardizer != null)
                     {
                         observations = _columnStandardizer.Standardize(observations);
                     }
