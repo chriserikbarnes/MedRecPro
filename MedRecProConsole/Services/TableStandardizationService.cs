@@ -281,8 +281,11 @@ namespace MedRecProConsole.Services
                             ctx.ProgressTracker.UpdateProgressAsync(p).GetAwaiter().GetResult();
                         });
 
-                        // Per-table callback: drives the UI progress bar within each batch
-                        var rowProgress = new Progress<TransformBatchProgress>(p =>
+                        // Per-table callback: drives the UI progress bar within each batch.
+                        // Must be synchronous — Progress<T> posts to ThreadPool in console apps,
+                        // delaying updates until after the batch completes. Spectre.Console's
+                        // auto-refresh timer (separate thread) handles rendering; we just set values.
+                        var rowProgress = new SynchronousProgress<TransformBatchProgress>(p =>
                         {
                             var batchFraction = p.TotalTablesInBatch > 0
                                 ? (double)p.TablesProcessedInBatch / p.TotalTablesInBatch
@@ -475,8 +478,11 @@ namespace MedRecProConsole.Services
                             ctx.ProgressTracker.UpdateProgressAsync(p).GetAwaiter().GetResult();
                         });
 
-                        // Per-table callback: drives the UI progress bar within each batch
-                        var rowProgress = new Progress<TransformBatchProgress>(p =>
+                        // Per-table callback: drives the UI progress bar within each batch.
+                        // Must be synchronous — Progress<T> posts to ThreadPool in console apps,
+                        // delaying updates until after the batch completes. Spectre.Console's
+                        // auto-refresh timer (separate thread) handles rendering; we just set values.
+                        var rowProgress = new SynchronousProgress<TransformBatchProgress>(p =>
                         {
                             var batchFraction = p.TotalTablesInBatch > 0
                                 ? (double)p.TablesProcessedInBatch / p.TotalTablesInBatch

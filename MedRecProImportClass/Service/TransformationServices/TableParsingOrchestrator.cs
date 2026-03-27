@@ -348,11 +348,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                     TextTableIdRangeEnd = end
                 };
 
-                // Wrap rowProgress to inject batch-level context into each per-table report
+                // Wrap rowProgress to inject batch-level context into each per-table report.
+                // Uses SynchronousProgress to avoid double-async posting: Progress<T> posts
+                // to ThreadPool, and chaining two of them delays callbacks until after the
+                // batch completes — defeating the purpose of per-table progress.
                 var capturedBatchNumber = batchNumber;
                 var capturedTotalObs = totalObservations;
                 IProgress<TransformBatchProgress>? innerProgress = rowProgress != null
-                    ? new Progress<TransformBatchProgress>(p =>
+                    ? new Helpers.SynchronousProgress<TransformBatchProgress>(p =>
                     {
                         p.BatchNumber = capturedBatchNumber;
                         p.TotalBatches = totalBatches;
@@ -510,11 +513,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                     TextTableIdRangeEnd = end
                 };
 
-                // Wrap rowProgress to inject batch-level context into each per-table report
+                // Wrap rowProgress to inject batch-level context into each per-table report.
+                // Uses SynchronousProgress to avoid double-async posting (see ProcessAllAsync).
                 var capturedBatchNumber = batchNumber;
                 var capturedTotalObs = totalObservations;
                 IProgress<TransformBatchProgress>? innerProgress = rowProgress != null
-                    ? new Progress<TransformBatchProgress>(p =>
+                    ? new Helpers.SynchronousProgress<TransformBatchProgress>(p =>
                     {
                         p.BatchNumber = capturedBatchNumber;
                         p.TotalBatches = totalBatches;
@@ -1050,5 +1054,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         }
 
         #endregion Private Helpers
+
     }
 }

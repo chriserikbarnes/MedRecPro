@@ -1365,3 +1365,27 @@ Added per-table progress reporting so the Spectre.Console progress bar updates c
 **Result:** 0 build errors across all three projects. Progress bar now shows `Batch 1/1 [1-5000] Table 2341/4892 — 12,445 obs [███████████] 47%` instead of sitting at 0%.
 
 ---
+
+### 2026-03-27 1:13 PM EST — Fix: SynchronousProgress to Replace Double-Progress\<T\> Chain
+
+The within-batch progress bar from the previous session didn't render at all. Root cause: double `System.Progress<T>` wrapping.
+
+**Problem:** `Progress<T>` in console apps (no `SynchronizationContext`) posts callbacks via `ThreadPool.QueueUserWorkItem`. The inner `Progress<T>` wrapper in `ProcessAllAsync` posted to ThreadPool; its callback then called `rowProgress.Report()` on the outer `Progress<T>` from `TableStandardizationService`, which posted *again* to ThreadPool. Two async hops meant callbacks arrived after the batch/run completed and the Spectre.Console progress context had already exited — so no progress bar was ever visible.
+
+**Fix:** Added `SynchronousProgress<T>` — a private nested `IProgress<T>` in `TableParsingOrchestrator` that invokes the handler inline on the calling thread (no ThreadPool post). Replaced both inner `new Progress<T>(...)` wrappers in `ProcessAllAsync` and `ProcessAllWithValidationAsync` with `new SynchronousProgress<T>(...)`. Now the batch-context enrichment and forwarding happen synchronously inside the loop, and only the single outer `Progress<T>` in the UI layer does the async post.
+
+**Result:** 0 build errors. Single async hop restored — same pattern that worked for the original per-batch progress.
+
+---
+
+### 2026-03-27 1:23 PM EST — Fix #2: Eliminate ALL Progress\<T\> from Row-Progress Chain
+
+Progress bar still didn't render. Even with the inner wrapper fixed to `SynchronousProgress`, the outer `rowProgress` in `TableStandardizationService` was still `new Progress<T>(...)` — one async hop was still enough to delay all `task.Value` updates past the Spectre.Console progress context lifetime.
+
+**Fix:** Replaced `new Progress<TransformBatchProgress>(...)` with `new SynchronousProgress<TransformBatchProgress>(...)` in both `ExecuteParseAsync` and `ExecuteValidateAsync`. Promoted `SynchronousProgress<T>` from a private nested class in `TableParsingOrchestrator` to a public shared utility in `MedRecProImportClass/Helpers/SynchronousProgress.cs` (both projects need it). Used `Helpers.SynchronousProgress<T>` in the orchestrator to avoid `Truncate` extension method ambiguity with `Humanizer`.
+
+Now the entire row-progress chain is fully synchronous: `ProcessBatchAsync` → `SynchronousProgress` (enriches batch context) → `SynchronousProgress` (updates Spectre task). Only Spectre.Console's auto-refresh timer (its own thread) handles async rendering.
+
+**Result:** 0 build errors (file-copy errors from locked debugger DLL, not code errors).
+
+---
