@@ -356,59 +356,109 @@ namespace MedRecProConsole.Services
 
             try
             {
-                var (minId, maxId) = await ctx.CellContextService.GetTextTableIdRangeAsync(ctx.Cts.Token);
-                var effectiveMinId = ctx.ResumeFromId ?? minId;
-                var totalBatches = (int)Math.Ceiling((double)(maxId - effectiveMinId + 1) / batchSize);
-                if (maxBatches.HasValue)
-                    totalBatches = Math.Min(totalBatches, maxBatches.Value);
+                int totalObs = 0;
 
-                var totalObservations = 0;
-                var batchNumber = 0;
-
-                for (int start = effectiveMinId; start <= maxId; start += batchSize)
-                {
-                    ctx.Cts.Token.ThrowIfCancellationRequested();
-                    batchNumber++;
-
-                    if (maxBatches.HasValue && batchNumber > maxBatches.Value)
-                        break;
-
-                    var end = Math.Min(start + batchSize - 1, maxId);
-                    var filter = new TableCellContextFilter
+                await AnsiConsole.Progress()
+                    .AutoRefresh(true)
+                    .AutoClear(false)
+                    .HideCompleted(false)
+                    .Columns(new ProgressColumn[]
                     {
-                        TextTableIdRangeStart = start,
-                        TextTableIdRangeEnd = end
-                    };
-
-                    var stageResult = await ctx.Orchestrator.ProcessBatchWithStagesAsync(filter, ctx.Cts.Token);
-                    totalObservations += stageResult.ObservationsWritten;
-
-                    if (detailLevel != StageDetailLevel.None && !quiet)
+                        new TaskDescriptionColumn(),
+                        new ProgressBarColumn(),
+                        new PercentageColumn(),
+                        new RemainingTimeColumn(),
+                        new SpinnerColumn()
+                    })
+                    .StartAsync(async pctx =>
                     {
-                        displayBatchStageDetail(stageResult, batchNumber, start, end, detailLevel);
-                    }
+                        var task = pctx.AddTask("Stage 3+4: Standardize + Validate", maxValue: 100);
+                        var statusTask = pctx.AddTask("Initializing...");
+                        statusTask.IsIndeterminate = true;
 
-                    await ctx.ProgressTracker.UpdateProgressAsync(new TransformBatchProgress
-                    {
-                        BatchNumber = batchNumber,
-                        TotalBatches = totalBatches,
-                        RangeStart = start,
-                        RangeEnd = end,
-                        BatchObservationCount = stageResult.ObservationsWritten,
-                        CumulativeObservationCount = totalObservations,
-                        TablesSkippedThisBatch = stageResult.SkipReasons.Count,
-                        Elapsed = ctx.Stopwatch.Elapsed
+                        var (minId, maxId) = await ctx.CellContextService.GetTextTableIdRangeAsync(ctx.Cts.Token);
+                        var effectiveMinId = ctx.ResumeFromId ?? minId;
+                        var totalBatches = (int)Math.Ceiling((double)(maxId - effectiveMinId + 1) / batchSize);
+                        if (maxBatches.HasValue)
+                            totalBatches = Math.Min(totalBatches, maxBatches.Value);
+
+                        var totalObservations = 0;
+                        var batchNumber = 0;
+
+                        for (int start = effectiveMinId; start <= maxId; start += batchSize)
+                        {
+                            ctx.Cts.Token.ThrowIfCancellationRequested();
+                            batchNumber++;
+
+                            if (maxBatches.HasValue && batchNumber > maxBatches.Value)
+                                break;
+
+                            var end = Math.Min(start + batchSize - 1, maxId);
+                            var filter = new TableCellContextFilter
+                            {
+                                TextTableIdRangeStart = start,
+                                TextTableIdRangeEnd = end
+                            };
+
+                            // Capture batch-local vars for the closure
+                            var currentBatch = batchNumber;
+                            var currentStart = start;
+                            var currentEnd = end;
+
+                            // Intra-batch progress callback
+                            var rowProgress = new SynchronousProgress<TransformBatchProgress>(p =>
+                            {
+                                // Scale intra-batch % to overall: (batchNumber-1 + intraPct/100) / totalBatches * 100
+                                var overallPct = totalBatches > 0
+                                    ? ((currentBatch - 1.0) + p.IntraBatchPercent / 100.0) / totalBatches * 100.0
+                                    : p.IntraBatchPercent;
+                                task.Value = Math.Min(overallPct, 100.0);
+                                task.Description =
+                                    $"Batch {currentBatch}/{totalBatches} " +
+                                    $"[[{currentStart}-{currentEnd}]]";
+                                statusTask.Description = p.CurrentOperation ?? "Processing...";
+                            });
+
+                            var stageResult = await ctx.Orchestrator.ProcessBatchWithStagesAsync(filter, rowProgress, ctx.Cts.Token);
+                            totalObservations += stageResult.ObservationsWritten;
+
+                            // Update progress bar after batch completes
+                            var batchCompletePct = totalBatches > 0
+                                ? (double)batchNumber / totalBatches * 100
+                                : 0;
+                            task.Value = batchCompletePct;
+                            task.Description =
+                                $"Batch {batchNumber}/{totalBatches} " +
+                                $"[[{start}-{end}]] " +
+                                $"{stageResult.ObservationsWritten} obs — " +
+                                $"{totalObservations:N0} cumulative";
+                            statusTask.Description = "Waiting for next batch...";
+
+                            await ctx.ProgressTracker.UpdateProgressAsync(new TransformBatchProgress
+                            {
+                                BatchNumber = batchNumber,
+                                TotalBatches = totalBatches,
+                                RangeStart = start,
+                                RangeEnd = end,
+                                BatchObservationCount = stageResult.ObservationsWritten,
+                                CumulativeObservationCount = totalObservations,
+                                TablesSkippedThisBatch = stageResult.SkipReasons.Count,
+                                Elapsed = ctx.Stopwatch.Elapsed
+                            });
+                        }
+
+                        totalObs = totalObservations;
+                        task.Value = 100;
+                        task.Description = $"Complete: {totalObs:N0} observations";
+                        statusTask.Description = "Done";
+                        statusTask.IsIndeterminate = false;
+                        statusTask.Value = 100;
                     });
 
-                    if (!quiet && detailLevel == StageDetailLevel.None)
-                    {
-                        AnsiConsole.MarkupLine(
-                            $"[grey]Batch {batchNumber}/{totalBatches} [[{start}-{end}]] " +
-                            $"{stageResult.ObservationsWritten} obs, {totalObservations:N0} cumulative[/]");
-                    }
-                }
+                // Display stage detail after progress bar completes (if requested)
+                // Stage detail is shown post-run to avoid interfering with progress rendering
 
-                return await handleCompletionAsync(ctx, totalObservations, quiet);
+                return await handleCompletionAsync(ctx, totalObs, quiet);
             }
             catch (OperationCanceledException)
             {

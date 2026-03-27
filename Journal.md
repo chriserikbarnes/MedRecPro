@@ -1389,3 +1389,53 @@ Now the entire row-progress chain is fully synchronous: `ProcessBatchAsync` → 
 **Result:** 0 build errors (file-copy errors from locked debugger DLL, not code errors).
 
 ---
+
+### 2026-03-27 1:46 PM EST — Fix #3: Wrong Method — Interactive Menu Uses ExecuteParseWithStagesAsync
+
+Progress bar still absent. Added `[DIAG]` debug statements to `ExecuteValidateAsync` — none appeared in Output. Traced the interactive menu dispatch in `ConsoleHelper.cs:1870` and found the root cause: after the "Proceed with table standardization?" confirmation, the code calls **`ExecuteParseWithStagesAsync`**, not `ExecuteValidateAsync` or `ExecuteParseAsync`. All progress bar changes were in the wrong methods entirely.
+
+`ExecuteParseWithStagesAsync` used `ProcessBatchWithStagesAsync` (diagnostic method) in a plain for-loop with `AnsiConsole.MarkupLine()` per batch — no `AnsiConsole.Progress()` widget at all. This is why no progress bar ever rendered regardless of the `SynchronousProgress<T>` fix.
+
+**Fix:** Wrapped `ExecuteParseWithStagesAsync` in `AnsiConsole.Progress().StartAsync()` with per-batch progress updates (description + percentage). `ProcessBatchWithStagesAsync` is a diagnostic method that doesn't support `rowProgress` callbacks, so this path gets per-batch granularity (not per-table). Removed `[DIAG]` statements from `ExecuteValidateAsync`.
+
+**Result:** 0 build errors. The interactive menu path now renders a Spectre.Console progress bar.
+
+---
+
+### 2026-03-27 2:34 PM EST — Intra-Batch Progress for ProcessBatchWithStagesAsync
+
+Added real intra-batch progress reporting to the `ExecuteParseWithStagesAsync` → `ProcessBatchWithStagesAsync` pipeline, which previously only updated the progress bar between batches (jumping 0%→100% for single-batch runs).
+
+**Changes across 4 files:**
+- **`TransformBatchProgress.cs`** — Added `CurrentOperation` (string?) for stage label and `IntraBatchPercent` (double, 0–100) for within-batch progress.
+- **`ITableParsingOrchestrator.cs`** / **`TableParsingOrchestrator.cs`** — Added optional `IProgress<TransformBatchProgress>? rowProgress` parameter. Orchestrator now fires progress reports per-table during the parse loop (0%→70%) and at each post-processing stage boundary (column standardization 75%, ML.NET 82%, Claude AI 90%, DB write 95%, complete 100%).
+- **`TableStandardizationService.cs`** — Added a second Spectre task as an indeterminate spinner showing `CurrentOperation` text. Wired a `SynchronousProgress<TransformBatchProgress>` callback that scales `IntraBatchPercent` to overall progress across batches.
+
+Existing tests compile unchanged (parameter is optional). 0 build errors.
+
+---
+
+### 2026-03-27 2:51 PM EST — Per-API-Call Progress for Claude AI Correction Stage
+
+The progress bar was stuck at 90% during the entire Claude AI correction stage (the slowest stage), then jumped to 100%. Root cause: Claude AI was allocated only 5% of the bar (90→95%) despite making multiple HTTP API calls per batch (one per chunk of 20 observations, grouped by TextTableID, with 200ms rate-limiting delays).
+
+**Changes across 3 files:**
+- **`ClaudeApiCorrectionService.cs`** — Added `IProgress<TransformBatchProgress>? progress` parameter to both the `IClaudeApiCorrectionService` interface and implementation. Service now counts total API chunks up front and reports `IntraBatchPercent` (0–100) + `CurrentOperation` (e.g., "Claude AI correction (2/6)...") after each chunk completes.
+- **`TableParsingOrchestrator.cs`** — Reweighted progress model: table loop 0–20%, column std 21%, ML.NET 23%, **Claude AI 25–95%** (70% of total), DB write 96%. Created a `SynchronousProgress` forwarding callback that maps the correction service's internal 0–100 into the orchestrator's 25–95 range.
+- **`TableParsingOrchestratorStageTests.cs`** — Updated Moq setups/verifies to include the new `IProgress` parameter in `CorrectBatchAsync` calls.
+
+0 build errors across console and test projects.
+
+---
+
+### 2026-03-27 3:03 PM EST — Extract ArmN from RawValue trailing N= patterns
+
+Added N= extraction from RawValue in `ColumnStandardizationService.cs`. Previously, `normalizeInlineNValues` explicitly skipped RawValue, so cells like `2.9 (22%) N=16` or `94.7 (34%)^N=14` never populated ArmN.
+
+**Changes:**
+- Added `_rawValueTrailingNPattern` regex — matches trailing `N=digits` with optional footnote markers (`^`, `*`, `†`, `‡`) before the N=
+- Added RawValue extraction block at the end of `normalizeInlineNValues` — if ArmN isn't already set, extracts N from RawValue and strips the N= portion (e.g., `2.9 (22%) N=16` → RawValue=`2.9 (22%)`, ArmN=16)
+
+0 build errors.
+
+---

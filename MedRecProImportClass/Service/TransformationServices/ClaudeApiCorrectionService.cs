@@ -43,10 +43,12 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// to Claude in table-level batches for contextual accuracy.
         /// </summary>
         /// <param name="observations">Parsed observations from Stage 3 parsers.</param>
+        /// <param name="progress">Optional progress callback reporting 0–100 within the correction stage.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>The corrected observations (same list, mutated in place).</returns>
         Task<List<ParsedObservation>> CorrectBatchAsync(
             List<ParsedObservation> observations,
+            IProgress<TransformBatchProgress>? progress = null,
             CancellationToken ct = default);
     }
 
@@ -266,6 +268,7 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
         /// <inheritdoc/>
         public async Task<List<ParsedObservation>> CorrectBatchAsync(
             List<ParsedObservation> observations,
+            IProgress<TransformBatchProgress>? progress = null,
             CancellationToken ct = default)
         {
             #region implementation
@@ -307,6 +310,11 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
             var groups = toCorrect.GroupBy(o => o.TextTableID ?? 0).ToList();
             var totalCorrections = 0;
 
+            // Count total chunks across all groups for progress reporting
+            var totalChunks = groups.Sum(g =>
+                (int)Math.Ceiling((double)g.Count() / _settings.MaxObservationsPerRequest));
+            var chunksCompleted = 0;
+
             foreach (var group in groups)
             {
                 ct.ThrowIfCancellationRequested();
@@ -342,6 +350,16 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
                     {
                         await Task.Delay(_settings.DelayBetweenRequestsMs, ct);
                     }
+
+                    // Report per-chunk progress (0–100 within the correction stage)
+                    chunksCompleted++;
+                    progress?.Report(new TransformBatchProgress
+                    {
+                        CurrentOperation = $"Claude AI correction ({chunksCompleted}/{totalChunks})...",
+                        IntraBatchPercent = totalChunks > 0
+                            ? (double)chunksCompleted / totalChunks * 100.0
+                            : 100.0
+                    });
                 }
             }
 

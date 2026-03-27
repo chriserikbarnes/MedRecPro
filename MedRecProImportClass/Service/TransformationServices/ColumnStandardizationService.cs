@@ -663,6 +663,19 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Trailing N= in RawValue — preceded by optional footnote markers (^, *, †, ‡)
+        /// or whitespace. Captures the N value from the end of composite RawValue strings.
+        /// Matches: "2.9 (22%) N=16", "94.7 (34%)^N=14", "362.5 (58%)*N=14", "0.29 (35%) N=8"
+        /// Captures: Group 1 = everything before the N= portion, Group 2 = N value.
+        /// </summary>
+        /// <seealso cref="_inlineNPattern"/>
+        /// <seealso cref="normalizeInlineNValues"/>
+        private static readonly Regex _rawValueTrailingNPattern = new(
+            @"^(.+?)\s*[*^†‡]?\s*[Nn]\s*=\s*(\d+)\s*$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
         /// "All" prefix on drug/arm names — e.g., "All PGB", "All Doses".
         /// Used to strip "All" prefix when recovering drug name after bracket extraction.
         /// Captures: Group 1 = the actual name after "All".
@@ -1643,6 +1656,20 @@ namespace MedRecProImportClass.Service.TransformationServices
                     if (!obs.ArmN.HasValue)
                         obs.ArmN = n;
                     appendFlag(obs, $"COL_STD:N_STRIPPED:{colName}");
+                    anyChange = true;
+                }
+            }
+
+            // RawValue: extract trailing N= (e.g., "2.9 (22%) N=16", "94.7 (34%)^N=14")
+            // Strip the N= portion from RawValue and populate ArmN if not already set.
+            if (!string.IsNullOrWhiteSpace(obs.RawValue) && !obs.ArmN.HasValue)
+            {
+                var rawNMatch = _rawValueTrailingNPattern.Match(obs.RawValue.Trim());
+                if (rawNMatch.Success && int.TryParse(rawNMatch.Groups[2].Value, out var rawN))
+                {
+                    obs.RawValue = rawNMatch.Groups[1].Value.Trim();
+                    obs.ArmN = rawN;
+                    appendFlag(obs, "COL_STD:N_STRIPPED:RawValue");
                     anyChange = true;
                 }
             }

@@ -66,6 +66,21 @@ namespace MedRecProImportClass.Models
         /// </summary>
         public int TotalTablesInBatch { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Human-readable label for the current pipeline stage within the batch.
+        /// Null or empty indicates a batch-boundary report (not a within-batch update).
+        /// </summary>
+        /// <example>"Parsing tables...", "Column standardization...", "Claude AI correction..."</example>
+        public string? CurrentOperation { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Intra-batch progress as a percentage (0.0–100.0). Set by the orchestrator
+        /// to reflect combined table-loop + post-processing progress within a single batch.
+        /// </summary>
+        public double IntraBatchPercent { get; set; }
+
         #endregion
     }
 }

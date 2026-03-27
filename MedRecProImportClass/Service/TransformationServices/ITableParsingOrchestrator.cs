@@ -95,6 +95,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// (Standardize) → Stage 3.5 (Claude Enhance) → write, capturing intermediate results.
         /// </summary>
         /// <param name="filter">Filter for table ID range.</param>
+        /// <param name="rowProgress">Optional intra-batch progress callback for per-table and per-stage updates.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>
         /// A <see cref="BatchStageResult"/> containing reconstructed tables, routing decisions,
@@ -102,7 +103,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </returns>
         /// <seealso cref="ProcessBatchAsync"/>
         /// <seealso cref="BatchStageResult"/>
-        Task<BatchStageResult> ProcessBatchWithStagesAsync(TableCellContextFilter filter, CancellationToken ct = default);
+        Task<BatchStageResult> ProcessBatchWithStagesAsync(
+            TableCellContextFilter filter,
+            IProgress<TransformBatchProgress>? rowProgress = null,
+            CancellationToken ct = default);
 
         #region Stage-by-Stage Diagnostic Methods
 
