@@ -1439,3 +1439,22 @@ Added N= extraction from RawValue in `ColumnStandardizationService.cs`. Previous
 0 build errors.
 
 ---
+
+### 2026-03-27 3:27 PM EST — Wire up ColumnStandardizationService in console DI + fix missing InitializeAsync
+
+Discovered and fixed three issues preventing column standardization from running in the console app:
+
+1. **Missing DI registration** — `IColumnStandardizationService` was never registered in `TableStandardizationService.buildServiceProvider()`. The orchestrator's constructor accepted it as an optional nullable parameter, so it silently defaulted to `null` and all standardization was skipped. Added `services.AddScoped<IColumnStandardizationService, ColumnStandardizationService>()`.
+
+2. **Missing DbContext forwarding** — `ColumnStandardizationService` constructor takes `DbContext` (base class), but DI only registered `ApplicationDbContext`. Added `services.AddScoped<DbContext>(sp => sp.GetRequiredService<ApplicationDbContext>())` to forward the resolution.
+
+3. **Missing `InitializeAsync` in `ProcessBatchWithStagesAsync`** — The console menu's parse path calls `ProcessBatchWithStagesAsync`, which called `Standardize()` without first calling `InitializeAsync()`. The `_initialized` flag stayed false, causing `Standardize` to early-return with a warning. Added the lazy-init block (matching the pattern already in `ProcessBatchAsync` and `processBatchWithSkipTrackingAsync`).
+
+**Files changed:**
+- `MedRecProConsole/Services/TableStandardizationService.cs` — DI registrations
+- `MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs` — InitializeAsync call
+- `MedRecProImportClass/Service/TransformationServices/ColumnStandardizationService.cs` — Minor refactor of RawValue N= guard
+
+0 build errors.
+
+---

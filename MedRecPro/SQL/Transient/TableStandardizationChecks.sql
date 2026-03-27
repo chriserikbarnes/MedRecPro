@@ -27,4 +27,12 @@ SELECT  [TextTableID]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
 --where ParameterSubtype is not null
 
+
+SELECT  *
+FROM [dbo].[tmp_FlattenedStandardizedTable]
+
+
+SELECT [ValidationFlags]
+FROM [dbo].[tmp_FlattenedStandardizedTable]
+
 Select distinct [TableCategory] from [dbo].[tmp_FlattenedStandardizedTable]

@@ -1662,13 +1662,16 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // RawValue: extract trailing N= (e.g., "2.9 (22%) N=16", "94.7 (34%)^N=14")
             // Strip the N= portion from RawValue and populate ArmN if not already set.
-            if (!string.IsNullOrWhiteSpace(obs.RawValue) && !obs.ArmN.HasValue)
+            if (!string.IsNullOrWhiteSpace(obs.RawValue))
             {
                 var rawNMatch = _rawValueTrailingNPattern.Match(obs.RawValue.Trim());
                 if (rawNMatch.Success && int.TryParse(rawNMatch.Groups[2].Value, out var rawN))
                 {
+                    if (!obs.ArmN.HasValue)
+                    {
+                        obs.ArmN = rawN;
+                    }
                     obs.RawValue = rawNMatch.Groups[1].Value.Trim();
-                    obs.ArmN = rawN;
                     appendFlag(obs, "COL_STD:N_STRIPPED:RawValue");
                     anyChange = true;
                 }

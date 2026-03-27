@@ -764,6 +764,8 @@ namespace MedRecProConsole.Services
                     options.LogTo(_ => { }, LogLevel.None);
                 }
             });
+            // Forward DbContext to ApplicationDbContext so services depending on DbContext resolve correctly
+            services.AddScoped<DbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
 
             // Add generic logger for Repository
             services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
@@ -813,6 +815,9 @@ namespace MedRecProConsole.Services
                     client.DefaultRequestHeaders.Add("anthropic-version", settings.AnthropicVersion);
                     client.BaseAddress = new Uri("https://api.anthropic.com/");
                 });
+
+            // Stage 3.25: Column standardization (deterministic, pre-AI)
+            services.AddScoped<IColumnStandardizationService, ColumnStandardizationService>();
 
             // Orchestrator — IBatchValidationService and IClaudeApiCorrectionService are optional (nullable constructor params)
             services.AddScoped<ITableParsingOrchestrator, TableParsingOrchestrator>();

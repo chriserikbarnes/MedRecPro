@@ -596,6 +596,20 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var result = new BatchStageResult();
 
+            // Lazy-initialize column standardizer dictionary on first batch
+            if (_columnStandardizer != null && !_columnStdInitialized)
+            {
+                await _columnStandardizer.InitializeAsync(ct);
+                _columnStdInitialized = true;
+            }
+
+            // Lazy-initialize ML.NET correction service on first batch
+            if (_mlNetCorrectionService != null && !_mlNetInitialized)
+            {
+                await _mlNetCorrectionService.InitializeAsync(ct);
+                _mlNetInitialized = true;
+            }
+
             // Helper to fire intra-batch progress reports
             void reportProgress(string operation, double pct, int processed, int total)
             {
