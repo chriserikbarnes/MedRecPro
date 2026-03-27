@@ -1292,3 +1292,55 @@ Added a Phase 2 pre-pass (`normalizeInlineNValues`) to `ColumnStandardizationSer
 **Result:** 908/908 tests pass.
 
 ---
+
+### 2026-03-27 11:38 AM EST — Stage 3.4 MlNetCorrectionService Implementation
+
+Implemented the full ML.NET correction and anomaly scoring service (Stage 3.4) that inserts between Stage 3.25 (ColumnStandardization) and Stage 3.5 (ClaudeApiCorrection) in the SPL Table Normalization pipeline.
+
+**New files:**
+- `MedRecProImportClass/Models/MlNetCorrectionSettings.cs` — Configuration DTO (7 properties: Enabled, thresholds, training params)
+- `MedRecProImportClass/Models/MlNetDataModels.cs` — ML.NET input/prediction class pairs for all 4 stages, organized by region (moved from service file in a follow-up refactor)
+- `MedRecProImportClass/Service/TransformationServices/IMlNetCorrectionService.cs` — Interface mirroring `IColumnStandardizationService` pattern (`InitializeAsync` + `ScoreAndCorrect`)
+- `MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs` — Full implementation: 4-stage pipeline (TableCategory multiclass, DoseRegimen routing, PrimaryValueType disambiguation, per-category PCA anomaly), in-memory training accumulator with lazy retrain trigger, `appendFlag` helper
+- `MedRecProTest/MlNetCorrectionServiceTests.cs` — 23 tests covering init idempotency, accumulator/training triggers, all 4 stages, integration edge cases, and Claude gate flag format
+
+**Modified files:**
+- `ClaudeApiCorrectionSettings.cs` — Added `MlAnomalyScoreThreshold` (default 0.0 = backward-compatible)
+- `ClaudeApiCorrectionService.cs` — Added `exceedsAnomalyThreshold()` private method + ML gate in `CorrectBatchAsync` that filters observations by anomaly score before API calls
+- `TableParsingOrchestrator.cs` — Added `IMlNetCorrectionService?` field + lazy-init flag + Stage 3.4 call sites in all 3 batch methods (`ProcessBatchAsync`, `processBatchWithSkipTrackingAsync`, `ProcessBatchWithStagesAsync`); constructor takes new optional parameter
+
+**Key design decisions:**
+- No DB dependency — training uses in-memory accumulation of high-confidence rows across batches; cold-start emits `MLNET_ANOMALY_SCORE:NOMODEL`
+- Conservative Claude gate: absent/NOMODEL/ERROR scores always pass through to Claude
+- `PredictionEngine<T,P>` kept single-threaded (safe for current sequential batch processing)
+- Stage 5 (IidSpikeDetector) omitted per spec — rule-based normalizeUnit() handles unit header leaks
+
+**Result:** 0 build errors; 23/23 new tests pass; all existing ColumnStandardization and ClaudeApiCorrection tests pass with zero regressions.
+
+---
+
+### 2026-03-27 12:37 PM EST — Claude-to-ML Feedback Loop (Training Store + Adaptive Threshold)
+
+Implemented the feedback loop that turns Claude API corrections (Stage 3.5) into ground-truth training data for the ML.NET service (Stage 3.4), enabling the ML models to improve over time and progressively reduce Claude API calls.
+
+**New files (4):**
+- `MlTrainingRecord.cs` — Compact 19-field DTO with `FromObservation()` factory method; truncates strings to 200 chars, casts double→float for the 6-slot PCA vector
+- `MlTrainingStoreState.cs` — Root persisted state: records list, adaptive threshold, lifetime metrics (TotalSentToClaude, TotalCorrectedByClaude), timestamps
+- `IMlTrainingStore.cs` — Interface: Load, AddRecords, GetRecords, RecordClaudeFeedback, RecordRetrain, Save
+- `MlTrainingStore.cs` — File-backed implementation following `StandardizationProgressTracker` pattern: `SemaphoreSlim(1,1)`, atomic write (tmp+rename), `System.Text.Json` with `WriteIndented`/`WhenWritingNull`; bootstrap-first eviction when exceeding `MaxAccumulatorRows`
+
+**Modified files (5):**
+- `MlNetCorrectionSettings.cs` — Added 7 settings: `TrainingStoreFilePath`, `MaxAccumulatorRows` (100K default), and 5 adaptive threshold settings (min observations, correction rate floor, step size, ceiling, evaluation interval)
+- `IMlNetCorrectionService.cs` — Added `FeedClaudeCorrectedBatchAsync` method
+- `MlNetCorrectionService.cs` — Changed accumulator from `List<ParsedObservation>` to `List<MlTrainingRecord>`; constructor accepts optional `IMlTrainingStore` + `ClaudeApiCorrectionSettings`; `InitializeAsync` loads persisted store and restores adaptive threshold; `accumulateBatch` converts to `MlTrainingRecord`; all 4 training methods project from `MlTrainingRecord`; removed orphaned `labelDoseRegimenRouting(ParsedObservation)` and `hasRoutingFlag(ParsedObservation)` replaced by `MlTrainingRecord`-based variants
+- `TableParsingOrchestrator.cs` — Added `FeedClaudeCorrectedBatchAsync` call after each of 3 `CorrectBatchAsync` sites (`ProcessBatchAsync`, `ProcessBatchWithStagesAsync`, `processBatchWithSkipTrackingAsync`)
+- `MlNetCorrectionServiceTests.cs` — Added 7 new tests: store round-trip persistence, bootstrap-first eviction, threshold rise on low correction rate, threshold unchanged on high rate, feedback extraction of AI_CORRECTED rows only, no-op on zero corrections, full store+adaptation integration
+
+**Key design decisions:**
+- Adaptive threshold propagates via shared singleton: `MlNetCorrectionService` mutates `ClaudeApiCorrectionSettings.MlAnomalyScoreThreshold` on the same object `ClaudeApiCorrectionService` reads — no restart needed
+- Eviction prioritizes ground-truth preservation: bootstrap records evicted first, then oldest ground-truth only if still over capacity
+- `FeedClaudeCorrectedBatchAsync` filters on `AI_CORRECTED:` in ValidationFlags; Claude-corrected records bypass ParseConfidence threshold (Claude is authoritative)
+
+**Result:** 0 build errors; 30/30 tests pass (18 existing + 12 new); zero regressions.
+
+---

@@ -77,6 +77,19 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Optional Stage 3.4 ML.NET correction and anomaly scoring service.
+        /// Null if ML correction is not configured.
+        /// </summary>
+        private readonly IMlNetCorrectionService? _mlNetCorrectionService;
+
+        /**************************************************************/
+        /// <summary>
+        /// Whether the ML.NET correction service has been initialized (lazy init on first batch).
+        /// </summary>
+        private bool _mlNetInitialized;
+
+        /**************************************************************/
+        /// <summary>
         /// Optional Stage 3.5 Claude API correction service. Null if AI correction is not configured.
         /// </summary>
         private readonly IClaudeApiCorrectionService? _correctionService;
@@ -96,6 +109,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="logger">Logger.</param>
         /// <param name="batchValidator">Optional Stage 4 batch validation service. Pass null to skip validation.</param>
         /// <param name="columnStandardizer">Optional Stage 3.25 column standardization service. Pass null to skip standardization.</param>
+        /// <param name="mlNetCorrectionService">Optional Stage 3.4 ML.NET correction and anomaly scoring service. Pass null to skip ML correction.</param>
         /// <param name="correctionService">Optional Stage 3.5 Claude API correction service. Pass null to skip AI correction.</param>
         public TableParsingOrchestrator(
             ITableReconstructionService reconstructionService,
@@ -105,6 +119,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             ILogger<TableParsingOrchestrator> logger,
             IBatchValidationService? batchValidator = null,
             IColumnStandardizationService? columnStandardizer = null,
+            IMlNetCorrectionService? mlNetCorrectionService = null,
             IClaudeApiCorrectionService? correctionService = null)
         {
             #region implementation
@@ -116,6 +131,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             _logger = logger;
             _batchValidator = batchValidator;
             _columnStandardizer = columnStandardizer;
+            _mlNetCorrectionService = mlNetCorrectionService;
             _correctionService = correctionService;
 
             #endregion
@@ -130,9 +146,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Processes a batch of tables: reconstruct → route → parse → write to DB.
         /// </summary>
         /// <param name="filter">Filter for table ID range.</param>
+        /// <param name="rowProgress">Optional per-table progress callback for UI updates within the batch.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Number of observations written.</returns>
-        public async Task<int> ProcessBatchAsync(TableCellContextFilter filter, CancellationToken ct = default)
+        public async Task<int> ProcessBatchAsync(TableCellContextFilter filter, IProgress<TransformBatchProgress>? rowProgress = null, CancellationToken ct = default)
         {
             #region implementation
 
@@ -143,8 +160,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                 _columnStdInitialized = true;
             }
 
+            // Lazy-initialize ML.NET correction service on first batch
+            if (_mlNetCorrectionService != null && !_mlNetInitialized)
+            {
+                await _mlNetCorrectionService.InitializeAsync(ct);
+                _mlNetInitialized = true;
+            }
+
             var tables = await _reconstructionService.ReconstructTablesAsync(filter, ct);
             var totalObservations = 0;
+            var totalTables = tables.Count;
+            var tablesProcessed = 0;
 
             foreach (var table in tables)
             {
@@ -156,6 +182,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     _logger.LogDebug("Skipping TextTableID={Id} — category={Category}",
                         table.TextTableID, category);
+                    tablesProcessed++;
+                    rowProgress?.Report(new TransformBatchProgress
+                    {
+                        TablesProcessedInBatch = tablesProcessed,
+                        TotalTablesInBatch = totalTables,
+                        BatchObservationCount = totalObservations
+                    });
                     continue;
                 }
 
@@ -163,7 +196,16 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     var observations = parser.Parse(table);
                     if (observations.Count == 0)
+                    {
+                        tablesProcessed++;
+                        rowProgress?.Report(new TransformBatchProgress
+                        {
+                            TablesProcessedInBatch = tablesProcessed,
+                            TotalTablesInBatch = totalTables,
+                            BatchObservationCount = totalObservations
+                        });
                         continue;
+                    }
 
                     // Stage 3.25: Column standardization (deterministic, pre-AI)
                     if (_columnStandardizer != null)
@@ -171,10 +213,22 @@ namespace MedRecProImportClass.Service.TransformationServices
                         observations = _columnStandardizer.Standardize(observations);
                     }
 
+                    // Stage 3.4: ML.NET correction and anomaly scoring
+                    if (_mlNetCorrectionService != null)
+                    {
+                        observations = _mlNetCorrectionService.ScoreAndCorrect(observations);
+                    }
+
                     // Stage 3.5: Claude API correction (post-parse, pre-write)
                     if (_correctionService != null)
                     {
                         observations = await _correctionService.CorrectBatchAsync(observations, ct);
+
+                        // Stage 3.4 feedback: feed Claude corrections back to ML as ground truth
+                        if (_mlNetCorrectionService != null)
+                        {
+                            await _mlNetCorrectionService.FeedClaudeCorrectedBatchAsync(observations, ct);
+                        }
                     }
 
                     var entities = observations.Select(mapToEntity).ToList();
@@ -193,6 +247,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                         "Failed to parse TextTableID={Id} with {Parser} — skipping",
                         table.TextTableID, parser.GetType().Name);
                 }
+
+                tablesProcessed++;
+                rowProgress?.Report(new TransformBatchProgress
+                {
+                    TablesProcessedInBatch = tablesProcessed,
+                    TotalTablesInBatch = totalTables,
+                    BatchObservationCount = totalObservations
+                });
             }
 
             if (totalObservations > 0)
@@ -229,9 +291,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Full corpus run: truncate → discover ID range → batch loop.
         /// </summary>
         /// <param name="batchSize">TextTableIDs per batch (default 1000).</param>
-        /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
+        /// <param name="progress">Optional progress callback invoked after each batch completes (persisted to disk).</param>
         /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
         /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
+        /// <param name="rowProgress">Optional per-table progress callback for UI updates within each batch.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Total observations written.</returns>
         public async Task<int> ProcessAllAsync(
@@ -239,6 +302,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             IProgress<TransformBatchProgress>? progress = null,
             int? resumeFromId = null,
             int? maxBatches = null,
+            IProgress<TransformBatchProgress>? rowProgress = null,
             CancellationToken ct = default)
         {
             #region implementation
@@ -284,7 +348,23 @@ namespace MedRecProImportClass.Service.TransformationServices
                     TextTableIdRangeEnd = end
                 };
 
-                var batchCount = await ProcessBatchAsync(filter, ct);
+                // Wrap rowProgress to inject batch-level context into each per-table report
+                var capturedBatchNumber = batchNumber;
+                var capturedTotalObs = totalObservations;
+                IProgress<TransformBatchProgress>? innerProgress = rowProgress != null
+                    ? new Progress<TransformBatchProgress>(p =>
+                    {
+                        p.BatchNumber = capturedBatchNumber;
+                        p.TotalBatches = totalBatches;
+                        p.RangeStart = start;
+                        p.RangeEnd = end;
+                        p.CumulativeObservationCount = capturedTotalObs + p.BatchObservationCount;
+                        p.Elapsed = stopwatch.Elapsed;
+                        rowProgress.Report(p);
+                    })
+                    : null;
+
+                var batchCount = await ProcessBatchAsync(filter, innerProgress, ct);
                 totalObservations += batchCount;
 
                 _logger.LogInformation(
@@ -363,9 +443,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Full corpus run with Stage 4 validation: truncate → batch loop → validate → report.
         /// </summary>
         /// <param name="batchSize">TextTableIDs per batch (default 1000).</param>
-        /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
+        /// <param name="progress">Optional progress callback invoked after each batch completes (persisted to disk).</param>
         /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
         /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
+        /// <param name="rowProgress">Optional per-table progress callback for UI updates within each batch.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Validation report with coverage metrics and issues.</returns>
         /// <exception cref="InvalidOperationException">
@@ -376,6 +457,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             IProgress<TransformBatchProgress>? progress = null,
             int? resumeFromId = null,
             int? maxBatches = null,
+            IProgress<TransformBatchProgress>? rowProgress = null,
             CancellationToken ct = default)
         {
             #region implementation
@@ -428,7 +510,23 @@ namespace MedRecProImportClass.Service.TransformationServices
                     TextTableIdRangeEnd = end
                 };
 
-                var (batchCount, batchSkips) = await processBatchWithSkipTrackingAsync(filter, ct);
+                // Wrap rowProgress to inject batch-level context into each per-table report
+                var capturedBatchNumber = batchNumber;
+                var capturedTotalObs = totalObservations;
+                IProgress<TransformBatchProgress>? innerProgress = rowProgress != null
+                    ? new Progress<TransformBatchProgress>(p =>
+                    {
+                        p.BatchNumber = capturedBatchNumber;
+                        p.TotalBatches = totalBatches;
+                        p.RangeStart = start;
+                        p.RangeEnd = end;
+                        p.CumulativeObservationCount = capturedTotalObs + p.BatchObservationCount;
+                        p.Elapsed = stopwatch.Elapsed;
+                        rowProgress.Report(p);
+                    })
+                    : null;
+
+                var (batchCount, batchSkips) = await processBatchWithSkipTrackingAsync(filter, innerProgress, ct);
                 totalObservations += batchCount;
 
                 foreach (var kvp in batchSkips)
@@ -581,6 +679,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 allObservations = _columnStandardizer.Standardize(allObservations);
             }
 
+            // Stage 3.4: ML.NET correction and anomaly scoring
+            if (_mlNetCorrectionService != null && allObservations.Count > 0)
+            {
+                allObservations = _mlNetCorrectionService.ScoreAndCorrect(allObservations);
+            }
+
             // Stage 3.5: Claude AI Correction
             if (_correctionService != null && allObservations.Count > 0)
             {
@@ -594,6 +698,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 result.CorrectionCount = allObservations
                     .Select((o, i) => o.ValidationFlags != preCorrectionFlags[i] ? 1 : 0)
                     .Sum();
+
+                // Stage 3.4 feedback: feed Claude corrections back to ML as ground truth
+                if (_mlNetCorrectionService != null)
+                {
+                    await _mlNetCorrectionService.FeedClaudeCorrectedBatchAsync(allObservations, ct);
+                }
             }
 
             result.PostCorrectionObservations = allObservations;
@@ -726,16 +836,33 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// of skipped TextTableIDs and their reasons.
         /// </summary>
         /// <param name="filter">Filter for table ID range.</param>
+        /// <param name="rowProgress">Optional per-table progress callback for UI updates within the batch.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Tuple of (observation count, skip reasons dictionary).</returns>
         private async Task<(int observationCount, Dictionary<int, string> skipReasons)> processBatchWithSkipTrackingAsync(
-            TableCellContextFilter filter, CancellationToken ct)
+            TableCellContextFilter filter, IProgress<TransformBatchProgress>? rowProgress, CancellationToken ct)
         {
             #region implementation
+
+            // Lazy-initialize column standardizer dictionary on first batch
+            if (_columnStandardizer != null && !_columnStdInitialized)
+            {
+                await _columnStandardizer.InitializeAsync(ct);
+                _columnStdInitialized = true;
+            }
+
+            // Lazy-initialize ML.NET correction service on first batch
+            if (_mlNetCorrectionService != null && !_mlNetInitialized)
+            {
+                await _mlNetCorrectionService.InitializeAsync(ct);
+                _mlNetInitialized = true;
+            }
 
             var tables = await _reconstructionService.ReconstructTablesAsync(filter, ct);
             var totalObservations = 0;
             var skipReasons = new Dictionary<int, string>();
+            var totalTables = tables.Count;
+            var tablesProcessed = 0;
 
             foreach (var table in tables)
             {
@@ -752,6 +879,13 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                     _logger.LogDebug("Skipping TextTableID={Id} — category={Category}",
                         table.TextTableID, category);
+                    tablesProcessed++;
+                    rowProgress?.Report(new TransformBatchProgress
+                    {
+                        TablesProcessedInBatch = tablesProcessed,
+                        TotalTablesInBatch = totalTables,
+                        BatchObservationCount = totalObservations
+                    });
                     continue;
                 }
 
@@ -765,6 +899,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                             skipReasons[table.TextTableID.Value] = $"EMPTY:{parser.GetType().Name}";
                         }
 
+                        tablesProcessed++;
+                        rowProgress?.Report(new TransformBatchProgress
+                        {
+                            TablesProcessedInBatch = tablesProcessed,
+                            TotalTablesInBatch = totalTables,
+                            BatchObservationCount = totalObservations
+                        });
                         continue;
                     }
 
@@ -774,10 +915,22 @@ namespace MedRecProImportClass.Service.TransformationServices
                         observations = _columnStandardizer.Standardize(observations);
                     }
 
+                    // Stage 3.4: ML.NET correction and anomaly scoring
+                    if (_mlNetCorrectionService != null)
+                    {
+                        observations = _mlNetCorrectionService.ScoreAndCorrect(observations);
+                    }
+
                     // Stage 3.5: Claude API correction (post-parse, pre-write)
                     if (_correctionService != null)
                     {
                         observations = await _correctionService.CorrectBatchAsync(observations, ct);
+
+                        // Stage 3.4 feedback: feed Claude corrections back to ML as ground truth
+                        if (_mlNetCorrectionService != null)
+                        {
+                            await _mlNetCorrectionService.FeedClaudeCorrectedBatchAsync(observations, ct);
+                        }
                     }
 
                     var entities = observations.Select(mapToEntity).ToList();
@@ -807,6 +960,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                         "Failed to parse TextTableID={Id} with {Parser} — skipping",
                         table.TextTableID, parser.GetType().Name);
                 }
+
+                tablesProcessed++;
+                rowProgress?.Report(new TransformBatchProgress
+                {
+                    TablesProcessedInBatch = tablesProcessed,
+                    TotalTablesInBatch = totalTables,
+                    BatchObservationCount = totalObservations
+                });
             }
 
             if (totalObservations > 0)

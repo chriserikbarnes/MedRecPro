@@ -285,8 +285,26 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
                 return observations;
             }
 
+            // Gate by ML anomaly score when threshold is configured
+            var toCorrect = _settings.MlAnomalyScoreThreshold > 0f
+                ? observations.Where(exceedsAnomalyThreshold).ToList()
+                : observations;
+
+            if (toCorrect.Count == 0)
+            {
+                _logger.LogDebug("All {Count} observations below ML anomaly threshold {Threshold} — skipping Claude correction",
+                    observations.Count, _settings.MlAnomalyScoreThreshold);
+                return observations;
+            }
+
+            if (toCorrect.Count < observations.Count)
+            {
+                _logger.LogInformation("ML gate: {Passed}/{Total} observations exceed anomaly threshold {Threshold} — sending to Claude",
+                    toCorrect.Count, observations.Count, _settings.MlAnomalyScoreThreshold);
+            }
+
             // Group by TextTableID for contextual correction
-            var groups = observations.GroupBy(o => o.TextTableID ?? 0).ToList();
+            var groups = toCorrect.GroupBy(o => o.TextTableID ?? 0).ToList();
             var totalCorrections = 0;
 
             foreach (var group in groups)
@@ -641,6 +659,52 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
                 default:
                     return false;
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether an observation's ML anomaly score exceeds the configured threshold.
+        /// Returns true (conservative — send to Claude) when: the score is absent, the value is
+        /// "NOMODEL", the value is "ERROR", or the parsed score ≥ threshold.
+        /// Returns false only when a valid numeric score is below the threshold.
+        /// </summary>
+        /// <param name="obs">Observation to evaluate.</param>
+        /// <returns>True if the observation should be sent to Claude.</returns>
+        private bool exceedsAnomalyThreshold(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrEmpty(obs.ValidationFlags))
+                return true; // No flags at all → conservative: send to Claude
+
+            // Find the MLNET_ANOMALY_SCORE token in ValidationFlags
+            const string prefix = "MLNET_ANOMALY_SCORE:";
+            var startIdx = obs.ValidationFlags.IndexOf(prefix, StringComparison.Ordinal);
+            if (startIdx < 0)
+                return true; // No anomaly score flag → conservative: send to Claude
+
+            var valueStart = startIdx + prefix.Length;
+            var valueEnd = obs.ValidationFlags.IndexOf(';', valueStart);
+            var scoreStr = valueEnd >= 0
+                ? obs.ValidationFlags.Substring(valueStart, valueEnd - valueStart).Trim()
+                : obs.ValidationFlags.Substring(valueStart).Trim();
+
+            // NOMODEL or ERROR → conservative: send to Claude
+            if (string.Equals(scoreStr, "NOMODEL", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(scoreStr, "ERROR", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // Parse the numeric score
+            if (float.TryParse(scoreStr, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var score))
+            {
+                return score >= _settings.MlAnomalyScoreThreshold;
+            }
+
+            // Unparseable → conservative: send to Claude
+            return true;
 
             #endregion
         }

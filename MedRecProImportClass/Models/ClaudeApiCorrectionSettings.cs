@@ -77,6 +77,21 @@ namespace MedRecProImportClass.Models
         /// </summary>
         public int DelayBetweenRequestsMs { get; set; } = 200;
 
+        /**************************************************************/
+        /// <summary>
+        /// ML anomaly score threshold for gating observations to Claude. Observations with
+        /// <c>MLNET_ANOMALY_SCORE</c> below this threshold are considered "normal" and skip
+        /// the API correction pass. Set to 0.0 for backward-compatible behavior (all observations
+        /// pass through to Claude). When ML is configured, recommended value is ~0.75.
+        /// </summary>
+        /// <remarks>
+        /// The threshold is evaluated by <see cref="MedRecProImportClass.Service.TransformationServices.ClaudeApiCorrectionService"/>
+        /// at the start of <c>CorrectBatchAsync</c>. Observations without an anomaly score flag
+        /// (e.g., because the ML service was not configured) always pass through (conservative).
+        /// </remarks>
+        /// <seealso cref="MlNetCorrectionSettings"/>
+        public float MlAnomalyScoreThreshold { get; set; } = 0.0f;
+
         #endregion
 
         #region api connection properties

@@ -271,21 +271,37 @@ namespace MedRecProConsole.Services
                     {
                         var task = pctx.AddTask("Stage 3: Standardizing", maxValue: 100);
 
-                        var progress = new Progress<TransformBatchProgress>(p =>
+                        // Per-batch callback: persists progress to disk for resumption
+                        var batchProgress = new Progress<TransformBatchProgress>(p =>
                         {
-                            task.Value = p.TotalBatches > 0
-                                ? (double)p.BatchNumber / p.TotalBatches * 100
-                                : 0;
                             task.Description =
-                                $"Batch {p.BatchNumber}/{p.TotalBatches} " +
-                                $"[[{p.RangeStart}-{p.RangeEnd}]] " +
+                                $"Batch {p.BatchNumber}/{p.TotalBatches} complete — " +
                                 $"{p.CumulativeObservationCount:N0} obs";
 
                             ctx.ProgressTracker.UpdateProgressAsync(p).GetAwaiter().GetResult();
                         });
 
+                        // Per-table callback: drives the UI progress bar within each batch
+                        var rowProgress = new Progress<TransformBatchProgress>(p =>
+                        {
+                            var batchFraction = p.TotalTablesInBatch > 0
+                                ? (double)p.TablesProcessedInBatch / p.TotalTablesInBatch
+                                : 0.0;
+                            var overallPct = p.TotalBatches > 0
+                                ? ((p.BatchNumber - 1) + batchFraction) / p.TotalBatches * 100
+                                : batchFraction * 100;
+
+                            task.Value = overallPct;
+                            task.Description =
+                                $"Batch {p.BatchNumber}/{p.TotalBatches} " +
+                                $"[[{p.RangeStart}-{p.RangeEnd}]] " +
+                                $"Table {p.TablesProcessedInBatch}/{p.TotalTablesInBatch} — " +
+                                $"{p.CumulativeObservationCount:N0} obs";
+                        });
+
                         totalObs = await ctx.Orchestrator.ProcessAllAsync(
-                            batchSize, progress, ctx.ResumeFromId, ct: ctx.Cts.Token);
+                            batchSize, batchProgress, ctx.ResumeFromId,
+                            rowProgress: rowProgress, ct: ctx.Cts.Token);
 
                         task.Value = 100;
                         task.Description = $"Complete: {totalObs:N0} observations";
@@ -448,22 +464,38 @@ namespace MedRecProConsole.Services
                     {
                         var task = pctx.AddTask("Stage 3+4: Standardize + Validate", maxValue: 100);
 
-                        var progress = new Progress<TransformBatchProgress>(p =>
+                        // Per-batch callback: persists progress to disk for resumption
+                        var batchProgress = new Progress<TransformBatchProgress>(p =>
                         {
-                            task.Value = p.TotalBatches > 0
-                                ? (double)p.BatchNumber / p.TotalBatches * 100
-                                : 0;
                             task.Description =
-                                $"Batch {p.BatchNumber}/{p.TotalBatches} " +
-                                $"[[{p.RangeStart}-{p.RangeEnd}]] " +
+                                $"Batch {p.BatchNumber}/{p.TotalBatches} complete — " +
                                 $"{p.CumulativeObservationCount:N0} obs, " +
                                 $"{p.TablesSkippedThisBatch} skipped";
 
                             ctx.ProgressTracker.UpdateProgressAsync(p).GetAwaiter().GetResult();
                         });
 
+                        // Per-table callback: drives the UI progress bar within each batch
+                        var rowProgress = new Progress<TransformBatchProgress>(p =>
+                        {
+                            var batchFraction = p.TotalTablesInBatch > 0
+                                ? (double)p.TablesProcessedInBatch / p.TotalTablesInBatch
+                                : 0.0;
+                            var overallPct = p.TotalBatches > 0
+                                ? ((p.BatchNumber - 1) + batchFraction) / p.TotalBatches * 100
+                                : batchFraction * 100;
+
+                            task.Value = overallPct;
+                            task.Description =
+                                $"Batch {p.BatchNumber}/{p.TotalBatches} " +
+                                $"[[{p.RangeStart}-{p.RangeEnd}]] " +
+                                $"Table {p.TablesProcessedInBatch}/{p.TotalTablesInBatch} — " +
+                                $"{p.CumulativeObservationCount:N0} obs";
+                        });
+
                         report = await ctx.Orchestrator.ProcessAllWithValidationAsync(
-                            batchSize, progress, ctx.ResumeFromId, maxBatches, ctx.Cts.Token);
+                            batchSize, batchProgress, ctx.ResumeFromId, maxBatches,
+                            rowProgress: rowProgress, ct: ctx.Cts.Token);
 
                         task.Value = 100;
                         task.Description = $"Complete: {report.TotalObservations:N0} observations validated";

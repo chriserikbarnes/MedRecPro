@@ -52,6 +52,20 @@ namespace MedRecProImportClass.Models
         /// <summary>Wall-clock time elapsed since the run started.</summary>
         public TimeSpan Elapsed { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Number of tables processed so far within the current batch (1-based).
+        /// Zero indicates a batch-boundary report (not a within-batch update).
+        /// </summary>
+        public int TablesProcessedInBatch { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Total number of reconstructed tables in the current batch.
+        /// Zero indicates a batch-boundary report (not a within-batch update).
+        /// </summary>
+        public int TotalTablesInBatch { get; set; }
+
         #endregion
     }
 }
