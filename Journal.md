@@ -1344,3 +1344,24 @@ Implemented the feedback loop that turns Claude API corrections (Stage 3.5) into
 **Result:** 0 build errors; 30/30 tests pass (18 existing + 12 new); zero regressions.
 
 ---
+
+### 2026-03-27 12:56 PM EST — Within-Batch Progress Bar for Table Standardization
+
+Added per-table progress reporting so the Spectre.Console progress bar updates continuously within each batch instead of jumping from 0% to 100% when only one batch exists.
+
+**Root cause:** `ProcessAllAsync` only fired `IProgress<TransformBatchProgress>` once per batch completion — no visibility into the foreach loop over tables within a batch.
+
+**Approach — dual callbacks:**
+- `batchProgress` (per-batch): persists to disk via `StandardizationProgressTracker` for resumption — unchanged frequency
+- `rowProgress` (per-table): UI-only, fires after every table, drives the progress bar with fractional percentage
+
+**Changes:**
+- `TransformBatchProgress` — added `TablesProcessedInBatch` and `TotalTablesInBatch` properties (zero = batch-boundary report)
+- `ITableParsingOrchestrator` — added optional `rowProgress` parameter to `ProcessBatchAsync`, `ProcessAllAsync`, `ProcessAllWithValidationAsync`
+- `TableParsingOrchestrator` — `ProcessBatchAsync` fires `rowProgress` after each table; `ProcessAllAsync`/`ProcessAllWithValidationAsync` wrap it with a `Progress<T>` closure that injects batch context (BatchNumber, TotalBatches, RangeStart, RangeEnd, cumulative obs, elapsed)
+- `processBatchWithSkipTrackingAsync` — same per-table firing pattern; also added missing lazy-init for column standardizer and ML.NET services
+- `TableStandardizationService` — split single callback into `batchProgress` (disk persistence) + `rowProgress` (UI bar): `overallPct = ((batchNumber - 1 + tablesProcessed/totalTables) / totalBatches) * 100`
+
+**Result:** 0 build errors across all three projects. Progress bar now shows `Batch 1/1 [1-5000] Table 2341/4892 — 12,445 obs [███████████] 47%` instead of sitting at 0%.
+
+---
