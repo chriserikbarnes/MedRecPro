@@ -640,6 +640,29 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Standalone [N=xxx] as whole value — e.g., "[N=60]", "[ n = 34 ]".
+        /// Complements <see cref="_nValuePattern"/> which handles parenthesized/bare forms.
+        /// Captures: Group 1 = N value.
+        /// </summary>
+        private static readonly Regex _standaloneBracketNPattern = new(
+            @"^\[\s*[Nn]\s*=\s*(\d+)\s*\]$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Inline (N=xxx) or [N=xxx] embedded anywhere in text — e.g., "(n=963)", "[N=60]" mid-string.
+        /// Used by the universal N= pre-pass to strip sample-size annotations from any column.
+        /// Captures: Group 1 = N value.
+        /// </summary>
+        /// <seealso cref="_nValuePattern"/>
+        /// <seealso cref="_standaloneBracketNPattern"/>
+        /// <seealso cref="_bracketedNPattern"/>
+        private static readonly Regex _inlineNPattern = new(
+            @"[\(\[]\s*[Nn]\s*=\s*(\d+)\s*[\)\]]",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
         /// "All" prefix on drug/arm names — e.g., "All PGB", "All Doses".
         /// Used to strip "All" prefix when recovering drug name after bracket extraction.
         /// Captures: Group 1 = the actual name after "All".
@@ -1372,6 +1395,65 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #endregion Rule Methods
 
+        #region Inline N= Helpers
+
+        /**************************************************************/
+        /// <summary>
+        /// Attempts to extract and strip an N= sample-size annotation from a column value.
+        /// Three-tier check: (1) standalone (N=xxx) via <see cref="_nValuePattern"/>,
+        /// (2) standalone [N=xxx] via <see cref="_standaloneBracketNPattern"/>,
+        /// (3) embedded (N=xxx) or [N=xxx] via <see cref="_inlineNPattern"/>.
+        /// </summary>
+        /// <param name="val">The raw column value to inspect.</param>
+        /// <param name="cleaned">The value after stripping N=, or null if the entire value was N=.</param>
+        /// <param name="n">The extracted sample-size integer.</param>
+        /// <returns>True if an N= pattern was found and stripped.</returns>
+        /// <seealso cref="normalizeInlineNValues"/>
+        private bool tryStripInlineN(string? val, out string? cleaned, out int n)
+        {
+            #region implementation
+
+            cleaned = val;
+            n = 0;
+            if (string.IsNullOrWhiteSpace(val)) return false;
+
+            var trimmed = val.Trim();
+
+            // Check 1: Whole value is N=xxx or (N=xxx)
+            var nMatch = _nValuePattern.Match(trimmed);
+            if (nMatch.Success && int.TryParse(nMatch.Groups[1].Value, out n))
+            {
+                cleaned = null;
+                return true;
+            }
+
+            // Check 2: Whole value is [N=xxx]
+            var sqMatch = _standaloneBracketNPattern.Match(trimmed);
+            if (sqMatch.Success && int.TryParse(sqMatch.Groups[1].Value, out n))
+            {
+                cleaned = null;
+                return true;
+            }
+
+            // Check 3: N= embedded anywhere as (N=xxx) or [N=xxx] — strip all occurrences,
+            // take the first match's number
+            var inlineMatch = _inlineNPattern.Match(trimmed);
+            if (inlineMatch.Success && int.TryParse(inlineMatch.Groups[1].Value, out n))
+            {
+                var stripped = _inlineNPattern.Replace(trimmed, " ").Trim();
+                // Collapse internal double-spaces and trailing punctuation artifacts
+                stripped = Regex.Replace(stripped, @"\s{2,}", " ").Trim();
+                cleaned = string.IsNullOrWhiteSpace(stripped) ? null : stripped;
+                return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        #endregion Inline N= Helpers
+
         #region Classification Methods
 
         /**************************************************************/
@@ -1499,16 +1581,18 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// Phase 2: Applies content normalization across ALL table categories.
-        /// Runs 5 sub-passes: DoseRegimen triage, ParameterName cleanup, TreatmentArm cleanup,
-        /// Unit scrub, and SOC mapping.
+        /// Runs 6 sub-passes: inline N= stripping, DoseRegimen triage, ParameterName cleanup,
+        /// TreatmentArm cleanup, Unit scrub, and SOC mapping.
         /// </summary>
         /// <returns>Number of corrections applied.</returns>
+        /// <seealso cref="normalizeInlineNValues"/>
         private int applyPhase2_ContentNormalization(ParsedObservation obs)
         {
             #region implementation
 
             int corrections = 0;
 
+            if (normalizeInlineNValues(obs)) corrections++;
             if (normalizeDoseRegimen(obs)) corrections++;
             if (normalizeParameterName(obs)) corrections++;
             if (normalizeTreatmentArm(obs)) corrections++;
@@ -1516,6 +1600,54 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (normalizeParameterCategory(obs)) corrections++;
 
             return corrections;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2 pre-pass: strips N= patterns from every non-RawValue column and
+        /// populates <see cref="ParsedObservation.ArmN"/>. Handles (N=xxx), [N=xxx],
+        /// and standalone N=xxx forms across TreatmentArm, StudyContext, DoseRegimen,
+        /// ParameterName, ParameterSubtype, Population, Timepoint, and Unit.
+        /// Runs before all other Phase 2 sub-passes so downstream methods see clean data.
+        /// </summary>
+        /// <param name="obs">The observation to normalize.</param>
+        /// <returns>True if any column was modified.</returns>
+        /// <seealso cref="tryStripInlineN"/>
+        /// <seealso cref="applyPhase2_ContentNormalization"/>
+        private bool normalizeInlineNValues(ParsedObservation obs)
+        {
+            #region implementation
+
+            // Define all columns eligible for N= stripping (excludes RawValue)
+            var columns = new (Func<string?> get, Action<string?> set, string name)[]
+            {
+                (() => obs.TreatmentArm,    v => obs.TreatmentArm = v,    "TreatmentArm"),
+                (() => obs.StudyContext,     v => obs.StudyContext = v,     "StudyContext"),
+                (() => obs.DoseRegimen,      v => obs.DoseRegimen = v,      "DoseRegimen"),
+                (() => obs.ParameterName,    v => obs.ParameterName = v,    "ParameterName"),
+                (() => obs.ParameterSubtype, v => obs.ParameterSubtype = v, "ParameterSubtype"),
+                (() => obs.Population,       v => obs.Population = v,       "Population"),
+                (() => obs.Timepoint,        v => obs.Timepoint = v,        "Timepoint"),
+                (() => obs.Unit,             v => obs.Unit = v,             "Unit"),
+            };
+
+            bool anyChange = false;
+
+            foreach (var (get, set, colName) in columns)
+            {
+                if (tryStripInlineN(get(), out var cleaned, out var n))
+                {
+                    set(cleaned);
+                    if (!obs.ArmN.HasValue)
+                        obs.ArmN = n;
+                    appendFlag(obs, $"COL_STD:N_STRIPPED:{colName}");
+                    anyChange = true;
+                }
+            }
+
+            return anyChange;
 
             #endregion
         }
@@ -1699,8 +1831,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             // Priority 2: Embedded [N=xxx] — already handled in Phase 1 for AE/EFFICACY,
-            // but needed here for other categories
-            if (!isPhase1Category(obs.TableCategory))
+            // but needed here for other categories. Skip if pre-pass already extracted ArmN.
+            if (!isPhase1Category(obs.TableCategory) && !obs.ArmN.HasValue)
             {
                 var bracketMatch = _bracketedNPattern.Match(val);
                 if (bracketMatch.Success)

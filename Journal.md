@@ -1276,3 +1276,19 @@ Replaced the minimal 3-rule system prompt with a comprehensive normalization ski
 - Added `ParentSectionCode` and `ObservationCount` to the per-request context header sent to Claude
 
 ---
+
+### 2026-03-27 10:36 AM EST — Universal Inline N= Extraction Across All Non-RawValue Columns
+
+Added a Phase 2 pre-pass (`normalizeInlineNValues`) to `ColumnStandardizationService` that strips N= sample-size annotations from every non-RawValue column (TreatmentArm, StudyContext, DoseRegimen, ParameterName, ParameterSubtype, Population, Timepoint, Unit) and populates `ArmN`. This closes three gaps: (1) standalone `(N=xxx)` in non-AE/EFFICACY TreatmentArm was never extracted, (2) DoseRegimen with embedded `(n=963)` mid-string was never stripped, (3) other columns with stray N= patterns were ignored.
+
+**Key changes:**
+- Two new compiled regex patterns: `_standaloneBracketNPattern` for `[N=xxx]` as whole value, `_inlineNPattern` for `(N=xxx)` or `[N=xxx]` embedded anywhere
+- `tryStripInlineN` helper with three-tier matching (standalone parens, standalone brackets, inline embedded)
+- `normalizeInlineNValues` pre-pass wired as first call in `applyPhase2_ContentNormalization`
+- Guard added to `normalizeTreatmentArm` Priority 2 (`&& !obs.ArmN.HasValue`) to prevent double-extraction
+- Updated existing PK category test to reflect new behavior; added 7 new tests covering all gap cases
+- Discovery: DOSING category marks `ArmN` as `NotApplicable` in column contracts, so Phase 4 nulls it after extraction — pre-pass still cleans the column text correctly
+
+**Result:** 908/908 tests pass.
+
+---

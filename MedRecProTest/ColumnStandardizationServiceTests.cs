@@ -362,7 +362,8 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// Verifies that PK observations skip Phase 1 (arm correction) but Phases 2-4 still run.
-        /// Phase 1 does NOT fire for PK, so TreatmentArm stays as "(N=267)".
+        /// Phase 1 does NOT fire for PK, but Phase 2 pre-pass extracts standalone (N=267)
+        /// and recovers the arm name from StudyContext.
         /// Phase 3 migrates Percentage→Proportion; Phase 4 nulls ParameterCategory (N/A for PK).
         /// </summary>
         [TestMethod]
@@ -375,9 +376,11 @@ namespace MedRecProTest
             var obs = createObservation("(N=267)", "Placebo", category: "PK");
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            // Phase 1 skipped — TreatmentArm unchanged
-            Assert.AreEqual("(N=267)", result[0].TreatmentArm);
-            // Phase 1 flags should NOT be present
+            // Phase 1 skipped — but Phase 2 pre-pass extracts N=267 from TreatmentArm
+            Assert.AreEqual(267, result[0].ArmN);
+            Assert.IsNull(result[0].TreatmentArm);
+            assertHasFlag(result[0], "COL_STD:N_STRIPPED:TreatmentArm");
+            // Phase 1 arm correction flags should NOT be present
             Assert.IsFalse(result[0].ValidationFlags?.Contains("COL_STD:ARM_") == true,
                 "Phase 1 arm correction flags should not fire for PK");
 
@@ -2732,5 +2735,204 @@ namespace MedRecProTest
         }
 
         #endregion Cross-Category Tests
+
+        #region Phase 2 Pre-Pass: Inline N= Extraction
+
+        /**************************************************************/
+        /// <summary>
+        /// Standalone (n=178) in non-AE TreatmentArm → ArmN=178, TreatmentArm nulled.
+        /// Validates the gap where _bracketedNPattern (square brackets only) and
+        /// _embeddedNPattern (trailing Name N=xxx) both miss parenthesized standalone N=.
+        /// </summary>
+        [TestMethod]
+        public async Task InlineN_StandaloneParenN_NonAE_ExtractsArmN()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("(n=178)", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(178, result[0].ArmN);
+            Assert.IsNull(result[0].TreatmentArm);
+            assertHasFlag(result[0], "COL_STD:N_STRIPPED:TreatmentArm");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Standalone [N=60] in non-AE TreatmentArm → ArmN=60, TreatmentArm nulled.
+        /// Uses PK category where ArmN is Optional (DOSING marks ArmN as NotApplicable,
+        /// so Phase 4 would null it).
+        /// </summary>
+        [TestMethod]
+        public async Task InlineN_StandaloneBracketN_NonAE_ExtractsArmN()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("[N=60]", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(60, result[0].ArmN);
+            Assert.IsNull(result[0].TreatmentArm);
+            assertHasFlag(result[0], "COL_STD:N_STRIPPED:TreatmentArm");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// DoseRegimen with embedded (n=963) mid-string → ArmN=963, N stripped from DoseRegimen.
+        /// </summary>
+        [TestMethod]
+        public async Task InlineN_DoseRegimenEmbeddedN_ExtractsAndCleans()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", doseRegimen: "23 mg/day Donezepil Hydrochloride (n=963) %", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(963, result[0].ArmN);
+            Assert.IsNotNull(result[0].DoseRegimen);
+            Assert.IsFalse(result[0].DoseRegimen!.Contains("963"),
+                $"Expected N=963 stripped from DoseRegimen but was '{result[0].DoseRegimen}'");
+            assertHasFlag(result[0], "COL_STD:N_STRIPPED:DoseRegimen");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// RawValue containing N= must NOT be touched by the pre-pass (RawValue is excluded).
+        /// </summary>
+        [TestMethod]
+        public async Task InlineN_RawValueWithN_Untouched()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.RawValue = "1.31 (±0.76) (n=25)";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("1.31 (±0.76) (n=25)", result[0].RawValue);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 1 AE row with "Placebo [N=459]" is handled by Phase 1 Rule 11.
+        /// The pre-pass should be a no-op since Phase 1 already cleaned TreatmentArm.
+        /// ArmN should still be 459 from Phase 1.
+        /// </summary>
+        [TestMethod]
+        public async Task InlineN_Phase1AE_BracketN_HandledByPhase1()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo [N=459]", category: "ADVERSE_EVENT");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(459, result[0].ArmN);
+            Assert.AreEqual("Placebo", result[0].TreatmentArm);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// When ArmN is already set from Phase 1, the pre-pass should strip N from
+        /// other columns but NOT overwrite the existing ArmN value.
+        /// </summary>
+        [TestMethod]
+        public async Task InlineN_ArmNAlreadySet_DoesNotOverwrite()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            // Phase 1 sets ArmN from TreatmentArm "(N=267)" for AE category
+            var obs = createObservation("(N=267)", studyContext: "Placebo", category: "ADVERSE_EVENT");
+            obs.DoseRegimen = "50 mg (n=100)";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            // ArmN should be 267 from Phase 1 (TreatmentArm), NOT 100 from DoseRegimen
+            Assert.AreEqual(267, result[0].ArmN);
+            // DoseRegimen N should still be stripped
+            if (result[0].DoseRegimen != null)
+            {
+                Assert.IsFalse(result[0].DoseRegimen!.Contains("100"),
+                    $"Expected N=100 stripped from DoseRegimen but was '{result[0].DoseRegimen}'");
+            }
+            assertHasFlag(result[0], "COL_STD:N_STRIPPED:DoseRegimen");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// StudyContext with embedded (N=50) → ArmN=50, N stripped from StudyContext.
+        /// Validates that non-TreatmentArm columns are also scanned.
+        /// </summary>
+        [TestMethod]
+        public async Task InlineN_StudyContextEmbeddedN_ExtractsAndCleans()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", studyContext: "Study 1 (N=50)", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(50, result[0].ArmN);
+            if (result[0].StudyContext != null)
+            {
+                Assert.IsFalse(result[0].StudyContext!.Contains("50"),
+                    $"Expected N=50 stripped from StudyContext but was '{result[0].StudyContext}'");
+            }
+            assertHasFlag(result[0], "COL_STD:N_STRIPPED:StudyContext");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 2 Pre-Pass: Inline N= Extraction
     }
 }
