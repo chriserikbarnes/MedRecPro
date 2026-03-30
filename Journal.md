@@ -1458,3 +1458,18 @@ Discovered and fixed three issues preventing column standardization from running
 0 build errors.
 
 ---
+
+### 2026-03-30 11:06 AM EST — Fix PrimaryValueType: Trust Caption Hints Over Category Defaults
+
+Fixed an incorrect defaulting behavior in `ColumnStandardizationService` where PK tables were being assigned `GeometricMean` as a blanket default, overriding caption hints that explicitly said "Mean". GeometricMean is only appropriate for drug A vs drug B comparison (DDI) studies, not standard PK tables.
+
+Key changes to `ColumnStandardizationService.cs`:
+- **Added `extractCaptionHintType()`** — new helper that parses `CAPTION_HINT:caption:X` from `ValidationFlags` so Phase 3 can consume what the parsers already determined upstream
+- **Fixed `resolveMeanType()`** — now checks CAPTION_HINT before category defaults; removed PK from the GeometricMean category default (only DDI tables default to GeometricMean now)
+- **Fixed `resolveNumericType()`** — PK now defaults to ArithmeticMean instead of GeometricMean
+
+Root cause: parsers correctly generated CAPTION_HINT flags but ColumnStandardizationService never read them, re-analyzing the caption independently with simpler heuristics and falling to an incorrect PK→GeometricMean category default. New priority order: explicit caption keywords → caption hint from parser → category defaults → ArithmeticMean.
+
+Also helped user resolve a Visual Studio debugging issue: breakpoints in MedRecProImportClass weren't hitting because the project was a `<ProjectReference>` in the `.csproj` but not added to the Console `.sln`. Fix: Add → Existing Project in the Console solution.
+
+---

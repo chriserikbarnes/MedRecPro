@@ -2138,7 +2138,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var caption = obs.Caption ?? "";
 
-            // Caption explicit mentions override category defaults
+            // Caption explicit mentions override everything
             if (caption.Contains("arithmetic", StringComparison.OrdinalIgnoreCase))
                 return "ArithmeticMean";
             if (caption.Contains("geometric", StringComparison.OrdinalIgnoreCase))
@@ -2147,9 +2147,26 @@ namespace MedRecProImportClass.Service.TransformationServices
                 caption.Contains("least square", StringComparison.OrdinalIgnoreCase))
                 return "LSMean";
 
-            // Category-based defaults
-            if (string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
+            // Trust parser's CAPTION_HINT over category defaults — when the parser
+            // extracted "Mean" from the caption, it means the caption explicitly said
+            // "Mean" (not "Geometric Mean"), so honour that as ArithmeticMean.
+            var captionHint = extractCaptionHintType(obs);
+            if (captionHint != null)
+            {
+                if (string.Equals(captionHint, "Mean", StringComparison.OrdinalIgnoreCase))
+                    return "ArithmeticMean";
+                if (string.Equals(captionHint, "GeometricMean", StringComparison.OrdinalIgnoreCase))
+                    return "GeometricMean";
+                if (string.Equals(captionHint, "LSMean", StringComparison.OrdinalIgnoreCase))
+                    return "LSMean";
+                if (string.Equals(captionHint, "Median", StringComparison.OrdinalIgnoreCase))
+                    return "Median";
+            }
+
+            // Category-based defaults — only when no caption hint exists
+            // GeometricMean is reserved for DDI (drug comparison) studies;
+            // standard PK tables report ArithmeticMean unless explicitly stated otherwise.
+            if (string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
                 return "GeometricMean";
 
             return "ArithmeticMean";
@@ -2200,11 +2217,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                     return "Count";
             }
 
-            // PK → GeometricMean
+            // PK — default to ArithmeticMean; GeometricMean only when caption
+            // explicitly says "geometric" (handled by caption checks below)
             if (string.Equals(category, "PK", StringComparison.OrdinalIgnoreCase))
-                return "GeometricMean";
+                return "ArithmeticMean";
 
-            // DDI → GeometricMeanRatio
+            // DDI → GeometricMeanRatio (caption hint "Mean" is uncommon for DDI tables)
             if (string.Equals(category, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
                 return "GeometricMeanRatio";
 
@@ -2417,6 +2435,44 @@ namespace MedRecProImportClass.Service.TransformationServices
         #endregion Phase 4: Column Contract Enforcement
 
         #region Helper Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the PrimaryValueType hint from a <c>CAPTION_HINT:caption:X</c> flag
+        /// in ValidationFlags. Returns null if no caption hint is present.
+        /// </summary>
+        /// <remarks>
+        /// The parsers (BaseTableParser, PkTableParser) produce CAPTION_HINT flags during
+        /// Stage 3 parsing. This method reads those flags so Phase 3 can respect upstream
+        /// evidence instead of re-analyzing the caption with simpler heuristics.
+        /// </remarks>
+        /// <param name="obs">Observation whose ValidationFlags to inspect.</param>
+        /// <returns>The caption hint value (e.g., "Mean", "GeometricMean", "Median"), or null.</returns>
+        /// <seealso cref="applyPhase3_PrimaryValueTypeMigration"/>
+        private static string? extractCaptionHintType(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrEmpty(obs.ValidationFlags))
+                return null;
+
+            // Parse "CAPTION_HINT:caption:X" — the type is after the second colon
+            const string prefix = "CAPTION_HINT:caption:";
+            var flags = obs.ValidationFlags;
+            int idx = flags.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+                return null;
+
+            int start = idx + prefix.Length;
+            // Find the end — either next semicolon or end of string
+            int end = flags.IndexOf(';', start);
+            if (end < 0) end = flags.Length;
+
+            var hint = flags[start..end].Trim();
+            return string.IsNullOrEmpty(hint) ? null : hint;
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>

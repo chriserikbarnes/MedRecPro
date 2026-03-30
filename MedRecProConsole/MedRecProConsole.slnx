@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="../MedRecProImportClass/MedRecProImportClass.csproj" />
   <Project Path="MedRecProConsole.csproj" />
 </Solution>
