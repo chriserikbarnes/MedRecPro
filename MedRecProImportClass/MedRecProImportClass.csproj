@@ -61,7 +61,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="TableStandards\" />
     <Folder Include="Service\TransformationServices\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Skills\**\*.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

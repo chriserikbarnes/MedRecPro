@@ -43,11 +43,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// to Claude in table-level batches for contextual accuracy.
         /// </summary>
         /// <param name="observations">Parsed observations from Stage 3 parsers.</param>
+        /// <param name="originalTable">Optional original reconstructed table for comparison context.</param>
         /// <param name="progress">Optional progress callback reporting 0–100 within the correction stage.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>The corrected observations (same list, mutated in place).</returns>
         Task<List<ParsedObservation>> CorrectBatchAsync(
             List<ParsedObservation> observations,
+            ReconstructedTable? originalTable = null,
             IProgress<TransformBatchProgress>? progress = null,
             CancellationToken ct = default);
     }
@@ -124,116 +126,20 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// System prompt for the correction skill. Encodes the full normalization
-        /// rule set from the table-parser-data-dictionary skill: column contracts,
-        /// PrimaryValueType migration, DoseRegimen triage, Unit scrub, ParameterName
-        /// and TreatmentArm cleanup, ParameterCategory SOC mapping, and BoundType
-        /// inference. Rules are ordered by priority within each section.
+        /// Cached system prompt loaded from skill file (lazy initialized on first API call).
+        /// Falls back to a minimal default if the skill file is missing or empty.
         /// </summary>
-        /// <remarks>
-        /// Source: column-contracts.md, normalization-rules.md, table-types.md
-        /// (table-parser-data-dictionary skill, references/ folder).
-        /// Update this prompt whenever those reference files change.
-        /// </remarks>
-        private const string CorrectionSystemPrompt = @"You review parsed pharmaceutical SPL label table observations for CLEAR errors only.
+        private string? _cachedSystemPrompt;
 
-## Rules
-- Only flag OBVIOUS misclassifications. If uncertain, do NOT correct.
-- Max 15 corrections per batch. Prioritize highest-impact errors.
-- Keep ""reason"" to 6 words max.
-- Return ONLY a JSON array. No markdown. No explanation outside the array.
-- If nothing is clearly wrong, return [].
+        /**************************************************************/
+        /// <summary>
+        /// Cached pivot comparison instructions loaded from skill file (lazy initialized).
+        /// </summary>
+        private string? _cachedPivotComparisonPrompt;
 
-## TableCategory — the governing context for all rules
-AdverseEvent | PK | DrugInteraction | Efficacy | Dosing | BMD | TissueDistribution | Demographic | Laboratory | TextDescriptive | Unclassified
-
-## PrimaryValueType — valid values (15)
-ArithmeticMean | GeometricMean | GeometricMeanRatio | LSMean | Median | Proportion | Count | PercentChange | HazardRatio | OddsRatio | RelativeRisk | RiskDifference | PValue | Text | Numeric
-
-Migrations (correct these old values):
-- ""Mean"" → GeometricMean when TableCategory=PK or DrugInteraction (unless caption has ""arithmetic"")
-- ""Mean"" → ArithmeticMean when TableCategory=AdverseEvent, or caption has ""arithmetic"", or no other context
-- ""Percentage"" → Proportion (Unit should be ""%"")
-- ""MeanPercentChange"" → PercentChange
-- ""RelativeRiskReduction"" → HazardRatio (caption has ""hazard""), OddsRatio (caption has ""odds""), else RelativeRisk
-- ""Numeric"" (AdverseEvent, Unit=""%"") → Proportion
-- ""Numeric"" (AdverseEvent, Unit null, value is integer) → Count
-- ""Numeric"" (PK) → GeometricMean
-- ""Numeric"" (DrugInteraction, no bounds) → GeometricMeanRatio
-- ""Numeric"" (DrugInteraction, bounds present) → GeometricMeanRatio
-- ""Numeric"" (BMD) → PercentChange
-- ""Numeric"" (Efficacy, bounds present) → HazardRatio
-- Caption has ""geometric mean"" → GeometricMean
-- Caption has ""arithmetic mean"" → ArithmeticMean
-- Caption has ""LS mean"" or ""least square"" → LSMean
-- Caption has ""median"" → Median
-
-## SecondaryValueType — valid values
-SD | SE | CI | CV | IQR | Range | N
-Check: ""SD"" vs ""SE"" contradicted by caption (""standard error"" → SE, ""standard deviation"" → SD).
-
-## DoseRegimen — route misplaced content (first match wins)
-1. PK sub-parameter name → field=DoseRegimen newValue=NULL, ALSO field=ParameterSubtype newValue={pk_param}
-   Matches: Cmax, Cmin, Tmax, AUC*, t1/2, t½, CL/F, CL, V/F, Vss, Vd, ke, MRT, MAT, bioavailability, CV(%)
-2. Actual dose (contains digit + mg|mcg|µg|g|mL|units|IU) → Keep — do NOT move
-3. Drug name when TableCategory=DrugInteraction or PK → field=DoseRegimen newValue=NULL, ALSO field=ParameterSubtype newValue={drug_name}
-4. Population pattern (adult|pediatric|elderly|renal|hepatic|healthy|volunteer) → field=DoseRegimen newValue=NULL, field=Population newValue={value}
-5. Timepoint pattern (day \d|week \d|month \d|cycle \d|baseline|steady.state|single.dose|pre-?dose) → field=DoseRegimen newValue=NULL, field=Timepoint newValue={value}
-6. Literal ""Co-administered Drug"" → field=DoseRegimen newValue=NULL (header echo)
-
-## Unit — clear header leaks
-- Length > 30 chars (not a real unit) → NULL
-- Contains a drug name → NULL
-- Contains any of: Regimen|Dosage|Patients|Titration|Starting|Recommended|Duration|TAKING|Tablets|Injection|Therapy|Combination|Divided → NULL
-- Normalize variants: ""hr"" → ""h"", ""mcg h/mL"" → ""mcg·h/mL"", ""nghr/mL"" → ""ng·h/mL"", ""L/kghr"" → ""L/kg/h"", ""mcgh/mL"" → ""mcg·h/mL""
-
-Valid units (≤15 chars typical): % %CV h min days mg mcg µg g kg mcg/mL ng/mL pg/mL µg/mL mg/L mcg·h/mL ng·h/mL mL/min L/h L/kg ratio g/cm² mmHg mEq/L IU/mL mg/kg mg/m²
-
-## ParameterName — route misplaced content
-1. Starts with ""Table \d"" or contains caption echo (""Pharmacokinetic Parameters"", ""Geometric Mean Ratio"", ""Drug Interactions:"") or len > 60 → NULL, reason=ROW_TYPE=CAPTION
-2. Exact match ^n$ or ^N$ or starts with ""n ("" or ""N ("" → NULL, reason=ROW_TYPE=HEADER
-3. Bare integer from common dose set {5,10,15,20,25,30,40,50,100,150,200,250,300,400,500,600,800,1200,1600,2400,3600} when TableCategory=Dosing or PK → field=ParameterName newValue=NULL, field=DoseRegimen newValue={integer}
-4. Drug name (not a PK param) when TableCategory=DrugInteraction → field=ParameterName newValue=NULL, field=ParameterSubtype newValue={drug_name}
-5. HTML entities (&gt; &lt; &amp;) → decode to > < &
-
-## TreatmentArm — route misplaced content
-1. Contains ""Number"" + ""Patients"" or ""Percent"" + ""Subjects"" or ""Percentage"" + ""Reporting"" → NULL (header echo)
-2. Contains [N=xxx] or N=xxx → extract integer to ArmN (separate correction), strip pattern from arm
-3. Embedded dose: arm = ""150 mg/d [N=302]"" → field=TreatmentArm newValue=""150 mg/d"" stripped, field=DoseRegimen newValue=dose
-4. Value is Comparison|Treatment|PD|SAD → NULL (generic label)
-5. All-caps short study name (SPRING-2, SINGLE, SAILING, ATLAS, ECHO, TRIO) → field=TreatmentArm newValue=NULL, field=StudyContext newValue={name}
-
-## ParameterCategory — AdverseEvent and Laboratory tables only
-Must be a canonical MedDRA SOC name. Correct OCR variants and informal names:
-- cardiac disorders → Cardiac Disorders
-- gastrointestinal|gastrointestinal disorders|digestive system → Gastrointestinal Disorders
-- nervous system|cns|central & peripheral nervous system disorders → Nervous System Disorders
-- musculo-skeletal|musculoskeletal and connective tissue → Musculoskeletal Disorders
-- general disorders and administration site conditions|body as a whole → General Disorders
-- skin|dermatologic|skin and subcutaneous tissues disorders → Skin and Subcutaneous Tissue Disorders
-- respiratory system|respiratory, thoracic and mediastinal → Respiratory Disorders
-- psychiatric → Psychiatric Disorders
-- vascular disorders|cardiovascular → Vascular Disorders
-- infections and infestations|resistance mechanism → Infections and Infestations
-- renal and urinary|urogenital → Renal and Urinary Disorders
-- hematologic|blood and lymphatic → Blood and Lymphatic System Disorders
-- metabolism and nutrition|metabolic and nutritional → Metabolism and Nutrition Disorders
-- hepatobiliary|liver and biliary → Hepatobiliary Disorders
-- ear disorders|ear and labyrinth → Ear and Labyrinth Disorders
-- eye disorders|special senses → Eye Disorders
-For non-AdverseEvent/Laboratory tables: ParameterCategory should be NULL (do not correct to SOC).
-
-## BoundType — infer when bounds present but BoundType is NULL
-- TableCategory=PK or DrugInteraction → ""90CI""
-- TableCategory=Efficacy or BMD → ""95CI""
-- Any other category with bounds → ""95CI"" (safe default)
-
-## Also check
-- TreatmentArm and ParameterName swapped (arm contains PK/AE parameter name, ParameterName contains drug/arm name)
-- TableCategory=DrugInteraction: ParameterSubtype should hold co-administered drug name, not be NULL
-
-Format: [{""sourceRowSeq"":N,""sourceCellSeq"":N,""field"":""FieldName"",""oldValue"":""X"",""newValue"":""Y"",""reason"":""brief""}]
-Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen, Population, Unit, ParameterCategory, ParameterSubtype, Timepoint, TimeUnit, StudyContext, BoundType";
+        /**************************************************************/
+        /// <summary>Whether skill files have been loaded.</summary>
+        private bool _skillFilesLoaded;
 
         #endregion
 
@@ -268,6 +174,7 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
         /// <inheritdoc/>
         public async Task<List<ParsedObservation>> CorrectBatchAsync(
             List<ParsedObservation> observations,
+            ReconstructedTable? originalTable = null,
             IProgress<TransformBatchProgress>? progress = null,
             CancellationToken ct = default)
         {
@@ -330,7 +237,7 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
 
                     try
                     {
-                        var corrections = await requestCorrectionsAsync(chunk, ct);
+                        var corrections = await requestCorrectionsAsync(chunk, originalTable, ct);
                         var applied = applyCorrections(chunk, corrections);
                         totalCorrections += applied;
                     }
@@ -383,13 +290,17 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
         /// Sends a chunk of observations to Claude and returns parsed corrections.
         /// </summary>
         /// <param name="observations">Observations to review.</param>
+        /// <param name="originalTable">Optional original reconstructed table for comparison context.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>List of correction objects from the API response.</returns>
         private async Task<List<CorrectionEntry>> requestCorrectionsAsync(
             List<ParsedObservation> observations,
+            ReconstructedTable? originalTable,
             CancellationToken ct)
         {
             #region implementation
+
+            ensureSkillFilesLoaded();
 
             var payload = buildCompactPayload(observations);
 
@@ -402,12 +313,24 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
             contextHeader.AppendLine($"Caption: {firstObs?.Caption ?? "(none)"}");
             contextHeader.AppendLine($"ObservationCount: {observations.Count}");
 
+            // Append original table context if available
+            if (originalTable != null && !string.IsNullOrWhiteSpace(_cachedPivotComparisonPrompt))
+            {
+                var tableText = renderOriginalTable(originalTable);
+                if (!string.IsNullOrWhiteSpace(tableText))
+                {
+                    contextHeader.AppendLine();
+                    contextHeader.AppendLine(_cachedPivotComparisonPrompt);
+                    contextHeader.AppendLine(tableText);
+                }
+            }
+
             var requestBody = new
             {
                 model = _settings.Model,
                 max_tokens = _settings.MaxTokens,
                 temperature = _settings.Temperature,
-                system = CorrectionSystemPrompt,
+                system = _cachedSystemPrompt,
                 messages = new[]
                 {
                     new
@@ -778,48 +701,185 @@ Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, Treatme
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Loads skill files on first use (lazy initialization). Reads the correction system
+        /// prompt and pivot comparison instructions from disk, stripping YAML frontmatter.
+        /// Falls back to a minimal default prompt if the skill file is missing or empty.
+        /// </summary>
+        private void ensureSkillFilesLoaded()
+        {
+            #region implementation
+
+            if (_skillFilesLoaded)
+                return;
+
+            _cachedSystemPrompt = loadSkillFile(_settings.SkillFilePath);
+            _cachedPivotComparisonPrompt = loadSkillFile(_settings.PivotComparisonSkillPath);
+
+            if (string.IsNullOrWhiteSpace(_cachedSystemPrompt))
+            {
+                _logger.LogWarning(
+                    "Correction system prompt skill file not found or empty at '{Path}' — using minimal fallback",
+                    _settings.SkillFilePath);
+                _cachedSystemPrompt = "You review parsed pharmaceutical SPL label table observations for CLEAR errors only. "
+                    + "Return ONLY a JSON array of corrections. If nothing is clearly wrong, return [].";
+            }
+            else
+            {
+                _logger.LogDebug("Loaded correction system prompt from '{Path}' ({Length} chars)",
+                    _settings.SkillFilePath, _cachedSystemPrompt.Length);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_cachedPivotComparisonPrompt))
+            {
+                _logger.LogDebug("Loaded pivot comparison prompt from '{Path}' ({Length} chars)",
+                    _settings.PivotComparisonSkillPath, _cachedPivotComparisonPrompt.Length);
+            }
+
+            _skillFilesLoaded = true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Loads a skill file from disk, stripping YAML frontmatter delimited by <c>---</c> lines.
+        /// Resolves relative paths from the application base directory.
+        /// </summary>
+        /// <param name="relativePath">Relative path to the skill file.</param>
+        /// <returns>Skill file body content, or null if the file is missing or empty.</returns>
+        private static string? loadSkillFile(string? relativePath)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(relativePath))
+                return null;
+
+            var basePath = AppDomain.CurrentDomain.BaseDirectory;
+            var fullPath = Path.Combine(basePath, relativePath);
+
+            if (!File.Exists(fullPath))
+                return null;
+
+            var content = File.ReadAllText(fullPath);
+            if (string.IsNullOrWhiteSpace(content))
+                return null;
+
+            // Strip YAML frontmatter (--- delimited block at start of file)
+            return stripYamlFrontmatter(content);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Strips YAML frontmatter from a skill file. Frontmatter is a block delimited
+        /// by <c>---</c> lines at the very start of the file.
+        /// </summary>
+        /// <param name="content">Raw file content.</param>
+        /// <returns>Content with frontmatter removed.</returns>
+        private static string stripYamlFrontmatter(string content)
+        {
+            #region implementation
+
+            var trimmed = content.TrimStart();
+            if (!trimmed.StartsWith("---"))
+                return content;
+
+            // Find the closing --- delimiter
+            var closingIdx = trimmed.IndexOf("---", 3);
+            if (closingIdx < 0)
+                return content; // No closing delimiter — return as-is
+
+            // Skip past the closing --- and any trailing newline
+            var bodyStart = closingIdx + 3;
+            if (bodyStart < trimmed.Length && trimmed[bodyStart] == '\r')
+                bodyStart++;
+            if (bodyStart < trimmed.Length && trimmed[bodyStart] == '\n')
+                bodyStart++;
+
+            return trimmed.Substring(bodyStart).Trim();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Renders a <see cref="ReconstructedTable"/> as compact pipe-delimited text for
+        /// inclusion in the Claude API user message. Includes caption, header columns,
+        /// and up to <paramref name="maxRows"/> body rows.
+        /// </summary>
+        /// <param name="table">The original reconstructed table from Stage 2.</param>
+        /// <param name="maxRows">Maximum number of body rows to include (default: 20).</param>
+        /// <returns>Pipe-delimited text table, or null if the table has no renderable content.</returns>
+        private static string? renderOriginalTable(ReconstructedTable table, int maxRows = 20)
+        {
+            #region implementation
+
+            var sb = new StringBuilder();
+
+            // Caption
+            if (!string.IsNullOrWhiteSpace(table.Caption))
+            {
+                sb.AppendLine($"Caption: {table.Caption}");
+            }
+
+            // Determine column count
+            var colCount = table.TotalColumnCount ?? 0;
+            if (colCount == 0 && table.Rows?.Count > 0)
+            {
+                colCount = table.Rows.Max(r => r.Cells?.Count ?? 0);
+            }
+
+            if (colCount == 0)
+                return null;
+
+            // Render header rows
+            var headerRows = table.Rows?.Where(r =>
+                string.Equals(r.RowGroupType, "Header", StringComparison.OrdinalIgnoreCase)).ToList();
+
+            if (headerRows?.Count > 0)
+            {
+                foreach (var row in headerRows)
+                {
+                    var cells = row.Cells?.Select(c => c.CleanedText ?? c.RawCellText ?? "").ToList()
+                        ?? new List<string>();
+                    sb.AppendLine("| " + string.Join(" | ", cells) + " |");
+                }
+                // Separator line
+                sb.AppendLine("| " + string.Join(" | ", Enumerable.Repeat("---", colCount)) + " |");
+            }
+
+            // Render body rows (up to maxRows)
+            var bodyRows = table.Rows?.Where(r =>
+                string.Equals(r.RowGroupType, "Body", StringComparison.OrdinalIgnoreCase))
+                .Take(maxRows).ToList();
+
+            if (bodyRows?.Count > 0)
+            {
+                foreach (var row in bodyRows)
+                {
+                    var cells = row.Cells?.Select(c => c.CleanedText ?? c.RawCellText ?? "").ToList()
+                        ?? new List<string>();
+                    sb.AppendLine("| " + string.Join(" | ", cells) + " |");
+                }
+
+                var totalBodyRows = table.Rows?.Count(r =>
+                    string.Equals(r.RowGroupType, "Body", StringComparison.OrdinalIgnoreCase)) ?? 0;
+                if (totalBodyRows > maxRows)
+                {
+                    sb.AppendLine($"... ({totalBodyRows - maxRows} more rows omitted)");
+                }
+            }
+
+            var result = sb.ToString().Trim();
+            return string.IsNullOrWhiteSpace(result) ? null : result;
+
+            #endregion
+        }
+
         #endregion
-    }
-
-    #endregion
-
-    #region correction entry DTO
-
-    /**************************************************************/
-    /// <summary>
-    /// Represents a single field correction returned by the Claude API.
-    /// </summary>
-    internal class CorrectionEntry
-    {
-        /**************************************************************/
-        /// <summary>Row sequence identifying the target observation.</summary>
-        [JsonProperty("sourceRowSeq")]
-        public int? SourceRowSeq { get; set; }
-
-        /**************************************************************/
-        /// <summary>Cell sequence identifying the target observation.</summary>
-        [JsonProperty("sourceCellSeq")]
-        public int? SourceCellSeq { get; set; }
-
-        /**************************************************************/
-        /// <summary>Field name to correct (must be in CorrectableFields set).</summary>
-        [JsonProperty("field")]
-        public string? Field { get; set; }
-
-        /**************************************************************/
-        /// <summary>Original value (for logging/audit).</summary>
-        [JsonProperty("oldValue")]
-        public string? OldValue { get; set; }
-
-        /**************************************************************/
-        /// <summary>Corrected value to apply.</summary>
-        [JsonProperty("newValue")]
-        public string? NewValue { get; set; }
-
-        /**************************************************************/
-        /// <summary>Brief reason for the correction.</summary>
-        [JsonProperty("reason")]
-        public string? Reason { get; set; }
     }
 
     #endregion

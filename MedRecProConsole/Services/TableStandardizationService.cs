@@ -819,6 +819,16 @@ namespace MedRecProConsole.Services
             // Stage 3.25: Column standardization (deterministic, pre-AI)
             services.AddScoped<IColumnStandardizationService, ColumnStandardizationService>();
 
+            // Stage 3.4: ML.NET correction and anomaly scoring (always enabled — runs independently of Claude)
+            services.Configure<MlNetCorrectionSettings>(
+                compositeConfiguration.GetSection("MlNetCorrectionSettings"));
+            services.AddScoped<IMlNetCorrectionService>(sp =>
+                new MlNetCorrectionService(
+                    sp.GetRequiredService<ILogger<MlNetCorrectionService>>(),
+                    sp.GetRequiredService<IOptions<MlNetCorrectionSettings>>().Value,
+                    trainingStore: null,
+                    claudeSettings: sp.GetRequiredService<IOptions<ClaudeApiCorrectionSettings>>().Value));
+
             // Orchestrator — IBatchValidationService and IClaudeApiCorrectionService are optional (nullable constructor params)
             services.AddScoped<ITableParsingOrchestrator, TableParsingOrchestrator>();
 

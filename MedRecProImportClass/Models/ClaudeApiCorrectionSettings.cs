@@ -66,10 +66,10 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Maximum observations to include in a single API request. Tables with more
-        /// observations are split into multiple requests. Default 20. Lower values
+        /// observations are split into multiple requests. Lower values
         /// produce shorter responses that are less likely to be truncated.
         /// </summary>
-        public int MaxObservationsPerRequest { get; set; } = 20;
+        public int MaxObservationsPerRequest { get; set; } = 100;
 
         /**************************************************************/
         /// <summary>
@@ -91,6 +91,26 @@ namespace MedRecProImportClass.Models
         /// </remarks>
         /// <seealso cref="MlNetCorrectionSettings"/>
         public float MlAnomalyScoreThreshold { get; set; } = 0.0f;
+
+        /**************************************************************/
+        /// <summary>
+        /// Path to the skill file containing the correction system prompt. Relative paths
+        /// are resolved from the application base directory. When the file exists, its content
+        /// (after YAML frontmatter stripping) replaces the hardcoded system prompt.
+        /// </summary>
+        /// <remarks>
+        /// Skill file format: YAML frontmatter delimited by <c>---</c> lines, followed by
+        /// the prompt text. The frontmatter is stripped; only the body is used as the system prompt.
+        /// Falls back to the embedded default prompt if the file is missing or empty.
+        /// </remarks>
+        public string SkillFilePath { get; set; } = "Skills/correction-system-prompt.md";
+
+        /**************************************************************/
+        /// <summary>
+        /// Path to the skill file containing pivot table comparison instructions. Appended to
+        /// the user message when an original <see cref="ReconstructedTable"/> is available.
+        /// </summary>
+        public string PivotComparisonSkillPath { get; set; } = "Skills/pivot-comparison-prompt.md";
 
         #endregion
 

@@ -222,7 +222,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     // Stage 3.5: Claude API correction (post-parse, pre-write)
                     if (_correctionService != null)
                     {
-                        observations = await _correctionService.CorrectBatchAsync(observations, ct: ct);
+                        observations = await _correctionService.CorrectBatchAsync(observations, originalTable: table, ct: ct);
 
                         // Stage 3.4 feedback: feed Claude corrections back to ML as ground truth
                         if (_mlNetCorrectionService != null)
@@ -751,7 +751,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     .Select(o => o.ValidationFlags)
                     .ToList();
 
-                allObservations = await _correctionService.CorrectBatchAsync(allObservations, claudeProgress, ct);
+                allObservations = await _correctionService.CorrectBatchAsync(allObservations, originalTable: null, progress: claudeProgress, ct: ct);
 
                 // Count corrections by checking ValidationFlags changes
                 result.CorrectionCount = allObservations
@@ -882,7 +882,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return observations;
             }
 
-            return await _correctionService.CorrectBatchAsync(observations, ct: ct);
+            return await _correctionService.CorrectBatchAsync(observations, originalTable: null, ct: ct);
 
             #endregion
         }
@@ -986,7 +986,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     // Stage 3.5: Claude API correction (post-parse, pre-write)
                     if (_correctionService != null)
                     {
-                        observations = await _correctionService.CorrectBatchAsync(observations, ct: ct);
+                        observations = await _correctionService.CorrectBatchAsync(observations, originalTable: table, ct: ct);
 
                         // Stage 3.4 feedback: feed Claude corrections back to ML as ground truth
                         if (_mlNetCorrectionService != null)
