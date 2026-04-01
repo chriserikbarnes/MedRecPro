@@ -43,13 +43,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// to Claude in table-level batches for contextual accuracy.
         /// </summary>
         /// <param name="observations">Parsed observations from Stage 3 parsers.</param>
-        /// <param name="originalTable">Optional original reconstructed table for comparison context.</param>
+        /// <param name="originalTables">Optional lookup of original reconstructed tables keyed by TextTableID for comparison context.</param>
         /// <param name="progress">Optional progress callback reporting 0–100 within the correction stage.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>The corrected observations (same list, mutated in place).</returns>
         Task<List<ParsedObservation>> CorrectBatchAsync(
             List<ParsedObservation> observations,
-            ReconstructedTable? originalTable = null,
+            IReadOnlyDictionary<int, ReconstructedTable>? originalTables = null,
             IProgress<TransformBatchProgress>? progress = null,
             CancellationToken ct = default);
     }
@@ -174,7 +174,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <inheritdoc/>
         public async Task<List<ParsedObservation>> CorrectBatchAsync(
             List<ParsedObservation> observations,
-            ReconstructedTable? originalTable = null,
+            IReadOnlyDictionary<int, ReconstructedTable>? originalTables = null,
             IProgress<TransformBatchProgress>? progress = null,
             CancellationToken ct = default)
         {
@@ -228,6 +228,10 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 var tableObservations = group.ToList();
 
+                // Look up the original table for this group's TextTableID
+                ReconstructedTable? groupTable = null;
+                originalTables?.TryGetValue((int)group.Key, out groupTable);
+
                 // Split into sub-batches if needed
                 var chunks = chunkList(tableObservations, _settings.MaxObservationsPerRequest);
 
@@ -237,7 +241,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                     try
                     {
-                        var corrections = await requestCorrectionsAsync(chunk, originalTable, ct);
+                        var corrections = await requestCorrectionsAsync(chunk, groupTable, ct);
                         var applied = applyCorrections(chunk, corrections);
                         totalCorrections += applied;
                     }

@@ -105,8 +105,8 @@ CONDITION                                              ASSIGN
 ──────────────────────────────────────────────────     ──────────────────
 TableCategory = AdverseEvent AND Unit = "%"            Proportion
 TableCategory = AdverseEvent AND Unit NULL AND int     Count
-TableCategory = PK                                     GeometricMean
-TableCategory = DrugInteraction                        GeometricMeanRatio
+TableCategory = PK                                     ArithmeticMean (unless caption has "geometric")
+TableCategory = DrugInteraction                        ArithmeticMeanRatio (unless caption has "geometric")
 TableCategory = BMD                                    PercentChange
 TableCategory = Efficacy AND bounds present            HazardRatio
 TableCategory = Dosing                                 Numeric (keep — prescriptive)

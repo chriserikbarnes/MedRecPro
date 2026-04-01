@@ -307,7 +307,7 @@ namespace MedRecPro.Service.Test
                 new() { SourceRowSeq = 1, SourceCellSeq = 1, ParameterName = "Cmax" }
             };
 
-            mockCorrection.Setup(c => c.CorrectBatchAsync(testObservations, It.IsAny<ReconstructedTable?>(), It.IsAny<IProgress<TransformBatchProgress>?>(), It.IsAny<CancellationToken>()))
+            mockCorrection.Setup(c => c.CorrectBatchAsync(testObservations, It.IsAny<IReadOnlyDictionary<int, ReconstructedTable>?>(), It.IsAny<IProgress<TransformBatchProgress>?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(testObservations);
 
             var (orchestrator, _, _) = createTestOrchestrator(mockCorrection.Object);
@@ -315,7 +315,7 @@ namespace MedRecPro.Service.Test
             var result = await orchestrator.CorrectObservationsAsync(testObservations);
 
             Assert.AreSame(testObservations, result);
-            mockCorrection.Verify(c => c.CorrectBatchAsync(testObservations, It.IsAny<ReconstructedTable?>(), It.IsAny<IProgress<TransformBatchProgress>?>(), It.IsAny<CancellationToken>()), Times.Once);
+            mockCorrection.Verify(c => c.CorrectBatchAsync(testObservations, It.IsAny<IReadOnlyDictionary<int, ReconstructedTable>?>(), It.IsAny<IProgress<TransformBatchProgress>?>(), It.IsAny<CancellationToken>()), Times.Once);
 
             #endregion
         }
@@ -358,7 +358,7 @@ namespace MedRecPro.Service.Test
             var result = await orchestrator.CorrectObservationsAsync(emptyList);
 
             Assert.AreSame(emptyList, result);
-            mockCorrection.Verify(c => c.CorrectBatchAsync(It.IsAny<List<ParsedObservation>>(), It.IsAny<ReconstructedTable?>(), It.IsAny<IProgress<TransformBatchProgress>?>(), It.IsAny<CancellationToken>()), Times.Never);
+            mockCorrection.Verify(c => c.CorrectBatchAsync(It.IsAny<List<ParsedObservation>>(), It.IsAny<IReadOnlyDictionary<int, ReconstructedTable>?>(), It.IsAny<IProgress<TransformBatchProgress>?>(), It.IsAny<CancellationToken>()), Times.Never);
 
             #endregion
         }
@@ -552,7 +552,7 @@ namespace MedRecPro.Service.Test
             // All tables skipped → no observations → Claude correction not called → CorrectionCount = 0
             Assert.AreEqual(0, result.CorrectionCount);
             Assert.AreEqual(0, result.PreCorrectionObservations.Count);
-            mockCorrection.Verify(c => c.CorrectBatchAsync(It.IsAny<List<ParsedObservation>>(), It.IsAny<ReconstructedTable?>(), It.IsAny<IProgress<TransformBatchProgress>?>(), It.IsAny<CancellationToken>()), Times.Never);
+            mockCorrection.Verify(c => c.CorrectBatchAsync(It.IsAny<List<ParsedObservation>>(), It.IsAny<IReadOnlyDictionary<int, ReconstructedTable>?>(), It.IsAny<IProgress<TransformBatchProgress>?>(), It.IsAny<CancellationToken>()), Times.Never);
 
             #endregion
         }
