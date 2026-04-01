@@ -94,7 +94,7 @@ namespace MedRecProImportClass.Models
         /// The file is written atomically (tmp + rename) and loaded on service initialization.
         /// Example: <c>Resources/.medrecpro-ml-training-store.json</c>
         /// </remarks>
-        public string? TrainingStoreFilePath { get; set; } = null;
+        public string? TrainingStoreFilePath { get; set; } = ".medrecpro-ml-training-store.json";
 
         /**************************************************************/
         /// <summary>

@@ -1473,3 +1473,40 @@ Root cause: parsers correctly generated CAPTION_HINT flags but ColumnStandardiza
 Also helped user resolve a Visual Studio debugging issue: breakpoints in MedRecProImportClass weren't hitting because the project was a `<ProjectReference>` in the `.csproj` but not added to the Console `.sln`. Fix: Add → Existing Project in the Console solution.
 
 ---
+
+### 2026-04-01 11:19 AM EST — ML/Claude Pipeline Integration & Skill Architecture Overhaul
+
+Five-issue fix addressing DI registration gaps, hardcoded prompts, and missing table context in the SPL table normalization pipeline (Stages 3.4–3.5).
+
+**Issue 1 — MlNetCorrectionService DI Registration:**
+`MlNetCorrectionService` was never registered in `TableStandardizationService.buildServiceProvider()`, so the orchestrator's nullable constructor param was always null. Added `MlNetCorrectionSettings` config binding, `IMlTrainingStore` → `MlTrainingStore` registration, and `IMlNetCorrectionService` registration (always enabled, independent of Claude). Initial registration passed `trainingStore: null` which blocked `InitializeAsync` — fixed by wiring the real `MlTrainingStore` instance.
+
+**Issue 3 — System Prompt Extracted to Skill File:**
+Moved the ~100-line hardcoded `CorrectionSystemPrompt` const from `ClaudeApiCorrectionService.cs` to `Skills/correction-system-prompt.md` with YAML frontmatter. Added `SkillFilePath` and `PivotComparisonSkillPath` properties to `ClaudeApiCorrectionSettings`. Service now lazy-loads skill files on first API call via `ensureSkillFilesLoaded()` with `stripYamlFrontmatter()`, falling back to a minimal prompt if the file is missing. Added `Content Include="Skills\**\*.md"` to `.csproj` for build output copy.
+
+**Issue 4 — Original Table Context for Claude:**
+Claude previously never saw the original `ReconstructedTable` for comparison. Created `Skills/pivot-comparison-prompt.md` with comparison instructions. Added `renderOriginalTable()` to serialize tables as pipe-delimited markdown (caption + header + up to 20 body rows). Changed `IClaudeApiCorrectionService.CorrectBatchAsync` parameter from `ReconstructedTable?` to `IReadOnlyDictionary<int, ReconstructedTable>?` so each TextTableID group gets its own table context. Updated all 4 orchestrator call sites: per-table loops wrap single table in dictionary, batch-level method builds lookup via `ToDictionary()`, diagnostic method passes null.
+
+**Issue 5 — CorrectionEntry DTO Extraction:**
+Moved `internal class CorrectionEntry` from inside `ClaudeApiCorrectionService.cs` to `Models/CorrectionEntry.cs` as `public`, following the single-class-per-file convention.
+
+**Key architectural decision:** The `originalTable` parameter was initially a single `ReconstructedTable?`, which was always null in the batch-level call site (line 754) where `allObservations` spans multiple tables. Changed to a dictionary lookup so `CorrectBatchAsync`'s internal per-TextTableID grouping can resolve the correct table for each group.
+
+Build: 936 tests pass, 2 pre-existing failures (PVT Mean→GeometricMean migration tests — separate issue from the skill file's updated default to ArithmeticMean).
+
+---
+
+### 2026-04-01 11:43 AM EST — Pipeline Runtime Fixes: Table Lookup, Training Store, NaN Sanitization
+
+Three runtime issues discovered during debugging and first live run of the ML/Claude pipeline.
+
+**Fix 1 — originalTable always null in Claude service:**
+The `CorrectBatchAsync` parameter was `ReconstructedTable?` but internally groups observations by TextTableID — a single table can't represent multiple groups. Changed to `IReadOnlyDictionary<int, ReconstructedTable>?`. Per-table loop call sites wrap single table in a dictionary; the batch-level call site builds a lookup via `tables.ToDictionary(t => t.TextTableID!.Value)`. Each group now resolves its own table via `TryGetValue(group.Key)`.
+
+**Fix 2 — MlTrainingStore constructor crash (TrainingStoreFilePath null):**
+`MlNetCorrectionSettings.TrainingStoreFilePath` defaulted to `null`, but `MlTrainingStore` constructor requires it. Also, the DI registration was passing `trainingStore: null` instead of resolving the real service. Fixed both: changed default to `".medrecpro-ml-training-store.json"` and registered `IMlTrainingStore` → `MlTrainingStore` in DI, injected into `MlNetCorrectionService`.
+
+**Fix 3 — Claude returning bare NaN in JSON corrections:**
+Claude occasionally emits `"newValue": NaN` (unquoted) in correction JSON. Newtonsoft.Json fails parsing this when the target is `string?`. Added `sanitizeJsonFloatLiterals()` regex that quotes bare `NaN`, `Infinity`, `-Infinity` tokens before deserialization: `(?<=:\s*)(-?(?:NaN|Infinity))(?=\s*[,}\]])` → wraps in double quotes.
+
+---

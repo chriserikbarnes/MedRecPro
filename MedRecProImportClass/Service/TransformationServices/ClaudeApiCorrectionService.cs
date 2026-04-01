@@ -384,15 +384,19 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Sanitize bare NaN/Infinity tokens that Claude sometimes emits as unquoted values.
+            // Newtonsoft.Json chokes on bare NaN when the target property is string?.
+            var sanitized = sanitizeJsonFloatLiterals(json);
+
             try
             {
-                return JsonConvert.DeserializeObject<List<CorrectionEntry>>(json)
+                return JsonConvert.DeserializeObject<List<CorrectionEntry>>(sanitized)
                     ?? new List<CorrectionEntry>();
             }
             catch (JsonException) when (wasTruncated)
             {
                 // Response was truncated — try to salvage complete objects
-                return salvageTruncatedJson(json);
+                return salvageTruncatedJson(sanitized);
             }
 
             // If not truncated but still invalid JSON, let the exception propagate
@@ -681,6 +685,30 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return trimmed.Trim();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Sanitizes bare floating-point literals (<c>NaN</c>, <c>Infinity</c>, <c>-Infinity</c>)
+        /// in JSON by quoting them as strings. Claude occasionally emits these as unquoted values
+        /// in correction entries (e.g., <c>"newValue": NaN</c>), which Newtonsoft.Json cannot parse
+        /// when the target property is <c>string?</c>.
+        /// </summary>
+        /// <param name="json">Raw JSON text from Claude.</param>
+        /// <returns>Sanitized JSON with bare float literals quoted.</returns>
+        private static string sanitizeJsonFloatLiterals(string json)
+        {
+            #region implementation
+
+            // Replace bare NaN, Infinity, -Infinity with quoted string equivalents.
+            // Use word-boundary-aware replacements to avoid matching inside quoted strings
+            // that already contain these as proper string values.
+            return System.Text.RegularExpressions.Regex.Replace(
+                json,
+                @"(?<=:\s*)(-?(?:NaN|Infinity))(?=\s*[,}\]])",
+                "\"$1\"");
 
             #endregion
         }
