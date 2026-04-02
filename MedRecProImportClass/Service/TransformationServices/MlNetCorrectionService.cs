@@ -488,12 +488,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     Features = new float[]
                     {
-                        (float)(obs.PrimaryValue ?? 0.0),
-                        (float)(obs.SecondaryValue ?? 0.0),
-                        (float)(obs.LowerBound ?? 0.0),
-                        (float)(obs.UpperBound ?? 0.0),
-                        (float)(obs.PValue ?? 0.0),
-                        (float)(obs.ParseConfidence ?? 0.0)
+                        MlTrainingRecord.toSafeFloat(obs.PrimaryValue),
+                        MlTrainingRecord.toSafeFloat(obs.SecondaryValue),
+                        MlTrainingRecord.toSafeFloat(obs.LowerBound),
+                        MlTrainingRecord.toSafeFloat(obs.UpperBound),
+                        MlTrainingRecord.toSafeFloat(obs.PValue),
+                        MlTrainingRecord.toSafeFloat(obs.ParseConfidence)
                     }
                 };
 
@@ -796,7 +796,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     var catRows = rows
                         .Where(r => string.Equals(r.TableCategory, cat, StringComparison.OrdinalIgnoreCase) &&
-                                    r.PrimaryValue != 0f)
+                                    r.PrimaryValue != 0f &&
+                                    !float.IsNaN(r.PrimaryValue) &&
+                                    !float.IsNaN(r.SecondaryValue) &&
+                                    !float.IsNaN(r.LowerBound) &&
+                                    !float.IsNaN(r.UpperBound) &&
+                                    !float.IsNaN(r.PValue) &&
+                                    !float.IsNaN(r.ParseConfidence))
                         .Select(r => new AnomalyInput
                         {
                             Features = new float[]

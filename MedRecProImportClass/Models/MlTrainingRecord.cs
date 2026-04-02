@@ -167,13 +167,13 @@ namespace MedRecProImportClass.Models
                 HasUpperBound = obs.UpperBound.HasValue,
                 PrimaryValueType = obs.PrimaryValueType,
 
-                // Stage 4 anomaly features (double? → float)
-                PrimaryValue = (float)(obs.PrimaryValue ?? 0.0),
-                SecondaryValue = (float)(obs.SecondaryValue ?? 0.0),
-                LowerBound = (float)(obs.LowerBound ?? 0.0),
-                UpperBound = (float)(obs.UpperBound ?? 0.0),
-                PValue = (float)(obs.PValue ?? 0.0),
-                ParseConfidence = (float)(obs.ParseConfidence ?? 0.0),
+                // Stage 4 anomaly features (double? → float, NaN/Infinity clamped to 0f)
+                PrimaryValue    = toSafeFloat(obs.PrimaryValue),
+                SecondaryValue  = toSafeFloat(obs.SecondaryValue),
+                LowerBound      = toSafeFloat(obs.LowerBound),
+                UpperBound      = toSafeFloat(obs.UpperBound),
+                PValue          = toSafeFloat(obs.PValue),
+                ParseConfidence = toSafeFloat(obs.ParseConfidence),
 
                 // Metadata
                 IsClaudeGroundTruth = isGroundTruth
@@ -201,6 +201,28 @@ namespace MedRecProImportClass.Models
             if (value == null)
                 return null;
             return value.Length <= maxLength ? value : value[..maxLength];
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts a nullable double to a safe float, replacing null, NaN, and Infinity with 0f.
+        /// </summary>
+        /// <remarks>
+        /// The pattern <c>(float)(value ?? 0.0)</c> guards against null but not <c>double.NaN</c>,
+        /// which is non-null and casts directly to <c>float.NaN</c>. NaN in ML.NET feature vectors
+        /// causes PCA eigenvector computation to produce NaN, triggering an
+        /// <see cref="ArgumentOutOfRangeException"/> at training time.
+        /// </remarks>
+        /// <param name="value">Nullable double to convert.</param>
+        /// <returns>Safe float value (0f when input is null, NaN, or Infinity).</returns>
+        /// <seealso cref="FromObservation"/>
+        internal static float toSafeFloat(double? value)
+        {
+            #region implementation
+
+            return value is { } v && !double.IsNaN(v) && !double.IsInfinity(v) ? (float)v : 0f;
 
             #endregion
         }

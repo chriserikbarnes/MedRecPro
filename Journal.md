@@ -1546,3 +1546,15 @@ Unified all batch processing in `TableParsingOrchestrator` to flow through a sin
 **Files modified:** TableParsingOrchestrator.cs, TableParsingOrchestratorProgressTests.cs. No interface changes. Build: 0 errors. Tests: 41 orchestrator tests passed.
 
 ---
+
+### 2026-04-02 12:43 PM EST — Fix NaN Propagation in ML.NET PCA Training and Claude JSON Parsing
+
+Diagnosed and fixed two recurring pipeline warnings caused by unguarded NaN values propagating into ML.NET and Claude JSON deserialization.
+
+**ML.NET PCA fix (`MlTrainingRecord.cs`, `MlNetCorrectionService.cs`):** Root cause: `(float)(obs.X ?? 0.0)` null-coalesces but does not guard `double.NaN` (which is non-null), so NaN values cast silently to `float.NaN` and corrupted the PCA feature matrix, causing `RandomizedPca` to emit NaN eigenvectors. Added `internal static toSafeFloat(double? value)` helper to `MlTrainingRecord` that returns `0f` for null, NaN, and Infinity. Applied it in `FromObservation` (training data entry point) and in `applyAnomalyScore` (live scoring path using raw `ParsedObservation` objects that bypass `FromObservation`). Added defensive `!float.IsNaN` guards on all six feature fields in the `trainAnomalyModels` LINQ `Where` predicate to protect against stale store records persisted before this fix.
+
+**Claude JSON NaN fix (`ClaudeApiCorrectionService.cs`):** Root cause: the existing `sanitizeJsonFloatLiterals` regex used a lookbehind/lookahead pattern that only matched NaN in object-value position (preceded by `:`), missing array-element positions (preceded by `,` or `[`). Replaced with a capturing-group pattern `([:,\[]\s*)(-?(?:NaN|Infinity))(\s*[,}\]])` → `${1}null${3}`. Bare NaN is now replaced with JSON `null` (not `"NaN"` string), which is semantically correct for `string?` target properties and avoids any downstream sentinel-value handling.
+
+**Files modified:** `MlTrainingRecord.cs`, `MlNetCorrectionService.cs`, `ClaudeApiCorrectionService.cs`. Build: 0 errors.
+
+---

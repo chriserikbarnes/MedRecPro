@@ -703,23 +703,30 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// Sanitizes bare floating-point literals (<c>NaN</c>, <c>Infinity</c>, <c>-Infinity</c>)
-        /// in JSON by quoting them as strings. Claude occasionally emits these as unquoted values
-        /// in correction entries (e.g., <c>"newValue": NaN</c>), which Newtonsoft.Json cannot parse
-        /// when the target property is <c>string?</c>.
+        /// in JSON by replacing them with <c>null</c>. Claude occasionally emits these as unquoted
+        /// values in correction entries (e.g., <c>"newValue": NaN</c>), which Newtonsoft.Json
+        /// cannot parse as they are not valid JSON tokens.
         /// </summary>
+        /// <remarks>
+        /// Uses capturing groups rather than lookbehind/lookahead to avoid edge cases with
+        /// .NET variable-length lookbehinds. The left delimiter group (<c>[:,\[]</c>) covers
+        /// both object-value positions (preceded by <c>:</c>) and array-element positions
+        /// (preceded by <c>,</c> or <c>[</c>).
+        /// </remarks>
         /// <param name="json">Raw JSON text from Claude.</param>
-        /// <returns>Sanitized JSON with bare float literals quoted.</returns>
+        /// <returns>Sanitized JSON with bare float literals replaced by <c>null</c>.</returns>
         private static string sanitizeJsonFloatLiterals(string json)
         {
             #region implementation
 
-            // Replace bare NaN, Infinity, -Infinity with quoted string equivalents.
-            // Use word-boundary-aware replacements to avoid matching inside quoted strings
-            // that already contain these as proper string values.
+            // Replace bare NaN/Infinity tokens with null.
+            // Group 1 captures the preceding structural delimiter (: , [) and whitespace.
+            // Group 2 (the literal) is discarded.
+            // Group 3 captures the following structural delimiter (, } ]) and whitespace.
             return System.Text.RegularExpressions.Regex.Replace(
                 json,
-                @"(?<=:\s*)(-?(?:NaN|Infinity))(?=\s*[,}\]])",
-                "\"$1\"");
+                @"([:,\[]\s*)(-?(?:NaN|Infinity))(\s*[,}\]])",
+                "${1}null${3}");
 
             #endregion
         }
