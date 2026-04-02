@@ -396,14 +396,13 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             // Sanitize bare NaN/Infinity tokens that Claude sometimes emits as unquoted values.
-            // The regex handles most cases; FloatParseHandling.String below acts as a final
-            // safety net — any NaN token the regex misses becomes the string "NaN" rather
-            // than throwing, which is harmless since "NaN" won't match any correctable value.
+            // The regex replaces them with null before deserialization.
             var sanitized = sanitizeJsonFloatLiterals(json);
 
-            // FloatParseHandling.String converts any remaining bare float tokens (NaN, Infinity)
-            // to their string representation instead of throwing a JsonReaderException.
-            var settings = new JsonSerializerSettings { FloatParseHandling = FloatParseHandling.String };
+            // FloatParseHandling.Double (default) parses any bare NaN/Infinity tokens the
+            // regex misses as double.NaN / double.PositiveInfinity. Downstream toSafeFloat()
+            // already clamps NaN/Infinity to 0f, so these are harmless rather than fatal.
+            var settings = new JsonSerializerSettings { FloatParseHandling = FloatParseHandling.Double };
 
             try
             {
