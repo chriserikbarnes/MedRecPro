@@ -824,11 +824,40 @@ namespace MedRecProImportClass.Service.TransformationServices
                         continue;
                     }
 
+                    // Identify which feature slots have real variance vs constant columns.
+                    var activeIndices = computeActiveFeatureIndices(catRows);
+                    if (activeIndices.Length == 0)
+                    {
+                        _logger.LogDebug("Stage 4 skipping {Category} — no feature variance in {Count} rows",
+                            cat, catRows.Count);
+                        continue;
+                    }
+
+                    // Inject tiny jitter into constant-variance feature slots.
+                    // NormalizeMeanVariance divides by stddev — zero variance → 0/0 → NaN,
+                    // which corrupts PCA eigenvectors. Jitter breaks the zero-variance
+                    // without meaningfully affecting the model (magnitude ~1e-6).
+                    // AnomalyInput.Features is [VectorType(6)] so all 6 slots must be kept.
+                    var constantIndices = Enumerable.Range(0, 6)
+                        .Where(i => !activeIndices.Contains(i))
+                        .ToArray();
+
+                    if (constantIndices.Length > 0)
+                    {
+                        var rng = new Random(42);
+                        foreach (var row in catRows)
+                        {
+                            foreach (var ci in constantIndices)
+                                row.Features[ci] += (float)(rng.NextDouble() * 1e-6);
+                        }
+                    }
+
                     var dataView = _mlContext.Data.LoadFromEnumerable(catRows);
 
                     var rank = _pcaRanks.TryGetValue(cat, out var r) ? r : 3;
-                    // Ensure rank doesn't exceed feature count (6)
-                    rank = Math.Min(rank, 6);
+                    // Clamp rank to number of real features — jittered columns have
+                    // negligible variance and should not consume eigenvectors
+                    rank = Math.Min(rank, activeIndices.Length);
 
                     var pipeline = _mlContext.Transforms.NormalizeMeanVariance("Features")
                         .Append(_mlContext.AnomalyDetection.Trainers.RandomizedPca(
@@ -838,14 +867,65 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var model = pipeline.Fit(dataView);
                     _anomalyEngines[cat] = _mlContext.Model.CreatePredictionEngine<AnomalyInput, AnomalyPrediction>(model);
 
-                    _logger.LogDebug("Stage 4 anomaly model trained for {Category}: {Count} rows, rank={Rank}",
-                        cat, catRows.Count, rank);
+                    _logger.LogDebug(
+                        "Stage 4 anomaly model trained for {Category}: {Count} rows, rank={Rank}, activeFeatures={Active}/6",
+                        cat, catRows.Count, rank, activeIndices.Length);
                 }
                 catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
                 {
                     _logger.LogWarning(ex, "Stage 4 anomaly model training failed for {Category}", cat);
                 }
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns the indices of feature dimensions that have non-negligible variance.
+        /// </summary>
+        /// <remarks>
+        /// Constant columns (variance ≈ 0) cause <see cref="Microsoft.ML.Transforms.NormalizingTransformer">
+        /// NormalizeMeanVariance</see> to emit NaN (0/0), which propagates into PCA eigenvectors
+        /// and triggers <see cref="ArgumentOutOfRangeException"/>. This method identifies only
+        /// the dimensions with real variance so callers can strip constant features before training.
+        /// </remarks>
+        /// <param name="rows">Training inputs whose <c>Features</c> arrays are inspected.</param>
+        /// <param name="epsilon">Minimum variance threshold for a dimension to be considered active. Default: 1e-6.</param>
+        /// <returns>Array of feature indices with variance greater than <paramref name="epsilon"/>.</returns>
+        /// <seealso cref="trainAnomalyModels"/>
+        private static int[] computeActiveFeatureIndices(List<AnomalyInput> rows, float epsilon = 1e-6f)
+        {
+            #region implementation
+
+            if (rows.Count == 0)
+                return Array.Empty<int>();
+
+            int featureCount = rows[0].Features.Length;
+            var active = new List<int>();
+
+            for (int f = 0; f < featureCount; f++)
+            {
+                // Compute mean
+                float mean = 0f;
+                foreach (var row in rows)
+                    mean += row.Features[f];
+                mean /= rows.Count;
+
+                // Compute variance
+                float variance = 0f;
+                foreach (var row in rows)
+                {
+                    float delta = row.Features[f] - mean;
+                    variance += delta * delta;
+                }
+                variance /= rows.Count;
+
+                if (variance > epsilon)
+                    active.Add(f);
+            }
+
+            return active.ToArray();
 
             #endregion
         }

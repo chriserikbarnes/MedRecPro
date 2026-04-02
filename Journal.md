@@ -1558,3 +1558,20 @@ Diagnosed and fixed two recurring pipeline warnings caused by unguarded NaN valu
 **Files modified:** `MlTrainingRecord.cs`, `MlNetCorrectionService.cs`, `ClaudeApiCorrectionService.cs`. Build: 0 errors.
 
 ---
+
+### 2026-04-02 2:28 PM EST — Fix ML.NET PCA NaN Eigenvector Crash for Low-Variance Categories
+
+Resolved persistent `ArgumentOutOfRangeException: The learnt eigenvectors contained NaN values` during Stage 4 anomaly model training for categories like PK and BMD where most of the 6 feature slots are constant (e.g., SecondaryValue=0, LowerBound=0, UpperBound=0, PValue=0).
+
+**Root cause:** `NormalizeMeanVariance` divides by standard deviation — constant columns produce `0/0 = NaN`, which propagates into PCA's SVD computation and corrupts eigenvectors. The previous fix (clamping `rank` to the number of varying features via `computeEffectiveRank`) was insufficient because PCA still reads all 6 feature dimensions regardless of rank. A subsequent attempt to strip constant features from the array conflicted with `AnomalyInput.Features` having `[VectorType(6)]`, causing `IndexOutOfRangeException` at prediction time since `PredictionEngine` always expects exactly 6 floats.
+
+**Fix — jitter injection (`MlNetCorrectionService.cs`):**
+- Renamed `computeEffectiveRank` → `computeActiveFeatureIndices` — now returns the actual indices of varying features instead of just a count
+- After identifying constant-variance slots, injects tiny random noise (~1e-6, seeded deterministically) into those slots during training only
+- This breaks zero variance so `NormalizeMeanVariance` never divides by zero, while having negligible effect on PCA eigenvectors
+- All 6 feature slots are preserved, maintaining the `[VectorType(6)]` contract for both training and scoring
+- Rank remains clamped to the number of real (non-jittered) features
+
+**Files modified:** `MlNetCorrectionService.cs`. Build: 0 errors.
+
+---
