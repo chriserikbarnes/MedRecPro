@@ -396,18 +396,24 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             // Sanitize bare NaN/Infinity tokens that Claude sometimes emits as unquoted values.
-            // Newtonsoft.Json chokes on bare NaN when the target property is string?.
+            // The regex handles most cases; FloatParseHandling.String below acts as a final
+            // safety net — any NaN token the regex misses becomes the string "NaN" rather
+            // than throwing, which is harmless since "NaN" won't match any correctable value.
             var sanitized = sanitizeJsonFloatLiterals(json);
+
+            // FloatParseHandling.String converts any remaining bare float tokens (NaN, Infinity)
+            // to their string representation instead of throwing a JsonReaderException.
+            var settings = new JsonSerializerSettings { FloatParseHandling = FloatParseHandling.String };
 
             try
             {
-                return JsonConvert.DeserializeObject<List<CorrectionEntry>>(sanitized)
+                return JsonConvert.DeserializeObject<List<CorrectionEntry>>(sanitized, settings)
                     ?? new List<CorrectionEntry>();
             }
             catch (JsonException) when (wasTruncated)
             {
                 // Response was truncated — try to salvage complete objects
-                return salvageTruncatedJson(sanitized);
+                return salvageTruncatedJson(sanitized, settings);
             }
 
             // If not truncated but still invalid JSON, let the exception propagate
@@ -422,8 +428,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// by finding the last complete object boundary and parsing up to that point.
         /// </summary>
         /// <param name="truncatedJson">Truncated JSON string.</param>
+        /// <param name="settings">Serializer settings (e.g. FloatParseHandling) from the caller.</param>
         /// <returns>List of corrections that could be recovered, may be empty.</returns>
-        private List<CorrectionEntry> salvageTruncatedJson(string truncatedJson)
+        private List<CorrectionEntry> salvageTruncatedJson(string truncatedJson, JsonSerializerSettings settings)
         {
             #region implementation
 
@@ -440,7 +447,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             try
             {
-                var result = JsonConvert.DeserializeObject<List<CorrectionEntry>>(salvaged)
+                var result = JsonConvert.DeserializeObject<List<CorrectionEntry>>(salvaged, settings)
                     ?? new List<CorrectionEntry>();
                 _logger.LogDebug("Salvaged {Count} corrections from truncated response", result.Count);
                 return result;
@@ -708,10 +715,12 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// cannot parse as they are not valid JSON tokens.
         /// </summary>
         /// <remarks>
-        /// Uses capturing groups rather than lookbehind/lookahead to avoid edge cases with
-        /// .NET variable-length lookbehinds. The left delimiter group (<c>[:,\[]</c>) covers
-        /// both object-value positions (preceded by <c>:</c>) and array-element positions
-        /// (preceded by <c>,</c> or <c>[</c>).
+        /// Uses a zero-width lookahead for the trailing structural delimiter rather than a
+        /// capturing group so the delimiter is never consumed. This allows consecutive NaN
+        /// values (e.g., <c>[NaN,NaN]</c>) to both be replaced in a single pass — with a
+        /// capturing group the comma after the first NaN would be consumed into Group 3 and
+        /// become unavailable as the Group 1 delimiter for the second NaN. The lookahead also
+        /// matches end-of-string to handle truncated payloads that end with a bare literal.
         /// </remarks>
         /// <param name="json">Raw JSON text from Claude.</param>
         /// <returns>Sanitized JSON with bare float literals replaced by <c>null</c>.</returns>
@@ -720,13 +729,14 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             // Replace bare NaN/Infinity tokens with null.
-            // Group 1 captures the preceding structural delimiter (: , [) and whitespace.
+            // Group 1 captures the preceding structural delimiter (: , [) and optional whitespace.
             // Group 2 (the literal) is discarded.
-            // Group 3 captures the following structural delimiter (, } ]) and whitespace.
+            // Trailing lookahead asserts a structural delimiter or end-of-string without consuming it,
+            // so adjacent NaN values sharing a comma separator are each matched correctly.
             return System.Text.RegularExpressions.Regex.Replace(
                 json,
-                @"([:,\[]\s*)(-?(?:NaN|Infinity))(\s*[,}\]])",
-                "${1}null${3}");
+                @"([:,\[]\s*)(-?(?:NaN|Infinity))(?=\s*[,}\]]|\s*$)",
+                "${1}null");
 
             #endregion
         }
