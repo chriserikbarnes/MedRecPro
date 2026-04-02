@@ -1530,3 +1530,19 @@ Implemented 6 issues from the table parsing pipeline plan in execution order:
 **Files modified:** TableParsingOrchestrator.cs, ColumnStandardizationService.cs, IColumnStandardizationService.cs, ClaudeApiCorrectionService.cs, MlNetCorrectionService.cs, correction-system-prompt.md, ColumnStandardizationServiceTests.cs, ClaudeApiCorrectionServiceTests.cs, MlNetCorrectionServiceTests.cs. Build: 0 errors. Tests: 156 passed, 2 pre-existing failures (GeometricMean/ArithmeticMean — unrelated).
 
 ---
+
+### 2026-04-02 11:27 AM EST — Consolidate TableParsingOrchestrator Batch Processing Paths
+
+Unified all batch processing in `TableParsingOrchestrator` to flow through a single pipeline: `ProcessBatchWithStagesAsync`. Previously, three methods reimplemented the stage sequence independently — `ProcessBatchAsync`, `processBatchWithSkipTrackingAsync`, and `ProcessBatchWithStagesAsync` — each with subtle divergences (per-table vs per-batch stage ordering, missing Stage 3.6 post-process extraction in the first two).
+
+**Changes:**
+- Rewrote `ProcessBatchAsync` as a 2-line thin wrapper delegating to `ProcessBatchWithStagesAsync` and returning `ObservationsWritten` (~130 lines removed).
+- Deleted `processBatchWithSkipTrackingAsync` entirely (~160 lines removed) — it was a near-duplicate of `ProcessBatchAsync` with skip reason tracking bolted on.
+- Updated `ProcessAllWithValidationAsync` to call `ProcessBatchWithStagesAsync` directly, extracting `ObservationsWritten` and `SkipReasons` from the `BatchStageResult`.
+- Added new test: `ProcessBatchAsync_DelegatesToProcessBatchWithStagesAsync_ReturnsObservationsWritten`.
+
+**Key outcome:** All batch processing now runs through the same stage sequence: Reconstruct → Route+Parse → Column Standardization (3.25) → ML.NET (3.4) → Claude AI (3.5) → Post-Process Extraction (3.6) → DB Write. Post-process extraction was previously skipped by the non-stages paths. ~290 lines of duplicated logic removed.
+
+**Files modified:** TableParsingOrchestrator.cs, TableParsingOrchestratorProgressTests.cs. No interface changes. Build: 0 errors. Tests: 41 orchestrator tests passed.
+
+---

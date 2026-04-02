@@ -196,6 +196,32 @@ namespace MedRecPro.Service.Test
 
         #endregion
 
+        #region ProcessBatchAsync Delegation Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// ProcessBatchAsync delegates to ProcessBatchWithStagesAsync and returns
+        /// ObservationsWritten (0 when no tables are reconstructed).
+        /// </summary>
+        [TestMethod]
+        public async Task ProcessBatchAsync_DelegatesToProcessBatchWithStagesAsync_ReturnsObservationsWritten()
+        {
+            var (orchestrator, _, _) = createOrchestrator(minId: 1, maxId: 10);
+
+            var filter = new TableCellContextFilter
+            {
+                TextTableIdRangeStart = 1,
+                TextTableIdRangeEnd = 10
+            };
+
+            // Reconstruction mock returns empty list → 0 observations
+            var result = await orchestrator.ProcessBatchAsync(filter);
+
+            Assert.AreEqual(0, result);
+        }
+
+        #endregion
+
         #region Elapsed Time Tests
 
         /**************************************************************/
