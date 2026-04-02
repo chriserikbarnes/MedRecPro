@@ -216,7 +216,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             ["hr"] = "h",
             ["pp"] = "percentage points",
             ["percent"] = "%",
-            ["pct"] = "%"
+            ["pct"] = "%",
+            ["pg·hr/mL"] = "pg·h/mL",
+            ["mcg·hr/mL"] = "mcg·h/mL",
+            ["ng·hr/mL"] = "ng·h/mL",
+            ["ug·hr/mL"] = "mcg·h/mL"
         };
 
         /**************************************************************/
@@ -539,7 +543,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Matches: "(N=267)", "(n = 99)", "N=677", "n=48"
         /// </summary>
         private static readonly Regex _nValuePattern = new(
-            @"^\(?\s*[Nn]\s*=\s*(\d+)\s*\)?$",
+            @"^\(?\s*[Nn]\s*=\s*(\d[\d,]*)\s*\)?$",
             RegexOptions.Compiled);
 
         /**************************************************************/
@@ -548,7 +552,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Matches: "Doxazosin N=339", "Placebo N=300", "HBP Foam N=351", "KANUMA N = 36"
         /// </summary>
         private static readonly Regex _embeddedNPattern = new(
-            @"^(.+?)\s+[Nn]\s*=\s*(\d+)$",
+            @"^(.+?)\s+[Nn]\s*=\s*(\d[\d,]*)$",
             RegexOptions.Compiled);
 
         /**************************************************************/
@@ -614,7 +618,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Matches: "Control Arm (N=18) n (%)", "EMPAVELI (N=46) n (%)"
         /// </summary>
         private static readonly Regex _ctxArmWithNAndHintPattern = new(
-            @"^(.+?)\s*\(\s*[Nn]\s*=\s*(\d+)\s*\)\s*(?:n\s*\(\s*%\s*\)|%)\s*$",
+            @"^(.+?)\s*\(\s*[Nn]\s*=\s*(\d[\d,]*)\s*\)\s*(?:n\s*\(\s*%\s*\)|%)\s*$",
             RegexOptions.Compiled);
 
         /**************************************************************/
@@ -635,7 +639,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Captures: Group 1 = text before bracket, Group 2 = N value
         /// </summary>
         private static readonly Regex _bracketedNPattern = new(
-            @"^(.+?)\s*\[\s*[Nn]\s*=\s*(\d+)\s*\]\s*$",
+            @"^(.+?)\s*\[\s*[Nn]\s*=\s*(\d[\d,]*)\s*\]\s*$",
             RegexOptions.Compiled);
 
         /**************************************************************/
@@ -645,7 +649,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Captures: Group 1 = N value.
         /// </summary>
         private static readonly Regex _standaloneBracketNPattern = new(
-            @"^\[\s*[Nn]\s*=\s*(\d+)\s*\]$",
+            @"^\[\s*[Nn]\s*=\s*(\d[\d,]*)\s*\]$",
             RegexOptions.Compiled);
 
         /**************************************************************/
@@ -658,7 +662,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <seealso cref="_standaloneBracketNPattern"/>
         /// <seealso cref="_bracketedNPattern"/>
         private static readonly Regex _inlineNPattern = new(
-            @"[\(\[]\s*[Nn]\s*=\s*(\d+)\s*[\)\]]",
+            @"[\(\[]\s*[Nn]\s*=\s*(\d[\d,]*)\s*[\)\]]",
             RegexOptions.Compiled);
 
         /**************************************************************/
@@ -671,8 +675,29 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <seealso cref="_inlineNPattern"/>
         /// <seealso cref="normalizeInlineNValues"/>
         private static readonly Regex _rawValueTrailingNPattern = new(
-            @"^(.+?)\s*[*^†‡]?\s*[Nn]\s*=\s*(\d+)\s*$",
+            @"^(.+?)\s*[*^†‡]?\s*[Nn]\s*=\s*(\d[\d,]*)\s*$",
             RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Trailing parenthesized content at end of ParameterSubtype — extracts unit from
+        /// values like "Cmax(pg/mL)", "AUC120(pg·hr/mL)", "Cmax(serum, mcg/mL)", "Tmax(hr)".
+        /// Captures: Group 1 = inner text between parentheses.
+        /// </summary>
+        /// <seealso cref="extractUnitFromParameterSubtype"/>
+        private static readonly Regex _subtypeTrailingParenPattern = new(
+            @"\(([^)]+)\)\s*$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Structural fallback regex for novel PK unit patterns not in the known-units hash set.
+        /// Matches patterns like "pg/mL", "mcg·h/mL", "ng·hr/mL", "mg/kg", "IU/mL".
+        /// </summary>
+        /// <seealso cref="extractUnitFromParameterSubtype"/>
+        private static readonly Regex _pkUnitStructurePattern = new(
+            @"^(?:(?:mc?g|ng|pg|µg|mg|IU)(?:·(?:h|hr))?/(?:mL|L|kg|m²))$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         /**************************************************************/
         /// <summary>
@@ -842,26 +867,109 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.Equals(obs.TreatmentArm, "Comparison", StringComparison.OrdinalIgnoreCase))
                     continue;
 
+                int obsCorrectionCount = 0;
+
                 // Phase 1: Arm/context corrections (AE + EFFICACY only — existing Rules 1-11)
                 if (isPhase1Category(obs.TableCategory))
                 {
-                    correctionCount += applyPhase1_ArmContextCorrections(obs);
+                    obsCorrectionCount += applyPhase1_ArmContextCorrections(obs);
                 }
 
                 // Phase 2: Content normalization (ALL categories)
-                correctionCount += applyPhase2_ContentNormalization(obs);
+                obsCorrectionCount += applyPhase2_ContentNormalization(obs);
 
                 // Phase 3: PrimaryValueType migration (ALL categories)
-                correctionCount += applyPhase3_PrimaryValueTypeMigration(obs);
+                obsCorrectionCount += applyPhase3_PrimaryValueTypeMigration(obs);
 
                 // Phase 4: Column contract enforcement (ALL categories)
-                correctionCount += applyPhase4_ColumnContractEnforcement(obs);
+                obsCorrectionCount += applyPhase4_ColumnContractEnforcement(obs);
+
+                correctionCount += obsCorrectionCount;
+
+                // Confidence provenance flag
+                var reason = obsCorrectionCount == 0 ? "clean" : obsCorrectionCount <= 2 ? "minor" : "major";
+                appendFlag(obs, $"CONFIDENCE:PATTERN:{obs.ParseConfidence ?? 0:F2}:{reason}({obsCorrectionCount})");
             }
 
             if (correctionCount > 0)
             {
                 _logger.LogDebug("Column standardization applied {Count} corrections to {Total} observations",
                     correctionCount, observations.Count);
+            }
+
+            return observations;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3.6 post-processing: re-applies targeted extraction rules after Claude correction.
+        /// Catches units and N-values that Claude may have corrected into extractable form.
+        /// Flags use <c>COL_STD:POST_</c> prefix to distinguish from Phase 2 corrections.
+        /// </summary>
+        /// <param name="observations">Observations after all correction stages.</param>
+        /// <returns>The same list with additional extractions applied.</returns>
+        /// <seealso cref="Standardize"/>
+        /// <seealso cref="extractUnitFromParameterSubtype"/>
+        /// <seealso cref="normalizeInlineNValues"/>
+        public List<ParsedObservation> PostProcessExtraction(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            int extractionCount = 0;
+
+            foreach (var obs in observations)
+            {
+                // Skip non-processable categories
+                if (string.Equals(obs.TableCategory, "SKIP", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Re-try unit extraction from ParameterSubtype (may now have extractable values after Claude)
+                var preFlags = obs.ValidationFlags;
+                if (extractUnitFromParameterSubtype(obs))
+                {
+                    // Replace the Phase 2 flag with the POST_ prefixed version if it was just added
+                    if (obs.ValidationFlags != preFlags &&
+                        obs.ValidationFlags != null &&
+                        obs.ValidationFlags.Contains("COL_STD:PK_SUBPARAM_UNIT_EXTRACTED") &&
+                        (preFlags == null || !preFlags.Contains("COL_STD:PK_SUBPARAM_UNIT_EXTRACTED")))
+                    {
+                        obs.ValidationFlags = obs.ValidationFlags.Replace(
+                            "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED",
+                            "COL_STD:POST_PK_SUBPARAM_UNIT_EXTRACTED");
+                    }
+                    extractionCount++;
+                }
+
+                // Re-try inline N= extraction (Claude may have restored N= values)
+                preFlags = obs.ValidationFlags;
+                if (normalizeInlineNValues(obs))
+                {
+                    // Replace N_STRIPPED flags with POST_ prefixed versions for any new flags
+                    if (obs.ValidationFlags != preFlags &&
+                        obs.ValidationFlags != null)
+                    {
+                        // Only replace flags that were just added (not already present before this call)
+                        var newPart = preFlags != null
+                            ? obs.ValidationFlags.Substring(preFlags.Length)
+                            : obs.ValidationFlags;
+                        if (newPart.Contains("COL_STD:N_STRIPPED"))
+                        {
+                            var updatedPart = newPart.Replace("COL_STD:N_STRIPPED", "COL_STD:POST_N_STRIPPED");
+                            obs.ValidationFlags = preFlags != null
+                                ? preFlags + updatedPart
+                                : updatedPart;
+                        }
+                    }
+                    extractionCount++;
+                }
+            }
+
+            if (extractionCount > 0)
+            {
+                _logger.LogDebug("Post-processing extracted {Count} additional values from {Total} observations",
+                    extractionCount, observations.Count);
             }
 
             return observations;
@@ -942,7 +1050,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Parse N value from TreatmentArm
             var nMatch = _nValuePattern.Match(obs.TreatmentArm!);
-            if (nMatch.Success && int.TryParse(nMatch.Groups[1].Value, out var n))
+            if (nMatch.Success && tryParseNValue(nMatch.Groups[1].Value, out var n))
             {
                 obs.ArmN = n;
             }
@@ -1193,7 +1301,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (hintMatch.Success)
             {
                 var drugPart = hintMatch.Groups[1].Value.Trim();
-                if (int.TryParse(hintMatch.Groups[2].Value, out var n))
+                if (tryParseNValue(hintMatch.Groups[2].Value, out var n))
                     obs.ArmN = n;
 
                 // Overwrite TreatmentArm unless it's already a valid drug name
@@ -1211,7 +1319,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (embMatch.Success)
             {
                 var drugPart = embMatch.Groups[1].Value.Trim();
-                if (int.TryParse(embMatch.Groups[2].Value, out var n))
+                if (tryParseNValue(embMatch.Groups[2].Value, out var n))
                     obs.ArmN = n;
 
                 // Overwrite TreatmentArm unless it's already a valid drug name
@@ -1355,7 +1463,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return false;
 
             var textBeforeBracket = bracketMatch.Groups[1].Value.Trim();
-            if (int.TryParse(bracketMatch.Groups[2].Value, out var n))
+            if (tryParseNValue(bracketMatch.Groups[2].Value, out var n))
             {
                 obs.ArmN = n;
             }
@@ -1434,7 +1542,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Check 1: Whole value is N=xxx or (N=xxx)
             var nMatch = _nValuePattern.Match(trimmed);
-            if (nMatch.Success && int.TryParse(nMatch.Groups[1].Value, out n))
+            if (nMatch.Success && tryParseNValue(nMatch.Groups[1].Value, out n))
             {
                 cleaned = null;
                 return true;
@@ -1442,7 +1550,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Check 2: Whole value is [N=xxx]
             var sqMatch = _standaloneBracketNPattern.Match(trimmed);
-            if (sqMatch.Success && int.TryParse(sqMatch.Groups[1].Value, out n))
+            if (sqMatch.Success && tryParseNValue(sqMatch.Groups[1].Value, out n))
             {
                 cleaned = null;
                 return true;
@@ -1451,7 +1559,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Check 3: N= embedded anywhere as (N=xxx) or [N=xxx] — strip all occurrences,
             // take the first match's number
             var inlineMatch = _inlineNPattern.Match(trimmed);
-            if (inlineMatch.Success && int.TryParse(inlineMatch.Groups[1].Value, out n))
+            if (inlineMatch.Success && tryParseNValue(inlineMatch.Groups[1].Value, out n))
             {
                 var stripped = _inlineNPattern.Replace(trimmed, " ").Trim();
                 // Collapse internal double-spaces and trailing punctuation artifacts
@@ -1609,6 +1717,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (normalizeDoseRegimen(obs)) corrections++;
             if (normalizeParameterName(obs)) corrections++;
             if (normalizeTreatmentArm(obs)) corrections++;
+            if (extractUnitFromParameterSubtype(obs)) corrections++;
             if (normalizeUnit(obs)) corrections++;
             if (normalizeParameterCategory(obs)) corrections++;
 
@@ -1665,7 +1774,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (!string.IsNullOrWhiteSpace(obs.RawValue))
             {
                 var rawNMatch = _rawValueTrailingNPattern.Match(obs.RawValue.Trim());
-                if (rawNMatch.Success && int.TryParse(rawNMatch.Groups[2].Value, out var rawN))
+                if (rawNMatch.Success && tryParseNValue(rawNMatch.Groups[2].Value, out var rawN))
                 {
                     if (!obs.ArmN.HasValue)
                     {
@@ -1867,7 +1976,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var bracketMatch = _bracketedNPattern.Match(val);
                 if (bracketMatch.Success)
                 {
-                    if (int.TryParse(bracketMatch.Groups[2].Value, out var n))
+                    if (tryParseNValue(bracketMatch.Groups[2].Value, out var n))
                         obs.ArmN = n;
                     obs.TreatmentArm = bracketMatch.Groups[1].Value.Trim();
                     appendFlag(obs, "COL_STD:ARM_BRACKET_N");
@@ -1878,7 +1987,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var embMatch = _embeddedNPattern.Match(val);
                 if (embMatch.Success)
                 {
-                    if (int.TryParse(embMatch.Groups[2].Value, out var n2))
+                    if (tryParseNValue(embMatch.Groups[2].Value, out var n2))
                         obs.ArmN = n2;
                     obs.TreatmentArm = embMatch.Groups[1].Value.Trim();
                     appendFlag(obs, "COL_STD:ARM_BRACKET_N");
@@ -1919,6 +2028,130 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2 sub-pass: Extracts units from trailing parenthesized content in ParameterSubtype.
+        /// Only applies to PK and DRUG_INTERACTION table categories where ParameterSubtype often
+        /// encodes units inline (e.g., "Cmax(pg/mL)", "AUC120(pg·hr/mL)", "Cmax(serum, mcg/mL)").
+        /// </summary>
+        /// <remarks>
+        /// ## Algorithm
+        /// 1. Guards: skip if ParameterSubtype is null/whitespace or category is not PK/DRUG_INTERACTION
+        /// 2. Regex matches trailing parenthesized content
+        /// 3. Two sub-cases:
+        ///    - Simple unit: inner text is a known unit or matches structural PK pattern
+        ///    - Qualifier + unit: "serum, mcg/mL" — split on last comma, right token is unit
+        /// 4. Sets Unit if empty (does not overwrite existing), strips parenthesized portion from Subtype
+        /// </remarks>
+        /// <param name="obs">The observation to process.</param>
+        /// <returns>True if a unit was extracted.</returns>
+        /// <seealso cref="_subtypeTrailingParenPattern"/>
+        /// <seealso cref="_pkUnitStructurePattern"/>
+        /// <seealso cref="normalizeUnit"/>
+        private bool extractUnitFromParameterSubtype(ParsedObservation obs)
+        {
+            #region implementation
+
+            // Guard: skip if ParameterSubtype is null/whitespace
+            if (string.IsNullOrWhiteSpace(obs.ParameterSubtype))
+                return false;
+
+            // Guard: only applies to PK and DRUG_INTERACTION categories
+            if (!string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Match trailing parenthesized content
+            var match = _subtypeTrailingParenPattern.Match(obs.ParameterSubtype);
+            if (!match.Success)
+                return false;
+
+            var innerText = match.Groups[1].Value.Trim();
+            string? extractedUnit = null;
+            string? qualifier = null;
+
+            // Check for qualifier + unit pattern: "serum, mcg/mL"
+            var lastCommaIdx = innerText.LastIndexOf(',');
+            if (lastCommaIdx > 0)
+            {
+                var candidateUnit = innerText.Substring(lastCommaIdx + 1).Trim();
+                if (isRecognizedUnit(candidateUnit))
+                {
+                    extractedUnit = candidateUnit;
+                    qualifier = innerText.Substring(0, lastCommaIdx).Trim();
+                }
+            }
+
+            // If no qualifier+unit match, check if the whole inner text is a unit
+            if (extractedUnit == null)
+            {
+                if (isRecognizedUnit(innerText))
+                {
+                    extractedUnit = innerText;
+                }
+            }
+
+            if (extractedUnit == null)
+                return false;
+
+            // Normalize the extracted unit
+            if (_unitNormalizationMap.TryGetValue(extractedUnit, out var canonical))
+                extractedUnit = canonical;
+
+            // Only set Unit if it's currently empty
+            if (string.IsNullOrWhiteSpace(obs.Unit))
+            {
+                obs.Unit = extractedUnit;
+            }
+            else
+            {
+                // Unit already set — don't overwrite, but still clean up ParameterSubtype
+            }
+
+            // Strip parenthesized portion from ParameterSubtype
+            var subtypeBase = obs.ParameterSubtype.Substring(0, match.Index).Trim();
+            if (qualifier != null)
+            {
+                // "Cmax(serum, mcg/mL)" → "Cmax, serum"
+                obs.ParameterSubtype = string.IsNullOrWhiteSpace(subtypeBase)
+                    ? qualifier
+                    : $"{subtypeBase}, {qualifier}";
+            }
+            else
+            {
+                // "Cmax(pg/mL)" → "Cmax"
+                obs.ParameterSubtype = string.IsNullOrWhiteSpace(subtypeBase)
+                    ? null
+                    : subtypeBase;
+            }
+
+            appendFlag(obs, "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks if a candidate string is a recognized unit — either in the known-units
+        /// hash set, the normalization map, or matching the structural PK unit pattern.
+        /// </summary>
+        /// <param name="candidate">The candidate unit string to check.</param>
+        /// <returns>True if recognized as a valid unit.</returns>
+        /// <seealso cref="_knownUnits"/>
+        /// <seealso cref="_unitNormalizationMap"/>
+        /// <seealso cref="_pkUnitStructurePattern"/>
+        private bool isRecognizedUnit(string candidate)
+        {
+            #region implementation
+
+            return _knownUnits.Contains(candidate)
+                || _unitNormalizationMap.ContainsKey(candidate)
+                || _pkUnitStructurePattern.IsMatch(candidate);
 
             #endregion
         }
@@ -2163,12 +2396,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     return "Median";
             }
 
-            // Category-based defaults — only when no caption hint exists
-            // GeometricMean is reserved for DDI (drug comparison) studies;
-            // standard PK tables report ArithmeticMean unless explicitly stated otherwise.
-            if (string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
-                return "GeometricMean";
-
+            // Default: ArithmeticMean for ALL categories when no explicit hint exists.
+            // GeometricMean is the outlier — only used when caption/header/footer explicitly says so.
             return "ArithmeticMean";
 
             #endregion
@@ -2488,6 +2717,26 @@ namespace MedRecProImportClass.Service.TransformationServices
             obs.ValidationFlags = string.IsNullOrEmpty(obs.ValidationFlags)
                 ? flag
                 : $"{obs.ValidationFlags}; {flag}";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses an N-value string that may contain comma formatting (e.g., "8,506" → 8506).
+        /// Strips commas before parsing to handle both plain and comma-formatted integers.
+        /// </summary>
+        /// <param name="raw">The raw string from a regex capture group (e.g., "8,506" or "267").</param>
+        /// <param name="n">The parsed integer value.</param>
+        /// <returns>True if parsing succeeded.</returns>
+        /// <seealso cref="_nValuePattern"/>
+        /// <seealso cref="_embeddedNPattern"/>
+        private static bool tryParseNValue(string raw, out int n)
+        {
+            #region implementation
+
+            n = 0;
+            return int.TryParse(raw.Replace(",", ""), out n);
 
             #endregion
         }

@@ -25,8 +25,7 @@ AdverseEvent | PK | DrugInteraction | Efficacy | Dosing | BMD | TissueDistributi
 ArithmeticMean | GeometricMean | GeometricMeanRatio | LSMean | Median | Proportion | Count | PercentChange | HazardRatio | OddsRatio | RelativeRisk | RiskDifference | PValue | Text | Numeric
 
 Migrations (correct these old values):
-- "Mean" → ArithmeticMean when TableCategory=PK or DrugInteraction (unless caption has "geometric")
-- "Mean" → ArithmeticMean when TableCategory=AdverseEvent, or caption has "arithmetic", or no other context
+- "Mean" → ArithmeticMean (default for ALL categories). Only use GeometricMean when caption/header/footer explicitly says "geometric"
 - "Percentage" → Proportion (Unit should be "%")
 - "MeanPercentChange" → PercentChange
 - "RelativeRiskReduction" → HazardRatio (caption has "hazard"), OddsRatio (caption has "odds"), else RelativeRisk
@@ -106,5 +105,13 @@ For non-AdverseEvent/Laboratory tables: ParameterCategory should be NULL (do not
 - TreatmentArm and ParameterName swapped (arm contains PK/AE parameter name, ParameterName contains drug/arm name)
 - TableCategory=DrugInteraction: ParameterSubtype should hold co-administered drug name, not be NULL
 
-Format: [{"sourceRowSeq":N,"sourceCellSeq":N,"field":"FieldName","oldValue":"X","newValue":"Y","reason":"brief"}]
+## Confidence qualifier
+Prefix each correction "reason" with a confidence qualifier:
+- HIGH: — very confident this is wrong (clear mismatch, violates column contract)
+- MED: — likely wrong but edge case
+- LOW: — possible error, suggest review
+
+Example: "reason": "HIGH: arm/param swapped"
+
+Format: [{"sourceRowSeq":N,"sourceCellSeq":N,"field":"FieldName","oldValue":"X","newValue":"Y","reason":"QUAL: brief"}]
 Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen, Population, Unit, ParameterCategory, ParameterSubtype, Timepoint, TimeUnit, StudyContext, BoundType

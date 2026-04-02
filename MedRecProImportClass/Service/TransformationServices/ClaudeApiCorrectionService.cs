@@ -241,9 +241,20 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                     try
                     {
+                        // Snapshot pre-correction flags for per-observation provenance
+                        var preCorrectionFlags = chunk.Select(o => o.ValidationFlags).ToList();
+
                         var corrections = await requestCorrectionsAsync(chunk, groupTable, ct);
                         var applied = applyCorrections(chunk, corrections);
                         totalCorrections += applied;
+
+                        // Append per-observation Claude confidence provenance flags
+                        for (int i = 0; i < chunk.Count; i++)
+                        {
+                            var obs = chunk[i];
+                            var perObsCorrectionCount = countNewAiCorrections(preCorrectionFlags[i], obs.ValidationFlags);
+                            appendFlag(obs, $"CONFIDENCE:AI:{obs.ParseConfidence ?? 0:F2}:{perObsCorrectionCount}_corrections");
+                        }
                     }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested)
                     {
@@ -907,6 +918,43 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var result = sb.ToString().Trim();
             return string.IsNullOrWhiteSpace(result) ? null : result;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Appends a flag to the observation's ValidationFlags, separated by "; ".
+        /// </summary>
+        /// <param name="obs">Observation to flag.</param>
+        /// <param name="flag">Flag to append.</param>
+        private static void appendFlag(ParsedObservation obs, string flag)
+        {
+            #region implementation
+
+            obs.ValidationFlags = string.IsNullOrEmpty(obs.ValidationFlags)
+                ? flag
+                : $"{obs.ValidationFlags}; {flag}";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Counts the number of AI_CORRECTED flags added between pre and post correction states.
+        /// </summary>
+        /// <param name="preFlags">ValidationFlags before corrections.</param>
+        /// <param name="postFlags">ValidationFlags after corrections.</param>
+        /// <returns>Number of new AI_CORRECTED flags.</returns>
+        private static int countNewAiCorrections(string? preFlags, string? postFlags)
+        {
+            #region implementation
+
+            if (postFlags == null)
+                return 0;
+
+            var newPart = preFlags != null ? postFlags.Substring(preFlags.Length) : postFlags;
+            return newPart.Split("AI_CORRECTED").Length - 1;
 
             #endregion
         }

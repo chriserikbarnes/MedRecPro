@@ -320,7 +320,8 @@ namespace MedRecPro.Service.Test
 
             Assert.AreEqual("Headache", result[0].ParameterName);
             Assert.AreEqual("Numeric", result[0].PrimaryValueType);
-            Assert.IsNull(result[0].ValidationFlags);
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("AI_CORRECTED") ?? false,
+                "Expected no AI_CORRECTED flags");
 
             #endregion
         }
@@ -395,7 +396,8 @@ namespace MedRecPro.Service.Test
 
             Assert.AreEqual(1, result.Count);
             Assert.AreEqual("Numeric", result[0].PrimaryValueType);
-            Assert.IsNull(result[0].ValidationFlags);
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("AI_CORRECTED") ?? false,
+                "Expected no AI_CORRECTED flags");
 
             #endregion
         }
@@ -544,7 +546,8 @@ namespace MedRecPro.Service.Test
 
             // Original unchanged — the correction was for a non-existent row
             Assert.AreEqual("Numeric", result[0].PrimaryValueType);
-            Assert.IsNull(result[0].ValidationFlags);
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("AI_CORRECTED") ?? false,
+                "Expected no AI_CORRECTED flags");
 
             #endregion
         }
@@ -576,11 +579,98 @@ namespace MedRecPro.Service.Test
 
             // PrimaryValue is NOT in the correctable fields set
             Assert.AreEqual(5.2, result[0].PrimaryValue);
-            Assert.IsNull(result[0].ValidationFlags);
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("AI_CORRECTED") ?? false,
+                "Expected no AI_CORRECTED flags");
 
             #endregion
         }
 
         #endregion
+
+        #region Issue 5: Payload Exclusion Regression
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that buildCompactPayload excludes provenance fields: DocumentGUID,
+        /// LabelerName, ProductTitle, VersionNumber, and TextTableID.
+        /// Regression test to ensure token-heavy fields are never serialized into the Claude payload.
+        /// </summary>
+        [TestMethod]
+        public void BuildCompactPayload_ExcludesProvenanceFields()
+        {
+            #region implementation
+
+            // Invoke private static method via reflection
+            var method = typeof(ClaudeApiCorrectionService)
+                .GetMethod("buildCompactPayload",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(method, "Expected buildCompactPayload to be a private static method");
+
+            var obs = createTestObservation(1, 1, "Headache", "5.2");
+            obs.DocumentGUID = Guid.Parse("052493C7-89A3-452E-8140-04DD95F0D9E2");
+            obs.LabelerName = "Pfizer Inc";
+            obs.ProductTitle = "LIPITOR- atorvastatin calcium tablet, film coated";
+            obs.VersionNumber = 12;
+            obs.TextTableID = 42;
+
+            var json = (string)method.Invoke(null, new object[] { new List<ParsedObservation> { obs } })!;
+
+            // Parse as JArray and check keys on the first object
+            var arr = JsonConvert.DeserializeObject<Newtonsoft.Json.Linq.JArray>(json)!;
+            var first = (Newtonsoft.Json.Linq.JObject)arr[0];
+            var keys = first.Properties().Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            Assert.IsFalse(keys.Contains("DocumentGUID"),
+                "DocumentGUID must NOT be in the Claude payload");
+            Assert.IsFalse(keys.Contains("LabelerName"),
+                "LabelerName must NOT be in the Claude payload");
+            Assert.IsFalse(keys.Contains("ProductTitle"),
+                "ProductTitle must NOT be in the Claude payload");
+            Assert.IsFalse(keys.Contains("VersionNumber"),
+                "VersionNumber must NOT be in the Claude payload");
+            Assert.IsFalse(keys.Contains("TextTableID"),
+                "TextTableID must NOT be in the Claude payload");
+
+            #endregion
+        }
+
+        #endregion Issue 5: Payload Exclusion Regression
+
+        #region Issue 4: Confidence Provenance
+
+        /**************************************************************/
+        /// <summary>
+        /// After CorrectBatchAsync, every observation should have a CONFIDENCE:AI: flag
+        /// with format CONFIDENCE:AI:{score}:{correctionCount}_corrections.
+        /// </summary>
+        [TestMethod]
+        public async Task CorrectBatchAsync_AppendsConfidenceAiFlag()
+        {
+            #region implementation
+
+            // Return a correction to verify the flag includes the count
+            var correctionJson = @"[{""sourceRowSeq"":1,""sourceCellSeq"":1,""field"":""ParameterName"",""oldValue"":""Headache"",""newValue"":""Nausea"",""reason"":""HIGH: wrong param""}]";
+            var mockHandler = createMockHandler(correctionJson);
+            var service = createService(mockHandler.Object);
+
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(1, 1, "Headache", "5.2")
+            };
+            observations[0].ParseConfidence = 0.85;
+
+            var result = await service.CorrectBatchAsync(observations);
+
+            Assert.IsNotNull(result[0].ValidationFlags,
+                "Expected ValidationFlags to not be null after Claude correction");
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("CONFIDENCE:AI:"),
+                $"Expected CONFIDENCE:AI: flag but got: '{result[0].ValidationFlags}'");
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("_corrections"),
+                $"Expected '_corrections' suffix in CONFIDENCE:AI flag");
+
+            #endregion
+        }
+
+        #endregion Issue 4: Confidence Provenance
     }
 }

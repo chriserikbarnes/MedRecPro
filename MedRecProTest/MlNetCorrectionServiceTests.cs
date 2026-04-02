@@ -1155,5 +1155,35 @@ namespace MedRecProTest
         }
 
         #endregion FeedClaudeCorrectedBatchAsync Tests
+
+        #region Issue 4: Confidence Provenance
+
+        /**************************************************************/
+        /// <summary>
+        /// After ScoreAndCorrect, every observation should have a CONFIDENCE:ML: provenance flag
+        /// with format CONFIDENCE:ML:{score}:{correctionLabel}.
+        /// </summary>
+        [TestMethod]
+        public async Task ScoreAndCorrect_AppendsConfidenceMlFlag()
+        {
+            #region implementation
+
+            var service = await createInitializedServiceAsync();
+
+            var obs = createTestObservation(
+                category: "PK",
+                parseConfidence: 0.85);
+
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
+
+            Assert.IsNotNull(result[0].ValidationFlags,
+                "Expected ValidationFlags to not be null after ML pipeline");
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("CONFIDENCE:ML:"),
+                $"Expected CONFIDENCE:ML: flag but got: '{result[0].ValidationFlags}'");
+
+            #endregion
+        }
+
+        #endregion Issue 4: Confidence Provenance
     }
 }

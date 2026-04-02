@@ -247,6 +247,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Apply 4-stage pipeline to each observation
             foreach (var obs in observations)
             {
+                var preMlFlags = obs.ValidationFlags;
+
                 // Stage 1: TableCategory validation
                 applyTableCategoryCorrection(obs);
 
@@ -258,6 +260,10 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 // Stage 4: Anomaly score — ALWAYS executes, ALWAYS emits flag
                 applyAnomalyScore(obs);
+
+                // Confidence provenance: summarize highest-confidence ML correction applied
+                var correctionLabel = determineMlCorrectionLabel(preMlFlags, obs.ValidationFlags);
+                appendFlag(obs, $"CONFIDENCE:ML:{obs.ParseConfidence ?? 0:F2}:{correctionLabel}");
             }
 
             // Accumulate high-confidence rows for future training
@@ -985,6 +991,39 @@ namespace MedRecProImportClass.Service.TransformationServices
             obs.ValidationFlags = string.IsNullOrEmpty(obs.ValidationFlags)
                 ? flag
                 : $"{obs.ValidationFlags}; {flag}";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines the highest-confidence ML correction label by comparing flags before
+        /// and after the 4-stage pipeline. Returns the first correction type found
+        /// (CATEGORY_CORRECTED > DOSEREGIMEN_ROUTED > PVTYPE_DISAMBIGUATED) or "no_correction".
+        /// </summary>
+        /// <param name="preMlFlags">ValidationFlags before ML pipeline.</param>
+        /// <param name="postMlFlags">ValidationFlags after ML pipeline.</param>
+        /// <returns>A short label describing the highest-priority correction.</returns>
+        private static string determineMlCorrectionLabel(string? preMlFlags, string? postMlFlags)
+        {
+            #region implementation
+
+            if (postMlFlags == null || postMlFlags == preMlFlags)
+                return "no_correction";
+
+            // Check for new flags added by ML pipeline (not present before)
+            var newPart = preMlFlags != null
+                ? postMlFlags.Substring(preMlFlags.Length)
+                : postMlFlags;
+
+            if (newPart.Contains("MLNET:CATEGORY_CORRECTED"))
+                return "CATEGORY_CORRECTED";
+            if (newPart.Contains("MLNET:DOSEREGIMEN_ROUTED"))
+                return "DOSEREGIMEN_ROUTED";
+            if (newPart.Contains("MLNET:PVTYPE_DISAMBIGUATED"))
+                return "PVTYPE_DISAMBIGUATED";
+
+            return "no_correction";
 
             #endregion
         }

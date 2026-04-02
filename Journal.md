@@ -1510,3 +1510,23 @@ The `CorrectBatchAsync` parameter was `ReconstructedTable?` but internally group
 Claude occasionally emits `"newValue": NaN` (unquoted) in correction JSON. Newtonsoft.Json fails parsing this when the target is `string?`. Added `sanitizeJsonFloatLiterals()` regex that quotes bare `NaN`, `Infinity`, `-Infinity` tokens before deserialization: `(?<=:\s*)(-?(?:NaN|Infinity))(?=\s*[,}\]])` → wraps in double quotes.
 
 ---
+
+### 2026-04-02 10:13 AM EST — Table Parsing Pipeline: 6-Issue Implementation
+
+Implemented 6 issues from the table parsing pipeline plan in execution order:
+
+**Issue 6 — Refactor ProcessBatchWithStagesAsync:** Extracted 6 private methods from the ~220-line orchestrator method (`ensureServicesInitializedAsync`, `routeAndParseTables`, `runColumnStandardization`, `runMlCorrection`, `runClaudeCorrectionAsync`, `writeObservationsAsync`). Main method now ~30 lines. Pure refactor, no behavioral change.
+
+**Issue 2 — Comma-Formatted ArmN Extraction:** Updated 7 N-value regex patterns from `(\d+)` to `(\d[\d,]*)` to accept comma-formatted numbers like `(n = 8,506)`. Added `tryParseNValue` helper that strips commas before parsing. Replaced all 9 `int.TryParse` call sites at N-value parse points. 6 new tests.
+
+**Issue 1 — Extract Units from ParameterSubtype:** New `extractUnitFromParameterSubtype` method handles PK/DRUG_INTERACTION subtypes like `Cmax(pg/mL)`, `AUC120(pg·hr/mL)`, `Cmax(serum, mcg/mL)`. Added `·hr` variant normalization entries, structural fallback regex `_pkUnitStructurePattern`, `isRecognizedUnit` helper. Wired into Phase 2 before `normalizeUnit`. 8 new tests.
+
+**Issue 5 — Claude Payload Exclusion:** Verified `buildCompactPayload` already excludes DocumentGUID, LabelerName, ProductTitle, VersionNumber, TextTableID. Added 1 regression test using reflection.
+
+**Issue 3 — Post-Processing Stage 3.6:** Added `PostProcessExtraction` to `IColumnStandardizationService` and implementation. Re-runs `extractUnitFromParameterSubtype` and `normalizeInlineNValues` after Claude correction to catch values Claude corrected into extractable form. Uses `COL_STD:POST_` flag prefix. Wired into orchestrator at 95.5%. 2 new tests.
+
+**Issue 4 — ParseConfidence Provenance Flags:** Added per-observation confidence flags across all 3 correction pathways: `CONFIDENCE:PATTERN:{score}:{reason}({count})` in ColumnStandardization, `CONFIDENCE:ML:{score}:{label}` in MlNet, `CONFIDENCE:AI:{score}:{count}_corrections` in Claude. Updated correction-system-prompt.md with HIGH/MED/LOW qualifier prefix. 3 new tests; updated 4 existing Claude tests for new flag behavior.
+
+**Files modified:** TableParsingOrchestrator.cs, ColumnStandardizationService.cs, IColumnStandardizationService.cs, ClaudeApiCorrectionService.cs, MlNetCorrectionService.cs, correction-system-prompt.md, ColumnStandardizationServiceTests.cs, ClaudeApiCorrectionServiceTests.cs, MlNetCorrectionServiceTests.cs. Build: 0 errors. Tests: 156 passed, 2 pre-existing failures (GeometricMean/ArithmeticMean — unrelated).
+
+---

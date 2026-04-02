@@ -53,5 +53,17 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="observations">Parsed observations from Stage 3.</param>
         /// <returns>The same list with corrected column assignments and validation flags appended.</returns>
         List<ParsedObservation> Standardize(List<ParsedObservation> observations);
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3.6 post-processing: re-applies targeted extraction rules after Claude correction.
+        /// Catches units and N-values that Claude may have corrected into extractable form
+        /// (e.g., Claude restores a ParameterSubtype like "Cmax(pg/mL)" or an N= value).
+        /// Flags use the <c>COL_STD:POST_</c> prefix to distinguish from Phase 2 corrections.
+        /// </summary>
+        /// <param name="observations">Observations after all correction stages.</param>
+        /// <returns>The same list with additional extractions applied.</returns>
+        /// <seealso cref="Standardize"/>
+        List<ParsedObservation> PostProcessExtraction(List<ParsedObservation> observations);
     }
 }

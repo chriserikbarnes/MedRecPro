@@ -2300,10 +2300,11 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Phase 3: "Mean" in PK context → "GeometricMean".
+        /// Phase 3: "Mean" in PK context → "ArithmeticMean" (ArithmeticMean is the default for
+        /// ALL categories; GeometricMean only when caption/header/footer explicitly says so).
         /// </summary>
         [TestMethod]
-        public async Task Phase3_PVT_MeanInPK_BecomesGeometricMean()
+        public async Task Phase3_PVT_MeanInPK_BecomesArithmeticMean()
         {
             #region implementation
 
@@ -2315,8 +2316,8 @@ namespace MedRecProTest
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.AreEqual("GeometricMean", result[0].PrimaryValueType);
-            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Mean→GeometricMean");
+            Assert.AreEqual("ArithmeticMean", result[0].PrimaryValueType);
+            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Mean→ArithmeticMean");
 
             context.Dispose();
             sentinel.Dispose();
@@ -2666,8 +2667,8 @@ namespace MedRecProTest
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            // Phase 3 should migrate Mean → GeometricMean for PK
-            Assert.AreEqual("GeometricMean", result[0].PrimaryValueType);
+            // Phase 3 should migrate Mean → ArithmeticMean for PK (per commit 1e80942)
+            Assert.AreEqual("ArithmeticMean", result[0].PrimaryValueType);
             // Phase 4 should null ParameterCategory (N/A for PK)
             Assert.IsNull(result[0].ParameterCategory);
 
@@ -2934,5 +2935,484 @@ namespace MedRecProTest
         }
 
         #endregion Phase 2 Pre-Pass: Inline N= Extraction
+
+        #region Issue 2: Comma-Formatted ArmN Extraction
+
+        /**************************************************************/
+        /// <summary>
+        /// _nValuePattern matches comma-formatted N values: "(n = 8,506)" → ArmN=8506.
+        /// </summary>
+        [TestMethod]
+        public async Task NValuePattern_MatchesCommaFormattedNumber()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("(n = 8,506)", category: "ADVERSE_EVENT");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(8506, result[0].ArmN,
+                "Expected comma-formatted N=8,506 to parse as ArmN=8506");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// _embeddedNPattern matches comma-formatted N values: "Placebo N=8,506" → ArmN=8506.
+        /// Uses PK category to exercise the normalizeTreatmentArm path (non-Phase1 category).
+        /// </summary>
+        [TestMethod]
+        public async Task EmbeddedNPattern_MatchesCommaFormattedNumber()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo N=8,506", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(8506, result[0].ArmN,
+                "Expected comma-formatted N=8,506 to parse as ArmN=8506");
+            Assert.AreEqual("Placebo", result[0].TreatmentArm?.Trim(),
+                "Expected TreatmentArm to be 'Placebo' after embedded N extraction");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// _bracketedNPattern matches comma-formatted N values: "Placebo [N=8,102]" → ArmN=8102.
+        /// </summary>
+        [TestMethod]
+        public async Task BracketedNPattern_MatchesCommaFormattedNumber()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo [N=8,102]", category: "ADVERSE_EVENT");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(8102, result[0].ArmN,
+                "Expected comma-formatted [N=8,102] to parse as ArmN=8102");
+            Assert.AreEqual("Placebo", result[0].TreatmentArm?.Trim(),
+                "Expected TreatmentArm to be 'Placebo' after bracket stripping");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// _inlineNPattern matches comma-formatted N values embedded in text:
+        /// "CE/MPA (n = 8,506)" → stripped + ArmN=8506.
+        /// </summary>
+        [TestMethod]
+        public async Task InlineNPattern_MatchesCommaFormattedNumber()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            // Use DoseRegimen to exercise the inline N pre-pass (Phase 2)
+            var obs = createObservation("Placebo", doseRegimen: "CE/MPA (n = 8,506)", category: "ADVERSE_EVENT");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(8506, result[0].ArmN,
+                "Expected comma-formatted inline (n = 8,506) to parse as ArmN=8506");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// _rawValueTrailingNPattern matches comma-formatted N values:
+        /// "2.9 (22%) N=1,234" → ArmN=1234.
+        /// </summary>
+        [TestMethod]
+        public async Task RawValueTrailingN_MatchesCommaFormattedNumber()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.RawValue = "2.9 (22%) N=1,234";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(1234, result[0].ArmN,
+                "Expected comma-formatted trailing N=1,234 to parse as ArmN=1234");
+            assertHasFlag(result[0], "COL_STD:N_STRIPPED:RawValue");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// _standaloneBracketNPattern matches comma-formatted N values:
+        /// "[N=8,506]" → ArmN=8506.
+        /// </summary>
+        [TestMethod]
+        public async Task StandaloneBracketN_MatchesCommaFormattedNumber()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            // Put standalone bracket N in DoseRegimen to exercise the inline N pre-pass
+            var obs = createObservation("Placebo", doseRegimen: "[N=8,506]", category: "ADVERSE_EVENT");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(8506, result[0].ArmN,
+                "Expected comma-formatted standalone [N=8,506] to parse as ArmN=8506");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Issue 2: Comma-Formatted ArmN Extraction
+
+        #region Issue 1: Extract Units from ParameterSubtype
+
+        /**************************************************************/
+        /// <summary>
+        /// Cmax(pg/mL) → ParameterSubtype="Cmax", Unit="pg/mL".
+        /// </summary>
+        [TestMethod]
+        public async Task ExtractUnit_CmaxWithUnit()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", parameterSubtype: "Cmax(pg/mL)", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterSubtype,
+                "Expected ParameterSubtype to be 'Cmax' after unit extraction");
+            Assert.AreEqual("pg/mL", result[0].Unit,
+                "Expected Unit to be 'pg/mL'");
+            assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// AUC120(pg·hr/mL) → ParameterSubtype="AUC120", Unit="pg·h/mL" (normalized hr→h).
+        /// </summary>
+        [TestMethod]
+        public async Task ExtractUnit_AUC120WithHrVariant()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", parameterSubtype: "AUC120(pg·hr/mL)", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("AUC120", result[0].ParameterSubtype,
+                "Expected ParameterSubtype to be 'AUC120' after unit extraction");
+            Assert.AreEqual("pg·h/mL", result[0].Unit,
+                "Expected Unit to be 'pg·h/mL' (normalized from pg·hr/mL)");
+            assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Cmax(serum, mcg/mL) → ParameterSubtype="Cmax, serum", Unit="mcg/mL".
+        /// </summary>
+        [TestMethod]
+        public async Task ExtractUnit_CmaxWithQualifierAndUnit()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", parameterSubtype: "Cmax(serum, mcg/mL)", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax, serum", result[0].ParameterSubtype,
+                "Expected ParameterSubtype to be 'Cmax, serum' after qualifier+unit extraction");
+            Assert.AreEqual("mcg/mL", result[0].Unit,
+                "Expected Unit to be 'mcg/mL'");
+            assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Serum AUC0-∞(mcg·hr/mL) → ParameterSubtype="Serum AUC0-∞", Unit="mcg·h/mL".
+        /// </summary>
+        [TestMethod]
+        public async Task ExtractUnit_PrefixedAUC()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", parameterSubtype: "Serum AUC0-∞(mcg·hr/mL)", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Serum AUC0-∞", result[0].ParameterSubtype,
+                "Expected ParameterSubtype to be 'Serum AUC0-∞'");
+            Assert.AreEqual("mcg·h/mL", result[0].Unit,
+                "Expected Unit to be 'mcg·h/mL'");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// AUC84 (no parentheses) → no change.
+        /// </summary>
+        [TestMethod]
+        public async Task ExtractUnit_NoParentheses()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", parameterSubtype: "AUC84", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("AUC84", result[0].ParameterSubtype,
+                "Expected ParameterSubtype unchanged when no parentheses present");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tmax(hr) → ParameterSubtype="Tmax", Unit="h" (normalized).
+        /// </summary>
+        [TestMethod]
+        public async Task ExtractUnit_TmaxHr()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", parameterSubtype: "Tmax(hr)", category: "PK");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Tmax", result[0].ParameterSubtype,
+                "Expected ParameterSubtype to be 'Tmax'");
+            Assert.AreEqual("h", result[0].Unit,
+                "Expected Unit to be 'h' (normalized from 'hr')");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// When Unit is already set, extraction should NOT overwrite it.
+        /// </summary>
+        [TestMethod]
+        public async Task ExtractUnit_DoesNotOverwriteExistingUnit()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", parameterSubtype: "Cmax(pg/mL)", category: "PK");
+            obs.Unit = "ng/mL";  // Pre-existing unit
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("ng/mL", result[0].Unit,
+                "Expected existing Unit to be preserved, not overwritten");
+            // ParameterSubtype should still be cleaned up
+            Assert.AreEqual("Cmax", result[0].ParameterSubtype,
+                "Expected ParameterSubtype to be cleaned even when Unit not set");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Non-PK category (ADVERSE_EVENT) → no extraction, ParameterSubtype unchanged.
+        /// </summary>
+        [TestMethod]
+        public async Task ExtractUnit_NonPKCategory_Skipped()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", parameterSubtype: "Cmax(pg/mL)", category: "ADVERSE_EVENT");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax(pg/mL)", result[0].ParameterSubtype,
+                "Expected ParameterSubtype unchanged for ADVERSE_EVENT category");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Issue 1: Extract Units from ParameterSubtype
+
+        #region Issue 3: Post-Processing Stage 3.6
+
+        /**************************************************************/
+        /// <summary>
+        /// PostProcessExtraction catches a unit in ParameterSubtype that was missed
+        /// by the earlier Standardize phase (simulating Claude restoring it).
+        /// </summary>
+        [TestMethod]
+        public async Task PostProcess_ExtractsUnitMissedByEarlierStage()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            // Simulate an observation that went through Standardize already (no unit extracted)
+            // then Claude corrected ParameterSubtype to an extractable form
+            var obs = createObservation("Placebo", category: "PK");
+            obs.ParameterSubtype = "Cmax(pg/mL)";
+            obs.Unit = null;
+
+            var result = service.PostProcessExtraction(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("pg/mL", result[0].Unit,
+                "Expected PostProcessExtraction to extract unit from ParameterSubtype");
+            Assert.AreEqual("Cmax", result[0].ParameterSubtype,
+                "Expected ParameterSubtype cleaned after unit extraction");
+            assertHasFlag(result[0], "COL_STD:POST_PK_SUBPARAM_UNIT_EXTRACTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PostProcessExtraction catches a comma-formatted ArmN value in TreatmentArm
+        /// that was missed by the earlier Standardize phase (simulating Claude restoring it).
+        /// </summary>
+        [TestMethod]
+        public async Task PostProcess_ExtractsCommaArmNMissedByEarlierStage()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            // Simulate an observation where Claude restored an N= value in DoseRegimen
+            var obs = createObservation("Placebo", category: "ADVERSE_EVENT");
+            obs.DoseRegimen = "Drug (n = 8,506)";
+            obs.ArmN = null;
+
+            var result = service.PostProcessExtraction(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(8506, result[0].ArmN,
+                "Expected PostProcessExtraction to extract comma-formatted ArmN");
+            assertHasFlag(result[0], "COL_STD:POST_N_STRIPPED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Issue 3: Post-Processing Stage 3.6
+
+        #region Issue 4: Confidence Provenance
+
+        /**************************************************************/
+        /// <summary>
+        /// After Standardize, every processed observation should have a CONFIDENCE:PATTERN: flag
+        /// with format CONFIDENCE:PATTERN:{score}:{reason}({correctionCount}).
+        /// </summary>
+        [TestMethod]
+        public async Task Standardize_AppendsConfidencePatternFlag()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "ADVERSE_EVENT");
+            obs.ParseConfidence = 0.90;
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNotNull(result[0].ValidationFlags,
+                "Expected ValidationFlags to not be null after standardization");
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("CONFIDENCE:PATTERN:"),
+                $"Expected CONFIDENCE:PATTERN: flag but got: '{result[0].ValidationFlags}'");
+
+            // Verify format: CONFIDENCE:PATTERN:0.90:clean(0) or similar
+            var flagParts = result[0].ValidationFlags.Split("; ")
+                .FirstOrDefault(f => f.StartsWith("CONFIDENCE:PATTERN:"));
+            Assert.IsNotNull(flagParts, "CONFIDENCE:PATTERN flag should be present");
+
+            var segments = flagParts!.Split(':');
+            Assert.AreEqual(4, segments.Length,
+                $"Expected 4 colon-separated segments in CONFIDENCE:PATTERN flag but got: '{flagParts}'");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Issue 4: Confidence Provenance
     }
 }

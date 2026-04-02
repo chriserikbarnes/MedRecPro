@@ -11,7 +11,7 @@ This library was created to enable single-file publishing for the `MedRecProCons
 - **SPL XML Parsing**: Complete parsing infrastructure for FDA SPL documents
 - **FDA Orange Book Import**: Parses `products.txt`, `patent.txt`, and `exclusivity.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data, plus embedded patent use code definitions
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
-- **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 36-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product meta-analysis with classical ML — includes table reconstruction, 8 section-aware parsers, 4-phase column standardization with per-category contract enforcement, and automated validation
+- **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 38-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product meta-analysis with classical ML -- includes table reconstruction, 8 section-aware parsers, 4-phase column standardization with per-category contract enforcement, ML.NET anomaly scoring, Claude AI correction, post-processing extraction, and automated validation
 - **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
@@ -26,59 +26,64 @@ This library was created to enable single-file publishing for the `MedRecProCons
 
 ```
 MedRecProImportClass/
-├── Abstractions/           # Interfaces for dependency injection
-│   ├── IFileSource.cs      # File input abstraction (replaces IFormFile)
-│   ├── LocalFileSource.cs  # Local file system implementation
-│   └── ServiceInterfaces.cs # IEncryptionService, IDictionaryUtilityService
-├── Attributes/             # Validation attributes for SPL entities
-├── Context/                # Entity Framework DbContext (auto-registers OrangeBook entities via reflection)
-├── DataAccess/             # Repository pattern implementation
-├── Helpers/                # Utility classes
-│   ├── EncryptionHelper.cs # AES-256 encryption (StringCipher)
-│   ├── TextUtil.cs         # Text processing utilities
-│   ├── XmlHelpers.cs       # XML parsing utilities
-│   └── ...
-├── Models/                 # Entity classes and DTOs
-│   ├── Labels.cs           # Main Label container with 50+ nested classes
-│   ├── OrangeBook.cs       # Orange Book entity classes (Applicant, Product, Patent, etc.)
-│   ├── Import.cs           # Import result types
-│   ├── ImportData.cs       # SplData entity
-│   └── ...
-├── Resources/              # Embedded assembly resources
-│   └── OrangeBookPatentUseCodes.json  # Patent use code definitions (4,409 entries)
-└── Service/                # Business logic services
-    ├── SplImportService.cs       # Main SPL import orchestration
-    ├── SplDataService.cs         # SPL data storage/retrieval
-    ├── SplParsingService.cs      # XML parsing orchestration
-    ├── ZipImportWorkerService.cs # Background ZIP processing
-    ├── ParsingServices/          # 39+ specialized parser files
-    │   ├── OrangeBookProductParsingService.cs     # Phase A: products.txt parser
-    │   ├── OrangeBookPatentParsingService.cs      # Phase B: patent.txt parser
-    │   ├── OrangeBookExclusivityParsingService.cs # Phase C: exclusivity.txt parser
-    │   ├── OrangeBookPatentUseCodeParsingService.cs # Phase D: patent use code upsert
-    │   └── ...                   # SPL section parsers
-    ├── ParsingValidators/        # Validation services
-    └── TransformationServices/   # SPL Table Standardization pipeline
-        ├── TableCellContextService.cs          # Stage 1: source view assembly
-        ├── TableReconstructionService.cs       # Stage 2: table reconstruction
-        ├── ValueParser.cs                      # Stage 3: regex-based value decomposition
-        ├── PopulationDetector.cs               # Stage 3: population auto-detection
-        ├── BaseTableParser.cs                  # Stage 3: shared parser helpers
-        ├── PkTableParser.cs                    # Stage 3: pharmacokinetic tables
-        ├── SimpleArmTableParser.cs             # Stage 3: single-header AE/efficacy
-        ├── MultilevelAeTableParser.cs          # Stage 3: two-row header AE tables
-        ├── AeWithSocTableParser.cs             # Stage 3: AE with SOC dividers
-        ├── EfficacyMultilevelTableParser.cs    # Stage 3: two-row header efficacy
-        ├── BmdTableParser.cs                   # Stage 3: bone mineral density
-        ├── TissueRatioTableParser.cs           # Stage 3: tissue-to-plasma ratio
-        ├── DosingTableParser.cs                # Stage 3: dosing parameter grids
-        ├── TableParserRouter.cs                # Stage 3: section code → parser routing
-        ├── ColumnStandardizationService.cs     # Stage 3.25: 4-phase column contracts
-        ├── TableParsingOrchestrator.cs         # Stage 3: batch loop + DB writes
-        ├── ClaudeApiCorrectionService.cs       # Stage 3.5: AI-powered post-parse correction
-        ├── RowValidationService.cs             # Stage 4: per-observation checks
-        ├── TableValidationService.cs           # Stage 4: cross-row checks
-        └── BatchValidationService.cs           # Stage 4: aggregate reporting
++-- Abstractions/           # Interfaces for dependency injection
+|   +-- IFileSource.cs      # File input abstraction (replaces IFormFile)
+|   +-- LocalFileSource.cs  # Local file system implementation
+|   +-- ServiceInterfaces.cs # IEncryptionService, IDictionaryUtilityService
++-- Attributes/             # Validation attributes for SPL entities
++-- Context/                # Entity Framework DbContext (auto-registers OrangeBook entities via reflection)
++-- DataAccess/             # Repository pattern implementation
++-- Helpers/                # Utility classes
+|   +-- EncryptionHelper.cs # AES-256 encryption (StringCipher)
+|   +-- TextUtil.cs         # Text processing utilities
+|   +-- XmlHelpers.cs       # XML parsing utilities
+|   +-- ...
++-- Models/                 # Entity classes and DTOs
+|   +-- Labels.cs           # Main Label container with 50+ nested classes
+|   +-- OrangeBook.cs       # Orange Book entity classes (Applicant, Product, Patent, etc.)
+|   +-- Import.cs           # Import result types
+|   +-- ImportData.cs       # SplData entity
+|   +-- ...
++-- Resources/              # Embedded assembly resources
+|   +-- OrangeBookPatentUseCodes.json  # Patent use code definitions (4,409 entries)
++-- Skills/                 # Prompt templates for AI-powered stages
+|   +-- correction-system-prompt.md    # Stage 3.5 Claude correction rules
+|   +-- pivot-comparison-prompt.md     # Pivot comparison analysis
++-- Service/                # Business logic services
+    +-- SplImportService.cs       # Main SPL import orchestration
+    +-- SplDataService.cs         # SPL data storage/retrieval
+    +-- SplParsingService.cs      # XML parsing orchestration
+    +-- ZipImportWorkerService.cs # Background ZIP processing
+    +-- ParsingServices/          # 39+ specialized parser files
+    |   +-- OrangeBookProductParsingService.cs     # Phase A: products.txt parser
+    |   +-- OrangeBookPatentParsingService.cs      # Phase B: patent.txt parser
+    |   +-- OrangeBookExclusivityParsingService.cs # Phase C: exclusivity.txt parser
+    |   +-- OrangeBookPatentUseCodeParsingService.cs # Phase D: patent use code upsert
+    |   +-- ...                   # SPL section parsers
+    +-- ParsingValidators/        # Validation services
+    +-- TransformationServices/   # SPL Table Standardization pipeline
+        +-- TableCellContextService.cs          # Stage 1: source view assembly
+        +-- TableReconstructionService.cs       # Stage 2: table reconstruction
+        +-- ValueParser.cs                      # Stage 3: regex-based value decomposition
+        +-- PopulationDetector.cs               # Stage 3: population auto-detection
+        +-- BaseTableParser.cs                  # Stage 3: shared parser helpers
+        +-- PkTableParser.cs                    # Stage 3: pharmacokinetic tables
+        +-- SimpleArmTableParser.cs             # Stage 3: single-header AE/efficacy
+        +-- MultilevelAeTableParser.cs          # Stage 3: two-row header AE tables
+        +-- AeWithSocTableParser.cs             # Stage 3: AE with SOC dividers
+        +-- EfficacyMultilevelTableParser.cs    # Stage 3: two-row header efficacy
+        +-- BmdTableParser.cs                   # Stage 3: bone mineral density
+        +-- TissueRatioTableParser.cs           # Stage 3: tissue-to-plasma ratio
+        +-- DosingTableParser.cs                # Stage 3: dosing parameter grids
+        +-- TableParserRouter.cs                # Stage 3: section code -> parser routing
+        +-- ColumnStandardizationService.cs     # Stage 3.25: 4-phase column contracts
+        +-- MlNetCorrectionService.cs           # Stage 3.4: ML.NET scoring + correction
+        +-- MlTrainingStore.cs                  # Stage 3.4: persistent ML training data
+        +-- ClaudeApiCorrectionService.cs       # Stage 3.5: AI-powered correction
+        +-- TableParsingOrchestrator.cs         # Batch loop + stage sequencing + DB writes
+        +-- RowValidationService.cs             # Stage 4: per-observation checks
+        +-- TableValidationService.cs           # Stage 4: cross-row checks
+        +-- BatchValidationService.cs           # Stage 4: aggregate reporting
 ```
 
 ## Dependencies
@@ -89,6 +94,7 @@ MedRecProImportClass/
 | Microsoft.AspNetCore.Identity.EntityFrameworkCore | 8.0.15 | User entity support |
 | Microsoft.Extensions.Hosting | 9.0.4 | Background service support |
 | Microsoft.Extensions.Logging | 9.0.4 | Logging infrastructure |
+| Microsoft.ML | 4.0.2 | ML.NET anomaly detection and classification |
 | Dapper | 2.1.66 | Micro-ORM for complex queries |
 | Newtonsoft.Json | 13.0.3 | JSON serialization |
 | Microsoft.Extensions.Http | 9.0.4 | HttpClient factory for Claude API |
@@ -160,7 +166,7 @@ The `OrangeBook` class contains nested entity classes mapped to database tables 
 | `Product` | `OrangeBookProduct` | Drug products from products.txt |
 | `Patent` | `OrangeBookPatent` | Patent records from patent.txt |
 | `Exclusivity` | `OrangeBookExclusivity` | Exclusivity records from exclusivity.txt |
-| `PatentUseCodeDefinition` | `OrangeBookPatentUseCode` | Patent use code lookup (code → definition) |
+| `PatentUseCodeDefinition` | `OrangeBookPatentUseCode` | Patent use code lookup (code -> definition) |
 | `ApplicantOrganization` | `OrangeBookApplicantOrganization` | Junction linking applicants to SPL organizations |
 | `ProductIngredientSubstance` | `OrangeBookProductIngredientSubstance` | Junction linking products to SPL ingredients |
 | `ProductMarketingCategory` | `OrangeBookProductMarketingCategory` | Junction linking products to SPL marketing categories |
@@ -169,13 +175,13 @@ The `OrangeBook` class contains nested entity classes mapped to database tables 
 
 The import links Orange Book data to existing SPL entities using multi-tier matching:
 
-- **Applicant → Organization**: Normalized exact match, then token-based similarity (Jaccard/containment) with a two-pass strategy — first pass uses full tokens for higher discrimination, fallback uses noise-stripped tokens. Corporate suffixes and pharma noise words are stripped before comparison.
-- **Product → IngredientSubstance**: Exact name match, then regex-based matching
-- **Product → MarketingCategory**: Exact name match, then regex-based matching
+- **Applicant -> Organization**: Normalized exact match, then token-based similarity (Jaccard/containment) with a two-pass strategy -- first pass uses full tokens for higher discrimination, fallback uses noise-stripped tokens. Corporate suffixes and pharma noise words are stripped before comparison.
+- **Product -> IngredientSubstance**: Exact name match, then regex-based matching
+- **Product -> MarketingCategory**: Exact name match, then regex-based matching
 
 ### Design
 
-- **Idempotent**: Upsert-based — safe to re-run without duplication
+- **Idempotent**: Upsert-based -- safe to re-run without duplication
 - **Batch processing**: Products and patents are processed in batches of 5,000
 - **Progress callbacks**: Supports real-time progress reporting via callbacks to the console UI
 - **In-memory matching**: Pre-computes organization cache for fast similarity scoring
@@ -199,7 +205,7 @@ If the FDA publishes new patent use codes, update the embedded resource as follo
 
    Upload the `.xlsx` file and download the resulting `.json` file.
 
-3. **Verify the JSON format** matches the expected structure — an array of objects with `Code` and `Definition` properties:
+3. **Verify the JSON format** matches the expected structure -- an array of objects with `Code` and `Definition` properties:
    ```json
    [
      { "Code": "U-1", "Definition": "PREVENTION OF PREGNANCY" },
@@ -212,38 +218,45 @@ If the FDA publishes new patent use codes, update the embedded resource as follo
 
 5. **Rebuild** the `MedRecProImportClass` project. The updated definitions will be embedded in the assembly and upserted on the next Orange Book import run.
 
-Phase D is idempotent — existing records with changed definitions are updated, new records are inserted, and unchanged records are skipped.
+Phase D is idempotent -- existing records with changed definitions are updated, new records are inserted, and unchanged records are skipped.
 
 ## SPL Table Standardization Pipeline
 
-A multi-stage pipeline that transforms heterogeneous FDA drug label table data into a uniform 36-column analytical schema for cross-product meta-analysis with classical ML. The full corpus is 250K+ labels; the pipeline supports batch processing by TextTableID range.
+A multi-stage pipeline that transforms heterogeneous FDA drug label table data into a uniform 38-column analytical schema for cross-product meta-analysis with classical ML. The full corpus is 250K+ labels; the pipeline supports batch processing by TextTableID range.
 
 ### Architecture
 
 ```
 Stage 1: Source View Assembly
-  TableCellContextService → 26-column TableCellContext DTO
-        │
+  TableCellContextService -> 26-column TableCellContext DTO
+        |
 Stage 2: Table Reconstruction
-  TableReconstructionService → ReconstructedTable (classified rows, resolved spans, multi-level headers)
-        │
+  TableReconstructionService -> ReconstructedTable (classified rows, resolved spans, multi-level headers)
+        |
 Stage 3: Section-Aware Parsing
-  TableParserRouter → ITableParser (8 parsers) → List<ParsedObservation>
-        │
+  TableParserRouter -> ITableParser (8 parsers) -> List<ParsedObservation>
+        |
 Stage 3.25: Column Standardization (deterministic)
-  ColumnStandardizationService → 4-phase pipeline (all categories)
-        │
-Stage 3.5: Claude API Correction (optional)
-  ClaudeApiCorrectionService → corrected List<ParsedObservation>
-  TableParsingOrchestrator → bulk write to tmp_FlattenedStandardizedTable
-        │
+  ColumnStandardizationService -> 4-phase pipeline (all categories)
+        |
+Stage 3.4: ML.NET Correction + Anomaly Scoring
+  MlNetCorrectionService -> category validation, PVT disambiguation, anomaly scores
+        |
+Stage 3.5: Claude AI Correction (optional)
+  ClaudeApiCorrectionService -> semantic review + field correction
+        |
+Stage 3.6: Post-Processing Extraction
+  ColumnStandardizationService.PostProcessExtraction -> catch values AI corrected into extractable form
+        |
+  TableParsingOrchestrator -> bulk write to tmp_FlattenedStandardizedTable
+        |
 Stage 4: Validation
-  RowValidationService + TableValidationService + BatchValidationService → BatchValidationReport
+  RowValidationService + TableValidationService + BatchValidationService -> BatchValidationReport
 ```
 
 ### Stage 1: Source View Assembly
 
-`TableCellContextService` joins cell-level data (TextTableCell → TextTableRow → TextTable → SectionTextContent) with section context (vw_SectionNavigation) and document context (Document) into a flat 26-column `TableCellContext` DTO using EF Core LINQ. Supports filtering by DocumentGUID, TextTableID, ID range, and MaxRows.
+`TableCellContextService` joins cell-level data (TextTableCell -> TextTableRow -> TextTable -> SectionTextContent) with section context (vw_SectionNavigation) and document context (Document) into a flat 26-column `TableCellContext` DTO using EF Core LINQ. Supports filtering by DocumentGUID, TextTableID, ID range, and MaxRows.
 
 ### Stage 2: Table Reconstruction
 
@@ -253,20 +266,20 @@ Stage 4: Validation
 - **Row classification**: ExplicitHeader, InferredHeader, ContinuationHeader, SocDivider, DataBody, Footer
 - **Span resolution**: 2D occupancy grid resolves ColSpan/RowSpan into absolute column positions
 - **Header resolution**: Builds multi-level header paths (e.g., "Treatment > Drug A") from classified header rows
-- **Footnote extraction**: Parses footer rows into marker → text dictionary
+- **Footnote extraction**: Parses footer rows into marker -> text dictionary
 
 ### Stage 3: Section-Aware Parsing
 
-`TableParserRouter` maps `ParentSectionCode` to a `TableCategory` and selects the most specific parser via priority ordering. `TableParsingOrchestrator` runs the batch loop: reconstruct → route → parse → standardize → write to `tmp_FlattenedStandardizedTable`.
+`TableParserRouter` maps `ParentSectionCode` to a `TableCategory` and selects the most specific parser via priority ordering. `TableParsingOrchestrator` runs the batch loop: reconstruct -> route -> parse -> standardize -> ML correct -> Claude correct -> post-process -> write to `tmp_FlattenedStandardizedTable`.
 
 ### Table Categories
 
-The `TableCategory` column is the single most important classification value — all downstream normalization rules, PrimaryValueType assignment, BoundType defaults, and ParameterSubtype interpretation depend on it.
+The `TableCategory` column is the single most important classification value -- all downstream normalization rules, PrimaryValueType assignment, BoundType defaults, and ParameterSubtype interpretation depend on it.
 
 | Category | Description | Typical Source Section |
 |----------|-------------|------------------------|
 | `ADVERSE_EVENT` | Incidence/frequency of adverse events by treatment arm | 34084-4 Adverse Reactions |
-| `PK` | Pharmacokinetic parameters (Cmax, AUC, t½, etc.) | 43685-7 Clinical Pharmacology |
+| `PK` | Pharmacokinetic parameters (Cmax, AUC, t1/2, etc.) | 43685-7 Clinical Pharmacology |
 | `DRUG_INTERACTION` | Co-admin drug effects on PK parameters (geometric mean ratios) | 34073-7 Drug Interactions |
 | `EFFICACY` | Comparative efficacy outcomes with risk measures and CIs | 34076-0 Clinical Studies |
 | `DOSING` | Recommended doses, titration schedules, adjustments | 34068-7 Dosage and Administration |
@@ -274,7 +287,7 @@ The `TableCategory` column is the single most important classification value —
 | `TISSUE_DISTRIBUTION` | Drug concentration across body tissues and fluids | 43685-7 Clinical Pharmacology |
 | `DEMOGRAPHIC` | Baseline patient characteristics | 34076-0 Clinical Studies |
 | `LABORATORY` | Lab parameter changes/shifts | 34084-4 Adverse Reactions |
-| `TEXT_DESCRIPTIVE` | 100% text cells — instructions, descriptions | Various |
+| `TEXT_DESCRIPTIVE` | 100% text cells -- instructions, descriptions | Various |
 | `UNCLASSIFIED` | Could not be classified deterministically | Various |
 | `SKIP` | Tables to exclude (patient info, NDC, formulas) | Various |
 
@@ -282,15 +295,15 @@ The `TableCategory` column is the single most important classification value —
 
 Tables are classified by applying tests in priority order against all rows sharing a TextTableID, plus Caption and ParentSectionCode. First match wins:
 
-1. 100% of PrimaryValueType = "Text" → **TextDescriptive**
-2. MedDRA PT dictionary match (>=3 ParameterNames or >=2 SOC categories) → **AdverseEvent**
-3. PK parameter dictionary match (Cmax, AUC, t½, CL/F, Vss, etc.) → **PK** or **DrugInteraction** (DDI if caption contains "drug interaction", "co-administered", "in the presence of")
-4. PrimaryValueType contains RelativeRiskReduction or RiskDifference → **Efficacy**
-5. Dosing keywords in ParameterName → **Dosing**
-6. BMD anatomical site dictionary match → **BMD**
-7. Tissue/organ dictionary match with concentration units → **TissueDistribution**
-8. ParentSectionCode fallback (34084-4 → AE, 43685-7 → PK, 34068-7 → Dosing, 34073-7 → DDI)
-9. No match → **Unclassified**
+1. 100% of PrimaryValueType = "Text" -> **TextDescriptive**
+2. MedDRA PT dictionary match (>=3 ParameterNames or >=2 SOC categories) -> **AdverseEvent**
+3. PK parameter dictionary match (Cmax, AUC, t1/2, CL/F, Vss, etc.) -> **PK** or **DrugInteraction** (DDI if caption contains "drug interaction", "co-administered", "in the presence of")
+4. PrimaryValueType contains RelativeRiskReduction or RiskDifference -> **Efficacy**
+5. Dosing keywords in ParameterName -> **Dosing**
+6. BMD anatomical site dictionary match -> **BMD**
+7. Tissue/organ dictionary match with concentration units -> **TissueDistribution**
+8. ParentSectionCode fallback (34084-4 -> AE, 43685-7 -> PK, 34068-7 -> Dosing, 34073-7 -> DDI)
+9. No match -> **Unclassified**
 
 Tables landing in Unclassified (~28%) are candidates for Tier 2 ML.NET classification using `LightGbmMulticlassTrainer` with 21 aggregated features per TextTableID (target: Macro F1 >= 0.85).
 
@@ -317,7 +330,7 @@ Tables landing in Unclassified (~28%) are candidates for Tier 2 ML.NET classific
 
 ### Stage 3.25: Column Standardization
 
-`ColumnStandardizationService` is a deterministic, rule-based service that processes ALL table categories (except SKIP) through a 4-phase pipeline. It corrects systematic misclassification caused by the diversity of FDA table layouts — doses appearing as column headers, N-values in arm positions, study names in the wrong header row, etc.
+`ColumnStandardizationService` is a deterministic, rule-based service that processes ALL table categories (except SKIP) through a 4-phase pipeline. It corrects systematic misclassification caused by the diversity of FDA table layouts -- doses appearing as column headers, N-values in arm positions, study names in the wrong header row, etc.
 
 #### Phase 1: Arm/Context Corrections (AE + EFFICACY only)
 
@@ -325,40 +338,44 @@ Tables landing in Unclassified (~28%) are candidates for Tier 2 ML.NET classific
 
 | Rule | Pattern | Action |
 |------|---------|--------|
-| 11 | Bracketed `[N=xxx]` in TreatmentArm | Extract N → ArmN, classify remaining text |
-| 1 | TreatmentArm is `(N=267)` or `N=677` | Move N → ArmN, recover arm from StudyContext |
+| 11 | Bracketed `[N=xxx]` in TreatmentArm | Extract N -> ArmN, classify remaining text |
+| 1 | TreatmentArm is `(N=267)` or `N=677` | Move N -> ArmN, recover arm from StudyContext |
 | 2 | TreatmentArm is format hint (`%`, `#`, `n(%)`) | Discard, recover arm from StudyContext |
-| 3 | TreatmentArm is severity grade (`Severe`, `Grades 3/4`) | Move → ParameterSubtype |
-| 4 | TreatmentArm is pure dose (`10 mg daily`) | Move → DoseRegimen |
+| 3 | TreatmentArm is severity grade (`Severe`, `Grades 3/4`) | Move -> ParameterSubtype |
+| 4 | TreatmentArm is pure dose (`10 mg daily`) | Move -> DoseRegimen |
 | 5 | TreatmentArm is bare number + StudyContext has dose descriptor | Reconstruct DoseRegimen, extract drug name |
-| 6 | TreatmentArm is drug+dose combined | Split drug → TreatmentArm, dose → DoseRegimen |
-| 7 | StudyContext contains arm with embedded N= | Split drug → TreatmentArm, N → ArmN |
+| 6 | TreatmentArm is drug+dose combined | Split drug -> TreatmentArm, dose -> DoseRegimen |
+| 7 | StudyContext contains arm with embedded N= | Split drug -> TreatmentArm, N -> ArmN |
 | 8 | StudyContext contains drug name, TreatmentArm does not | Swap |
 | 9 | StudyContext is descriptor hint (`Incidence`, `Reaction`) | Clear StudyContext |
-| 10 | TreatmentArm has trailing `%` | Strip format hint, promote Numeric → Proportion |
+| 10 | TreatmentArm has trailing `%` | Strip format hint, promote Numeric -> Proportion |
+
+N-value patterns support comma-formatted numbers (e.g., `(n = 8,506)` -> ArmN=8506).
 
 Drug name identification uses an exact-match dictionary loaded from `vw_ProductsByIngredient` at initialization, supplemented by 13 known abbreviations (AZA, MMF, CsA, etc.) and first-word partial matching.
 
 #### Phase 2: Content Normalization (ALL categories)
 
-Five sub-passes clean up column content across all table categories:
+Seven sub-passes clean up column content across all table categories:
 
 | Sub-pass | Target Column | Key Operations |
 |----------|---------------|----------------|
-| `normalizeDoseRegimen` | DoseRegimen | Routes PK sub-params (Cmax, AUC, etc.) → ParameterSubtype; co-admin drug names → ParameterSubtype; residual population/timepoint → their correct columns |
+| `normalizeInlineNValues` | All columns | Strips N= patterns from every non-RawValue column, populates ArmN. Supports comma-formatted numbers. |
+| `normalizeDoseRegimen` | DoseRegimen | Routes PK sub-params (Cmax, AUC, etc.) -> ParameterSubtype; co-admin drug names -> ParameterSubtype; residual population/timepoint -> their correct columns |
 | `normalizeParameterName` | ParameterName | Removes caption echoes ("Table 3..."), header echoes ("n"), bare dose integers; decodes HTML entities; collapses OCR artifacts |
-| `normalizeTreatmentArm` | TreatmentArm | Removes header echoes ("Number of Patients"), generic labels ("Treatment", "PD"); extracts embedded N= and doses; routes study names → StudyContext |
-| `normalizeUnit` | Unit | Detects leaked column headers (>30 chars, drug names, keywords); normalizes variant spellings (`mcg h/mL` → `mcg·h/mL`); extracts real units from verbose descriptions |
-| `normalizeParameterCategory` | ParameterCategory | Canonical MedDRA SOC mapping (~55 variants → 26 canonical names) with OCR artifact repair. AE tables only. |
+| `normalizeTreatmentArm` | TreatmentArm | Removes header echoes ("Number of Patients"), generic labels ("Treatment", "PD"); extracts embedded N= and doses; routes study names -> StudyContext |
+| `extractUnitFromParameterSubtype` | ParameterSubtype | Extracts units from trailing parenthesized content in PK/DDI subtypes (e.g., `Cmax(pg/mL)` -> Subtype=`Cmax`, Unit=`pg/mL`; `Cmax(serum, mcg/mL)` -> Subtype=`Cmax, serum`, Unit=`mcg/mL`). Normalizes variant spellings. |
+| `normalizeUnit` | Unit | Detects leaked column headers (>30 chars, drug names, keywords); normalizes variant spellings (`mcg h/mL` -> `mcg*h/mL`); extracts real units from verbose descriptions |
+| `normalizeParameterCategory` | ParameterCategory | Canonical MedDRA SOC mapping (~55 variants -> 26 canonical names) with OCR artifact repair. AE tables only. |
 
 #### Phase 3: PrimaryValueType Migration (ALL categories)
 
-Maps old PrimaryValueType strings to a tightened 15-value enum using TableCategory, Caption, and bounds context:
+Maps old PrimaryValueType strings to a tightened 15-value enum using TableCategory, Caption, and bounds context. ArithmeticMean is the default for "Mean" in all categories -- GeometricMean is only used when there is an explicit hint in the caption, header, or footer.
 
 | Old Value | New Value | Resolution Logic |
 |-----------|-----------|------------------|
-| `Mean` | `GeometricMean` | PK or DDI (category default) |
-| `Mean` | `ArithmeticMean` | AE, BMD, or caption says "arithmetic" |
+| `Mean` | `ArithmeticMean` | Default for ALL categories (unless caption explicitly says "geometric" or "LS mean") |
+| `Mean` | `GeometricMean` | Only when caption/header/footer explicitly contains "geometric" |
 | `Mean` | `LSMean` | Caption says "LS mean" or "least square" |
 | `Percentage` | `Proportion` | Direct rename (all categories) |
 | `MeanPercentChange` | `PercentChange` | Direct rename |
@@ -366,7 +383,7 @@ Maps old PrimaryValueType strings to a tightened 15-value enum using TableCatego
 | `RelativeRiskReduction` | `OddsRatio` | Caption contains "odds" |
 | `RelativeRiskReduction` | `RelativeRisk` | Default |
 | `Ratio` | `GeometricMeanRatio` | DDI category |
-| `Numeric` | context-resolved | AE+% → Proportion, AE+int → Count, PK → GeometricMean, DDI → GeometricMeanRatio, BMD → PercentChange, Efficacy+bounds → HazardRatio |
+| `Numeric` | context-resolved | AE+% -> Proportion, AE+int -> Count, PK -> ArithmeticMean, DDI -> GeometricMeanRatio, BMD -> PercentChange, Efficacy+bounds -> HazardRatio |
 
 #### Phase 4: Column Contract Enforcement (ALL categories)
 
@@ -378,45 +395,27 @@ Enforces per-TableCategory contracts defining which columns are Required (R), Ex
 
 All corrections across all phases are flagged in `ValidationFlags` with `COL_STD:` prefixed audit flags.
 
-### Column Contracts by Table Category
+### Stage 3.4: ML.NET Correction + Anomaly Scoring
 
-Each observation context column has a strict, context-dependent definition locked to the row's TableCategory. The same column name carries different semantic meaning depending on the table type.
+`MlNetCorrectionService` applies a 4-stage ML pipeline to every observation after deterministic standardization:
 
-**Legend:** **R** = Required (flag if missing), **E** = Expected (usually populated), **O** = Optional, **N** = NULL (not applicable — enforced by Phase 4)
+| Stage | Model | Purpose |
+|-------|-------|---------|
+| 1 | LightGBM multiclass | TableCategory validation -- overrides when high-confidence prediction differs |
+| 2 | LightGBM multiclass | DoseRegimen routing -- redirects misclassified content to correct column |
+| 3 | LightGBM multiclass | PrimaryValueType disambiguation -- resolves ambiguous "Numeric" values |
+| 4 | PCA anomaly detector | Per-category anomaly scoring -- flags unusual observations for review |
 
-| Column | AdverseEvent | PK | DrugInteraction | Efficacy | Dosing | BMD | TissueDistribution |
-|--------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| ParameterName | R: MedDRA PT | R: PK param | R: PK param | R: Endpoint | R: Dose descriptor | R: Anatomical site | R: Tissue/fluid |
-| ParameterCategory | E: Canonical SOC | N | N | N | N | N | N |
-| ParameterSubtype | O: Severity | O: PK qualifier | R: **Co-admin drug** | O: Analysis pop | O: Adjustment ctx | N | N |
-| TreatmentArm | R: Drug/Placebo | O | E: Index drug | R: Drug vs comparator | O | R: Drug/Placebo | O |
-| ArmN | E | O | O | E | N | E | O |
-| StudyContext | O | O | O | O | N | O | N |
-| DoseRegimen | O | E | E | O | E | O | E |
-| Population | O | O | O | O | E | O | O |
-| Timepoint | N | O | N | O | O | E | E |
-| PrimaryValueType | R: Proportion/Count | R: GM/AM/Median | R: GMR | R: HR/OR/RR/Proportion | O: Numeric | R: PercentChange/AM | R: AM/GM |
-| Unit | E: % | R: conc/time/vol | O: ratio | O: % | O: mg/kg | E: %/g/cm² | R: conc |
-| Default BoundType | 95CI | 90CI | 90CI | 95CI | — | 95CI | — |
+The service accumulates high-confidence rows from each batch and periodically retrains its models. Training data is persisted via `MlTrainingStore` (JSON file) so models survive process restarts.
 
-**Cross-table comparison keys** (columns that must match for meaningful comparison):
+Corrections are flagged with `MLNET:` prefixed audit flags. Anomaly scores are emitted as `MLNET_ANOMALY_SCORE:{score}` on every observation.
 
-| Category | Comparison Key |
-|----------|----------------|
-| AdverseEvent | ParameterName + TreatmentArm + DoseRegimen |
-| PK | ParameterName + DoseRegimen + Population + Timepoint + PrimaryValueType + Unit |
-| DrugInteraction | ParameterName + ParameterSubtype + TreatmentArm |
-| Efficacy | ParameterName + TreatmentArm + PrimaryValueType |
-| Dosing | ParameterName + Population + DoseRegimen |
-| BMD | ParameterName + TreatmentArm + Timepoint |
-| TissueDistribution | ParameterName + DoseRegimen + Timepoint + Unit |
+### Stage 3.5: Claude AI Correction
 
-### Stage 3.5: Claude API Correction
-
-`ClaudeApiCorrectionService` performs AI-powered post-parse correction of `ParsedObservation` objects before database write. After Stage 3 parsers produce observations, the correction service sends table-level batches to Claude Haiku for semantic review and correction of misclassified fields.
+`ClaudeApiCorrectionService` performs AI-powered post-parse correction of `ParsedObservation` objects before database write. After Stages 3.25 and 3.4 produce observations, the correction service sends table-level batches to Claude Haiku for semantic review and correction of misclassified fields.
 
 **Common corrections:**
-- PrimaryValueType misclassification (e.g., "Numeric" → "Percentage" when table caption indicates "n(%)")
+- PrimaryValueType misclassification (e.g., "Numeric" -> "Percentage" when table caption indicates "n(%)")
 - SecondaryValueType confusion (e.g., "SD" vs "SE" vs "CV_Percent")
 - Swapped TreatmentArm/ParameterName (row vs column confusion)
 - Caption-derived hints not applied by regex parsers
@@ -434,7 +433,15 @@ dotnet user-secrets set "ClaudeApiCorrectionSettings:ApiKey" "sk-ant-..."
 | `MaxObservationsPerRequest` | `50` | Max observations per API call |
 | `DelayBetweenRequestsMs` | `200` | Rate limiting delay between calls |
 
-**Audit trail:** Corrected fields are flagged with `AI_CORRECTED:{FieldName}` in `ValidationFlags`. The service fails gracefully — API errors return original observations unchanged.
+The payload sent to Claude excludes token-heavy provenance fields (DocumentGUID, LabelerName, ProductTitle, VersionNumber, TextTableID) to minimize cost.
+
+**Audit trail:** Corrected fields are flagged with `AI_CORRECTED:{FieldName}` in `ValidationFlags`. The service fails gracefully -- API errors return original observations unchanged.
+
+### Stage 3.6: Post-Processing Extraction
+
+`ColumnStandardizationService.PostProcessExtraction` re-runs targeted extraction rules after Claude correction to catch values that Claude corrected into extractable form. For example, if Claude restores a ParameterSubtype like `Cmax(pg/mL)` or an N= value, this stage extracts the unit or sample size that the earlier Phase 2 pass would have caught had the data been correct initially.
+
+Post-processing flags use the `COL_STD:POST_` prefix to distinguish from Phase 2 corrections.
 
 ### Stage 4: Validation
 
@@ -448,13 +455,46 @@ Three validation services run post-parse:
 
 Validation results are returned as in-memory DTOs (`BatchValidationReport`) and logged via ILogger. The orchestrator's `ProcessAllWithValidationAsync` integrates validation into the batch pipeline.
 
+### Column Contracts by Table Category
+
+Each observation context column has a strict, context-dependent definition locked to the row's TableCategory. The same column name carries different semantic meaning depending on the table type.
+
+**Legend:** **R** = Required (flag if missing), **E** = Expected (usually populated), **O** = Optional, **N** = NULL (not applicable -- enforced by Phase 4)
+
+| Column | AdverseEvent | PK | DrugInteraction | Efficacy | Dosing | BMD | TissueDistribution |
+|--------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| ParameterName | R: MedDRA PT | R: PK param | R: PK param | R: Endpoint | R: Dose descriptor | R: Anatomical site | R: Tissue/fluid |
+| ParameterCategory | E: Canonical SOC | N | N | N | N | N | N |
+| ParameterSubtype | O: Severity | O: PK qualifier | R: **Co-admin drug** | O: Analysis pop | O: Adjustment ctx | N | N |
+| TreatmentArm | R: Drug/Placebo | O | E: Index drug | R: Drug vs comparator | O | R: Drug/Placebo | O |
+| ArmN | E | O | O | E | N | E | O |
+| StudyContext | O | O | O | O | N | O | N |
+| DoseRegimen | O | E | E | O | E | O | E |
+| Population | O | O | O | O | E | O | O |
+| Timepoint | N | O | N | O | O | E | E |
+| PrimaryValueType | R: Proportion/Count | R: AM/GM/Median | R: GMR | R: HR/OR/RR/Proportion | O: Numeric | R: PercentChange/AM | R: AM/GM |
+| Unit | E: % | R: conc/time/vol | O: ratio | O: % | O: mg/kg | E: %/g/cm2 | R: conc |
+| Default BoundType | 95CI | 90CI | 90CI | 95CI | -- | 95CI | -- |
+
+**Cross-table comparison keys** (columns that must match for meaningful comparison):
+
+| Category | Comparison Key |
+|----------|----------------|
+| AdverseEvent | ParameterName + TreatmentArm + DoseRegimen |
+| PK | ParameterName + DoseRegimen + Population + Timepoint + PrimaryValueType + Unit |
+| DrugInteraction | ParameterName + ParameterSubtype + TreatmentArm |
+| Efficacy | ParameterName + TreatmentArm + PrimaryValueType |
+| Dosing | ParameterName + Population + DoseRegimen |
+| BMD | ParameterName + TreatmentArm + Timepoint |
+| TissueDistribution | ParameterName + DoseRegimen + Timepoint + Unit |
+
 ### Output Schema
 
-`tmp_FlattenedStandardizedTable` — 36 columns organized into 5 groups:
+`tmp_FlattenedStandardizedTable` -- 38 columns organized into 5 groups:
 
 - **Provenance (8)**: DocumentGUID, LabelerName, ProductTitle, VersionNumber, TextTableID, Caption, SourceRowSeq, SourceCellSeq
 - **Classification (4)**: TableCategory, ParentSectionCode, ParentSectionTitle, SectionTitle
-- **Observation Context (9)**: ParameterName, ParameterCategory, ParameterSubtype, TreatmentArm, ArmN, StudyContext, DoseRegimen, Population, Timepoint
+- **Observation Context (11)**: ParameterName, ParameterCategory, ParameterSubtype, TreatmentArm, ArmN, StudyContext, DoseRegimen, Population, Timepoint, Time, TimeUnit
 - **Decomposed Values (10)**: RawValue, PrimaryValue, PrimaryValueType, SecondaryValue, SecondaryValueType, LowerBound, UpperBound, BoundType, PValue, Unit
 - **Validation (5)**: ParseConfidence, ParseRule, FootnoteMarkers, FootnoteText, ValidationFlags
 
@@ -463,30 +503,202 @@ Validation results are returned as in-memory DTOs (`BatchValidationReport`) and 
 #### PrimaryValueType (canonical, tightened)
 
 ```
-ArithmeticMean · GeometricMean · GeometricMeanRatio · Median ·
-Proportion · Count · PercentChange · HazardRatio · OddsRatio ·
-RelativeRisk · RiskDifference · LSMean · Numeric · Text · PValue
+ArithmeticMean - GeometricMean - GeometricMeanRatio - Median -
+Proportion - Count - PercentChange - HazardRatio - OddsRatio -
+RelativeRisk - RiskDifference - LSMean - Numeric - Text - PValue
 ```
 
 #### SecondaryValueType
 
 ```
-SD · CV · Count
+SD - CV - Count
 ```
 
 #### BoundType
 
 ```
-90CI · 95CI · 99CI · CI · Range · SD · IQR
+90CI - 95CI - 99CI - CI - Range - SD - IQR
 ```
 
 #### ParseRule
 
 ```
-empty_or_na · pvalue · frac_pct · n_pct · caption_mean_sd ·
-value_cv · value_plusminus · value_ci · rr_ci · diff_ci ·
-range_to · percentage · plain_number · text_descriptive ·
-plain_number+caption · value_ci+caption
+empty_or_na - pvalue - frac_pct - n_pct - caption_mean_sd -
+value_cv - value_plusminus - value_ci - rr_ci - diff_ci -
+range_to - percentage - plain_number - text_descriptive -
+plain_number+caption - value_ci+caption
+```
+
+## ValidationFlags Dictionary
+
+Every observation accumulates audit flags in `ValidationFlags` as a semicolon-delimited string. Each flag records what happened to the observation as it passed through the pipeline. Flags are grouped by the stage that produces them.
+
+### Stage 3: Parser Flags
+
+These flags are set by `BaseTableParser` and `ValueParser` during initial parsing.
+
+| Flag | Meaning |
+|------|---------|
+| `CAPTION_HINT:{source}` | Caption/header provided a hint that promoted a bare numeric to a specific PrimaryValueType or set SecondaryValueType/BoundType. `{source}` is the hint origin (e.g., "Mean (SD)", "Geometric Mean"). |
+| `CAPTION_REINTERPRET:n_pct->{pvt}({svt})` | An n_pct value (count + percentage) was reinterpreted per caption context to a different PrimaryValueType/SecondaryValueType pairing. |
+| `PCT_CHECK:PASS` | Percentage cross-validation passed -- the derived percentage from count/ArmN matches the reported percentage within 1.5 points. |
+| `PCT_CHECK:WARN:{derived}` | Percentage cross-validation failed -- the derived percentage differs from the reported value by more than 1.5 points. `{derived}` is the calculated percentage. |
+
+### Stage 3.25: Column Standardization Flags (COL_STD)
+
+These flags are set by `ColumnStandardizationService` during the 4-phase deterministic pipeline. Every flag starts with `COL_STD:` for audit trail purposes.
+
+#### Phase 1: Arm/Context Corrections
+
+| Flag | Meaning |
+|------|---------|
+| `COL_STD:ARM_WAS_N` | TreatmentArm was a sample size value (e.g., "(N=267)"). Moved to ArmN; arm name recovered from StudyContext if available. |
+| `COL_STD:ARM_WAS_FMT` | TreatmentArm was a format hint (e.g., "%", "n(%)"). Discarded; arm name recovered from StudyContext. |
+| `COL_STD:ARM_WAS_SEVERITY` | TreatmentArm was a severity grade (e.g., "Severe", "Grades 3/4"). Moved to ParameterSubtype. |
+| `COL_STD:ARM_WAS_DOSE` | TreatmentArm was a dose regimen (e.g., "10 mg daily"). Moved to DoseRegimen. |
+| `COL_STD:ARM_WAS_BARE_DOSE` | TreatmentArm was a bare number that combined with a dose descriptor in StudyContext to form a DoseRegimen. |
+| `COL_STD:SPLIT_DRUG_DOSE` | TreatmentArm contained both a drug name and dose (e.g., "Losartan 50 mg"). Split: drug stays in TreatmentArm, dose moved to DoseRegimen. |
+| `COL_STD:CTX_WAS_ARM_N` | StudyContext contained a drug name with embedded N= (e.g., "Placebo (N=300) n(%)"). Split: drug -> TreatmentArm, N -> ArmN, format hint discarded. |
+| `COL_STD:SWAP_ARM_CTX` | TreatmentArm and StudyContext were swapped because StudyContext contained a drug name and TreatmentArm did not. |
+| `COL_STD:CTX_WAS_DESC` | StudyContext was a descriptor hint (e.g., "Incidence", "Reaction", "% of Patients"). Cleared. |
+| `COL_STD:ARM_STRIP_PCT` | Trailing `%` or `n(%)` format hint stripped from TreatmentArm. PrimaryValueType promoted to Proportion if it was "Numeric". |
+| `COL_STD:ARM_BRACKET_N` | TreatmentArm contained a bracketed or embedded N= value (e.g., "Placebo [N=459]", "Drug N=339"). Extracted N -> ArmN, cleaned TreatmentArm. |
+
+#### Phase 2: Content Normalization
+
+| Flag | Meaning |
+|------|---------|
+| `COL_STD:N_STRIPPED:{Column}` | An inline N= pattern was found and stripped from `{Column}` (e.g., TreatmentArm, StudyContext, DoseRegimen, RawValue). The N value was populated into ArmN if not already set. |
+| `COL_STD:PK_SUBPARAM_ROUTED` | A PK sub-parameter name (e.g., Cmax, AUC) was found in DoseRegimen and routed to ParameterSubtype. |
+| `COL_STD:COADMIN_ROUTED` | A co-administered drug name was found in DoseRegimen or ParameterName and routed to ParameterSubtype (DRUG_INTERACTION tables). |
+| `COL_STD:POPULATION_EXTRACTED` | A population descriptor was found in DoseRegimen and moved to the Population column. |
+| `COL_STD:TIMEPOINT_EXTRACTED` | A timepoint descriptor was found in DoseRegimen and moved to the Timepoint column. |
+| `COL_STD:ROW_TYPE=CAPTION` | ParameterName was a caption echo (e.g., "Table 3: Adverse Events"). Cleared. |
+| `COL_STD:ROW_TYPE=HEADER` | ParameterName was a header echo (e.g., bare "n" or "N"). Cleared. |
+| `COL_STD:PARAM_WAS_DOSE` | ParameterName was a dose value. Moved to DoseRegimen. |
+| `COL_STD:HTML_ENTITY_DECODED` | HTML entities (e.g., `&amp;`, `&#8805;`) were decoded in ParameterName. |
+| `COL_STD:ARM_WAS_HEADER` | TreatmentArm was a leaked column header (e.g., "Number of Patients", "Percent of Subjects"). Cleared. |
+| `COL_STD:ARM_WAS_GENERIC` | TreatmentArm was a generic label (e.g., "Treatment", "PD", "Drug"). Cleared or replaced with drug name from ProductTitle. |
+| `COL_STD:ARM_WAS_STUDY` | TreatmentArm was a study name (e.g., "Trial 1", "Phase III"). Moved to StudyContext. |
+| `COL_STD:DOSE_EXTRACTED` | An embedded dose was found in TreatmentArm (e.g., "Drug 150 mg/d"). Dose moved to DoseRegimen. |
+| `COL_STD:PK_SUBPARAM_UNIT_EXTRACTED` | A unit was extracted from trailing parenthesized content in ParameterSubtype (e.g., `Cmax(pg/mL)` -> Unit=`pg/mL`). PK and DRUG_INTERACTION categories only. |
+| `COL_STD:UNIT_HEADER_LEAK` | Unit column contained a leaked header value (drug name, long string, or keyword like "Regimen"). Cleared. |
+| `COL_STD:UNIT_NORMALIZED` | Unit value was normalized to canonical spelling (e.g., `mcg h/mL` -> `mcg*h/mL`, `hr` -> `h`, `ug/mL` -> `mcg/mL`). |
+| `COL_STD:SOC_NORMALIZED` | ParameterCategory (System Organ Class) was normalized to its canonical MedDRA name (e.g., "Gastrointestinal Disorders" -> "Gastrointestinal disorders"). |
+| `COL_STD:SOC_UNMATCHED` | ParameterCategory did not match any known SOC variant in the canonical map. Left as-is for manual review. |
+
+#### Phase 3: PrimaryValueType Migration
+
+| Flag | Meaning |
+|------|---------|
+| `COL_STD:PVT_MIGRATED:{old}->{new}` | PrimaryValueType was migrated from an old enum value to a new canonical value (e.g., `Mean->ArithmeticMean`, `Percentage->Proportion`). |
+| `COL_STD:PVT_UNRESOLVED` | PrimaryValueType was "Numeric" but could not be resolved to a more specific type based on category, unit, and value context. Left as "Numeric". |
+
+#### Phase 4: Column Contract Enforcement
+
+| Flag | Meaning |
+|------|---------|
+| `COL_STD:NULL_{Column}` | Column was set to null because it is Not Applicable (N) for this TableCategory (e.g., Timepoint nulled for ADVERSE_EVENT). |
+| `COL_STD:MISSING_R_{Column}` | A Required (R) column for this TableCategory is empty. Flagged for review. |
+| `COL_STD:BOUND_TYPE_INFERRED` | BoundType was inferred from the TableCategory default because LowerBound/UpperBound were populated but BoundType was null (90CI for PK/DDI, 95CI for Efficacy/BMD). |
+
+#### Confidence Provenance
+
+| Flag | Meaning |
+|------|---------|
+| `CONFIDENCE:PATTERN:{score}:{reason}({count})` | Summary of deterministic standardization. `{score}` is ParseConfidence at time of standardization. `{reason}` is `clean` (0 corrections), `minor` (1-2 corrections), or `major` (3+ corrections). `{count}` is the total number of corrections applied. |
+
+### Stage 3.4: ML.NET Flags (MLNET)
+
+These flags are set by `MlNetCorrectionService` during the ML correction and anomaly scoring pipeline.
+
+#### Correction Flags
+
+| Flag | Meaning |
+|------|---------|
+| `MLNET:CATEGORY_CORRECTED:{label}:{score}` | TableCategory was overridden by the ML classifier. `{label}` is the new category, `{score}` is the model's confidence (0.00-1.00). |
+| `MLNET:DOSEREGIMEN_ROUTED_TO_{target}:{score}` | DoseRegimen content was rerouted by ML to a different column (e.g., `PARAMETER_SUBTYPE`). `{score}` is the confidence. |
+| `MLNET:PVTYPE_DISAMBIGUATED:{label}:{score}` | PrimaryValueType was disambiguated from "Numeric" to a specific type by the ML classifier. `{label}` is the resolved type. |
+
+#### Anomaly Score Flags
+
+| Flag | Meaning |
+|------|---------|
+| `MLNET_ANOMALY_SCORE:{score}` | Per-category PCA anomaly score (4 decimal places). Higher scores indicate more anomalous observations. Emitted on every observation. |
+| `MLNET_ANOMALY_SCORE:NOMODEL` | No anomaly model is available yet for this category (cold start on first batch). Score will appear once enough training data accumulates. |
+| `MLNET_ANOMALY_SCORE:ERROR` | Anomaly prediction failed with an exception. Observation is passed through unchanged. |
+
+#### Confidence Provenance
+
+| Flag | Meaning |
+|------|---------|
+| `CONFIDENCE:ML:{score}:{label}` | Summary of ML correction. `{score}` is ParseConfidence after ML pipeline. `{label}` is the highest-priority correction applied: `CATEGORY_CORRECTED`, `DOSEREGIMEN_ROUTED`, `PVTYPE_DISAMBIGUATED`, or `no_correction`. |
+
+### Stage 3.5: Claude AI Correction Flags
+
+These flags are set by `ClaudeApiCorrectionService` after the Claude API returns corrections.
+
+| Flag | Meaning |
+|------|---------|
+| `AI_CORRECTED:{Field}` | The named field was corrected by Claude (e.g., `AI_CORRECTED:ParameterName`, `AI_CORRECTED:PrimaryValueType`, `AI_CORRECTED:TreatmentArm`). One flag per corrected field -- an observation can have multiple if Claude corrected several fields. |
+| `CONFIDENCE:AI:{score}:{count}_corrections` | Summary of Claude correction. `{score}` is ParseConfidence after Claude. `{count}` is the number of fields Claude corrected on this observation (0 = no corrections). |
+
+**Correctable fields:** ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen, Population, Unit, ParameterCategory, ParameterSubtype, Timepoint, TimeUnit, StudyContext, BoundType.
+
+### Stage 3.6: Post-Processing Flags
+
+These flags are set by `ColumnStandardizationService.PostProcessExtraction` when it re-extracts values after Claude correction. They mirror Phase 2 flags but use the `POST_` prefix.
+
+| Flag | Meaning |
+|------|---------|
+| `COL_STD:POST_PK_SUBPARAM_UNIT_EXTRACTED` | Same as `PK_SUBPARAM_UNIT_EXTRACTED` but triggered during post-processing (Claude corrected a ParameterSubtype into extractable form). |
+| `COL_STD:POST_N_STRIPPED:{Column}` | Same as `N_STRIPPED` but triggered during post-processing (Claude restored an N= value that wasn't present during Phase 2). |
+
+### Stage 4: Row Validation Flags
+
+These flags are set by `RowValidationService` during per-observation validation checks.
+
+| Flag | Meaning |
+|------|---------|
+| `LOW_CONFIDENCE` | ParseConfidence is below 0.5. The observation's values may be unreliable. |
+| `BOUND_INVERSION` | LowerBound is greater than UpperBound. Likely a parsing error or swapped values. |
+| `TIME_UNIT_MISMATCH` | Time column is populated but TimeUnit is missing, or vice versa. |
+| `UNREASONABLE_TIME` | Time value is <= 0, which is not valid for a timepoint. |
+| `INVALID_TIME_UNIT` | TimeUnit contains a value not in the allowed vocabulary (h, min, d, wk, mo, yr, etc.). |
+
+### Reading ValidationFlags
+
+Flags are semicolon-delimited with spaces: `COL_STD:ARM_WAS_N; COL_STD:PVT_MIGRATED:Mean->ArithmeticMean; CONFIDENCE:PATTERN:0.90:minor(2)`. To query:
+
+```sql
+-- Find all observations where Claude corrected something
+SELECT * FROM tmp_FlattenedStandardizedTable
+WHERE ValidationFlags LIKE '%AI_CORRECTED%'
+
+-- Find high-anomaly observations
+SELECT * FROM tmp_FlattenedStandardizedTable
+WHERE ValidationFlags LIKE '%MLNET_ANOMALY_SCORE:0.9%'
+
+-- Find observations where unit was extracted from ParameterSubtype
+SELECT * FROM tmp_FlattenedStandardizedTable
+WHERE ValidationFlags LIKE '%PK_SUBPARAM_UNIT_EXTRACTED%'
+
+-- Count corrections by type
+SELECT
+    CASE
+        WHEN ValidationFlags LIKE '%AI_CORRECTED%' THEN 'Claude'
+        WHEN ValidationFlags LIKE '%MLNET:CATEGORY_CORRECTED%' THEN 'ML'
+        WHEN ValidationFlags LIKE '%COL_STD:%' THEN 'Deterministic'
+        ELSE 'None'
+    END AS CorrectionSource,
+    COUNT(*) AS ObservationCount
+FROM tmp_FlattenedStandardizedTable
+GROUP BY CASE
+    WHEN ValidationFlags LIKE '%AI_CORRECTED%' THEN 'Claude'
+    WHEN ValidationFlags LIKE '%MLNET:CATEGORY_CORRECTED%' THEN 'ML'
+    WHEN ValidationFlags LIKE '%COL_STD:%' THEN 'Deterministic'
+    ELSE 'None'
+END
 ```
 
 ### Static Dictionaries
@@ -497,14 +709,14 @@ The pipeline uses several static in-class dictionaries for deterministic normali
 |-----------|------|---------|
 | Drug Names | ~500+ (from DB) | Exact-match drug name identification via `vw_ProductsByIngredient` |
 | Drug Abbreviations | 13 | Common abbreviations not in formal product DB (AZA, MMF, CsA, etc.) |
-| PK Sub-Parameters | ~35 | PK parameter names for DoseRegimen triage (Cmax, AUC, t½, CL/F, etc.) |
+| PK Sub-Parameters | ~35 | PK parameter names for DoseRegimen triage (Cmax, AUC, t1/2, CL/F, etc.) |
 | Known Units | ~80 | Canonical unit strings for Unit scrub validation |
-| Unit Normalization | ~12 | Variant spelling → canonical form (e.g., `mcg h/mL` → `mcg·h/mL`) |
+| Unit Normalization | ~16 | Variant spelling -> canonical form (e.g., `mcg h/mL` -> `mcg*h/mL`, `pg*hr/mL` -> `pg*h/mL`) |
 | Unit Header Keywords | 13 | Leak detection keywords (Regimen, Dosage, Patients, etc.) |
-| Canonical SOC Map | ~55 | MedDRA SOC variant → canonical name mapping |
+| Canonical SOC Map | ~55 | MedDRA SOC variant -> canonical name mapping |
 | PVT Direct Map | 9 | Direct 1:1 PrimaryValueType migration mappings |
-| Column Contracts | 7 categories × 13 columns | Per-category R/E/O/N requirement definitions |
-| Default BoundType | 5 entries | Category → default BoundType when bounds present |
+| Column Contracts | 7 categories x 13 columns | Per-category R/E/O/N requirement definitions |
+| Default BoundType | 5 entries | Category -> default BoundType when bounds present |
 
 ## Relationship to MedRecPro
 

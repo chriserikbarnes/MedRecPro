@@ -596,21 +596,9 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var result = new BatchStageResult();
 
-            // Lazy-initialize column standardizer dictionary on first batch
-            if (_columnStandardizer != null && !_columnStdInitialized)
-            {
-                await _columnStandardizer.InitializeAsync(ct);
-                _columnStdInitialized = true;
-            }
+            await ensureServicesInitializedAsync(ct);
 
-            // Lazy-initialize ML.NET correction service on first batch
-            if (_mlNetCorrectionService != null && !_mlNetInitialized)
-            {
-                await _mlNetCorrectionService.InitializeAsync(ct);
-                _mlNetInitialized = true;
-            }
-
-            // Helper to fire intra-batch progress reports
+            // Helper to fire intra-batch progress reports (captures rowProgress)
             void reportProgress(string operation, double pct, int processed, int total)
             {
                 rowProgress?.Report(new TransformBatchProgress
@@ -627,11 +615,94 @@ namespace MedRecProImportClass.Service.TransformationServices
             var tables = await _reconstructionService.ReconstructTablesAsync(filter, ct);
             result.ReconstructedTables = tables;
 
+            // Stage 3: Route + Parse (0% → 20%)
+            var (allObservations, tablesProcessed, tableCount) = routeAndParseTables(tables, result, reportProgress, ct);
+            result.PreCorrectionObservations = allObservations;
+
+            // Stage 3.25: Column standardization (deterministic, pre-AI)
+            reportProgress("Column standardization...", 21, tablesProcessed, tableCount);
+            allObservations = runColumnStandardization(allObservations);
+
+            // Stage 3.4: ML.NET correction and anomaly scoring
+            reportProgress("ML.NET scoring...", 23, tablesProcessed, tableCount);
+            allObservations = runMlCorrection(allObservations);
+
+            // Stage 3.5: Claude AI Correction (25% → 95%)
+            reportProgress("Claude AI correction...", 25, tablesProcessed, tableCount);
+            allObservations = await runClaudeCorrectionAsync(allObservations, tables, reportProgress, tablesProcessed, tableCount, result, ct);
+
+            // Stage 3.6: Post-processing extraction (catch units/N= values Claude corrected into extractable form)
+            reportProgress("Post-processing extraction...", 95.5, tablesProcessed, tableCount);
+            allObservations = runPostProcessExtraction(allObservations);
+
+            result.PostCorrectionObservations = allObservations;
+
+            // DB Write (96% → 100%)
+            reportProgress("Writing to database...", 96, tablesProcessed, tableCount);
+            await writeObservationsAsync(allObservations, result, ct);
+
+            reportProgress("Batch complete", 100, tablesProcessed, tableCount);
+
+            _logger.LogDebug("Batch with stages complete: {Count} observations from {Tables} tables",
+                result.ObservationsWritten, tables.Count);
+
+            return result;
+
+            #endregion
+        }
+
+        #region ProcessBatchWithStages — Extracted Sub-Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Lazy-initializes the column standardizer dictionary and ML.NET correction service
+        /// on the first batch. Safe to call multiple times — no-ops after first initialization.
+        /// </summary>
+        /// <param name="ct">Cancellation token.</param>
+        /// <seealso cref="ProcessBatchWithStagesAsync"/>
+        private async Task ensureServicesInitializedAsync(CancellationToken ct)
+        {
+            #region implementation
+
+            if (_columnStandardizer != null && !_columnStdInitialized)
+            {
+                await _columnStandardizer.InitializeAsync(ct);
+                _columnStdInitialized = true;
+            }
+
+            if (_mlNetCorrectionService != null && !_mlNetInitialized)
+            {
+                await _mlNetCorrectionService.InitializeAsync(ct);
+                _mlNetInitialized = true;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3: Routes each reconstructed table through the parser router and collects
+        /// parsed observations. Populates routing decisions and skip reasons on the result.
+        /// Progress maps to 0%–20% of intra-batch range.
+        /// </summary>
+        /// <param name="tables">Reconstructed tables from Stage 2.</param>
+        /// <param name="result">Batch result to populate with routing decisions and skip reasons.</param>
+        /// <param name="reportProgress">Progress callback.</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>Tuple of (observations, tablesProcessed, tableCount).</returns>
+        /// <seealso cref="ProcessBatchWithStagesAsync"/>
+        private (List<ParsedObservation> observations, int tablesProcessed, int tableCount) routeAndParseTables(
+            List<ReconstructedTable> tables,
+            BatchStageResult result,
+            Action<string, double, int, int> reportProgress,
+            CancellationToken ct)
+        {
+            #region implementation
+
             var allObservations = new List<ParsedObservation>();
             var tableCount = tables.Count;
             var tablesProcessed = 0;
 
-            // Stage 3: Route + Parse each table (0% → 20% of intra-batch progress)
             foreach (var table in tables)
             {
                 ct.ThrowIfCancellationRequested();
@@ -720,93 +791,185 @@ namespace MedRecProImportClass.Service.TransformationServices
                 reportProgress("Parsing tables...", pct, tablesProcessed, tableCount);
             }
 
-            result.PreCorrectionObservations = allObservations;
-
-            // Stage 3.25: Column standardization (deterministic, pre-AI)
-            reportProgress("Column standardization...", 21, tablesProcessed, tableCount);
-            if (_columnStandardizer != null && allObservations.Count > 0)
-            {
-                allObservations = _columnStandardizer.Standardize(allObservations);
-            }
-
-            // Stage 3.4: ML.NET correction and anomaly scoring
-            reportProgress("ML.NET scoring...", 23, tablesProcessed, tableCount);
-            if (_mlNetCorrectionService != null && allObservations.Count > 0)
-            {
-                allObservations = _mlNetCorrectionService.ScoreAndCorrect(allObservations);
-            }
-
-            // Stage 3.5: Claude AI Correction (25% → 95% — largest share, slowest stage)
-            reportProgress("Claude AI correction...", 25, tablesProcessed, tableCount);
-            if (_correctionService != null && allObservations.Count > 0)
-            {
-                // Forwarding progress: map correction service's 0–100 into orchestrator's 25–95 range
-                var claudeProgress = new Helpers.SynchronousProgress<TransformBatchProgress>(p =>
-                {
-                    var scaledPct = 25.0 + (p.IntraBatchPercent / 100.0) * 70.0;
-                    reportProgress(p.CurrentOperation ?? "Claude AI correction...", scaledPct, tablesProcessed, tableCount);
-                });
-
-                var preCorrectionFlags = allObservations
-                    .Select(o => o.ValidationFlags)
-                    .ToList();
-
-                // Build table lookup so each TextTableID group gets its original table context
-                var tableLookup = tables
-                    .Where(t => t.TextTableID.HasValue)
-                    .ToDictionary(t => t.TextTableID!.Value);
-
-                allObservations = await _correctionService.CorrectBatchAsync(allObservations, originalTables: tableLookup, progress: claudeProgress, ct: ct);
-
-                // Count corrections by checking ValidationFlags changes
-                result.CorrectionCount = allObservations
-                    .Select((o, i) => o.ValidationFlags != preCorrectionFlags[i] ? 1 : 0)
-                    .Sum();
-
-                // Stage 3.4 feedback: feed Claude corrections back to ML as ground truth
-                if (_mlNetCorrectionService != null)
-                {
-                    await _mlNetCorrectionService.FeedClaudeCorrectedBatchAsync(allObservations, ct);
-                }
-            }
-
-            result.PostCorrectionObservations = allObservations;
-
-            // DB Write
-            reportProgress("Writing to database...", 96, tablesProcessed, tableCount);
-            if (allObservations.Count > 0)
-            {
-                try
-                {
-                    var entities = allObservations.Select(mapToEntity).ToList();
-                    _dbContext.AddRange(entities);
-                    await _dbContext.SaveChangesAsync(ct);
-                    result.ObservationsWritten = entities.Count;
-                }
-                catch (OperationCanceledException)
-                {
-                    _dbContext.ChangeTracker.Clear();
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _dbContext.ChangeTracker.Clear();
-                    _logger.LogWarning(ex,
-                        "Failed to save batch — cleared {Count} tracked entities, batch skipped",
-                        allObservations.Count);
-                    result.ObservationsWritten = 0;
-                }
-            }
-
-            reportProgress("Batch complete", 100, tablesProcessed, tableCount);
-
-            _logger.LogDebug("Batch with stages complete: {Count} observations from {Tables} tables",
-                result.ObservationsWritten, tables.Count);
-
-            return result;
+            return (allObservations, tablesProcessed, tableCount);
 
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3.25: Runs deterministic column standardization on all observations.
+        /// No-ops if the column standardizer is null or there are no observations.
+        /// </summary>
+        /// <param name="observations">Observations to standardize.</param>
+        /// <returns>The standardized observations (same list, modified in-place).</returns>
+        /// <seealso cref="IColumnStandardizationService.Standardize"/>
+        private List<ParsedObservation> runColumnStandardization(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            if (_columnStandardizer != null && observations.Count > 0)
+            {
+                observations = _columnStandardizer.Standardize(observations);
+            }
+
+            return observations;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3.4: Runs ML.NET correction and anomaly scoring on all observations.
+        /// No-ops if the ML correction service is null or there are no observations.
+        /// </summary>
+        /// <param name="observations">Observations to score and correct.</param>
+        /// <returns>The corrected observations (same list, modified in-place).</returns>
+        /// <seealso cref="IMlNetCorrectionService.ScoreAndCorrect"/>
+        private List<ParsedObservation> runMlCorrection(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            if (_mlNetCorrectionService != null && observations.Count > 0)
+            {
+                observations = _mlNetCorrectionService.ScoreAndCorrect(observations);
+            }
+
+            return observations;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3.5: Runs Claude AI correction on all observations. Builds table lookup,
+        /// forwards progress (25%–95%), counts corrections, and feeds corrections back to ML.
+        /// No-ops if the correction service is null or there are no observations.
+        /// </summary>
+        /// <param name="observations">Observations to correct.</param>
+        /// <param name="tables">Reconstructed tables for context lookup.</param>
+        /// <param name="reportProgress">Progress callback.</param>
+        /// <param name="tablesProcessed">Number of tables processed so far.</param>
+        /// <param name="tableCount">Total number of tables in batch.</param>
+        /// <param name="result">Batch result to populate with correction count.</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>The corrected observations.</returns>
+        /// <seealso cref="IClaudeApiCorrectionService.CorrectBatchAsync"/>
+        private async Task<List<ParsedObservation>> runClaudeCorrectionAsync(
+            List<ParsedObservation> observations,
+            List<ReconstructedTable> tables,
+            Action<string, double, int, int> reportProgress,
+            int tablesProcessed,
+            int tableCount,
+            BatchStageResult result,
+            CancellationToken ct)
+        {
+            #region implementation
+
+            if (_correctionService == null || observations.Count == 0)
+                return observations;
+
+            // Forwarding progress: map correction service's 0–100 into orchestrator's 25–95 range
+            var claudeProgress = new Helpers.SynchronousProgress<TransformBatchProgress>(p =>
+            {
+                var scaledPct = 25.0 + (p.IntraBatchPercent / 100.0) * 70.0;
+                reportProgress(p.CurrentOperation ?? "Claude AI correction...", scaledPct, tablesProcessed, tableCount);
+            });
+
+            var preCorrectionFlags = observations
+                .Select(o => o.ValidationFlags)
+                .ToList();
+
+            // Build table lookup so each TextTableID group gets its original table context
+            var tableLookup = tables
+                .Where(t => t.TextTableID.HasValue)
+                .ToDictionary(t => t.TextTableID!.Value);
+
+            observations = await _correctionService.CorrectBatchAsync(observations, originalTables: tableLookup, progress: claudeProgress, ct: ct);
+
+            // Count corrections by checking ValidationFlags changes
+            result.CorrectionCount = observations
+                .Select((o, i) => o.ValidationFlags != preCorrectionFlags[i] ? 1 : 0)
+                .Sum();
+
+            // Stage 3.4 feedback: feed Claude corrections back to ML as ground truth
+            if (_mlNetCorrectionService != null)
+            {
+                await _mlNetCorrectionService.FeedClaudeCorrectedBatchAsync(observations, ct);
+            }
+
+            return observations;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Maps observations to entities and bulk-writes to the database via SaveChangesAsync.
+        /// Handles cancellation (re-throws) and general failures (clears tracker, logs warning).
+        /// </summary>
+        /// <param name="observations">Observations to persist.</param>
+        /// <param name="result">Batch result to populate with write count.</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <seealso cref="mapToEntity"/>
+        private async Task writeObservationsAsync(
+            List<ParsedObservation> observations,
+            BatchStageResult result,
+            CancellationToken ct)
+        {
+            #region implementation
+
+            if (observations.Count == 0)
+                return;
+
+            try
+            {
+                var entities = observations.Select(mapToEntity).ToList();
+                _dbContext.AddRange(entities);
+                await _dbContext.SaveChangesAsync(ct);
+                result.ObservationsWritten = entities.Count;
+            }
+            catch (OperationCanceledException)
+            {
+                _dbContext.ChangeTracker.Clear();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _dbContext.ChangeTracker.Clear();
+                _logger.LogWarning(ex,
+                    "Failed to save batch — cleared {Count} tracked entities, batch skipped",
+                    observations.Count);
+                result.ObservationsWritten = 0;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3.6: Runs post-processing extraction to catch units and N-values that
+        /// Claude may have corrected into extractable form. No-ops if the column standardizer
+        /// is null or there are no observations.
+        /// </summary>
+        /// <param name="observations">Observations after all correction stages.</param>
+        /// <returns>The post-processed observations.</returns>
+        /// <seealso cref="IColumnStandardizationService.PostProcessExtraction"/>
+        private List<ParsedObservation> runPostProcessExtraction(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            if (_columnStandardizer != null && observations.Count > 0)
+            {
+                observations = _columnStandardizer.PostProcessExtraction(observations);
+            }
+
+            return observations;
+
+            #endregion
+        }
+
+        #endregion ProcessBatchWithStages — Extracted Sub-Methods
 
         #endregion ITableParsingOrchestrator Implementation
 
