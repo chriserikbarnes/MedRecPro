@@ -85,7 +85,47 @@ namespace MedRecProImportClass.Models
 
         #endregion Stage 3 features + label
 
-        #region Stage 4 anomaly features (6-slot PCA vector)
+        #region Stage 4 context features
+
+        /**************************************************************/
+        /// <summary>
+        /// MedDRA System Organ Class grouping (e.g., "Gastrointestinal Disorders").
+        /// Used for anomaly sub-partitioning within TableCategory — tighter PCA clusters
+        /// per SOC yield more sensitive anomaly detection for ADVERSE_EVENT tables.
+        /// </summary>
+        /// <remarks>
+        /// Frequently NULL for non-ADVERSE_EVENT table types. Null-safe handling at
+        /// featurization time emits an empty string for text featurization.
+        /// </remarks>
+        public string? ParameterCategory { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Treatment group label (e.g., "Placebo", "Paroxetine", "High Dose").
+        /// Strong contextual signal — the same ParameterName has different expected value
+        /// distributions per arm (active drug vs placebo).
+        /// </summary>
+        /// <remarks>
+        /// High cardinality across drugs; text featurization handles this naturally.
+        /// NULL for comparison/summary rows.
+        /// </remarks>
+        public string? TreatmentArm { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Sample size per treatment arm, log-transformed for PCA input.
+        /// Stored as <c>log(ArmN + 1)</c> to compress the range (N spans 5 to 8500+)
+        /// and handle NULL (0f sentinel when source is null).
+        /// </summary>
+        /// <remarks>
+        /// Critical denominator context: a 5% incidence rate at N=70 has very different
+        /// expected variance than at N=8000. Without this, PCA treats both identically.
+        /// </remarks>
+        public float LogArmN { get; set; }
+
+        #endregion Stage 4 context features
+
+        #region Stage 4 anomaly features (PCA vector)
 
         /**************************************************************/
         /// <summary>Primary numeric value (cast from double? to float).</summary>
@@ -160,6 +200,11 @@ namespace MedRecProImportClass.Models
                 DoseRegimen = obs.DoseRegimen,
                 ParameterName = obs.ParameterName,
                 ValidationFlags = obs.ValidationFlags,
+
+                // Stage 4 context features
+                ParameterCategory = obs.ParameterCategory,
+                TreatmentArm = obs.TreatmentArm,
+                LogArmN = obs.ArmN.HasValue ? (float)Math.Log(obs.ArmN.Value + 1) : 0f,
 
                 // Stage 3 features
                 Unit = obs.Unit,

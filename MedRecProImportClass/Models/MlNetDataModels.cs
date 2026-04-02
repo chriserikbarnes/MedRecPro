@@ -189,18 +189,18 @@ namespace MedRecProImportClass.Models
 
     /**************************************************************/
     /// <summary>
-    /// Stage 4 input: 6-slot numeric feature vector for PCA anomaly detection.
-    /// Slots: [PrimaryValue, SecondaryValue, LowerBound, UpperBound, PValue, ParseConfidence].
-    /// Nulls are mapped to 0.
+    /// Stage 4 input: 7-slot numeric feature vector for PCA anomaly detection.
+    /// Slots: [PrimaryValue, SecondaryValue, LowerBound, UpperBound, PValue, ParseConfidence, LogArmN].
+    /// Nulls are mapped to 0. LogArmN is log(ArmN + 1) to compress the 5–8500+ range.
     /// </summary>
     /// <seealso cref="AnomalyPrediction"/>
     internal class AnomalyInput
     {
         /**************************************************************/
-        /// <summary>6-slot feature vector for anomaly scoring.</summary>
-        [VectorType(6)]
+        /// <summary>7-slot feature vector for anomaly scoring.</summary>
+        [VectorType(7)]
         [ColumnName("Features")]
-        public float[] Features { get; set; } = new float[6];
+        public float[] Features { get; set; } = new float[7];
     }
 
     /**************************************************************/

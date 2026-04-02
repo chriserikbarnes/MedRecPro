@@ -493,7 +493,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                         MlTrainingRecord.toSafeFloat(obs.LowerBound),
                         MlTrainingRecord.toSafeFloat(obs.UpperBound),
                         MlTrainingRecord.toSafeFloat(obs.PValue),
-                        MlTrainingRecord.toSafeFloat(obs.ParseConfidence)
+                        MlTrainingRecord.toSafeFloat(obs.ParseConfidence),
+                        obs.ArmN.HasValue ? (float)Math.Log(obs.ArmN.Value + 1) : 0f
                     }
                 };
 
@@ -802,7 +803,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                                     !float.IsNaN(r.LowerBound) &&
                                     !float.IsNaN(r.UpperBound) &&
                                     !float.IsNaN(r.PValue) &&
-                                    !float.IsNaN(r.ParseConfidence))
+                                    !float.IsNaN(r.ParseConfidence) &&
+                                    !float.IsNaN(r.LogArmN))
                         .Select(r => new AnomalyInput
                         {
                             Features = new float[]
@@ -812,7 +814,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                                 r.LowerBound,
                                 r.UpperBound,
                                 r.PValue,
-                                r.ParseConfidence
+                                r.ParseConfidence,
+                                r.LogArmN
                             }
                         })
                         .ToList();
@@ -837,8 +840,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     // NormalizeMeanVariance divides by stddev — zero variance → 0/0 → NaN,
                     // which corrupts PCA eigenvectors. Jitter breaks the zero-variance
                     // without meaningfully affecting the model (magnitude ~1e-6).
-                    // AnomalyInput.Features is [VectorType(6)] so all 6 slots must be kept.
-                    var constantIndices = Enumerable.Range(0, 6)
+                    // AnomalyInput.Features is [VectorType(7)] so all 7 slots must be kept.
+                    var constantIndices = Enumerable.Range(0, 7)
                         .Where(i => !activeIndices.Contains(i))
                         .ToArray();
 

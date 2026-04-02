@@ -1575,3 +1575,21 @@ Resolved persistent `ArgumentOutOfRangeException: The learnt eigenvectors contai
 **Files modified:** `MlNetCorrectionService.cs`. Build: 0 errors.
 
 ---
+
+### 2026-04-02 3:37 PM EST — Add ParameterCategory, TreatmentArm, and ArmN to ML Training Model
+
+Evaluated 6 database fields (`ParameterCategory`, `ParameterSubtype`, `TreatmentArm`, `ArmN`, `StudyContext`, `DoseRegimen`) for inclusion in the ML.NET 4-stage correction pipeline. Analysis of data distributions and pipeline architecture led to adding 3 fields and skipping 3:
+
+**Added:**
+- **ParameterCategory** (string?) — MedDRA SOC grouping stored in `MlTrainingRecord` for future ADVERSE_EVENT sub-partitioning
+- **TreatmentArm** (string?) — treatment group label stored for future use (same ParameterName has different expected distributions per arm)
+- **LogArmN** (float) — `log(ArmN + 1)` added as 7th slot in the PCA anomaly detection vector. Sample size is critical denominator context: a 5% rate at N=70 vs N=8000 has very different expected variance
+
+**Skipped:**
+- `ParameterSubtype` — circular dependency (Stage 2 predicts it as output, can't also train on it); almost 100% NULL at ML scoring time
+- `StudyContext` — 100% NULL across all sample data, zero training signal
+- `DoseRegimen` — already in the model as Stage 2 input
+
+**Files modified:** `MlTrainingRecord.cs` (3 new properties + `FromObservation()` update), `MlNetDataModels.cs` (`AnomalyInput` expanded from 6-slot to 7-slot vector), `MlNetCorrectionService.cs` (training, scoring, and jitter logic updated for 7th PCA slot). Build: 0 new errors (1 pre-existing error in `ClaudeApiCorrectionService.cs`).
+
+---
