@@ -3372,6 +3372,207 @@ namespace MedRecProTest
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// PostProcessExtraction corrects PrimaryValueType from "Count" to "Percentage"
+        /// when TreatmentArm contains a "%" indicator and value is &lt;= 100.
+        /// </summary>
+        [TestMethod]
+        public async Task PostProcess_CorrectsCountToPercentage_WhenTreatmentArmHasPercentHint()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("% Any Dose", category: "ADVERSE_EVENT");
+            obs.PrimaryValueType = "Count";
+            obs.PrimaryValue = 2.5;
+            obs.SecondaryValueType = null;
+
+            var result = service.PostProcessExtraction(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType,
+                "Expected PrimaryValueType corrected from Count to Percentage");
+            assertHasFlag(result[0], "COL_STD:POST_PCT_TYPE_CORRECTED:TreatmentArm");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PostProcessExtraction corrects PrimaryValueType from "Count" to "Percentage"
+        /// when ParameterName contains "incidence".
+        /// </summary>
+        [TestMethod]
+        public async Task PostProcess_CorrectsCountToPercentage_WhenParameterNameHasIncidence()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "ADVERSE_EVENT");
+            obs.ParameterName = "Incidence of Nausea";
+            obs.PrimaryValueType = "Count";
+            obs.PrimaryValue = 24.4;
+            obs.SecondaryValueType = null;
+
+            var result = service.PostProcessExtraction(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType,
+                "Expected PrimaryValueType corrected from Count to Percentage");
+            assertHasFlag(result[0], "COL_STD:POST_PCT_TYPE_CORRECTED:ParameterName");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PostProcessExtraction does NOT correct when SecondaryValueType is already set,
+        /// indicating the parser already resolved the type pairing.
+        /// </summary>
+        [TestMethod]
+        public async Task PostProcess_NoCorrection_WhenSecondaryValueTypePresent()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("% Placebo", category: "ADVERSE_EVENT");
+            obs.PrimaryValueType = "Count";
+            obs.PrimaryValue = 15.0;
+            obs.SecondaryValueType = "Count";
+
+            var result = service.PostProcessExtraction(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Count", result[0].PrimaryValueType,
+                "Expected PrimaryValueType to remain Count when SecondaryValueType is set");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PostProcessExtraction does NOT correct when PrimaryValue exceeds 100.
+        /// </summary>
+        [TestMethod]
+        public async Task PostProcess_NoCorrection_WhenPrimaryValueOver100()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("% Any Dose", category: "ADVERSE_EVENT");
+            obs.PrimaryValueType = "Count";
+            obs.PrimaryValue = 150.0;
+            obs.SecondaryValueType = null;
+
+            var result = service.PostProcessExtraction(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Count", result[0].PrimaryValueType,
+                "Expected PrimaryValueType to remain Count when value > 100");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PostProcessExtraction does NOT correct when PrimaryValueType is not "Count".
+        /// </summary>
+        [TestMethod]
+        public async Task PostProcess_NoCorrection_WhenPrimaryValueTypeIsNotCount()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("% Placebo", category: "ADVERSE_EVENT");
+            obs.PrimaryValueType = "Mean";
+            obs.PrimaryValue = 50.0;
+            obs.SecondaryValueType = null;
+
+            var result = service.PostProcessExtraction(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Mean", result[0].PrimaryValueType,
+                "Expected PrimaryValueType to remain Mean");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PostProcessExtraction corrects PrimaryValueType when ParameterCategory
+        /// contains "PROPORTION" (case-insensitive match).
+        /// </summary>
+        [TestMethod]
+        public async Task PostProcess_CorrectsCountToPercentage_CaseInsensitiveKeyword()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "ADVERSE_EVENT");
+            obs.ParameterCategory = "PROPORTION of patients";
+            obs.PrimaryValueType = "Count";
+            obs.PrimaryValue = 88.0;
+            obs.SecondaryValueType = null;
+
+            var result = service.PostProcessExtraction(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType,
+                "Expected PrimaryValueType corrected from Count to Percentage");
+            assertHasFlag(result[0], "COL_STD:POST_PCT_TYPE_CORRECTED:ParameterCategory");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PostProcessExtraction corrects PrimaryValueType when ParameterSubtype
+        /// contains "rate of" (two-word keyword match).
+        /// </summary>
+        [TestMethod]
+        public async Task PostProcess_CorrectsCountToPercentage_RateOfKeyword()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "ADVERSE_EVENT");
+            obs.ParameterSubtype = "Rate of occurrence";
+            obs.PrimaryValueType = "Count";
+            obs.PrimaryValue = 5.0;
+            obs.SecondaryValueType = null;
+
+            var result = service.PostProcessExtraction(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType,
+                "Expected PrimaryValueType corrected from Count to Percentage");
+            assertHasFlag(result[0], "COL_STD:POST_PCT_TYPE_CORRECTED:ParameterSubtype");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
         #endregion Issue 3: Post-Processing Stage 3.6
 
         #region Issue 4: Confidence Provenance

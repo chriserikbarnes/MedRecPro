@@ -709,6 +709,17 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^All\s+(.+)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        /**************************************************************/
+        /// <summary>
+        /// Detects percentage-related keywords in free-text columns (TreatmentArm,
+        /// ParameterName, ParameterCategory, ParameterSubtype).
+        /// Matches: "%", "percent", "proportion", "incidence", "rate of", "frequency".
+        /// </summary>
+        /// <seealso cref="correctCountToPercentageType"/>
+        private static readonly Regex _percentageHintPattern = new(
+            @"%|percent|proportion|incidence|rate\s+of|frequency",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         #endregion Compiled Regex Patterns
 
         #region Content Classification
@@ -962,6 +973,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                                 : updatedPart;
                         }
                     }
+                    extractionCount++;
+                }
+
+                // Correct Count → Percentage when contextual fields contain percentage keywords
+                if (correctCountToPercentageType(obs))
+                {
                     extractionCount++;
                 }
             }
@@ -2699,6 +2716,78 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var hint = flags[start..end].Trim();
             return string.IsNullOrEmpty(hint) ? null : hint;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects when PrimaryValueType is "Count" but contextual fields
+        /// (ParameterName, ParameterCategory, ParameterSubtype, TreatmentArm)
+        /// contain percentage-related keywords, suggesting the value is actually
+        /// a percentage. Flips PrimaryValueType to "Percentage" when conditions are met.
+        /// </summary>
+        /// <remarks>
+        /// Guards:
+        /// <list type="bullet">
+        ///   <item>PrimaryValueType must be "Count" (case-insensitive)</item>
+        ///   <item>SecondaryValueType must be null/empty (presence of a secondary type
+        ///         means the parser already resolved the type pairing)</item>
+        ///   <item>PrimaryValue must be &lt;= 100 (values over 100 cannot be percentages)</item>
+        ///   <item>At least one of the four scanned fields must contain a percentage keyword</item>
+        /// </list>
+        /// </remarks>
+        /// <param name="obs">The observation to inspect and potentially correct.</param>
+        /// <returns>True if a correction was applied.</returns>
+        /// <seealso cref="PostProcessExtraction"/>
+        /// <seealso cref="_percentageHintPattern"/>
+        private static bool correctCountToPercentageType(ParsedObservation obs)
+        {
+            #region implementation
+
+            // Guard: only applies when PrimaryValueType is "Count"
+            if (!string.Equals(obs.PrimaryValueType, "Count", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Guard: if SecondaryValueType is set, the parser already resolved the type pairing
+            if (!string.IsNullOrWhiteSpace(obs.SecondaryValueType))
+                return false;
+
+            // Guard: PrimaryValue must exist and be <= 100
+            if (!obs.PrimaryValue.HasValue || obs.PrimaryValue.Value > 100.0)
+                return false;
+
+            // Scan contextual fields for percentage hints (short-circuit on first match)
+            string? matchedField = null;
+
+            if (!string.IsNullOrWhiteSpace(obs.TreatmentArm) &&
+                _percentageHintPattern.IsMatch(obs.TreatmentArm))
+            {
+                matchedField = "TreatmentArm";
+            }
+            else if (!string.IsNullOrWhiteSpace(obs.ParameterName) &&
+                     _percentageHintPattern.IsMatch(obs.ParameterName))
+            {
+                matchedField = "ParameterName";
+            }
+            else if (!string.IsNullOrWhiteSpace(obs.ParameterCategory) &&
+                     _percentageHintPattern.IsMatch(obs.ParameterCategory))
+            {
+                matchedField = "ParameterCategory";
+            }
+            else if (!string.IsNullOrWhiteSpace(obs.ParameterSubtype) &&
+                     _percentageHintPattern.IsMatch(obs.ParameterSubtype))
+            {
+                matchedField = "ParameterSubtype";
+            }
+
+            if (matchedField == null)
+                return false;
+
+            // Apply correction
+            obs.PrimaryValueType = "Percentage";
+            appendFlag(obs, $"COL_STD:POST_PCT_TYPE_CORRECTED:{matchedField}");
+            return true;
 
             #endregion
         }

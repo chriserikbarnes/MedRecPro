@@ -1593,3 +1593,11 @@ Evaluated 6 database fields (`ParameterCategory`, `ParameterSubtype`, `Treatment
 **Files modified:** `MlTrainingRecord.cs` (3 new properties + `FromObservation()` update), `MlNetDataModels.cs` (`AnomalyInput` expanded from 6-slot to 7-slot vector), `MlNetCorrectionService.cs` (training, scoring, and jitter logic updated for 7th PCA slot). Build: 0 new errors (1 pre-existing error in `ClaudeApiCorrectionService.cs`).
 
 ---
+
+### 2026-04-02 4:15 PM EST — PostProcess: Correct Count → Percentage PrimaryValueType
+
+Added a post-processing correction to `PostProcessExtraction` in `ColumnStandardizationService.cs` that detects when `PrimaryValueType` is incorrectly set to `"Count"` when contextual fields (TreatmentArm, ParameterName, ParameterCategory, ParameterSubtype) contain percentage indicators (`%`, `percent`, `proportion`, `incidence`, `rate of`, `frequency`). The correction flips `PrimaryValueType` to `"Percentage"` when: the type is `"Count"`, no `SecondaryValueType` is set (meaning the parser didn't already resolve the pairing), and `PrimaryValue` is <= 100. A validation flag `COL_STD:POST_PCT_TYPE_CORRECTED:{FieldName}` identifies which field triggered the correction. Added 7 new unit tests covering happy paths and guard conditions. All 9 PostProcess tests pass; 6 pre-existing failures in Rule10/Phase3 (Proportion vs Percentage) are unrelated.
+
+**Files modified:** `ColumnStandardizationService.cs` (new `_percentageHintPattern` regex, `correctCountToPercentageType()` helper, wired into `PostProcessExtraction`), `ColumnStandardizationServiceTests.cs` (7 new test methods).
+
+---
