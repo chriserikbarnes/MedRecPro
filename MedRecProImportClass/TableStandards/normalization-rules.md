@@ -83,7 +83,7 @@ OLD VALUE                →  NEW VALUE               CONDITION
                                                        or TableCategory = AdverseEvent
                                                        or DEFAULT
 "Median"                 →  Median                    Direct
-"Percentage"             →  Proportion                Direct (Unit should be "%")
+"Percentage"             →  Percentage                Direct (Unit should be "%")
 "Count"                  →  Count                     Direct
 "MeanPercentChange"      →  PercentChange             Direct
 "RelativeRiskReduction"  →  HazardRatio               IF Caption has "hazard"
@@ -103,7 +103,7 @@ with context in this priority order:
 ```
 CONDITION                                              ASSIGN
 ──────────────────────────────────────────────────     ──────────────────
-TableCategory = AdverseEvent AND Unit = "%"            Proportion
+TableCategory = AdverseEvent AND Unit = "%"            Percentage
 TableCategory = AdverseEvent AND Unit NULL AND int     Count
 TableCategory = PK                                     ArithmeticMean (unless caption has "geometric")
 TableCategory = DrugInteraction                        ArithmeticMeanRatio (unless caption has "geometric")
@@ -289,8 +289,8 @@ PRI  TEST                                                 ACTION
 ```
 FLAG                        TRIGGER
 ──────────────────────────  ──────────────────────────────────────────
-PCT_CHECK:PASS              Proportion value in [0,100] — OK
-PCT_CHECK:WARN:{value}      Possible proportion (0–1) not converted
+PCT_CHECK:PASS              Percentage value in [0,100] — OK
+PCT_CHECK:WARN:{value}      Possible percentage (0–1) not converted
 CAPTION_HINT:{text}         Caption influenced PrimaryValueType
 CAPTION_REINTERPRET:{rule}  ParseRule overridden by caption context
 UNIT_HEADER_LEAK            Unit was a leaked column header → cleaned

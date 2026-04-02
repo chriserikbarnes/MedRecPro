@@ -135,7 +135,7 @@ pct_meddra_pt_match              float   % ParameterNames in MedDRA dict
 pct_pk_param_match               float   % ParameterNames in PK dict
 pct_dosing_keyword               float   % ParameterNames with dose keywords
 pct_drug_name_match              float   % ParameterNames in drug dict
-pct_pvt_proportion               float   % PrimaryValueType = Proportion
+pct_pvt_percentage               float   % PrimaryValueType = Percentage
 pct_pvt_text                     float   % PrimaryValueType = Text
 pct_pvt_mean_types               float   % PrimaryValueType ∈ {AM, GM, GMR}
 pct_pvt_risk_types               float   % PrimaryValueType ∈ {HR, OR, RR, RD}

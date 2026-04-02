@@ -512,7 +512,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <param name="moietyEl">The moiety XElement containing quantity data.</param>
         /// <returns>A tuple containing parsed quantity information or null if not found.</returns>
         /// <remarks>
-        /// Quantity information defines mixture ratios and proportions for chemical components.
+        /// Quantity information defines mixture ratios and percentages for chemical components.
         /// Handles complex structures including range specifications with inclusive/exclusive boundaries.
         /// </remarks>
         /// <example>

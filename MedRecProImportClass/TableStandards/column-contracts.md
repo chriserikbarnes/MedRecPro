@@ -86,7 +86,7 @@ Tables reporting incidence/frequency of adverse events across treatment arms.
 | Timepoint           | N   | NULL — AE tables are cumulative        |                                    |
 | Time / TimeUnit     | N   | NULL                                    |                                    |
 | PrimaryValue       | R   | Incidence (%) or integer count         |                                    |
-| PrimaryValueType   | R   | How the value was reported             | `Proportion`, `Count`              |
+| PrimaryValueType   | R   | How the value was reported             | `Percentage`, `Count`              |
 | SecondaryValue     | O   | Count (from n_pct: n=count, %=PV)     |                                    |
 | SecondaryValueType | O   | What SecondaryValue is                 | `Count`                            |
 | LowerBound/Upper   | O   | CI for incidence difference (rare)     |                                    |
@@ -179,13 +179,13 @@ Tables reporting comparative efficacy outcomes with risk measures and CIs.
 | Time                | O   | Numeric timepoint                      | 24.0                               |
 | TimeUnit            | O   | Unit for Time                          | weeks, months, years               |
 | PrimaryValue       | R   | Risk measure or rate                   |                                    |
-| PrimaryValueType   | R   | What kind of measure                   | `HazardRatio`, `OddsRatio`, `RelativeRisk`, `RiskDifference`, `Proportion`, `Median` |
+| PrimaryValueType   | R   | What kind of measure                   | `HazardRatio`, `OddsRatio`, `RelativeRisk`, `RiskDifference`, `Percentage`, `Median` |
 | SecondaryValue     | N   | NULL (efficacy reports CI, not SD)     |                                    |
 | SecondaryValueType | N   | NULL                                    |                                    |
 | LowerBound/Upper   | E   | 95% CI bounds                          |                                    |
 | BoundType          | E   | CI level                               | `95CI`                             |
 | PValue             | O   | Significance for comparison            |                                    |
-| Unit               | O   | `%` for proportions; NULL for ratios   |                                    |
+| Unit               | O   | `%` for percentages; NULL for ratios   |                                    |
 
 **Comparison key:** `ParameterName + TreatmentArm + PrimaryValueType`
 
@@ -317,7 +317,7 @@ TissueDistribution · Demographic · Laboratory · TextDescriptive · Unclassifi
 
 ```
 ArithmeticMean · GeometricMean · GeometricMeanRatio · Median ·
-Proportion · Count · PercentChange · HazardRatio · OddsRatio ·
+Percentage · Count · PercentChange · HazardRatio · OddsRatio ·
 RelativeRisk · RiskDifference · LSMean · Numeric · Text · PValue
 ```
 

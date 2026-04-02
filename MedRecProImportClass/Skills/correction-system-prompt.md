@@ -22,14 +22,14 @@ You review parsed pharmaceutical SPL label table observations for CLEAR errors o
 AdverseEvent | PK | DrugInteraction | Efficacy | Dosing | BMD | TissueDistribution | Demographic | Laboratory | TextDescriptive | Unclassified
 
 ## PrimaryValueType — valid values (15)
-ArithmeticMean | GeometricMean | GeometricMeanRatio | LSMean | Median | Proportion | Count | PercentChange | HazardRatio | OddsRatio | RelativeRisk | RiskDifference | PValue | Text | Numeric
+ArithmeticMean | GeometricMean | GeometricMeanRatio | LSMean | Median | Percentage | Count | PercentChange | HazardRatio | OddsRatio | RelativeRisk | RiskDifference | PValue | Text | Numeric
 
 Migrations (correct these old values):
 - "Mean" → ArithmeticMean (default for ALL categories). Only use GeometricMean when caption/header/footer explicitly says "geometric"
-- "Percentage" → Proportion (Unit should be "%")
+- "Percentage" → Percentage (Unit should be "%")
 - "MeanPercentChange" → PercentChange
 - "RelativeRiskReduction" → HazardRatio (caption has "hazard"), OddsRatio (caption has "odds"), else RelativeRisk
-- "Numeric" (AdverseEvent, Unit="%") → Proportion
+- "Numeric" (AdverseEvent, Unit="%") → Percentage
 - "Numeric" (AdverseEvent, Unit null, value is integer) → Count
 - "Numeric" (PK) → ArithmeticMean (unless caption has "geometric")
 - "Numeric" (DrugInteraction, no bounds) → ArithmeticMean (unless caption has "geometric")

@@ -351,7 +351,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         private static readonly Dictionary<string, string> _pvtDirectMap = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["Percentage"] = "Proportion",
+            ["Percentage"] = "Percentage",
             ["MeanPercentChange"] = "PercentChange",
             ["RiskDifference"] = "RiskDifference",
             ["Median"] = "Median",
@@ -2436,11 +2436,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             var unit = obs.Unit ?? "";
             var caption = obs.Caption ?? "";
 
-            // AE: % → Proportion, null + integer → Count
+            // AE: % → Percentage, null + integer → Count
             if (string.Equals(category, "ADVERSE_EVENT", StringComparison.OrdinalIgnoreCase))
             {
                 if (string.Equals(unit, "%", StringComparison.OrdinalIgnoreCase))
-                    return "Proportion";
+                    return "Percentage";
                 if (string.IsNullOrEmpty(unit) && obs.PrimaryValue.HasValue &&
                     obs.PrimaryValue.Value == Math.Floor(obs.PrimaryValue.Value))
                     return "Count";

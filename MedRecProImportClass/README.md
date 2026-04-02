@@ -348,7 +348,7 @@ Tables landing in Unclassified (~28%) are candidates for Tier 2 ML.NET classific
 | 7 | StudyContext contains arm with embedded N= | Split drug -> TreatmentArm, N -> ArmN |
 | 8 | StudyContext contains drug name, TreatmentArm does not | Swap |
 | 9 | StudyContext is descriptor hint (`Incidence`, `Reaction`) | Clear StudyContext |
-| 10 | TreatmentArm has trailing `%` | Strip format hint, promote Numeric -> Proportion |
+| 10 | TreatmentArm has trailing `%` | Strip format hint, promote Numeric -> Percentage |
 
 N-value patterns support comma-formatted numbers (e.g., `(n = 8,506)` -> ArmN=8506).
 
@@ -377,13 +377,13 @@ Maps old PrimaryValueType strings to a tightened 15-value enum using TableCatego
 | `Mean` | `ArithmeticMean` | Default for ALL categories (unless caption explicitly says "geometric" or "LS mean") |
 | `Mean` | `GeometricMean` | Only when caption/header/footer explicitly contains "geometric" |
 | `Mean` | `LSMean` | Caption says "LS mean" or "least square" |
-| `Percentage` | `Proportion` | Direct rename (all categories) |
+| `Percentage` | `Percentage` | Direct rename (all categories) |
 | `MeanPercentChange` | `PercentChange` | Direct rename |
 | `RelativeRiskReduction` | `HazardRatio` | Caption contains "hazard" |
 | `RelativeRiskReduction` | `OddsRatio` | Caption contains "odds" |
 | `RelativeRiskReduction` | `RelativeRisk` | Default |
 | `Ratio` | `GeometricMeanRatio` | DDI category |
-| `Numeric` | context-resolved | AE+% -> Proportion, AE+int -> Count, PK -> ArithmeticMean, DDI -> GeometricMeanRatio, BMD -> PercentChange, Efficacy+bounds -> HazardRatio |
+| `Numeric` | context-resolved | AE+% -> Percentage, AE+int -> Count, PK -> ArithmeticMean, DDI -> GeometricMeanRatio, BMD -> PercentChange, Efficacy+bounds -> HazardRatio |
 
 #### Phase 4: Column Contract Enforcement (ALL categories)
 
@@ -472,7 +472,7 @@ Each observation context column has a strict, context-dependent definition locke
 | DoseRegimen | O | E | E | O | E | O | E |
 | Population | O | O | O | O | E | O | O |
 | Timepoint | N | O | N | O | O | E | E |
-| PrimaryValueType | R: Proportion/Count | R: AM/GM/Median | R: GMR | R: HR/OR/RR/Proportion | O: Numeric | R: PercentChange/AM | R: AM/GM |
+| PrimaryValueType | R: Percentage/Count | R: AM/GM/Median | R: GMR | R: HR/OR/RR/Percentage | O: Numeric | R: PercentChange/AM | R: AM/GM |
 | Unit | E: % | R: conc/time/vol | O: ratio | O: % | O: mg/kg | E: %/g/cm2 | R: conc |
 | Default BoundType | 95CI | 90CI | 90CI | 95CI | -- | 95CI | -- |
 
@@ -504,7 +504,7 @@ Each observation context column has a strict, context-dependent definition locke
 
 ```
 ArithmeticMean - GeometricMean - GeometricMeanRatio - Median -
-Proportion - Count - PercentChange - HazardRatio - OddsRatio -
+Percentage - Count - PercentChange - HazardRatio - OddsRatio -
 RelativeRisk - RiskDifference - LSMean - Numeric - Text - PValue
 ```
 
@@ -561,7 +561,7 @@ These flags are set by `ColumnStandardizationService` during the 4-phase determi
 | `COL_STD:CTX_WAS_ARM_N` | StudyContext contained a drug name with embedded N= (e.g., "Placebo (N=300) n(%)"). Split: drug -> TreatmentArm, N -> ArmN, format hint discarded. |
 | `COL_STD:SWAP_ARM_CTX` | TreatmentArm and StudyContext were swapped because StudyContext contained a drug name and TreatmentArm did not. |
 | `COL_STD:CTX_WAS_DESC` | StudyContext was a descriptor hint (e.g., "Incidence", "Reaction", "% of Patients"). Cleared. |
-| `COL_STD:ARM_STRIP_PCT` | Trailing `%` or `n(%)` format hint stripped from TreatmentArm. PrimaryValueType promoted to Proportion if it was "Numeric". |
+| `COL_STD:ARM_STRIP_PCT` | Trailing `%` or `n(%)` format hint stripped from TreatmentArm. PrimaryValueType promoted to Percentage if it was "Numeric". |
 | `COL_STD:ARM_BRACKET_N` | TreatmentArm contained a bracketed or embedded N= value (e.g., "Placebo [N=459]", "Drug N=339"). Extracted N -> ArmN, cleaned TreatmentArm. |
 
 #### Phase 2: Content Normalization
@@ -591,7 +591,7 @@ These flags are set by `ColumnStandardizationService` during the 4-phase determi
 
 | Flag | Meaning |
 |------|---------|
-| `COL_STD:PVT_MIGRATED:{old}->{new}` | PrimaryValueType was migrated from an old enum value to a new canonical value (e.g., `Mean->ArithmeticMean`, `Percentage->Proportion`). |
+| `COL_STD:PVT_MIGRATED:{old}->{new}` | PrimaryValueType was migrated from an old enum value to a new canonical value (e.g., `Mean->ArithmeticMean`, `Percentage->Percentage`). |
 | `COL_STD:PVT_UNRESOLVED` | PrimaryValueType was "Numeric" but could not be resolved to a more specific type based on category, unit, and value context. Left as "Numeric". |
 
 #### Phase 4: Column Contract Enforcement

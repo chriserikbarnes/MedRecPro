@@ -103,7 +103,7 @@ The old enum has 10 values that conflate three concepts. The tightened enum has
 ```
 OLD → NEW MAPPING (key changes)
 "Mean"                    → ArithmeticMean / GeometricMean / GeometricMeanRatio
-"Percentage"              → Proportion  (Unit carries the "%" format)
+"Percentage"              → Percentage  (Unit carries the "%" format)
 "RelativeRiskReduction"   → HazardRatio / OddsRatio / RelativeRisk
 "MeanPercentChange"       → PercentChange
 "Numeric"                 → [context-resolved or left as Numeric + flag]
