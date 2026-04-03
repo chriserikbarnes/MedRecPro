@@ -47,11 +47,12 @@ SELECT  [ParameterName]
 	,[ParseConfidence]
 	,[DocumentGUID]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-where TextTableID = 184
+where TextTableID = 86
 
 
 SELECT  *
 FROM [dbo].[tmp_FlattenedStandardizedTable]
+where TextTableID = 86
 
 
 SELECT [ValidationFlags]
