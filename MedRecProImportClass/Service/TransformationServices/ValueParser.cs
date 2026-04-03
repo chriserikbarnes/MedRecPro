@@ -74,6 +74,14 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^(-?[\d.]+)\s*(?:±|\+/?-)\s*(-?[\d.]+)$",
             RegexOptions.Compiled);
 
+        // Pattern 6d: Value (±X) (n=N) — 0.80 (±0.36) (n=129) or 24.5 (±9.5)
+        // Parenthesized ± format with optional trailing sample size.
+        // ± (U+00B1), +/-, +- all supported, matching Pattern 6c convention.
+        // SecondaryValueType intentionally null — resolved downstream from caption/header/footnote context.
+        private static readonly Regex _valuePlusMinusSamplePattern = new(
+            @"^(-?[\d.]+)\s*\(\s*(?:±|\+/?-)\s*(-?[\d.]+)\s*\)\s*(?:\(\s*[Nn]\s*=\s*(\d+)\s*\))?$",
+            RegexOptions.Compiled);
+
         // Pattern 7: Value(CV%) — 0.29 (35%) or 125(32%)
         private static readonly Regex _valueCvPattern = new(
             @"^([\d.]+)\s*\((\d+)\s*%\s*\)\s*(.*)$",
@@ -197,6 +205,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Pattern 6c: Value ± tolerance — 1.1 ± 0.5 or 71 +/- 40
             if (tryParseValuePlusMinus(text, out var pmResult))
                 return pmResult;
+
+            // Pattern 6d: Value (±X) (n=N) — 0.80 (±0.36) (n=129)
+            if (tryParseValuePlusMinusSample(text, out var pmSampleResult))
+                return pmSampleResult;
 
             // Pattern 7: Value(CV%) — 0.29 (35%)
             if (tryParseValueCV(text, out var cvResult))
@@ -642,6 +654,62 @@ namespace MedRecProImportClass.Service.TransformationServices
                 BoundType = "SD",
                 ParseConfidence = 0.95,
                 ParseRule = "value_plusminus"
+            };
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses parenthesized value ± tolerance with optional sample size:
+        /// 0.80 (±0.36) (n=129), 24.5 (±9.5), 1.8 (+/-1.3) (n=11).
+        /// Common in PK tables where ± is enclosed in parentheses and a trailing (n=X)
+        /// indicates the sample size for that measurement.
+        /// </summary>
+        /// <remarks>
+        /// Returns <c>SecondaryValueType = null</c> and <c>BoundType = null</c> intentionally.
+        /// The ± symbol may represent SD, SE, CI half-width, or other dispersion types.
+        /// Type resolution is deferred to the parser which has access to caption, header path,
+        /// and footnote context.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// tryParseValuePlusMinusSample("0.80 (±0.36) (n=129)", out var r)
+        ///   → true, Primary=0.80, Secondary=0.36, Lower=0.44, Upper=1.16, SampleSize=129
+        /// tryParseValuePlusMinusSample("24.5 (±9.5)", out var r)
+        ///   → true, Primary=24.5, Secondary=9.5, Lower=15.0, Upper=34.0, SampleSize=null
+        /// </code>
+        /// </example>
+        /// <seealso cref="tryParseValuePlusMinus"/>
+        internal static bool tryParseValuePlusMinusSample(string text, out ParsedValue result)
+        {
+            #region implementation
+
+            result = null!;
+            var match = _valuePlusMinusSamplePattern.Match(text);
+
+            if (!match.Success)
+                return false;
+
+            var primary = double.Parse(match.Groups[1].Value);
+            var tolerance = double.Parse(match.Groups[2].Value);
+            int? sampleSize = match.Groups[3].Success
+                ? int.Parse(match.Groups[3].Value)
+                : null;
+
+            result = new ParsedValue
+            {
+                PrimaryValue = primary,
+                PrimaryValueType = "Numeric",
+                SecondaryValue = tolerance,
+                SecondaryValueType = null,   // Resolved downstream from caption/header/footnote
+                LowerBound = primary - tolerance,
+                UpperBound = primary + tolerance,
+                BoundType = null,            // Resolved downstream alongside SecondaryValueType
+                SampleSize = sampleSize,
+                ParseConfidence = 0.95,
+                ParseRule = "value_plusminus_sample"
             };
             return true;
 

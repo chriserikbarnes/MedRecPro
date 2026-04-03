@@ -100,6 +100,19 @@ namespace MedRecProImportClass.Models
         /// </summary>
         public string? PValueQualifier { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Sample size extracted from cell text (e.g., n=129 from "0.80 (±0.36) (n=129)").
+        /// Null when no sample size is embedded in the cell value.
+        /// </summary>
+        /// <remarks>
+        /// Populated by <c>value_plusminus_sample</c> pattern when a trailing <c>(n=X)</c>
+        /// is present. Mapped to <see cref="ParsedObservation.ArmN"/> by
+        /// <c>BaseTableParser.applyParsedValue()</c> when ArmN is not already set.
+        /// </remarks>
+        /// <seealso cref="ParsedObservation"/>
+        public int? SampleSize { get; set; }
+
         #endregion Statistical Properties
 
         #region Metadata Properties

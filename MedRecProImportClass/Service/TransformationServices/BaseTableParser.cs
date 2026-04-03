@@ -648,7 +648,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="existing">Current flags (may be null/empty).</param>
         /// <param name="flag">New flag to append.</param>
         /// <returns>Combined flags string.</returns>
-        private static string appendFlag(string? existing, string flag)
+        protected static string appendFlag(string? existing, string flag)
         {
             #region implementation
 
@@ -755,6 +755,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             obs.UpperBound = parsed.UpperBound;
             obs.BoundType = parsed.BoundType;
             obs.PValue = parsed.PValue;
+
+            // Cell-embedded sample size (e.g., "(n=129)") → ArmN when not already set from header
+            if (parsed.SampleSize.HasValue && !obs.ArmN.HasValue)
+                obs.ArmN = parsed.SampleSize;
+
             obs.Unit = parsed.Unit ?? obs.Unit;
             obs.ParseConfidence = parsed.ParseConfidence;
             obs.ParseRule = parsed.ParseRule;

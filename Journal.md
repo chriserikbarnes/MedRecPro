@@ -1601,3 +1601,17 @@ Added a post-processing correction to `PostProcessExtraction` in `ColumnStandard
 **Files modified:** `ColumnStandardizationService.cs` (new `_percentageHintPattern` regex, `correctCountToPercentageType()` helper, wired into `PostProcessExtraction`), `ColumnStandardizationServiceTests.cs` (7 new test methods).
 
 ---
+
+### 2026-04-03 12:25 PM EST — PK Parser: Two-Column Context Layout + Parenthesized ± Pattern
+
+Fixed PK table parsing for tables with non-standard two-column context layouts (e.g., TextTableID=184). Previously, all 56 observations from this table were classified as `text_descriptive` with 0.50 confidence due to two root causes: (1) `ValueParser` had no pattern for the parenthesized `value (±X) (n=N)` format like `0.80 (±0.36) (n=129)`, and (2) the parser assumed column 0 = dose regimen when it was actually a category/subtype column with column 1 being the dose column.
+
+**Key changes across 4 files:**
+- **ValueParser.cs**: Added Pattern 6d (`value_plusminus_sample`) with regex for `value (±X) (n=N)`. Returns `SecondaryValueType = null` intentionally — the ± symbol could represent SD, SE, or CI, so type resolution is deferred to context.
+- **ParsedValue.cs**: Added `int? SampleSize` property to carry cell-embedded `(n=X)` values through the pipeline.
+- **BaseTableParser.cs**: Wired `SampleSize → ArmN` in `applyParsedValue()`; promoted `appendFlag()` to `protected`.
+- **PkTableParser.cs**: Added `detectDoseColumn()` (col 1 = "Dose/Route" triggers two-column mode), `detectSubHeaderRow()` (dual-signal detection for category divider rows), `resolveDispersionType()` (caption → header path → footnotes → default SD with `PLUSMINUS_TYPE_INFERRED:SD` flag), and extracted `parseAndApplyPkValue()` for DRY shared logic. `Parse()` rewritten with conditional two-column path that sets `ParameterCategory` from sub-header rows and `ParameterSubtype` from col 0. Single-column path preserved unchanged for backward compatibility. Also expanded `_populationHeaderKeywords` with "volunteers"/"subjects".
+
+**Files modified:** `ParsedValue.cs`, `ValueParser.cs`, `BaseTableParser.cs`, `PkTableParser.cs`, `README.md` (added `value_plusminus_sample` to ParseRule dictionary, `PLUSMINUS_TYPE_INFERRED:SD` to ValidationFlags dictionary).
+
+---

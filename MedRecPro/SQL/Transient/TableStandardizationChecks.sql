@@ -27,6 +27,28 @@ SELECT  [TextTableID]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
 --where ParameterSubtype is not null
 
+SELECT  [ParameterName]
+	,[ParameterCategory]
+	,[ParameterSubtype]
+	,[TreatmentArm]
+	,[ArmN]
+	,[StudyContext]
+	,[DoseRegimen]
+	,[RawValue]
+	,[PrimaryValue]
+	,[PrimaryValueType]
+	,[SecondaryValue]
+	,[SecondaryValueType]
+	,[LowerBound]
+	,[UpperBound]
+	,[BoundType]
+	,[PValue]
+	,[Unit]
+	,[ParseConfidence]
+	,[DocumentGUID]
+FROM [dbo].[tmp_FlattenedStandardizedTable]
+where TextTableID = 184
+
 
 SELECT  *
 FROM [dbo].[tmp_FlattenedStandardizedTable]

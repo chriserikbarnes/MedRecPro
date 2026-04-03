@@ -524,7 +524,7 @@ SD - CV - Count
 
 ```
 empty_or_na - pvalue - frac_pct - n_pct - caption_mean_sd -
-value_cv - value_plusminus - value_ci - rr_ci - diff_ci -
+value_cv - value_plusminus - value_plusminus_sample - value_ci - rr_ci - diff_ci -
 range_to - percentage - plain_number - text_descriptive -
 plain_number+caption - value_ci+caption
 ```
@@ -541,6 +541,7 @@ These flags are set by `BaseTableParser` and `ValueParser` during initial parsin
 |------|---------|
 | `CAPTION_HINT:{source}` | Caption/header provided a hint that promoted a bare numeric to a specific PrimaryValueType or set SecondaryValueType/BoundType. `{source}` is the hint origin (e.g., "Mean (SD)", "Geometric Mean"). |
 | `CAPTION_REINTERPRET:n_pct->{pvt}({svt})` | An n_pct value (count + percentage) was reinterpreted per caption context to a different PrimaryValueType/SecondaryValueType pairing. |
+| `PLUSMINUS_TYPE_INFERRED:SD` | The ± dispersion type could not be resolved from caption, header path, or footnotes. Defaulted to SD (most common in PK tables). Observations with this flag should be reviewed if the actual type matters. |
 | `PCT_CHECK:PASS` | Percentage cross-validation passed -- the derived percentage from count/ArmN matches the reported percentage within 1.5 points. |
 | `PCT_CHECK:WARN:{derived}` | Percentage cross-validation failed -- the derived percentage differs from the reported value by more than 1.5 points. `{derived}` is the calculated percentage. |
 
