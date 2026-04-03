@@ -364,7 +364,7 @@ namespace MedRecProTest
         /// Verifies that PK observations skip Phase 1 (arm correction) but Phases 2-4 still run.
         /// Phase 1 does NOT fire for PK, but Phase 2 pre-pass extracts standalone (N=267)
         /// and recovers the arm name from StudyContext.
-        /// Phase 3 migrates Percentage→Proportion; Phase 4 nulls ParameterCategory (N/A for PK).
+        /// Phase 3 migrates Percentage→Percentage; Phase 4 nulls ParameterCategory (N/A for PK).
         /// </summary>
         [TestMethod]
         public async Task Standardize_PkCategory_Phase1Skipped_OtherPhasesRun()
@@ -1278,7 +1278,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// TreatmentArm="MYCAPSSA %", PrimaryValueType="Numeric"
-        /// Expected: TreatmentArm="MYCAPSSA", PrimaryValueType="Proportion" (Phase 1 sets Percentage, Phase 3 migrates to Proportion).
+        /// Expected: TreatmentArm="MYCAPSSA", PrimaryValueType="Percentage" (Phase 1 sets Percentage, Phase 3 migrates to Percentage).
         /// </summary>
         [TestMethod]
         public async Task Rule10_ArmHasTrailingPercent_StrippedAndPromoted()
@@ -1294,7 +1294,7 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("MYCAPSSA", result[0].TreatmentArm);
-            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
             Assert.AreEqual("%", result[0].Unit);
             assertHasFlag(result[0], "COL_STD:ARM_STRIP_PCT");
 
@@ -1307,7 +1307,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// TreatmentArm="PLACEBO %", PrimaryValueType="Numeric"
-        /// Expected: TreatmentArm="PLACEBO", PrimaryValueType="Proportion" (Phase 1 sets Percentage, Phase 3 migrates to Proportion).
+        /// Expected: TreatmentArm="PLACEBO", PrimaryValueType="Percentage" (Phase 1 sets Percentage, Phase 3 migrates to Percentage).
         /// </summary>
         [TestMethod]
         public async Task Rule10_PlaceboWithPercent_StrippedAndPromoted()
@@ -1322,7 +1322,7 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("PLACEBO", result[0].TreatmentArm);
-            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
             assertHasFlag(result[0], "COL_STD:ARM_STRIP_PCT");
 
             context.Dispose();
@@ -1334,7 +1334,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// TreatmentArm="Drug n(%)", PrimaryValueType="Numeric"
-        /// Expected: TreatmentArm="Drug", PrimaryValueType="Proportion" (Phase 1 sets Percentage, Phase 3 migrates to Proportion).
+        /// Expected: TreatmentArm="Drug", PrimaryValueType="Percentage" (Phase 1 sets Percentage, Phase 3 migrates to Percentage).
         /// </summary>
         [TestMethod]
         public async Task Rule10_ArmHasTrailingNPct_StrippedAndPromoted()
@@ -1349,7 +1349,7 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("Placebo", result[0].TreatmentArm);
-            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
             assertHasFlag(result[0], "COL_STD:ARM_STRIP_PCT");
 
             context.Dispose();
@@ -1361,7 +1361,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// TreatmentArm="MYCAPSSA %", PrimaryValueType="Percentage" (already set by source).
-        /// Expected: Arm stripped, PrimaryValueType migrated to "Proportion" by Phase 3.
+        /// Expected: Arm stripped, PrimaryValueType migrated to "Percentage" by Phase 3.
         /// </summary>
         [TestMethod]
         public async Task Rule10_ArmHasPercent_AlreadyPercentage_StillStrips()
@@ -1377,7 +1377,7 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("MYCAPSSA", result[0].TreatmentArm);
-            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
             assertHasFlag(result[0], "COL_STD:ARM_STRIP_PCT");
 
             context.Dispose();
@@ -2352,10 +2352,10 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Phase 3: "Percentage" → "Proportion".
+        /// Phase 3: "Percentage" is already canonical — no migration, no flag.
         /// </summary>
         [TestMethod]
-        public async Task Phase3_PVT_Percentage_BecomesProportionInAllCategories()
+        public async Task Phase3_PVT_Percentage_RemainsPercentage()
         {
             #region implementation
 
@@ -2366,8 +2366,7 @@ namespace MedRecProTest
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
-            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Percentage→Proportion");
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
 
             context.Dispose();
             sentinel.Dispose();
@@ -2377,10 +2376,10 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Phase 3: "Numeric" in AE with Unit="%" → "Proportion".
+        /// Phase 3: "Numeric" in AE with Unit="%" → "Percentage".
         /// </summary>
         [TestMethod]
-        public async Task Phase3_PVT_NumericAeWithPercent_BecomesProportionCount()
+        public async Task Phase3_PVT_NumericAeWithPercent_BecomesPercentageCount()
         {
             #region implementation
 
@@ -2392,8 +2391,8 @@ namespace MedRecProTest
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.AreEqual("Proportion", result[0].PrimaryValueType);
-            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Numeric→Proportion");
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
+            assertHasFlag(result[0], "COL_STD:PVT_MIGRATED:Numeric→Percentage");
 
             context.Dispose();
             sentinel.Dispose();

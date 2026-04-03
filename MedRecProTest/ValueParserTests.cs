@@ -728,6 +728,48 @@ namespace MedRecPro.Service.Test
             Assert.IsNull(arm);
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Comma-formatted N in parenthesized arm header is parsed correctly.
+        /// "CE (n = 5,310)" → SampleSize = 5310.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_CommaFormattedN_Parenthesized()
+        {
+            var arm = ValueParser.ParseArmHeader("CE (n = 5,310)");
+            Assert.IsNotNull(arm);
+            Assert.AreEqual("CE", arm!.Name);
+            Assert.AreEqual(5310, arm.SampleSize);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Comma-formatted N in no-parentheses arm header is parsed correctly.
+        /// "Placebo n = 5,429" → SampleSize = 5429.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_CommaFormattedN_NoParens()
+        {
+            var arm = ValueParser.ParseArmHeader("Placebo n = 5,429");
+            Assert.IsNotNull(arm);
+            Assert.AreEqual("Placebo", arm!.Name);
+            Assert.AreEqual(5429, arm.SampleSize);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Large comma-formatted N in parenthesized header is parsed correctly.
+        /// "Drug (N=12,345)" → SampleSize = 12345.
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_LargeCommaFormattedN()
+        {
+            var arm = ValueParser.ParseArmHeader("Drug (N=12,345)");
+            Assert.IsNotNull(arm);
+            Assert.AreEqual("Drug", arm!.Name);
+            Assert.AreEqual(12345, arm.SampleSize);
+        }
+
         #endregion Arm Header Parsing Tests
 
         #region Parameter Name Cleaning Tests

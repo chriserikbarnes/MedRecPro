@@ -1615,3 +1615,21 @@ Fixed PK table parsing for tables with non-standard two-column context layouts (
 **Files modified:** `ParsedValue.cs`, `ValueParser.cs`, `BaseTableParser.cs`, `PkTableParser.cs`, `README.md` (added `value_plusminus_sample` to ParseRule dictionary, `PLUSMINUS_TYPE_INFERRED:SD` to ValidationFlags dictionary).
 
 ---
+
+### 2026-04-03 3:20 PM EST — Efficacy Parser: WHI Table Standardization Fixes
+
+Fixed 6 deterministic parsing bugs exposed by a WHI (Women's Health Initiative) estrogen-alone substudy table (TextTableID=86). The table had comma-formatted sample sizes in headers ("CE n = 5,310"), a CI type qualifier "(95% nCI)", and a column sub-header row ("Absolute Risk per 10,000 Women-Years" with "↔" ditto marker) — none of which the parser handled.
+
+**Bugs fixed:**
+1. **ArmN = 5 → 5310/5429** — `(\d+)` in arm header regexes couldn't handle commas; changed to `(\d[\d,]*)` with `.Replace(",", "")` across all 3 files containing `_nEqualsPattern` (ValueParser, BaseTableParser, EfficacyMultilevelTableParser)
+2. **BoundType = CI → 95CI** — new `extractCILevelFromHeader()` detects "(95% nCI)" / "(90% CI)" in stat column headers
+3. **No Unit → "per 10,000 Women-Years"** — new `extractUnitFromSubHeader()` extracts unit from sub-header text
+4. **Arm PrimaryValueType = RelativeRiskReduction → AbsoluteRisk** — new sub-header row detection (`isColumnSubHeaderRow` + `captureColumnSubHeaders`) with `inferValueTypeFromSubHeader()` mapping "Absolute Risk" → "AbsoluteRisk"
+5. **Comparison PrimaryValueType = RelativeRiskReduction → RelativeRisk** — new `inferComparisonTypeFromHeader()` derives type from header text instead of hardcoding; supports HazardRatio, OddsRatio, RelativeRisk, RelativeRiskReduction
+6. **Comparison ArmN = null → 10739** — summed arm Ns with safeguards: requires "vs."/"versus" in header, exactly 2 arms, both Ns known
+
+**Also fixed:** 6 pre-existing test failures in `ColumnStandardizationServiceTests` where tests expected `"Proportion"` but service correctly produces `"Percentage"`.
+
+**Files modified:** `ValueParser.cs`, `BaseTableParser.cs`, `EfficacyMultilevelTableParser.cs` (6 new internal methods), `ValueParserTests.cs` (+3 tests), `TableParserTests.cs` (+7 tests, 1 updated), `ColumnStandardizationServiceTests.cs` (6 assertion fixes). **976/976 tests pass.**
+
+---

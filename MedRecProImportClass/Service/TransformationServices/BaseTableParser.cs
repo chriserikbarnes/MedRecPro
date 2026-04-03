@@ -209,9 +209,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^\d+\s*(?:mg|mcg|µg|g|ml|mL)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        // Pattern for n= declaration cells: "n = 102" or "N=51"
+        // Pattern for n= declaration cells: "n = 102" or "N=51" or "N=5,310"
         private static readonly Regex _nEqualsCellPattern = new(
-            @"^[Nn]\s*=\s*(\d+)$",
+            @"^[Nn]\s*=\s*(\d[\d,]*)$",
             RegexOptions.Compiled);
 
         // Pattern for format hint cells: "%" or "n(%)" or "n (%)"
@@ -949,7 +949,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                     case "n_equals":
                         var nMatch = _nEqualsCellPattern.Match(text);
-                        if (nMatch.Success && int.TryParse(nMatch.Groups[1].Value, out var n))
+                        if (nMatch.Success && int.TryParse(nMatch.Groups[1].Value.Replace(",", ""), out var n))
                             arms[i].SampleSize = n;
                         break;
 

@@ -97,9 +97,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^([\d.]+)\s*%$",
             RegexOptions.Compiled);
 
-        // Pattern 10: n= — n=1401 or N=188
+        // Pattern 10: n= — n=1401 or N=188 or N=5,310
         private static readonly Regex _nEqualsPattern = new(
-            @"^[Nn]\s*=\s*(\d+)$",
+            @"^[Nn]\s*=\s*(\d[\d,]*)$",
             RegexOptions.Compiled);
 
         // Pattern 11: P-value — p<0.05, P=0.001, <0.001, 0.0295
@@ -112,16 +112,16 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^-?[\d,]+\.?\d*$",
             RegexOptions.Compiled);
 
-        // Arm header pattern (parenthesized): DrugName(N=188)n(%) or Drug (n = 421) %
-        // Supports uppercase/lowercase N and optional spaces around =
+        // Arm header pattern (parenthesized): DrugName(N=188)n(%) or Drug (n = 5,310) %
+        // Supports uppercase/lowercase N, optional spaces around =, and comma-formatted numbers
         private static readonly Regex _armHeaderPattern = new(
-            @"^(.+?)\s*\([Nn]\s*=\s*(\d+)\)\s*(.*)$",
+            @"^(.+?)\s*\([Nn]\s*=\s*(\d[\d,]*)\)\s*(.*)$",
             RegexOptions.Compiled);
 
-        // Arm header pattern (no parentheses): Placebo n = 51 % or Drug N=188 n(%)
+        // Arm header pattern (no parentheses): Placebo n = 51 % or CE n = 5,429
         // Requires whitespace before N to avoid false matches on drug names ending in 'n'
         private static readonly Regex _armHeaderNoParenPattern = new(
-            @"^(.+?)\s+[Nn]\s*=\s*(\d+)\s*(.*)$",
+            @"^(.+?)\s+[Nn]\s*=\s*(\d[\d,]*)\s*(.*)$",
             RegexOptions.Compiled);
 
         // Footnote marker pattern for parameter name cleaning
@@ -309,7 +309,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             return new ArmDefinition
             {
                 Name = match.Groups[1].Value.Trim(),
-                SampleSize = int.TryParse(match.Groups[2].Value, out var n) ? n : null,
+                SampleSize = int.TryParse(match.Groups[2].Value.Replace(",", ""), out var n) ? n : null,
                 FormatHint = match.Groups[3].Value.Trim()
             };
 
@@ -814,7 +814,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             result = new ParsedValue
             {
-                PrimaryValue = int.Parse(match.Groups[1].Value),
+                PrimaryValue = int.Parse(match.Groups[1].Value.Replace(",", "")),
                 PrimaryValueType = "SampleSize",
                 ParseConfidence = 1.0,
                 ParseRule = "n_equals"
