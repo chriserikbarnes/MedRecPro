@@ -1633,3 +1633,17 @@ Fixed 6 deterministic parsing bugs exposed by a WHI (Women's Health Initiative) 
 **Files modified:** `ValueParser.cs`, `BaseTableParser.cs`, `EfficacyMultilevelTableParser.cs` (6 new internal methods), `ValueParserTests.cs` (+3 tests), `TableParserTests.cs` (+7 tests, 1 updated), `ColumnStandardizationServiceTests.cs` (6 assertion fixes). **976/976 tests pass.**
 
 ---
+
+### 2026-04-06 1:54 PM EST — PK Compound Header Layout Support (TextTableID 185)
+
+Added a third layout path to `PkTableParser` for compound/nested PK tables — tables with a spanning header row (all columns share identical text like "Pharmacokinetic Parameters for Renal Impairment"), embedded sub-header data rows containing actual parameter definitions (Dose, Tmax, Cmax, AUC), and SocDivider rows that reset the section context (e.g., switching from Renal to Hepatic Impairment).
+
+**Root cause:** Stage 2 correctly identified the spanning row as the inferred header and flagged SocDividers, but PkTableParser had no code path for this structure. All 5 header columns got identical LeafHeaderText, the actual parameter names (in the first data row) were treated as data, and col 0 population descriptors were misrouted to DoseRegimen. Result: 28 broken rows with NULL ParameterName, ParameterCategory, TreatmentArm, and Unit.
+
+**Solution:** New `detectCompoundHeaderLayout()` method uses 4 conjunctive signals (HasSocDividers + HasInferredHeader + identical headers + sub-header first row with dose keyword + param unit pattern) to activate the compound path. `parseCompoundLayout()` consumes the first data row as a sub-header, extracts parameter definitions via `parseCompoundParameterHeader()` (handles multi-parenthetical like `AUC(0-96h)(mcgh/mL)` → name/unit/subtype), maps col 0 to TreatmentArm with ArmN extraction, reads the dose column for DoseRegimen, and resets context + refreshes param defs when SocDivider rows are encountered. Existing single-column and two-column paths are completely untouched.
+
+**Key new methods (8 total):** `detectCompoundHeaderLayout`, `parseCompoundLayout`, `parseCompoundParameterHeader`, `extractParameterDefinitionsFromDataRow`, `extractCategoryFromSpanningHeader`, `extractArmNFromLabel`, `detectDoseColumnInSubHeader`, `looksLikeSubHeader`.
+
+**Files modified:** `PkTableParser.cs` (+3 regex fields, +8 methods, +1 branch in Parse()), `TableParserTests.cs` (+22 tests: 15 compound integration, 5 utility unit tests, 2 backward compat). **61/61 TableParserTests pass.**
+
+---

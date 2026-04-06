@@ -111,6 +111,34 @@ namespace MedRecProImportClass.Service.TransformationServices
             (new Regex(@"\b\d+\s*%\s*CI\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "CI", "CI"),
         };
 
+        /**************************************************************/
+        /// <summary>
+        /// Pattern for extracting all parenthetical groups from compound headers
+        /// like "AUC(0-96h)(mcgh/mL)". Used by <see cref="parseCompoundParameterHeader"/>
+        /// to separate subtype qualifiers from units.
+        /// </summary>
+        private static readonly Regex _allParentheticalsPattern = new(
+            @"\(([^)]+)\)",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Pattern for stripping common PK category prefixes from spanning header
+        /// and SocDivider text. Matches "Pharmacokinetic Parameters for/in/of".
+        /// </summary>
+        private static readonly Regex _pkCategoryPrefixPattern = new(
+            @"^Pharmacokinetic\s+Parameters?\s+(?:for|in|of)\s+",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Pattern for extracting sample size (n=X) from treatment arm row labels.
+        /// Matches "(n=6)", "(n = 18)", "(n=1,234)" with optional whitespace and commas.
+        /// </summary>
+        private static readonly Regex _armNFromLabelPattern = new(
+            @"\(\s*n\s*=\s*(\d[\d,]*)\s*\)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         #region ITableParser Implementation
 
         /**************************************************************/
@@ -147,6 +175,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             var observations = new List<ParsedObservation>();
             var (population, popConfidence) = detectPopulation(table);
             var captionHint = detectCaptionValueHint(table.Caption);
+
+            // Detect compound header layout (spanning header + embedded sub-headers + SocDividers)
+            if (detectCompoundHeaderLayout(table))
+                return parseCompoundLayout(table, observations, population, captionHint);
 
             // Detect whether column 1 is a dedicated dose column (two-column context layout)
             var (doseColumnIndex, paramStartColumn) = detectDoseColumn(table);
@@ -771,5 +803,444 @@ namespace MedRecProImportClass.Service.TransformationServices
         }
 
         #endregion Private Helpers
+
+        #region Compound Header Layout
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses a compound header layout PK table: spanning header provides ParameterCategory,
+        /// embedded data rows serve as sub-headers for parameter definitions, SocDivider rows
+        /// reset context and trigger sub-header re-parsing, and column 0 carries TreatmentArm labels.
+        /// </summary>
+        /// <remarks>
+        /// This is the third layout path in the PK parser, alongside single-column and two-column.
+        /// It activates only when <see cref="detectCompoundHeaderLayout"/> returns true.
+        ///
+        /// ## Structure
+        /// ```
+        /// [Spanning header] → ParameterCategory (all cols identical LeafHeaderText)
+        /// [Sub-header row]  → Parameter definitions (Dose | Tmax (h) | Cmax (mcg/mL) | AUC(0-96h)(mcgh/mL))
+        /// [Data rows]       → Col 0 = TreatmentArm, Dose col = DoseRegimen, Param cols = observations
+        /// [SocDivider]      → New ParameterCategory
+        /// [Sub-header row]  → Refreshed parameter definitions (may differ from first section)
+        /// [Data rows]       → Continue with new context
+        /// ```
+        /// </remarks>
+        /// <param name="table">The reconstructed table from Stage 2.</param>
+        /// <param name="observations">The observation list to populate.</param>
+        /// <param name="population">Detected population from caption/section.</param>
+        /// <param name="captionHint">Caption-derived value type hint.</param>
+        /// <returns>The populated observations list.</returns>
+        private List<ParsedObservation> parseCompoundLayout(
+            ReconstructedTable table,
+            List<ParsedObservation> observations,
+            string? population,
+            CaptionValueHint captionHint)
+        {
+            #region implementation
+
+            // 1. Extract initial ParameterCategory from spanning header
+            var spanningText = table.Header?.Columns?.FirstOrDefault()?.LeafHeaderText;
+            var currentCategory = extractCategoryFromSpanningHeader(spanningText);
+
+            // 2. Get all data rows (includes SocDividers)
+            var dataRows = getDataBodyRows(table);
+            if (dataRows.Count == 0)
+                return observations;
+
+            // 3. Consume first DataBody row as sub-header
+            int rowIndex = 0;
+            var firstSubHeader = dataRows[rowIndex];
+            var doseColIndex = detectDoseColumnInSubHeader(firstSubHeader);
+            var (paramDefs, subtypeMap) = extractParameterDefinitionsFromDataRow(firstSubHeader, doseColIndex);
+            rowIndex++;
+
+            if (paramDefs.Count == 0)
+                return observations;
+
+            // 4. Iterate remaining rows
+            string? currentDoseRegimen = null;
+
+            for (; rowIndex < dataRows.Count; rowIndex++)
+            {
+                var row = dataRows[rowIndex];
+
+                // Handle SocDivider: update category, consume next row as sub-header
+                if (row.Classification == RowClassification.SocDivider)
+                {
+                    var dividerText = row.SocName ?? row.Cells?.FirstOrDefault()?.CleanedText;
+                    currentCategory = extractCategoryFromSpanningHeader(dividerText);
+                    currentDoseRegimen = null;
+
+                    // Next row after SocDivider is likely a new sub-header
+                    if (rowIndex + 1 < dataRows.Count
+                        && dataRows[rowIndex + 1].Classification == RowClassification.DataBody
+                        && looksLikeSubHeader(dataRows[rowIndex + 1]))
+                    {
+                        rowIndex++;
+                        doseColIndex = detectDoseColumnInSubHeader(dataRows[rowIndex]);
+                        (paramDefs, subtypeMap) = extractParameterDefinitionsFromDataRow(dataRows[rowIndex], doseColIndex);
+                    }
+
+                    continue;
+                }
+
+                // Regular data row
+                var col0Cell = getCellAtColumn(row, 0);
+                var col0Text = col0Cell?.CleanedText?.Trim();
+
+                // Skip empty label rows
+                if (string.IsNullOrWhiteSpace(col0Text))
+                    continue;
+
+                // Col 0 = treatment arm label
+                var armLabel = col0Text;
+                var armN = extractArmNFromLabel(armLabel);
+
+                // Dose from dose column (carry forward if dose column present)
+                if (doseColIndex >= 0)
+                {
+                    var doseCell = getCellAtColumn(row, doseColIndex);
+                    var doseCellText = doseCell?.CleanedText?.Trim();
+                    if (!string.IsNullOrWhiteSpace(doseCellText))
+                        currentDoseRegimen = doseCellText;
+                }
+
+                var (time, timeUnit, timepoint) = extractDuration(currentDoseRegimen);
+
+                parseRowSafe(table, row, observations, (r, obs) =>
+                {
+                    foreach (var param in paramDefs)
+                    {
+                        var cell = getCellAtColumn(r, param.columnIndex);
+                        if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                            continue;
+
+                        var o = createBaseObservation(table, r, cell, TableCategory.PK);
+                        o.ParameterName = param.name;
+                        o.ParameterCategory = currentCategory;
+                        o.ParameterSubtype = subtypeMap.GetValueOrDefault(param.columnIndex);
+                        o.TreatmentArm = armLabel;
+                        o.ArmN = armN;
+                        o.DoseRegimen = currentDoseRegimen;
+                        o.Population = population;
+                        o.Timepoint = timepoint;
+                        o.Time = time;
+                        o.TimeUnit = timeUnit;
+                        o.Unit = param.unit;
+
+                        parseAndApplyPkValue(table, o, cell, param, captionHint);
+
+                        obs.Add(o);
+                    }
+                });
+            }
+
+            // Post-parse: refine generic "CI" bound type from table context
+            if (observations.Any(o => o.BoundType == "CI"))
+            {
+                var ciLevel = detectCILevelFromTableText(table);
+                if (ciLevel != null)
+                {
+                    foreach (var o in observations.Where(o => o.BoundType == "CI"))
+                        o.BoundType = ciLevel;
+                }
+            }
+
+            return observations;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses a multi-parenthetical PK parameter header string into its constituent parts.
+        /// Handles compound headers like "AUC(0-96h)(mcgh/mL)" where multiple parenthetical
+        /// groups carry different semantic roles (qualifier vs unit).
+        /// </summary>
+        /// <remarks>
+        /// The last parenthetical group is always treated as the unit. Any preceding groups
+        /// become part of the ParameterSubtype. For single-parenthetical headers like
+        /// "Cmax (mcg/mL)", subtype is null.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// parseCompoundParameterHeader("AUC(0-96h)(mcgh/mL)") → ("AUC", "mcgh/mL", "AUC(0-96h)")
+        /// parseCompoundParameterHeader("Cmax (mcg/mL)")        → ("Cmax", "mcg/mL", null)
+        /// parseCompoundParameterHeader("Tmax (h)")             → ("Tmax", "h", null)
+        /// parseCompoundParameterHeader("Dose")                 → ("Dose", null, null)
+        /// </code>
+        /// </example>
+        /// <param name="text">The parameter header text to parse.</param>
+        /// <returns>Tuple of (name, unit, subtype).</returns>
+        internal static (string name, string? unit, string? subtype) parseCompoundParameterHeader(string text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return (text ?? "", null, null);
+
+            var matches = _allParentheticalsPattern.Matches(text);
+            if (matches.Count == 0)
+                return (text.Trim(), null, null);
+
+            // Name is everything before the first parenthetical
+            var firstParenIndex = text.IndexOf('(');
+            var name = text[..firstParenIndex].Trim();
+
+            // Last parenthetical = unit
+            var unit = matches[^1].Groups[1].Value.Trim();
+
+            // If multiple parentheticals, build subtype from name + all but last
+            string? subtype = null;
+            if (matches.Count > 1)
+            {
+                var subtypeParts = new List<string> { name };
+                for (int i = 0; i < matches.Count - 1; i++)
+                    subtypeParts.Add($"({matches[i].Groups[1].Value})");
+                subtype = string.Join("", subtypeParts);
+            }
+
+            return (name, unit, subtype);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the ParameterCategory from a spanning header or SocDivider text by
+        /// stripping common PK prefixes like "Pharmacokinetic Parameters for".
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// extractCategoryFromSpanningHeader("Pharmacokinetic Parameters for Renal Impairment")
+        ///     → "Renal Impairment"
+        /// extractCategoryFromSpanningHeader("Hepatic Impairment")
+        ///     → "Hepatic Impairment"
+        /// </code>
+        /// </example>
+        /// <param name="spanningText">The spanning header or SocDivider text.</param>
+        /// <returns>The category portion of the text, or the full text if no prefix found.</returns>
+        private static string? extractCategoryFromSpanningHeader(string? spanningText)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(spanningText))
+                return spanningText;
+
+            var stripped = _pkCategoryPrefixPattern.Replace(spanningText.Trim(), "");
+            return string.IsNullOrWhiteSpace(stripped) ? spanningText.Trim() : stripped.Trim();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the sample size (ArmN) from a treatment arm row label containing an
+        /// "(n=X)" suffix. Returns null if no n= pattern is found.
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// extractArmNFromLabel("Healthy Volunteers (n=6)")   → 6
+        /// extractArmNFromLabel("Alcoholic Cirrhosis (n=18)") → 18
+        /// extractArmNFromLabel("Severe Renal Impairment")    → null
+        /// </code>
+        /// </example>
+        /// <param name="label">The treatment arm row label text.</param>
+        /// <returns>The sample size as int, or null if not found.</returns>
+        internal static int? extractArmNFromLabel(string? label)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(label))
+                return null;
+
+            var match = _armNFromLabelPattern.Match(label);
+            if (!match.Success)
+                return null;
+
+            var rawN = match.Groups[1].Value.Replace(",", "");
+            return int.TryParse(rawN, out var n) ? n : null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Scans a data row (acting as a sub-header) for a cell whose text matches
+        /// <see cref="_doseColumnHeaders"/>. Returns the resolved column index of
+        /// the dose cell, or -1 if no dose column found.
+        /// </summary>
+        /// <param name="row">The data row to inspect as a sub-header.</param>
+        /// <returns>The column index of the dose cell, or -1.</returns>
+        private static int detectDoseColumnInSubHeader(ReconstructedRow row)
+        {
+            #region implementation
+
+            if (row.Cells == null)
+                return -1;
+
+            foreach (var cell in row.Cells)
+            {
+                var text = cell.CleanedText?.Trim();
+                if (!string.IsNullOrWhiteSpace(text) && _doseColumnHeaders.Contains(text))
+                    return cell.ResolvedColumnStart ?? -1;
+            }
+
+            return -1;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts PK parameter definitions from a data row that serves as an embedded
+        /// sub-header (e.g., the first data row in a compound header layout). Returns the
+        /// same tuple structure as <see cref="extractParameterDefinitions"/> for compatibility,
+        /// plus a separate subtype dictionary for compound headers like "AUC(0-96h)(mcgh/mL)".
+        /// </summary>
+        /// <param name="row">The data row containing sub-header text in its cells.</param>
+        /// <param name="doseColumnIndex">Column index of the dose column to skip (-1 if none).</param>
+        /// <returns>
+        /// Tuple of (paramDefs, subtypeMap):
+        /// - paramDefs: same structure as extractParameterDefinitions
+        /// - subtypeMap: columnIndex → subtype string for compound headers (e.g., "AUC(0-96h)")
+        /// </returns>
+        internal static (
+            List<(int columnIndex, string name, string? unit, bool isTimeMeasure, bool isSampleSize)> paramDefs,
+            Dictionary<int, string?> subtypeMap
+        ) extractParameterDefinitionsFromDataRow(ReconstructedRow row, int doseColumnIndex)
+        {
+            #region implementation
+
+            var paramDefs = new List<(int columnIndex, string name, string? unit, bool isTimeMeasure, bool isSampleSize)>();
+            var subtypeMap = new Dictionary<int, string?>();
+
+            if (row.Cells == null)
+                return (paramDefs, subtypeMap);
+
+            foreach (var cell in row.Cells)
+            {
+                var colIndex = cell.ResolvedColumnStart ?? -1;
+                if (colIndex < 0)
+                    continue;
+
+                // Skip col 0 (row label axis) and the dose column
+                if (colIndex == 0 || colIndex == doseColumnIndex)
+                    continue;
+
+                var text = cell.CleanedText?.Trim();
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                // Check if column is a sample size column
+                var isSampleSize = _sampleSizeHeaders.Contains(text);
+
+                // Parse compound parameter header
+                var (name, unit, subtype) = parseCompoundParameterHeader(text);
+
+                var isTimeMeasure = unit != null && _timeUnitStrings.Contains(unit);
+
+                paramDefs.Add((colIndex, name, unit, isTimeMeasure, isSampleSize));
+                subtypeMap[colIndex] = subtype;
+            }
+
+            return (paramDefs, subtypeMap);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects whether a table has a compound header layout: a spanning header row
+        /// (all columns share identical LeafHeaderText), embedded sub-header rows with
+        /// parameter definitions, and SocDivider rows for section context switches.
+        /// </summary>
+        /// <remarks>
+        /// Detection requires ALL of the following signals:
+        /// 1. HasSocDividers=true AND HasInferredHeader=true
+        /// 2. At least 3 header columns
+        /// 3. All header columns have identical LeafHeaderText (spanning header repeated)
+        /// 4. First DataBody row contains at least one dose keyword cell AND one param unit cell
+        /// </remarks>
+        /// <param name="table">The reconstructed table to evaluate.</param>
+        /// <returns>True if compound header layout is detected.</returns>
+        internal static bool detectCompoundHeaderLayout(ReconstructedTable table)
+        {
+            #region implementation
+
+            // Guard: need both structural flags
+            if (table.HasSocDividers != true || table.HasInferredHeader != true)
+                return false;
+
+            // Guard: need at least 3 columns (label + dose + 1 param minimum)
+            if (table.Header?.Columns == null || table.Header.Columns.Count < 3)
+                return false;
+
+            // Signal 1: All header columns have identical LeafHeaderText
+            var distinctTexts = table.Header.Columns
+                .Select(c => c.LeafHeaderText?.Trim())
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+
+            if (distinctTexts != 1)
+                return false;
+
+            // Signal 2: First DataBody row looks like a sub-header
+            var firstDataRow = table.Rows?
+                .FirstOrDefault(r => r.Classification == RowClassification.DataBody);
+            if (firstDataRow?.Cells == null)
+                return false;
+
+            bool hasDoseCell = false;
+            bool hasParamCell = false;
+
+            foreach (var cell in firstDataRow.Cells)
+            {
+                var text = cell.CleanedText?.Trim();
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                if (_doseColumnHeaders.Contains(text))
+                    hasDoseCell = true;
+
+                if (_paramUnitPattern.IsMatch(text))
+                    hasParamCell = true;
+            }
+
+            return hasDoseCell && hasParamCell;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks whether a data row looks like an embedded sub-header row by testing
+        /// if any cell matches a dose column keyword. Used to confirm rows following
+        /// SocDividers should be consumed as new sub-headers rather than parsed as data.
+        /// </summary>
+        /// <param name="row">The data row to evaluate.</param>
+        /// <returns>True if the row appears to be a sub-header.</returns>
+        private static bool looksLikeSubHeader(ReconstructedRow row)
+        {
+            #region implementation
+
+            if (row.Cells == null)
+                return false;
+
+            foreach (var cell in row.Cells)
+            {
+                var text = cell.CleanedText?.Trim();
+                if (!string.IsNullOrWhiteSpace(text) && _doseColumnHeaders.Contains(text))
+                    return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        #endregion Compound Header Layout
     }
 }

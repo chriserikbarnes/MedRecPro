@@ -272,6 +272,478 @@ namespace MedRecPro.Service.Test
 
         #endregion PkTableParser Tests
 
+        #region PkTableParser Compound Layout Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a compound header PK table mimicking TextTableID 185:
+        /// spanning header repeated across all columns, embedded sub-header row,
+        /// SocDivider with context reset and refreshed sub-headers.
+        /// </summary>
+        private static ReconstructedTable createCompoundPkTable()
+        {
+            #region implementation
+
+            var spanningHeader = "Pharmacokinetic Parameters for Renal Impairment";
+
+            // All header columns have identical spanning text (as Stage 2 would produce)
+            var table = createTestTable(
+                new[]
+                {
+                    spanningHeader,
+                    spanningHeader,
+                    spanningHeader,
+                    spanningHeader,
+                    spanningHeader
+                },
+                new List<string?[]>
+                {
+                    // Row 0: Sub-header row (consumed, not emitted as observations)
+                    new[] { null, "Dose", "Tmax (h)", "Cmax (mcg/mL)", "AUC(0-96h)(mcgh/mL)" },
+                    // Row 1: Healthy Volunteers (renal section)
+                    new[] { "Healthy Volunteers GFR greater than 80 mL/min/1.73 m (n=6)", "1 g", "0.75 (±0.27)", "25.3 (±7.99)", "45.0 (±22.6)" },
+                    // Row 2: Mild Renal Impairment
+                    new[] { "Mild Renal Impairment GFR 50 to 80 mL/min/1.73 m (n=6)", "1 g", "0.75 (±0.27)", "26.0 (±3.82)", "59.9 (±12.9)" },
+                    // Row 3: Moderate Renal Impairment
+                    new[] { "Moderate Renal Impairment GFR 25 to 49 mL/min/1.73 m (n=6)", "1 g", "0.75 (±0.27)", "19.0 (±13.2)", "52.9 (±25.5)" },
+                    // Row 4: Severe Renal Impairment
+                    new[] { "Severe Renal Impairment GFR less than 25 mL/min/1.73 m (n=7)", "1 g", "1.00 (±0.41)", "16.3 (±10.8)", "78.6 (±46.4)" },
+                    // Row 5 (after SocDivider): Sub-header row for hepatic section
+                    new[] { null, "Dose", "Tmax (h)", "Cmax(mcg/mL)", "AUC(0-48h)(mcgh/mL)" },
+                    // Row 6: Healthy Volunteers (hepatic section)
+                    new[] { "Healthy Volunteers (n=6)", "1 g", "0.63 (±0.14)", "24.3 (±5.73)", "29.0 (±5.78)" },
+                    // Row 7: Alcoholic Cirrhosis
+                    new[] { "Alcoholic Cirrhosis (n=18)", "1 g", "0.85 (±0.58)", "22.4 (±10.1)", "29.8 (±10.7)" }
+                },
+                parentSectionCode: "34090-1",
+                sectionTitle: "12.3 Pharmacokinetics");
+
+            // Override flags to match Stage 2 output for compound tables
+            table.HasInferredHeader = true;
+            table.HasExplicitHeader = false;
+            table.HasSocDividers = true;
+
+            // Insert SocDivider between renal and hepatic sections (after row index 4 = Severe Renal)
+            // Data rows start at index 0 in the Rows list, so after 5 rows (sub-header + 4 data)
+            insertSocDivider(table, 5, "Pharmacokinetic Parameters for Hepatic Impairment");
+
+            return table;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Compound header layout is detected for table with identical spanning headers,
+        /// SocDividers flag, InferredHeader flag, and sub-header first data row.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_DetectedCorrectly()
+        {
+            var table = createCompoundPkTable();
+            Assert.IsTrue(PkTableParser.detectCompoundHeaderLayout(table));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Compound header layout NOT detected for standard PK table with distinct headers.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_NotDetected_NormalPk()
+        {
+            var table = createTestTable(
+                new[] { "Dose", "Cmax (mcg/mL)", "AUC (mcg·h/mL)", "t½ (hours)" },
+                new List<string?[]>
+                {
+                    new[] { "50 mg oral", "0.29 (35%)", "1.2 (28%)", "30" }
+                },
+                parentSectionCode: "34090-1");
+
+            Assert.IsFalse(PkTableParser.detectCompoundHeaderLayout(table));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Compound header layout NOT detected when HasSocDividers is false,
+        /// even if headers are identical.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_NotDetected_NoSocDividers()
+        {
+            var table = createTestTable(
+                new[] { "Same Header", "Same Header", "Same Header" },
+                new List<string?[]>
+                {
+                    new[] { null, "Dose", "Cmax (mcg/mL)" },
+                    new[] { "Group A (n=5)", "1 g", "25.3 (±7.99)" }
+                },
+                parentSectionCode: "34090-1");
+
+            table.HasInferredHeader = true;
+            table.HasSocDividers = false; // Explicitly false
+
+            Assert.IsFalse(PkTableParser.detectCompoundHeaderLayout(table));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Compound layout produces correct ParameterName values from sub-header row.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_ParsesParameterNames()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            var paramNames = results.Select(r => r.ParameterName).Distinct().OrderBy(n => n).ToList();
+            CollectionAssert.AreEqual(
+                new[] { "AUC", "Cmax", "Tmax" },
+                paramNames);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// ParameterCategory = "Renal Impairment" for rows from first section
+        /// (before SocDivider).
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_ParsesCategory()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            var renalRows = results.Where(r =>
+                r.TreatmentArm != null &&
+                r.TreatmentArm.Contains("Renal", StringComparison.OrdinalIgnoreCase)).ToList();
+
+            Assert.IsTrue(renalRows.Count > 0, "Should have renal rows");
+            Assert.IsTrue(renalRows.All(r => r.ParameterCategory == "Renal Impairment"),
+                $"Expected 'Renal Impairment', got '{renalRows.FirstOrDefault()?.ParameterCategory}'");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// After SocDivider, ParameterCategory resets to "Hepatic Impairment".
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_SocDividerResetsCategory()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            var hepaticRows = results.Where(r =>
+                r.TreatmentArm != null &&
+                (r.TreatmentArm.Contains("Cirrhosis", StringComparison.OrdinalIgnoreCase) ||
+                 (r.TreatmentArm.Contains("Volunteers", StringComparison.OrdinalIgnoreCase) &&
+                  r.ParameterCategory == "Hepatic Impairment"))).ToList();
+
+            Assert.IsTrue(hepaticRows.Count > 0, "Should have hepatic rows");
+            Assert.IsTrue(hepaticRows.All(r => r.ParameterCategory == "Hepatic Impairment"),
+                $"Expected 'Hepatic Impairment', got '{hepaticRows.FirstOrDefault()?.ParameterCategory}'");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// After SocDivider, sub-header refresh produces different ParameterSubtype:
+        /// AUC(0-48h) in hepatic section vs AUC(0-96h) in renal section.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_SocDividerRefreshesParams()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // Renal section AUC should have subtype "AUC(0-96h)"
+            var renalAuc = results.FirstOrDefault(r =>
+                r.ParameterName == "AUC" && r.ParameterCategory == "Renal Impairment");
+            Assert.IsNotNull(renalAuc, "Should have a renal AUC observation");
+            Assert.AreEqual("AUC(0-96h)", renalAuc.ParameterSubtype);
+
+            // Hepatic section AUC should have subtype "AUC(0-48h)"
+            var hepaticAuc = results.FirstOrDefault(r =>
+                r.ParameterName == "AUC" && r.ParameterCategory == "Hepatic Impairment");
+            Assert.IsNotNull(hepaticAuc, "Should have a hepatic AUC observation");
+            Assert.AreEqual("AUC(0-48h)", hepaticAuc.ParameterSubtype);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Column 0 row labels map to TreatmentArm (not DoseRegimen).
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_RowLabelToTreatmentArm()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // All observations should have TreatmentArm populated
+            Assert.IsTrue(results.All(r => !string.IsNullOrWhiteSpace(r.TreatmentArm)),
+                "All observations should have TreatmentArm");
+
+            // Check specific arm labels
+            var armLabels = results.Select(r => r.TreatmentArm).Distinct().ToList();
+            Assert.IsTrue(armLabels.Any(a => a!.Contains("Healthy Volunteers")));
+            Assert.IsTrue(armLabels.Any(a => a!.Contains("Alcoholic Cirrhosis")));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// ArmN extracted from "(n=X)" suffix in row labels.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_ArmNExtraction()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // Healthy Volunteers (n=6)
+            var healthyRenal = results.First(r =>
+                r.TreatmentArm!.Contains("Healthy Volunteers") &&
+                r.ParameterCategory == "Renal Impairment");
+            Assert.AreEqual(6, healthyRenal.ArmN);
+
+            // Severe Renal Impairment (n=7)
+            var severe = results.First(r =>
+                r.TreatmentArm!.Contains("Severe"));
+            Assert.AreEqual(7, severe.ArmN);
+
+            // Alcoholic Cirrhosis (n=18)
+            var cirrhosis = results.First(r =>
+                r.TreatmentArm!.Contains("Cirrhosis"));
+            Assert.AreEqual(18, cirrhosis.ArmN);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// DoseRegimen = "1 g" from the Dose column (not from col 0 row labels).
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_DoseFromDoseColumn()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.IsTrue(results.All(r => r.DoseRegimen == "1 g"),
+                $"Expected DoseRegimen '1 g', got '{results.FirstOrDefault()?.DoseRegimen}'");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Unit correctly extracted from sub-header parentheticals:
+        /// "h" from "Tmax (h)", "mcg/mL" from "Cmax (mcg/mL)", "mcgh/mL" from "AUC(0-96h)(mcgh/mL)".
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_UnitExtraction()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            var tmaxObs = results.First(r => r.ParameterName == "Tmax");
+            Assert.AreEqual("h", tmaxObs.Unit);
+
+            var cmaxObs = results.First(r => r.ParameterName == "Cmax");
+            Assert.AreEqual("mcg/mL", cmaxObs.Unit);
+
+            var aucObs = results.First(r => r.ParameterName == "AUC");
+            Assert.AreEqual("mcgh/mL", aucObs.Unit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Compound header produces ParameterSubtype only for compound headers (AUC),
+        /// not for simple headers (Tmax, Cmax).
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_CompoundSubtype()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // Tmax and Cmax should have null subtype
+            var tmaxObs = results.First(r => r.ParameterName == "Tmax");
+            Assert.IsNull(tmaxObs.ParameterSubtype);
+
+            var cmaxObs = results.First(r => r.ParameterName == "Cmax");
+            Assert.IsNull(cmaxObs.ParameterSubtype);
+
+            // AUC should have subtype
+            Assert.IsTrue(results.Where(r => r.ParameterName == "AUC")
+                .All(r => r.ParameterSubtype != null));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Full compound table produces exactly 18 observations:
+        /// 4 renal arms × 3 params + 2 hepatic arms × 3 params = 18.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_CorrectObservationCount()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(18, results.Count,
+                $"Expected 18 observations, got {results.Count}");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// SocDivider rows do NOT produce observation rows.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_NoSocDividerObservations()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // No observation should have the SocDivider text as its TreatmentArm or ParameterName
+            Assert.IsFalse(results.Any(r =>
+                r.TreatmentArm?.Contains("Pharmacokinetic Parameters") == true ||
+                r.ParameterName?.Contains("Pharmacokinetic") == true));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tmax with unit "h" is detected as time measurement: Time and TimeUnit populated.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CompoundHeader_TimeParamDetected()
+        {
+            var table = createCompoundPkTable();
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            var tmaxObs = results.First(r =>
+                r.ParameterName == "Tmax" &&
+                r.TreatmentArm!.Contains("Healthy Volunteers") &&
+                r.ParameterCategory == "Renal Impairment");
+
+            Assert.AreEqual(0.75, tmaxObs.Time);
+            Assert.AreEqual("hours", tmaxObs.TimeUnit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// parseCompoundParameterHeader correctly handles compound AUC headers.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_ParseCompoundParameterHeader_CompoundAuc()
+        {
+            var (name, unit, subtype) = PkTableParser.parseCompoundParameterHeader("AUC(0-96h)(mcgh/mL)");
+            Assert.AreEqual("AUC", name);
+            Assert.AreEqual("mcgh/mL", unit);
+            Assert.AreEqual("AUC(0-96h)", subtype);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// parseCompoundParameterHeader correctly handles simple single-parenthetical headers.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_ParseCompoundParameterHeader_Simple()
+        {
+            var (name, unit, subtype) = PkTableParser.parseCompoundParameterHeader("Cmax (mcg/mL)");
+            Assert.AreEqual("Cmax", name);
+            Assert.AreEqual("mcg/mL", unit);
+            Assert.IsNull(subtype);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// parseCompoundParameterHeader correctly handles headers with no parentheticals.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_ParseCompoundParameterHeader_NoUnit()
+        {
+            var (name, unit, subtype) = PkTableParser.parseCompoundParameterHeader("Dose");
+            Assert.AreEqual("Dose", name);
+            Assert.IsNull(unit);
+            Assert.IsNull(subtype);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// extractArmNFromLabel extracts sample size from "(n=X)" suffix.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_ExtractArmNFromLabel_WithN()
+        {
+            Assert.AreEqual(6, PkTableParser.extractArmNFromLabel("Healthy Volunteers (n=6)"));
+            Assert.AreEqual(18, PkTableParser.extractArmNFromLabel("Alcoholic Cirrhosis (n=18)"));
+            Assert.AreEqual(7, PkTableParser.extractArmNFromLabel("Severe Renal Impairment GFR less than 25 mL/min/1.73 m (n=7)"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// extractArmNFromLabel returns null when no "(n=X)" suffix is present.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_ExtractArmNFromLabel_WithoutN()
+        {
+            Assert.IsNull(PkTableParser.extractArmNFromLabel("Healthy Volunteers"));
+            Assert.IsNull(PkTableParser.extractArmNFromLabel("Severe Renal Impairment GFR less than 25 mL/min/1.73 m"));
+            Assert.IsNull(PkTableParser.extractArmNFromLabel(null));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Existing basic PK test still passes — backward compatibility.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_BasicTable_StillWorks()
+        {
+            var table = createTestTable(
+                new[] { "Dose", "Cmax (mcg/mL)", "AUC (mcg·h/mL)", "t½ (hours)" },
+                new List<string?[]>
+                {
+                    new[] { "50 mg oral", "0.29 (35%)", "1.2 (28%)", "30" },
+                    new[] { "100 mg oral", "0.58 (32%)", "2.4 (25%)", "31" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(6, results.Count);
+            Assert.IsTrue(results.All(r => r.TableCategory == "PK"));
+
+            var cmax50 = results.First(r => r.DoseRegimen == "50 mg oral" && r.ParameterName == "Cmax");
+            Assert.AreEqual("mcg/mL", cmax50.Unit);
+            Assert.AreEqual("Mean", cmax50.PrimaryValueType);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Existing unit extraction test still passes — backward compatibility.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_ExtractsUnitFromHeader_StillWorks()
+        {
+            var table = createTestTable(
+                new[] { "Dose", "Cmax (mcg/mL)" },
+                new List<string?[]> { new[] { "50 mg", "0.29 (35%)" } },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("mcg/mL", results[0].Unit);
+        }
+
+        #endregion PkTableParser Compound Layout Tests
+
         #region SimpleArmTableParser Tests
 
         /**************************************************************/
