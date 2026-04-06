@@ -167,7 +167,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return new ParsedValue
                 {
                     IsExcluded = true,
-                    ParseConfidence = 0.8,
+                    ParseConfidence = ParsedValue.ConfidenceTier.KnownExclusion,
                     ParseRule = "empty_or_na"
                 };
             }
@@ -239,7 +239,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 PrimaryValueType = "Text",
                 TextValue = text,
-                ParseConfidence = 0.5,
+                ParseConfidence = ParsedValue.ConfidenceTier.TextFallback,
                 ParseRule = "text_descriptive"
             };
 
@@ -371,7 +371,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 result = new ParsedValue
                 {
                     IsExcluded = true,
-                    ParseConfidence = 0.8,
+                    ParseConfidence = ParsedValue.ConfidenceTier.KnownExclusion,
                     ParseRule = "empty_or_na"
                 };
                 return true;
@@ -400,7 +400,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     PrimaryValueType = "CodedExclusion",
                     TextValue = text,
                     IsExcluded = true,
-                    ParseConfidence = 1.0,
+                    ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                     ParseRule = "letter_code"
                 };
                 return true;
@@ -442,7 +442,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 SecondaryValue = numerator,
                 SecondaryValueType = "Count",
                 Unit = "%",
-                ParseConfidence = 1.0,
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "frac_pct",
                 ValidationFlags = flag
             };
@@ -485,7 +485,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 SecondaryValue = count,
                 SecondaryValueType = "Count",
                 Unit = "%",
-                ParseConfidence = 1.0,
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "n_pct",
                 ValidationFlags = flag
             };
@@ -516,7 +516,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 UpperBound = double.Parse(match.Groups[3].Value),
                 BoundType = "95CI",
                 Unit = "%",
-                ParseConfidence = 1.0,
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "rr_ci"
             };
             return true;
@@ -546,7 +546,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 UpperBound = double.Parse(match.Groups[3].Value),
                 BoundType = "95CI",
                 Unit = "pp",
-                ParseConfidence = 1.0,
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "diff_ci"
             };
             return true;
@@ -604,7 +604,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 LowerBound = lower,
                 UpperBound = upper,
                 BoundType = "CI",
-                ParseConfidence = 0.95,
+                ParseConfidence = ParsedValue.ConfidenceTier.ValidatedMatch,
                 ParseRule = "value_ci"
             };
             return true;
@@ -652,7 +652,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 LowerBound = primary - tolerance,
                 UpperBound = primary + tolerance,
                 BoundType = "SD",
-                ParseConfidence = 0.95,
+                ParseConfidence = ParsedValue.ConfidenceTier.ValidatedMatch,
                 ParseRule = "value_plusminus"
             };
             return true;
@@ -708,7 +708,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 UpperBound = primary + tolerance,
                 BoundType = null,            // Resolved downstream alongside SecondaryValueType
                 SampleSize = sampleSize,
-                ParseConfidence = 0.95,
+                ParseConfidence = ParsedValue.ConfidenceTier.ValidatedMatch,
                 ParseRule = "value_plusminus_sample"
             };
             return true;
@@ -736,7 +736,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 PrimaryValueType = "Mean",
                 SecondaryValue = double.Parse(match.Groups[2].Value),
                 SecondaryValueType = "CV_Percent",
-                ParseConfidence = 1.0,
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "value_cv"
             };
             return true;
@@ -763,7 +763,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 LowerBound = double.Parse(match.Groups[1].Value),
                 UpperBound = double.Parse(match.Groups[2].Value),
                 BoundType = "Range",
-                ParseConfidence = 0.9,
+                ParseConfidence = ParsedValue.ConfidenceTier.AmbiguousMatch,
                 ParseRule = "range_to"
             };
             return true;
@@ -790,7 +790,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 PrimaryValue = double.Parse(match.Groups[1].Value),
                 PrimaryValueType = "Percentage",
                 Unit = "%",
-                ParseConfidence = 1.0,
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "percentage"
             };
             return true;
@@ -816,7 +816,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 PrimaryValue = int.Parse(match.Groups[1].Value.Replace(",", "")),
                 PrimaryValueType = "SampleSize",
-                ParseConfidence = 1.0,
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "n_equals"
             };
             return true;
@@ -847,7 +847,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 PrimaryValueType = "PValue",
                 PValue = pval,
                 PValueQualifier = match.Groups[1].Value,
-                ParseConfidence = 1.0,
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "pvalue"
             };
             return true;
@@ -876,7 +876,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 PrimaryValue = val,
                 PrimaryValueType = "Numeric",
-                ParseConfidence = 0.9,
+                ParseConfidence = ParsedValue.ConfidenceTier.AmbiguousMatch,
                 ParseRule = "plain_number"
             };
             return true;

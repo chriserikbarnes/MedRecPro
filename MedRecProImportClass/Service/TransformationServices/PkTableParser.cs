@@ -336,7 +336,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (param.isSampleSize && parsed.PrimaryValueType == "Numeric")
             {
                 parsed.PrimaryValueType = "Count";
-                parsed.ParseConfidence = 0.90;
+                parsed.ParseConfidence *= ParsedValue.ConfidenceAdjustment.PositionalSampleSize;
             }
 
             // Caption-based type inference (e.g., "Mean (SD)" reinterprets n_pct → mean_sd)
@@ -351,7 +351,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 parsed.PrimaryValueType = "Mean";
                 // Reduce confidence — fallback without caption confirmation
-                parsed.ParseConfidence = parsed.ParseConfidence * 0.8;
+                parsed.ParseConfidence *= ParsedValue.ConfidenceAdjustment.UncaptionedTypePromotion;
             }
 
             applyParsedValue(o, parsed);

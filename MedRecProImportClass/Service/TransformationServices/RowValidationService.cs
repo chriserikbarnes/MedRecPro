@@ -15,7 +15,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// 3. PrimaryValueType appropriateness → Warning
     /// 4. ArmN required with TreatmentArm → Warning
     /// 5. Bound consistency — LowerBound > UpperBound → Error
-    /// 6. Low confidence — ParseConfidence &lt; 0.5 → Warning
+    /// 6. Low confidence — ParseConfidence &lt; <see cref="ParsedValue.ConfidenceThreshold.LowConfidence"/> → Warning
     ///
     /// ## Flag Coexistence
     /// Appends new flags to <see cref="ParsedObservation.ValidationFlags"/> using semicolon
@@ -223,7 +223,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             // Check 6: Low confidence (raw ParseConfidence)
-            if (observation.ParseConfidence.HasValue && observation.ParseConfidence.Value < 0.5)
+            if (observation.ParseConfidence.HasValue && observation.ParseConfidence.Value < ParsedValue.ConfidenceThreshold.LowConfidence)
             {
                 result.Issues.Add($"LOW_CONFIDENCE:{observation.ParseConfidence:F2}");
                 newFlags.Add("LOW_CONFIDENCE");

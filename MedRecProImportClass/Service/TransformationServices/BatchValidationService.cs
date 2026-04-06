@@ -296,27 +296,27 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // ParseConfidence 5-band distribution
             report.VeryHighConfidenceCount = observations
-                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= 0.95);
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= ParsedValue.ConfidenceThreshold.BandVeryHigh);
             report.HighConfidenceCount = observations
-                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= 0.80 && o.ParseConfidence.Value < 0.95);
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= ParsedValue.ConfidenceThreshold.BandHigh && o.ParseConfidence.Value < ParsedValue.ConfidenceThreshold.BandVeryHigh);
             report.MediumConfidenceCount = observations
-                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= 0.60 && o.ParseConfidence.Value < 0.80);
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= ParsedValue.ConfidenceThreshold.BandMedium && o.ParseConfidence.Value < ParsedValue.ConfidenceThreshold.BandHigh);
             report.LowConfidenceCount = observations
-                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= 0.40 && o.ParseConfidence.Value < 0.60);
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value >= ParsedValue.ConfidenceThreshold.BandLow && o.ParseConfidence.Value < ParsedValue.ConfidenceThreshold.BandMedium);
             report.VeryLowConfidenceCount = observations
-                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value < 0.40);
+                .Count(o => o.ParseConfidence.HasValue && o.ParseConfidence.Value < ParsedValue.ConfidenceThreshold.BandLow);
 
             // AdjustedConfidence 5-band distribution
             report.AdjustedVeryHighCount = observations
-                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= 0.95);
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= ParsedValue.ConfidenceThreshold.BandVeryHigh);
             report.AdjustedHighCount = observations
-                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= 0.80 && o.AdjustedConfidence.Value < 0.95);
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= ParsedValue.ConfidenceThreshold.BandHigh && o.AdjustedConfidence.Value < ParsedValue.ConfidenceThreshold.BandVeryHigh);
             report.AdjustedMediumCount = observations
-                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= 0.60 && o.AdjustedConfidence.Value < 0.80);
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= ParsedValue.ConfidenceThreshold.BandMedium && o.AdjustedConfidence.Value < ParsedValue.ConfidenceThreshold.BandHigh);
             report.AdjustedLowCount = observations
-                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= 0.40 && o.AdjustedConfidence.Value < 0.60);
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value >= ParsedValue.ConfidenceThreshold.BandLow && o.AdjustedConfidence.Value < ParsedValue.ConfidenceThreshold.BandMedium);
             report.AdjustedVeryLowCount = observations
-                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value < 0.40);
+                .Count(o => o.AdjustedConfidence.HasValue && o.AdjustedConfidence.Value < ParsedValue.ConfidenceThreshold.BandLow);
 
             // Average field completeness from row validation results
             if (rowResults != null && rowResults.Count > 0)

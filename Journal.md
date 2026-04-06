@@ -1647,3 +1647,20 @@ Added a third layout path to `PkTableParser` for compound/nested PK tables — t
 **Files modified:** `PkTableParser.cs` (+3 regex fields, +8 methods, +1 branch in Parse()), `TableParserTests.cs` (+22 tests: 15 compound integration, 5 utility unit tests, 2 backward compat). **61/61 TableParserTests pass.**
 
 ---
+
+### 2026-04-06 3:59 PM EST — ParseConfidence: Evaluation & Named Constants Refactor
+
+Evaluated whether `ParsedValue.ParseConfidence` should be replaced with a statistically-grounded approach. **Conclusion: the heuristic approach is fundamentally sound** — the values are an ordinal ambiguity ranking (not calibrated probabilities), logically justified by pattern specificity, and serve as the bootstrap signal for the downstream ML.NET system. A statistical alternative would converge to the same values for unambiguous patterns and create a circular dependency with the ML pipeline it feeds.
+
+**What was wrong was readability, not logic.** Replaced all inline magic numbers with named constants across 6 files:
+
+- **`ParsedValue.cs`**: Added three nested static classes — `ConfidenceTier` (5 tier constants: Unambiguous=1.0, ValidatedMatch=0.95, AmbiguousMatch=0.9, KnownExclusion=0.8, TextFallback=0.5), `ConfidenceAdjustment` (3 multiplier constants for caption hints, type promotion, positional detection), and `ConfidenceThreshold` (5 consumer decision thresholds for LOW_CONFIDENCE flagging and 5-band reporting).
+- **`ValueParser.cs`**: Replaced all 15 inline confidence literals with `ConfidenceTier.*` constants.
+- **`PkTableParser.cs`**: Replaced 2 inline literals. **Fixed overwrite→multiply bug** — line 339 was `= 0.90` (overwriting), changed to `*= PositionalSampleSize` for compositional consistency with every other adjustment in the pipeline.
+- **`BaseTableParser.cs`**: Replaced 5 `ConfidenceAdjustment = 0.85` literals with `AmbiguousCaptionHint` constant.
+- **`RowValidationService.cs`**: Replaced hardcoded `< 0.5` threshold with `ConfidenceThreshold.LowConfidence`.
+- **`BatchValidationService.cs`**: Replaced 10 histogram band boundaries with `ConfidenceThreshold.Band*` constants.
+
+**998/998 tests pass.** One behavioral change: PK sample-size column confidence is now multiplicative (0.9 × 0.9 = 0.81) instead of overwritten to 0.90.
+
+---

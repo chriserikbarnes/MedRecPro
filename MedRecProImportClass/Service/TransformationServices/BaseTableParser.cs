@@ -43,7 +43,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <remarks>
         /// ## Confidence Adjustment
         /// - 1.0 = exact match (caption explicitly states the format)
-        /// - 0.85 = bare match (caption says "Mean" but no parenthetical for secondary type)
+        /// - <see cref="ParsedValue.ConfidenceAdjustment.AmbiguousCaptionHint"/> = bare match (caption says "Mean" but no parenthetical for secondary type)
         /// - Parsers apply this as a multiplier to <see cref="ParsedValue.ParseConfidence"/>
         /// </remarks>
         /// <seealso cref="detectCaptionValueHint"/>
@@ -131,7 +131,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Geometric Mean bare (no parenthetical)
             (new Regex(@"Geometric\s+Mean", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-                new CaptionValueHint { PrimaryValueType = "GeometricMean", SecondaryValueType = null, ConfidenceAdjustment = 0.85, Source = "caption:GeometricMean" }),
+                new CaptionValueHint { PrimaryValueType = "GeometricMean", SecondaryValueType = null, ConfidenceAdjustment = ParsedValue.ConfidenceAdjustment.AmbiguousCaptionHint, Source = "caption:GeometricMean" }),
 
             // LS Mean / Least Squares Mean with SE/SD
             (new Regex(@"(?:LS\s*Mean|Least[\s-]*Squares?\s*Mean)\s*\(\s*(?:SE|Standard\s*Error)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
@@ -142,7 +142,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // LS Mean bare
             (new Regex(@"(?:LS\s*Mean|Least[\s-]*Squares?\s*Mean)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-                new CaptionValueHint { PrimaryValueType = "LSMean", SecondaryValueType = null, ConfidenceAdjustment = 0.85, Source = "caption:LSMean" }),
+                new CaptionValueHint { PrimaryValueType = "LSMean", SecondaryValueType = null, ConfidenceAdjustment = ParsedValue.ConfidenceAdjustment.AmbiguousCaptionHint, Source = "caption:LSMean" }),
 
             // Median (Range) / Median (Min, Max)
             (new Regex(@"Median\s*\(\s*(?:Range|Min\s*[,;]\s*Max)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
@@ -166,7 +166,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Bare "Mean ratio" — after specific CI patterns
             (new Regex(@"(?:Geometric\s+)?Mean\s+[Rr]atio", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-                new CaptionValueHint { PrimaryValueType = "Ratio", BoundType = null, ConfidenceAdjustment = 0.85, Source = "caption:Ratio" }),
+                new CaptionValueHint { PrimaryValueType = "Ratio", BoundType = null, ConfidenceAdjustment = ParsedValue.ConfidenceAdjustment.AmbiguousCaptionHint, Source = "caption:Ratio" }),
 
             // Generic 90% CI (no value type specified)
             (new Regex(@"90\s*%\s*CI\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
@@ -178,11 +178,11 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Bare Mean (no parenthetical) — must come after all Mean+parenthetical patterns
             (new Regex(@"(?<!\w)Mean(?!\s*\()", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-                new CaptionValueHint { PrimaryValueType = "Mean", SecondaryValueType = null, ConfidenceAdjustment = 0.85, Source = "caption:Mean" }),
+                new CaptionValueHint { PrimaryValueType = "Mean", SecondaryValueType = null, ConfidenceAdjustment = ParsedValue.ConfidenceAdjustment.AmbiguousCaptionHint, Source = "caption:Mean" }),
 
             // Bare Median (no parenthetical) — must come after all Median+parenthetical patterns
             (new Regex(@"(?<!\w)Median(?!\s*\()", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-                new CaptionValueHint { PrimaryValueType = "Median", SecondaryValueType = null, ConfidenceAdjustment = 0.85, Source = "caption:Median" }),
+                new CaptionValueHint { PrimaryValueType = "Median", SecondaryValueType = null, ConfidenceAdjustment = ParsedValue.ConfidenceAdjustment.AmbiguousCaptionHint, Source = "caption:Median" }),
         };
 
         #endregion Caption Hint Dictionary (Compiled Patterns)

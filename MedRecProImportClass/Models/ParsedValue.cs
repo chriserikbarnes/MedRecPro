@@ -138,14 +138,124 @@ namespace MedRecProImportClass.Models
 
         #endregion Metadata Properties
 
+        #region Confidence Constants
+
+        /**************************************************************/
+        /// <summary>
+        /// Named confidence tiers assigned by <see cref="ValueParser"/> based on pattern specificity.
+        /// These are ordinal ambiguity rankings, not calibrated probabilities.
+        /// The 16 parse patterns map to exactly 5 tiers; downstream adjustments
+        /// multiply against these baselines (never overwrite).
+        /// </summary>
+        /// <seealso cref="ConfidenceAdjustment"/>
+        public static class ConfidenceTier
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Structurally deterministic — only one interpretation possible.
+            /// Assigned to: n/d(%), n(%), RR+CI, Diff+CI, Value(CV%), standalone %, n=, p-value.
+            /// </summary>
+            public const double Unambiguous = 1.0;
+
+            /**************************************************************/
+            /// <summary>
+            /// Structural match requiring validation logic (e.g., lower bound &lt; upper bound).
+            /// Assigned to: Value+CI, Value±SD, Value(±X)(n=N).
+            /// </summary>
+            public const double ValidatedMatch = 0.95;
+
+            /**************************************************************/
+            /// <summary>
+            /// Regex matched but semantic type unknown without context.
+            /// Assigned to: Range, plain number.
+            /// </summary>
+            public const double AmbiguousMatch = 0.9;
+
+            /**************************************************************/
+            /// <summary>
+            /// Recognized non-data pattern (empty, NA, dash).
+            /// </summary>
+            public const double KnownExclusion = 0.8;
+
+            /**************************************************************/
+            /// <summary>
+            /// No pattern matched — unstructured text fallback.
+            /// </summary>
+            public const double TextFallback = 0.5;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Named confidence adjustment multipliers applied when downstream parsers
+        /// modify the initial <see cref="ConfidenceTier"/> value. These are always
+        /// multiplied against the existing confidence, never assigned directly.
+        /// </summary>
+        /// <seealso cref="ConfidenceTier"/>
+        public static class ConfidenceAdjustment
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Caption hint provides ambiguous type context (e.g., bare "Mean" without parenthetical).
+            /// </summary>
+            public const double AmbiguousCaptionHint = 0.85;
+
+            /**************************************************************/
+            /// <summary>
+            /// Bare Numeric promoted to Mean without caption confirmation (PK fallback).
+            /// </summary>
+            public const double UncaptionedTypePromotion = 0.8;
+
+            /**************************************************************/
+            /// <summary>
+            /// PK sample-size column detected by position, not caption.
+            /// </summary>
+            public const double PositionalSampleSize = 0.9;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Named thresholds used by downstream consumers to make decisions based on
+        /// <see cref="ParseConfidence"/> values.
+        /// </summary>
+        public static class ConfidenceThreshold
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Below this value, observations are flagged LOW_CONFIDENCE (Warning severity).
+            /// Used by RowValidationService.
+            /// </summary>
+            public const double LowConfidence = 0.5;
+
+            /**************************************************************/
+            /// <summary>Reporting band boundary: VeryHigh ≥ 0.95.</summary>
+            public const double BandVeryHigh = 0.95;
+
+            /**************************************************************/
+            /// <summary>Reporting band boundary: High ≥ 0.80.</summary>
+            public const double BandHigh = 0.80;
+
+            /**************************************************************/
+            /// <summary>Reporting band boundary: Medium ≥ 0.60.</summary>
+            public const double BandMedium = 0.60;
+
+            /**************************************************************/
+            /// <summary>Reporting band boundary: Low ≥ 0.40.</summary>
+            public const double BandLow = 0.40;
+        }
+
+        #endregion Confidence Constants
+
         #region Validation Properties
 
         /**************************************************************/
         /// <summary>
-        /// Parse confidence score from 0.0 to 1.0.
-        /// High (≥0.9): deterministic regex match. Medium (0.5–0.9): plain numbers/ranges.
-        /// Low (&lt;0.5): unparsed text.
+        /// Parse confidence score from 0.0 to 1.0 based on the <see cref="ConfidenceTier"/> system.
+        /// Assigned by <see cref="ValueParser"/> at parse time, then adjusted multiplicatively
+        /// by downstream parsers using <see cref="ConfidenceAdjustment"/> factors.
         /// </summary>
+        /// <seealso cref="ConfidenceTier"/>
+        /// <seealso cref="ConfidenceAdjustment"/>
+        /// <seealso cref="ConfidenceThreshold"/>
         public double ParseConfidence { get; set; }
 
         /**************************************************************/
