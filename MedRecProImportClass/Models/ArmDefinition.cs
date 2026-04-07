@@ -83,5 +83,24 @@ namespace MedRecProImportClass.Models
         /// </summary>
         /// <seealso cref="ParsedObservation"/>
         public string? DoseRegimen { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Numeric dose value extracted from <see cref="DoseRegimen"/> via <see cref="DoseExtractor"/>.
+        /// 0.0 for placebo arms (inherited from comparator arms in the same table).
+        /// Null when no dose is recoverable (e.g., abbreviation-only arms like "PGB").
+        /// </summary>
+        /// <seealso cref="DoseUnit"/>
+        /// <seealso cref="DoseRegimen"/>
+        public decimal? Dose { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Measurement unit for <see cref="Dose"/>, normalized (e.g., "mg", "mg/d", "mg/kg", "mcg/d").
+        /// Inherited from comparator arms for placebo. Null when no dose is recoverable.
+        /// </summary>
+        /// <seealso cref="Dose"/>
+        /// <seealso cref="DoseRegimen"/>
+        public string? DoseUnit { get; set; }
     }
 }

@@ -945,6 +945,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     case "dose":
                         arms[i].DoseRegimen = text;
+                        var (dose, doseUnit) = DoseExtractor.Extract(text);
+                        arms[i].Dose = dose;
+                        arms[i].DoseUnit = doseUnit;
                         break;
 
                     case "n_equals":

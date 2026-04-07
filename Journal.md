@@ -1664,3 +1664,24 @@ Evaluated whether `ParsedValue.ParseConfidence` should be replaced with a statis
 **998/998 tests pass.** One behavioral change: PK sample-size column confidence is now multiplicative (0.9 × 0.9 = 0.81) instead of overwritten to 0.90.
 
 ---
+
+### 2026-04-07 2:42 PM EST — Add Dose and DoseUnit Columns to SPL Table Parsing Pipeline
+
+Added two new structured columns (`Dose DECIMAL(18,6)`, `DoseUnit NVARCHAR(50)`) to the `tmp_FlattenedStandardizedTable` and the full parsing/normalization pipeline. Previously, dose information was scattered as free text across `DoseRegimen`, `TreatmentArm`, `ParameterName`, `StudyContext`, and `ParameterSubtype` with no structured decomposition. The new columns enable numeric dose queries, dose-response analysis, and cross-label comparison.
+
+**New utility — `DoseExtractor.cs`**: Static class with four methods shared across BaseTableParser, ColumnStandardizationService, and MlNetCorrectionService:
+- `Extract()` — regex-based extraction with range handling (take max), frequency promotion (mg + "Once Daily" -> mg/d), footnote stripping
+- `NormalizeUnit()` — mg/day->mg/d, mcg/day->mcg/d, micro->mcg, idempotent
+- `BackfillPlaceboArms()` — sets Dose=0.0 with majority DoseUnit from non-placebo arms in same TextTableID
+- `ScanAllColumnsForDose()` — scans all text columns (DoseRegimen, TreatmentArm, ParameterName, ParameterSubtype, StudyContext) for misplaced dose patterns, modeled after the existing `normalizeInlineNValues` multi-column scan
+
+**Key decisions:**
+- DECIMAL(18,6) over FLOAT for exact prescribed quantity representation
+- Multi-column scan runs as last Phase 2 sub-pass so all column movements settle first
+- HasDose binary feature added to ML.NET Stage 2 DoseRegimen routing classifier as a "Keep" discriminator
+- Range/titration -> max dose (10-20 mg -> Dose=20, most clinically relevant for comparison)
+- DoseRegimen routing in both ColumnStandardizationService and MlNetCorrectionService clears Dose/DoseUnit when content is routed away
+
+**Files modified (17):** SQL DDL, 6 model files (ArmDefinition, ParsedObservation, LabelView x2, FlattenedStandardizedTableDto, MlTrainingRecord), MlNetDataModels, DoseExtractor (new), BaseTableParser, 4 parsers (SimpleArm, AeWithSoc, MultilevelAe, PkTableParser), TableParsingOrchestrator, ColumnStandardizationService, MlNetCorrectionService, ClaudeApiCorrectionService, BatchValidationService, column-contracts.md. Both projects build with 0 errors.
+
+---

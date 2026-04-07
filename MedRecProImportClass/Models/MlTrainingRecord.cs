@@ -2,7 +2,7 @@ namespace MedRecProImportClass.Models
 {
     /**************************************************************/
     /// <summary>
-    /// Compact 19-field serializable DTO containing only the fields consumed by the 4 ML training
+    /// Compact 21-field serializable DTO containing only the fields consumed by the 4 ML training
     /// methods in <see cref="MedRecProImportClass.Service.TransformationServices.MlNetCorrectionService"/>.
     /// Omits all provenance, raw value, and audit fields from <see cref="ParsedObservation"/> to
     /// minimize serialized size (~100 bytes per record with <c>WhenWritingNull</c>).
@@ -10,7 +10,7 @@ namespace MedRecProImportClass.Models
     /// <remarks>
     /// ## Field Mapping by Training Stage
     /// - **Stage 1 (TableCategory)**: Caption, SectionTitle, ParentSectionCode, ParseRule, TableCategory
-    /// - **Stage 2 (DoseRegimen Routing)**: DoseRegimen, TableCategory, Caption, ParameterName, ValidationFlags
+    /// - **Stage 2 (DoseRegimen Routing)**: DoseRegimen, Dose, DoseUnit, TableCategory, Caption, ParameterName, ValidationFlags
     /// - **Stage 3 (PrimaryValueType)**: Unit, TableCategory, ParseRule, Caption, HasLowerBound, HasUpperBound, PrimaryValueType
     /// - **Stage 4 (Anomaly Detection)**: PrimaryValue, SecondaryValue, LowerBound, UpperBound, PValue, ParseConfidence
     ///
@@ -54,6 +54,14 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>DoseRegimen content — Stage 2 routing input and label synthesis source.</summary>
         public string? DoseRegimen { get; set; }
+
+        /**************************************************************/
+        /// <summary>Numeric dose value — Stage 2 routing discriminator (non-null signals actual dose content).</summary>
+        public decimal? Dose { get; set; }
+
+        /**************************************************************/
+        /// <summary>Normalized dose unit — Stage 2 context feature for dose-bearing DoseRegimen rows.</summary>
+        public string? DoseUnit { get; set; }
 
         /**************************************************************/
         /// <summary>Parameter name — Stage 2 routing context feature.</summary>
@@ -198,6 +206,8 @@ namespace MedRecProImportClass.Models
 
                 // Stage 2 features
                 DoseRegimen = obs.DoseRegimen,
+                Dose = obs.Dose,
+                DoseUnit = obs.DoseUnit,
                 ParameterName = obs.ParameterName,
                 ValidationFlags = obs.ValidationFlags,
 

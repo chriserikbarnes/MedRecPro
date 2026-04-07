@@ -1677,7 +1677,11 @@ namespace MedRecPro.Service.Test
             // Only the data row should produce observations (dose row consumed)
             Assert.AreEqual(2, results.Count);
             Assert.AreEqual("10 mg", results[0].DoseRegimen);
+            Assert.AreEqual(10m, results[0].Dose, "Dose extracted from enrichment row");
+            Assert.AreEqual("mg", results[0].DoseUnit);
             Assert.AreEqual("20 mg", results[1].DoseRegimen);
+            Assert.AreEqual(20m, results[1].Dose, "Dose extracted from enrichment row");
+            Assert.AreEqual("mg", results[1].DoseUnit);
 
             #endregion
         }

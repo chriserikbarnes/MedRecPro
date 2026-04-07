@@ -396,6 +396,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["ArmN"] = ColumnRequirement.Expected,
                 ["StudyContext"] = ColumnRequirement.Optional,
                 ["DoseRegimen"] = ColumnRequirement.Optional,
+                ["Dose"] = ColumnRequirement.Optional,
+                ["DoseUnit"] = ColumnRequirement.Optional,
                 ["Population"] = ColumnRequirement.Optional,
                 ["Timepoint"] = ColumnRequirement.NotApplicable,
                 ["Time"] = ColumnRequirement.NotApplicable,
@@ -412,6 +414,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["ArmN"] = ColumnRequirement.Optional,
                 ["StudyContext"] = ColumnRequirement.Optional,
                 ["DoseRegimen"] = ColumnRequirement.Expected,
+                ["Dose"] = ColumnRequirement.Expected,
+                ["DoseUnit"] = ColumnRequirement.Expected,
                 ["Population"] = ColumnRequirement.Optional,
                 ["Timepoint"] = ColumnRequirement.Optional,
                 ["Time"] = ColumnRequirement.Optional,
@@ -428,6 +432,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["ArmN"] = ColumnRequirement.Optional,
                 ["StudyContext"] = ColumnRequirement.Optional,
                 ["DoseRegimen"] = ColumnRequirement.Expected,
+                ["Dose"] = ColumnRequirement.Expected,
+                ["DoseUnit"] = ColumnRequirement.Expected,
                 ["Population"] = ColumnRequirement.Optional,
                 ["Timepoint"] = ColumnRequirement.NotApplicable,
                 ["Time"] = ColumnRequirement.NotApplicable,
@@ -444,6 +450,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["ArmN"] = ColumnRequirement.Expected,
                 ["StudyContext"] = ColumnRequirement.Optional,
                 ["DoseRegimen"] = ColumnRequirement.Optional,
+                ["Dose"] = ColumnRequirement.Optional,
+                ["DoseUnit"] = ColumnRequirement.Optional,
                 ["Population"] = ColumnRequirement.Optional,
                 ["Timepoint"] = ColumnRequirement.Optional,
                 ["Time"] = ColumnRequirement.Optional,
@@ -460,6 +468,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["ArmN"] = ColumnRequirement.NotApplicable,
                 ["StudyContext"] = ColumnRequirement.NotApplicable,
                 ["DoseRegimen"] = ColumnRequirement.Expected,
+                ["Dose"] = ColumnRequirement.Optional,
+                ["DoseUnit"] = ColumnRequirement.Optional,
                 ["Population"] = ColumnRequirement.Expected,
                 ["Timepoint"] = ColumnRequirement.Optional,
                 ["Time"] = ColumnRequirement.Optional,
@@ -476,6 +486,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["ArmN"] = ColumnRequirement.Expected,
                 ["StudyContext"] = ColumnRequirement.Optional,
                 ["DoseRegimen"] = ColumnRequirement.Optional,
+                ["Dose"] = ColumnRequirement.Optional,
+                ["DoseUnit"] = ColumnRequirement.Optional,
                 ["Population"] = ColumnRequirement.Optional,
                 ["Timepoint"] = ColumnRequirement.Expected,
                 ["Time"] = ColumnRequirement.Expected,
@@ -492,6 +504,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["ArmN"] = ColumnRequirement.Optional,
                 ["StudyContext"] = ColumnRequirement.NotApplicable,
                 ["DoseRegimen"] = ColumnRequirement.Expected,
+                ["Dose"] = ColumnRequirement.Expected,
+                ["DoseUnit"] = ColumnRequirement.Expected,
                 ["Population"] = ColumnRequirement.Optional,
                 ["Timepoint"] = ColumnRequirement.Expected,
                 ["Time"] = ColumnRequirement.Expected,
@@ -907,6 +921,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                 _logger.LogDebug("Column standardization applied {Count} corrections to {Total} observations",
                     correctionCount, observations.Count);
             }
+
+            // Batch-level pass: backfill placebo arms with Dose=0, DoseUnit inherited
+            // from non-placebo arms in the same table (requires all per-obs corrections complete)
+            DoseExtractor.BackfillPlaceboArms(observations);
 
             return observations;
 
@@ -1738,6 +1756,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (normalizeUnit(obs)) corrections++;
             if (normalizeParameterCategory(obs)) corrections++;
 
+            // Final sub-pass: scan all columns for misplaced dose patterns.
+            // Runs last so all column movements/cleanups have settled first.
+            if (DoseExtractor.ScanAllColumnsForDose(obs)) corrections++;
+
             return corrections;
 
             #endregion
@@ -1829,13 +1851,26 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrEmpty(obs.ParameterSubtype))
                     obs.ParameterSubtype = val;
                 obs.DoseRegimen = null;
+                obs.Dose = null;
+                obs.DoseUnit = null;
                 appendFlag(obs, "COL_STD:PK_SUBPARAM_ROUTED");
                 return true;
             }
 
-            // Priority 2: Actual dose regex → keep
+            // Priority 2: Actual dose regex → keep, but extract Dose/DoseUnit if missing
             if (_actualDosePattern.IsMatch(val))
+            {
+                if (!obs.Dose.HasValue)
+                {
+                    var (dose, doseUnit) = DoseExtractor.Extract(obs.DoseRegimen);
+                    if (dose.HasValue)
+                    {
+                        obs.Dose = dose;
+                        obs.DoseUnit = doseUnit;
+                    }
+                }
                 return false;
+            }
 
             // Priority 3: Drug name match AND category is PK or DDI → route to ParameterSubtype
             if (isDrugName(val) &&
@@ -1845,6 +1880,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrEmpty(obs.ParameterSubtype))
                     obs.ParameterSubtype = val;
                 obs.DoseRegimen = null;
+                obs.Dose = null;
+                obs.DoseUnit = null;
                 appendFlag(obs, "COL_STD:COADMIN_ROUTED");
                 return true;
             }
@@ -1855,6 +1892,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrEmpty(obs.Population))
                     obs.Population = val;
                 obs.DoseRegimen = null;
+                obs.Dose = null;
+                obs.DoseUnit = null;
                 appendFlag(obs, "COL_STD:POPULATION_EXTRACTED");
                 return true;
             }
@@ -1865,6 +1904,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrEmpty(obs.Timepoint))
                     obs.Timepoint = val;
                 obs.DoseRegimen = null;
+                obs.Dose = null;
+                obs.DoseUnit = null;
                 appendFlag(obs, "COL_STD:TIMEPOINT_EXTRACTED");
                 return true;
             }
@@ -1874,6 +1915,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 val.Equals("Coadministered Drug", StringComparison.OrdinalIgnoreCase))
             {
                 obs.DoseRegimen = null;
+                obs.Dose = null;
+                obs.DoseUnit = null;
                 appendFlag(obs, "COL_STD:ROW_TYPE=HEADER");
                 return true;
             }
@@ -2638,6 +2681,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 "ArmN" => obs.ArmN,
                 "StudyContext" => obs.StudyContext,
                 "DoseRegimen" => obs.DoseRegimen,
+                "Dose" => obs.Dose,
+                "DoseUnit" => obs.DoseUnit,
                 "Population" => obs.Population,
                 "Timepoint" => obs.Timepoint,
                 "Time" => obs.Time,
@@ -2667,6 +2712,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 case "ArmN": obs.ArmN = value as int?; break;
                 case "StudyContext": obs.StudyContext = value as string; break;
                 case "DoseRegimen": obs.DoseRegimen = value as string; break;
+                case "Dose": obs.Dose = value as decimal?; break;
+                case "DoseUnit": obs.DoseUnit = value as string; break;
                 case "Population": obs.Population = value as string; break;
                 case "Timepoint": obs.Timepoint = value as string; break;
                 case "Time": obs.Time = value as double?; break;

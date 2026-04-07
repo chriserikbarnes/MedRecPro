@@ -85,8 +85,8 @@ namespace MedRecProImportClass.Service.TransformationServices
     ///
     /// ## Correctable Fields
     /// ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen,
-    /// Population, Unit, ParameterCategory, ParameterSubtype, Timepoint, TimeUnit,
-    /// StudyContext, BoundType.
+    /// Dose, DoseUnit, Population, Unit, ParameterCategory, ParameterSubtype, Timepoint,
+    /// TimeUnit, StudyContext, BoundType.
     ///
     /// ## Skill Reference
     /// System prompt encodes rules from column-contracts.md, normalization-rules.md,
@@ -119,7 +119,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         private static readonly HashSet<string> CorrectableFields = new(StringComparer.OrdinalIgnoreCase)
         {
             "ParameterName", "PrimaryValueType", "SecondaryValueType",
-            "TreatmentArm", "DoseRegimen", "Population", "Unit",
+            "TreatmentArm", "DoseRegimen", "Dose", "DoseUnit", "Population", "Unit",
             "ParameterCategory", "ParameterSubtype", "Timepoint", "TimeUnit",
             "StudyContext", "BoundType"
         };
@@ -485,6 +485,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 o.ArmN,
                 o.StudyContext,
                 o.DoseRegimen,
+                o.Dose,
+                o.DoseUnit,
                 o.Population,
                 o.Timepoint,
                 o.TimeUnit,
@@ -597,6 +599,15 @@ namespace MedRecProImportClass.Service.TransformationServices
                     return true;
                 case "doseregimen":
                     obs.DoseRegimen = value;
+                    return true;
+                case "dose":
+                    if (value != null && decimal.TryParse(value, out var d))
+                        obs.Dose = d;
+                    else
+                        obs.Dose = null;
+                    return true;
+                case "doseunit":
+                    obs.DoseUnit = value;
                     return true;
                 case "population":
                     obs.Population = value;

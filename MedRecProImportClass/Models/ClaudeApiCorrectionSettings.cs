@@ -90,7 +90,7 @@ namespace MedRecProImportClass.Models
         /// (e.g., because the ML service was not configured) always pass through (conservative).
         /// </remarks>
         /// <seealso cref="MlNetCorrectionSettings"/>
-        public float MlAnomalyScoreThreshold { get; set; } = 0.0f;
+        public float MlAnomalyScoreThreshold { get; set; } = 0.75f;
 
         /**************************************************************/
         /// <summary>

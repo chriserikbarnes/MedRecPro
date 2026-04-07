@@ -144,6 +144,18 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
+        /// Numeric dose value extracted from DoseRegimen or TreatmentArm. 0.0 for placebo.
+        /// </summary>
+        public decimal? Dose { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalized dose unit (e.g., "mg", "mg/d", "mg/kg"). Inherited for placebo arms.
+        /// </summary>
+        public string? DoseUnit { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Auto-detected population: "Adult Healthy Volunteers", "Postmenopausal Women".
         /// </summary>
         public string? Population { get; set; }

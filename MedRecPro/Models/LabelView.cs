@@ -3372,6 +3372,24 @@ namespace MedRecPro.Models
 
             /**************************************************************/
             /// <summary>
+            /// Parsed numeric dose extracted from <see cref="DoseRegimen"/> or other text columns.
+            /// For ranges (e.g., "10–20 mg"), stores the maximum value. Placebo arms receive 0.0.
+            /// </summary>
+            /// <seealso cref="DoseUnit"/>
+            /// <seealso cref="DoseRegimen"/>
+            public decimal? Dose { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Normalized unit for <see cref="Dose"/>: "mg", "mg/d", "mg/kg", "mcg", "mcg/d", "IU", etc.
+            /// Normalization rules: mg/day → mg/d, mcg/day → mcg/d, µg → mcg.
+            /// </summary>
+            /// <seealso cref="Dose"/>
+            /// <seealso cref="DoseRegimen"/>
+            public string? DoseUnit { get; set; }
+
+            /**************************************************************/
+            /// <summary>
             /// Auto-detected population: "Adult Healthy Volunteers", "Postmenopausal Women",
             /// "Premature Infants". Extracted from Caption/SectionTitle with fuzzy validation.
             /// </summary>

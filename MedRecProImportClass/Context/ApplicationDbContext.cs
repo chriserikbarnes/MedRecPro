@@ -143,6 +143,11 @@ namespace MedRecProImportClass.Data
                             e.Property(x => x.Id)
                                 .HasColumnName("tmp_FlattenedStandardizedTableID")
                                 .ValueGeneratedOnAdd();
+
+                            // Match DDL DECIMAL(18,6) — EF Core defaults to decimal(18,2)
+                            // which silently rounds sub-cent doses (0.025 mg → 0.03).
+                            e.Property(x => x.Dose)
+                                .HasColumnType("decimal(18, 6)");
                         });
                         continue;
                     }

@@ -357,7 +357,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 DoseRegimen = obs.DoseRegimen ?? string.Empty,
                 TableCategory = obs.TableCategory ?? string.Empty,
                 Caption = obs.Caption ?? string.Empty,
-                ParameterName = obs.ParameterName ?? string.Empty
+                ParameterName = obs.ParameterName ?? string.Empty,
+                HasDose = obs.Dose.HasValue ? 1f : 0f
             };
 
             try
@@ -410,6 +411,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             obs.DoseRegimen = null;
+            obs.Dose = null;
+            obs.DoseUnit = null;
 
             #endregion
         }
@@ -680,6 +683,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         TableCategory = r.TableCategory ?? string.Empty,
                         Caption = r.Caption ?? string.Empty,
                         ParameterName = r.ParameterName ?? string.Empty,
+                        HasDose = r.Dose.HasValue ? 1f : 0f,
                         RoutingTarget = labelDoseRegimenRoutingFromRecord(r)
                     })
                     .Where(r => r.RoutingTarget != null)
@@ -699,7 +703,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     .Append(_mlContext.Transforms.Text.FeaturizeText("CategoryFeatures", nameof(DoseRegimenRoutingInput.TableCategory)))
                     .Append(_mlContext.Transforms.Text.FeaturizeText("CaptionFeatures", nameof(DoseRegimenRoutingInput.Caption)))
                     .Append(_mlContext.Transforms.Text.FeaturizeText("ParamFeatures", nameof(DoseRegimenRoutingInput.ParameterName)))
-                    .Append(_mlContext.Transforms.Concatenate("Features", "DoseFeatures", "CategoryFeatures", "CaptionFeatures", "ParamFeatures"))
+                    .Append(_mlContext.Transforms.Concatenate("Features", "DoseFeatures", "CategoryFeatures", "CaptionFeatures", "ParamFeatures", nameof(DoseRegimenRoutingInput.HasDose)))
                     .Append(_mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(labelColumnName: "Label", featureColumnName: "Features"))
                     .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
 

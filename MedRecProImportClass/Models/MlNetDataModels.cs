@@ -101,8 +101,13 @@ namespace MedRecProImportClass.Models
         public string ParameterName { get; set; } = string.Empty;
 
         /**************************************************************/
-        /// <summary>Label: routing target (ParameterSubtype, Population, Timepoint, Keep).</summary>
+        /// <summary>Binary signal: 1f if DoseExtractor parsed a dose, 0f otherwise. Strong "Keep" discriminator.</summary>
         [LoadColumn(4)]
+        public float HasDose { get; set; }
+
+        /**************************************************************/
+        /// <summary>Label: routing target (ParameterSubtype, Population, Timepoint, Keep).</summary>
+        [LoadColumn(5)]
         public string? RoutingTarget { get; set; }
     }
 

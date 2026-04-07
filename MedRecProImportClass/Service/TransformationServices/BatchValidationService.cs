@@ -431,6 +431,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ArmN = entity.ArmN,
                 StudyContext = entity.StudyContext,
                 DoseRegimen = entity.DoseRegimen,
+                Dose = entity.Dose,
+                DoseUnit = entity.DoseUnit,
                 Population = entity.Population,
                 Timepoint = entity.Timepoint,
                 Time = entity.Time,

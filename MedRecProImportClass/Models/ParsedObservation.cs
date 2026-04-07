@@ -2,7 +2,7 @@ namespace MedRecProImportClass.Models
 {
     /**************************************************************/
     /// <summary>
-    /// Intermediate 36-column DTO representing one atomic observation from a parsed SPL table
+    /// Intermediate 38-column DTO representing one atomic observation from a parsed SPL table
     /// in Stage 3 of the SPL Table Normalization pipeline. Parsers return
     /// <c>List&lt;ParsedObservation&gt;</c> which the orchestrator maps to the
     /// <c>FlattenedStandardizedTable</c> EF entity for bulk database insert.
@@ -14,7 +14,7 @@ namespace MedRecProImportClass.Models
     /// ## Schema Groups
     /// - **Provenance (8)**: Traces every value back to the exact source cell
     /// - **Classification (4)**: Routes queries and groups comparable data
-    /// - **Observation Context (9)**: Describes what was measured, in whom, under what conditions
+    /// - **Observation Context (11)**: Describes what was measured, in whom, under what conditions
     /// - **Decomposed Values (10)**: Typed, queryable components of the raw cell text
     /// - **Validation (5)**: Automated quality signals and confidence scores
     ///
@@ -153,6 +153,24 @@ namespace MedRecProImportClass.Models
         /// Dose regimen for PK/dosing tables (e.g., "50 mg oral (once daily x 7 days)").
         /// </summary>
         public string? DoseRegimen { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Numeric dose value extracted from <see cref="DoseRegimen"/> or <see cref="TreatmentArm"/>
+        /// via <see cref="DoseExtractor"/>. 0.0 for placebo arms. Null when no dose is recoverable.
+        /// </summary>
+        /// <seealso cref="DoseUnit"/>
+        /// <seealso cref="DoseRegimen"/>
+        public decimal? Dose { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Measurement unit for <see cref="Dose"/>, normalized (e.g., "mg", "mg/d", "mg/kg", "mcg/d").
+        /// Inherited from comparator arms for placebo. Null when no dose is recoverable.
+        /// </summary>
+        /// <seealso cref="Dose"/>
+        /// <seealso cref="DoseRegimen"/>
+        public string? DoseUnit { get; set; }
 
         /**************************************************************/
         /// <summary>

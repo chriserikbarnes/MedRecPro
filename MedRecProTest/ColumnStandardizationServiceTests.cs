@@ -742,6 +742,8 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("10 mg", result[0].DoseRegimen);
+            Assert.AreEqual(10m, result[0].Dose, "Dose extracted from DoseRegimen after arm-to-dose swap");
+            Assert.AreEqual("mg", result[0].DoseUnit);
             Assert.AreEqual("Placebo", result[0].TreatmentArm);
             Assert.IsNull(result[0].StudyContext);
             assertHasFlag(result[0], "COL_STD:ARM_WAS_DOSE");
@@ -795,6 +797,8 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("1000 mg Once Daily", result[0].DoseRegimen);
+            Assert.AreEqual(1000m, result[0].Dose, "Dose extracted from DoseRegimen after arm-to-dose swap");
+            Assert.AreEqual("mg/d", result[0].DoseUnit, "Frequency promotion: 'mg' + 'Once Daily' → 'mg/d'");
             Assert.AreEqual("Placebo", result[0].TreatmentArm);
             assertHasFlag(result[0], "COL_STD:ARM_WAS_DOSE");
 
@@ -936,6 +940,8 @@ namespace MedRecProTest
 
             Assert.AreEqual("Mycophenolate Mofetil", result[0].TreatmentArm);
             Assert.AreEqual("2g/day", result[0].DoseRegimen);
+            Assert.AreEqual(2m, result[0].Dose, "Dose extracted from split DoseRegimen");
+            Assert.AreEqual("g", result[0].DoseUnit);
             Assert.AreEqual("Kidney Studies", result[0].StudyContext);
             assertHasFlag(result[0], "COL_STD:SPLIT_DRUG_DOSE");
 
@@ -1876,6 +1882,8 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.IsNull(result[0].DoseRegimen, "DoseRegimen should be null after PK sub-param routing");
+            Assert.IsNull(result[0].Dose, "Dose should be cleared when DoseRegimen is routed away");
+            Assert.IsNull(result[0].DoseUnit, "DoseUnit should be cleared when DoseRegimen is routed away");
             Assert.AreEqual("Cmax", result[0].ParameterSubtype);
             assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_ROUTED");
 
@@ -1903,6 +1911,8 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("50 mg once daily", result[0].DoseRegimen, "Actual dose should be preserved");
+            Assert.AreEqual(50m, result[0].Dose, "Dose should be extracted from preserved DoseRegimen");
+            Assert.AreEqual("mg/d", result[0].DoseUnit, "Frequency promotion: 'mg' + 'Once Daily' → 'mg/d'");
 
             context.Dispose();
             sentinel.Dispose();
@@ -1929,6 +1939,8 @@ namespace MedRecProTest
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.IsNull(result[0].DoseRegimen);
+            Assert.IsNull(result[0].Dose, "Dose should be cleared when DoseRegimen is routed away");
+            Assert.IsNull(result[0].DoseUnit, "DoseUnit should be cleared when DoseRegimen is routed away");
             Assert.AreEqual("Omeprazole", result[0].ParameterSubtype);
             assertHasFlag(result[0], "COL_STD:COADMIN_ROUTED");
 

@@ -82,6 +82,8 @@ Tables reporting incidence/frequency of adverse events across treatment arms.
 | ArmN               | E   | Integer sample size for arm            | Any positive integer               |
 | StudyContext        | O   | Study name (multi-study tables only)   | SPRING-2, SINGLE                   |
 | DoseRegimen        | O   | Dose level when table stratifies       | 20 mg, 50 mg once daily           |
+| Dose                | O   | Numeric dose value (0.0 for placebo)   | 20, 50, 0.0                       |
+| DoseUnit            | O   | Normalized dose unit                   | mg, mg/d                           |
 | Population          | O   | Sub-population when stratified         | Pediatric, Elderly                 |
 | Timepoint           | N   | NULL — AE tables are cumulative        |                                    |
 | Time / TimeUnit     | N   | NULL                                    |                                    |
@@ -111,6 +113,8 @@ Tables reporting pharmacokinetic parameters.
 | ArmN               | O   | N per dose group                       |                                    |
 | StudyContext        | O   | Study name if multi-study              |                                    |
 | DoseRegimen        | E   | Actual dose: amount + route + freq     | 50 mg oral once daily, 100 mg IV  |
+| Dose                | E   | Numeric dose value                     | 50, 100, 0.5                       |
+| DoseUnit            | E   | Normalized dose unit                   | mg, mg/d, mg/kg                    |
 | Population          | O   | Subject characteristics when stratified| Healthy Volunteers, Renal Impairment |
 | Timepoint           | O   | When measured                          | Single Dose, Steady State, Day 14 |
 | Time                | O   | Numeric timepoint                      | 14.0                               |
@@ -141,6 +145,8 @@ Tables showing effect of co-administered drugs on PK parameters (or vice versa).
 | ArmN               | O   | N per interaction study                |                                    |
 | StudyContext        | O   | Study label                            |                                    |
 | DoseRegimen        | E   | Dose of index drug                     | 50 mg once daily                   |
+| Dose                | E   | Numeric dose value                     | 50                                 |
+| DoseUnit            | E   | Normalized dose unit                   | mg/d                               |
 | Population          | O   | Usually Healthy Volunteers (implicit)  |                                    |
 | Timepoint           | N   | NULL                                    |                                    |
 | Time / TimeUnit     | N   | NULL                                    |                                    |
@@ -174,6 +180,8 @@ Tables reporting comparative efficacy outcomes with risk measures and CIs.
 | ArmN               | E   | N per arm                              |                                    |
 | StudyContext        | O   | Study name                             | SPRING-2, SINGLE                   |
 | DoseRegimen        | O   | Dose if dose-response studied          |                                    |
+| Dose                | O   | Numeric dose value (0.0 for placebo)   |                                    |
+| DoseUnit            | O   | Normalized dose unit                   |                                    |
 | Population          | O   | Analysis population when stratified    | ITT, mITT (alternative to Subtype) |
 | Timepoint           | O   | Assessment time                        | At Week 24, At 2 years             |
 | Time                | O   | Numeric timepoint                      | 24.0                               |
@@ -204,6 +212,8 @@ Tables of recommended doses, titration schedules, dose adjustments.
 | ArmN               | N   | NULL                                    |                                    |
 | StudyContext        | N   | NULL                                    |                                    |
 | DoseRegimen        | E   | The actual dose amount                 | 20 mg, 5 mg/kg/day, 100 mg BID   |
+| Dose                | O   | Numeric dose value                     | 20, 5, 100                         |
+| DoseUnit            | O   | Normalized dose unit                   | mg, mg/kg, mg/d                    |
 | Population          | E   | Who this dose is for                   | Adult, Pediatric, Elderly, Renal Impairment (Severe) |
 | Timepoint           | O   | Titration step timing                  | Week 1, Week 2, After 2 weeks     |
 | Time                | O   | Numeric timing                         | 1.0, 2.0                          |
@@ -234,6 +244,8 @@ Tables of bone mineral density measurements at anatomical sites.
 | ArmN               | E   | N per arm                              |                                    |
 | StudyContext        | O   | Study name                             |                                    |
 | DoseRegimen        | O   | Dose if multiple doses studied         |                                    |
+| Dose                | O   | Numeric dose value (0.0 for placebo)   |                                    |
+| DoseUnit            | O   | Normalized dose unit                   |                                    |
 | Population          | O   | Usually postmenopausal (implicit)      |                                    |
 | Timepoint           | E   | Assessment time                        | 6 months, 12 months, 24 months    |
 | Time                | E   | Numeric timepoint                      | 6.0, 12.0, 24.0                   |
@@ -264,6 +276,8 @@ Tables of drug concentration across body tissues and fluids.
 | ArmN               | O   | N                                      |                                    |
 | StudyContext        | N   | NULL                                    |                                    |
 | DoseRegimen        | E   | Dose administered                      |                                    |
+| Dose                | E   | Numeric dose value                     |                                    |
+| DoseUnit            | E   | Normalized dose unit                   |                                    |
 | Population          | O   | Subject description                    |                                    |
 | Timepoint           | E   | Hours post-dose                        | 2h, 4h, 24h, 48h                  |
 | Time                | E   | Numeric time                           | 2.0, 4.0, 24.0                    |
@@ -293,6 +307,8 @@ Tables containing only text — dosing instructions, regimen descriptions, etc.
 | TreatmentArm       | O   | Drug name if applicable                |                                    |
 | ArmN               | N   | NULL                                    |                                    |
 | DoseRegimen        | O   | Dose if mentioned                      |                                    |
+| Dose                | O   | Numeric dose value                     |                                    |
+| DoseUnit            | O   | Normalized dose unit                   |                                    |
 | Population          | O   | Population if mentioned                |                                    |
 | Timepoint           | N   | NULL                                    |                                    |
 | PrimaryValue       | N   | NULL                                    |                                    |

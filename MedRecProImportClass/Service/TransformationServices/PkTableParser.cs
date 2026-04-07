@@ -243,6 +243,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                             o.ParameterCategory = currentCategory;
                             o.ParameterSubtype = col0Text;
                             o.DoseRegimen = doseRegimen;
+                            var (pkDose1, pkDoseUnit1) = DoseExtractor.Extract(doseRegimen);
+                            o.Dose = pkDose1;
+                            o.DoseUnit = pkDoseUnit1;
                             o.Population = population;
                             o.Timepoint = timepoint;
                             o.Time = time;
@@ -274,6 +277,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                             var o = createBaseObservation(table, r, cell, TableCategory.PK);
                             o.ParameterName = param.name;
                             o.DoseRegimen = doseRegimen;
+                            var (pkDose2, pkDoseUnit2) = DoseExtractor.Extract(doseRegimen);
+                            o.Dose = pkDose2;
+                            o.DoseUnit = pkDoseUnit2;
                             o.Population = rowPopulation;
                             o.Timepoint = timepoint;
                             o.Time = time;
@@ -923,6 +929,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.TreatmentArm = armLabel;
                         o.ArmN = armN;
                         o.DoseRegimen = currentDoseRegimen;
+                        var (pkDose3, pkDoseUnit3) = DoseExtractor.Extract(currentDoseRegimen);
+                        o.Dose = pkDose3;
+                        o.DoseUnit = pkDoseUnit3;
                         o.Population = population;
                         o.Timepoint = timepoint;
                         o.Time = time;

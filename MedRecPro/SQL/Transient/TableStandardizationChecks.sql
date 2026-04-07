@@ -25,6 +25,9 @@ SELECT  [TextTableID]
 	,[FootnoteText]
 	,[ValidationFlags]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
+where ArmN is not null
+--where [ParameterCategory] = 'Gastrointestinal Disorders' and ArmN is not null
+--order by ParameterName
 --where ParameterSubtype is not null
 
 SELECT  [ParameterName]
@@ -47,7 +50,7 @@ SELECT  [ParameterName]
 	,[ParseConfidence]
 	,[DocumentGUID]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-where TextTableID = 86
+where TextTableID = 185
 
 
 SELECT  *

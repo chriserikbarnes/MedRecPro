@@ -963,6 +963,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ArmN = obs.ArmN,
                 StudyContext = obs.StudyContext.Truncate(MED_TEXT_LENGTH),
                 DoseRegimen = obs.DoseRegimen.Truncate(MED_TEXT_LENGTH),
+                Dose = obs.Dose,
+                DoseUnit = obs.DoseUnit.Truncate(TINY_TEXT_LENGTH),
                 Population = obs.Population.Truncate(SML_TEXT_LENGTH),
                 Timepoint = obs.Timepoint.Truncate(SML_TEXT_LENGTH),
                 Time = obs.Time,

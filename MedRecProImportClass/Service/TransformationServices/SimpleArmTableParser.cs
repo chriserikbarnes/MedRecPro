@@ -183,6 +183,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.ArmN = arm.SampleSize;
                         o.StudyContext = arm.StudyContext;
                         o.DoseRegimen = arm.DoseRegimen;
+                        o.Dose = arm.Dose;
+                        o.DoseUnit = arm.DoseUnit;
                         o.Population = population;
                         o.PValue = rowPValue;
 
