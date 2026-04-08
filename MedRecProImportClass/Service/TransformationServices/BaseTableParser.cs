@@ -209,15 +209,59 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^\d+\s*(?:mg|mcg|µg|g|ml|mL)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        // Pattern for n= declaration cells: "n = 102" or "N=51" or "N=5,310"
+        // Pattern for n= declaration cells: "n = 102", "N=51", "N=5,310",
+        // "(N=101)", "(N =101 )" — tolerates optional wrapping parentheses
+        // and interior whitespace to match SPL tables that put the arm N
+        // in the first body row as a parenthesized cell (e.g., Table 9 in
+        // the Topiramate pediatric epilepsy label).
         private static readonly Regex _nEqualsCellPattern = new(
-            @"^[Nn]\s*=\s*(\d[\d,]*)$",
+            @"^\(?\s*[Nn]\s*=\s*(\d[\d,]*)\s*\)?\s*$",
             RegexOptions.Compiled);
 
         // Pattern for format hint cells: "%" or "n(%)" or "n (%)"
         private static readonly Regex _formatHintCellPattern = new(
             @"^(?:n\s*\(\s*%\s*\)|%)\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Pattern matching the "Table N:" / "Table 9." / "Table 2 -" prefix
+        // at the start of a table caption. Used by
+        // <see cref="extractStudyContextFromCaption"/>.
+        private static readonly Regex _tableNumberPrefixPattern = new(
+            @"^\s*Table\s+[\w\d\-]+\s*[:.\-]\s*",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Pattern matching canonical AE caption "measure phrase" language
+        // that signals an adverse-event table (as opposed to PK, efficacy,
+        // lab, etc.). If a caption does not contain any of these phrases,
+        // <see cref="extractStudyContextFromCaption"/> returns null rather
+        // than guessing.
+        private static readonly Regex _aeCaptionMeasurePhrasePattern = new(
+            @"\b(?:(?:Treatment[-\s]*Emergent|Common|Serious|Most\s+Frequent|Drug[-\s]*Related)\s+)*" +
+            @"Adverse\s+(?:Reactions?|Events?|Experiences?)" +
+            @"|\bIncidence\s+(?:\(\s*%\s*\)\s+)?of\s+[\w\s\-,]*Adverse" +
+            @"|\bFrequency\s+of\s+[\w\s\-,]*Adverse" +
+            @"|\bPercent\s+of\s+Patients\s+(?:Reporting|With)\s+[\w\s\-,]*Adverse",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Pattern matching the connector word that introduces the trial
+        // descriptor AFTER the AE measure phrase. Used to split the
+        // caption into "measure phrase" + "trial descriptor".
+        private static readonly Regex _aeCaptionConnectorPattern = new(
+            @"\b(?:reported\s+in|observed\s+in|occurring\s+in|seen\s+in|during|from|among|in)\s+",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Pattern for stripping embedded HTML tags from caption text
+        // before trial-descriptor extraction. SPL captions frequently
+        // carry trailing <sup>*</sup> / <sup>†</sup> footnote markers.
+        private static readonly Regex _htmlTagPattern = new(
+            @"<[^>]+>",
+            RegexOptions.Compiled);
+
+        // Pattern for stripping trailing footnote markers (bare *, †, ‡,
+        // §, ¶ or parenthesized forms) from a trial descriptor.
+        private static readonly Regex _trailingFootnoteMarkerPattern = new(
+            @"(?:\s*\([\*†‡§¶]\)|\s*[\*†‡§¶]+)+\s*$",
+            RegexOptions.Compiled);
 
         #endregion Compiled Regex Patterns
 
@@ -682,6 +726,106 @@ namespace MedRecProImportClass.Service.TransformationServices
         }
 
         #endregion Protected Helpers — Population Detection
+
+        #region Protected Helpers — Caption Study Context
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts a trial / study descriptor from an adverse-event table
+        /// caption when the parser cannot recover <c>StudyContext</c> from
+        /// header colspan paths. Conservative by design: returns <c>null</c>
+        /// for any caption that does not match the canonical SPL AE caption
+        /// grammar, so callers may invoke this indiscriminately without
+        /// polluting non-AE output.
+        /// </summary>
+        /// <remarks>
+        /// ## Canonical caption shape
+        /// <code>
+        /// Table N[:.]  &lt;measure phrase&gt;  &lt;connector&gt;  &lt;trial descriptor&gt;  [footnotes]
+        /// </code>
+        ///
+        /// ## Extraction pipeline
+        /// 1. Strip HTML tags (e.g., <c>&lt;sup&gt;*&lt;/sup&gt;</c>) and collapse whitespace.
+        /// 2. Strip the leading <c>"Table N:"</c> / <c>"Table 9."</c> prefix.
+        /// 3. Require an AE measure phrase (<c>"Adverse Reactions"</c>,
+        ///    <c>"Treatment-Emergent Adverse Events"</c>, <c>"Incidence of …"</c>, etc.).
+        ///    Bail to <c>null</c> if absent — this prevents non-AE captions
+        ///    from producing StudyContext garbage.
+        /// 4. Find the first connector (<c>in|during|from|reported in|…</c>)
+        ///    that occurs *after* the measure phrase and keep everything
+        ///    following it as the candidate descriptor.
+        /// 5. Trim trailing footnote markers and punctuation.
+        /// 6. Reject results that are too short to be meaningful (≤ 3 chars).
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// extractStudyContextFromCaption(
+        ///     "Table 9: Incidence (%) of Treatment-Emergent Adverse Reactions " +
+        ///     "in Placebo-Controlled, Add-On Epilepsy Trials in Pediatric " +
+        ///     "Patients (Ages 2-16 Years)&lt;sup&gt;*&lt;/sup&gt;")
+        /// // → "Placebo-Controlled, Add-On Epilepsy Trials in Pediatric Patients (Ages 2-16 Years)"
+        ///
+        /// extractStudyContextFromCaption("Table 2: Mean PK Parameters in Healthy Volunteers")
+        /// // → null  (no AE measure phrase)
+        /// </code>
+        /// </example>
+        /// <param name="caption">The raw table caption text, possibly containing HTML.</param>
+        /// <returns>The extracted trial descriptor, or <c>null</c> when the
+        /// caption does not match canonical AE caption grammar.</returns>
+        /// <seealso cref="PopulationDetector"/>
+        /// <seealso cref="detectPopulation"/>
+        protected internal static string? extractStudyContextFromCaption(string? caption)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(caption))
+                return null;
+
+            // Stage 1: Normalize — HTML-decode, strip tags, collapse whitespace
+            var normalized = System.Net.WebUtility.HtmlDecode(caption);
+            normalized = _htmlTagPattern.Replace(normalized, " ");
+            normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+
+            if (string.IsNullOrWhiteSpace(normalized))
+                return null;
+
+            // Stage 2: Strip leading "Table N:" / "Table 9." prefix
+            var stripped = _tableNumberPrefixPattern.Replace(normalized, "");
+
+            // Stage 3: Require an AE measure phrase somewhere in the caption.
+            // If the caption is not AE-shaped, refuse to guess a StudyContext.
+            var measureMatch = _aeCaptionMeasurePhrasePattern.Match(stripped);
+            if (!measureMatch.Success)
+                return null;
+
+            // Stage 4: Find the connector word that introduces the trial
+            // descriptor AFTER the measure phrase. Scan from the end of the
+            // measure phrase forward so we don't accidentally latch onto an
+            // "in" that lives inside the measure phrase itself.
+            var searchStart = measureMatch.Index + measureMatch.Length;
+            if (searchStart >= stripped.Length)
+                return null;
+
+            var connectorMatch = _aeCaptionConnectorPattern.Match(stripped, searchStart);
+            if (!connectorMatch.Success)
+                return null;
+
+            var descriptor = stripped.Substring(connectorMatch.Index + connectorMatch.Length).Trim();
+
+            // Stage 5: Trim trailing footnote markers, HTML residue, punctuation
+            descriptor = _trailingFootnoteMarkerPattern.Replace(descriptor, "").Trim();
+            descriptor = descriptor.TrimEnd('.', ',', ';', ':', ' ');
+
+            // Stage 6: Reject values that are too short to carry useful context
+            if (descriptor.Length <= 3)
+                return null;
+
+            return descriptor;
+
+            #endregion
+        }
+
+        #endregion Protected Helpers — Caption Study Context
 
         #region Protected Helpers — Cell Lookup
 

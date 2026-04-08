@@ -69,6 +69,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (arms.Count == 0)
                 return observations;
 
+            // Caption-derived StudyContext fallback for single-header AE tables
+            // that don't carry a colspan study-context header. Returns null for
+            // captions that don't match the canonical AE grammar, so it's safe
+            // to compute unconditionally.
+            var captionStudyContext = extractStudyContextFromCaption(table.Caption);
+
             // Iterate data rows with SOC propagation
             string? currentSoc = null;
             var dataRows = getDataBodyRows(table);
@@ -107,7 +113,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.ParameterCategory = currentSoc;
                         o.TreatmentArm = arm.Name;
                         o.ArmN = arm.SampleSize;
-                        o.StudyContext = arm.StudyContext;
+                        // Arm-derived StudyContext (from header colspan) always wins;
+                        // caption extractor only fills the blank.
+                        o.StudyContext = arm.StudyContext ?? captionStudyContext;
                         o.DoseRegimen = arm.DoseRegimen;
                         o.Dose = arm.Dose;
                         o.DoseUnit = arm.DoseUnit;

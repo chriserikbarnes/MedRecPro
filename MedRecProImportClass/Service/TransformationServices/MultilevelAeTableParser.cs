@@ -71,6 +71,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (arms.Count == 0)
                 return observations;
 
+            // Caption-derived StudyContext fallback for multilevel tables
+            // whose colspan header path is missing or empty. Header-derived
+            // StudyContext always wins — see the per-observation assignment
+            // below.
+            var captionStudyContext = extractStudyContextFromCaption(table.Caption);
+
             // Iterate data rows
             string? currentSoc = null;
             var dataRows = getDataBodyRows(table);
@@ -110,7 +116,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.ParameterCategory = currentSoc;
                         o.TreatmentArm = arm.Name;
                         o.ArmN = arm.SampleSize;
-                        o.StudyContext = arm.StudyContext;
+                        // Header-derived StudyContext always wins; caption fallback
+                        // only fills the blank (e.g., when a colspan row is present
+                        // but HeaderPath[0] ended up empty).
+                        o.StudyContext = arm.StudyContext ?? captionStudyContext;
                         o.DoseRegimen = arm.DoseRegimen;
                         o.Dose = arm.Dose;
                         o.DoseUnit = arm.DoseUnit;

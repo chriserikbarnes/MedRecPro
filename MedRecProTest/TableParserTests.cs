@@ -2047,6 +2047,377 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Body row with parenthesized N= cells (e.g., "(N=101)" / "(N=98)")
+        /// must be consumed as enrichment and populate ArmN on the arms.
+        /// This is the minimal regression test for the Table 9 (TextTableID
+        /// 203, Topiramate pediatric epilepsy AE table) fix.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_ParenthesizedNEnrichmentRow_SetsArmN()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Placebo", "Topiramate" },
+                new List<string?[]>
+                {
+                    new[] { "-", "(N=101)", "(N=98)" },       // parenthesized N= enrichment row
+                    new[] { "Fatigue", "5", "16" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            // Only the data row produces observations; enrichment row is consumed
+            Assert.AreEqual(2, results.Count);
+            Assert.AreEqual(101, results.First(r => r.TreatmentArm == "Placebo").ArmN);
+            Assert.AreEqual(98, results.First(r => r.TreatmentArm == "Topiramate").ArmN);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Exact shape seen in Table 9 of TextTableID 203: "(N =101 )" and
+        /// "(N =98 )" — leading/trailing whitespace inside the parentheses.
+        /// </summary>
+        [TestMethod]
+        public void SimpleArmParser_ParenthesizedNEnrichmentRow_WithInnerSpaces_SetsArmN()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Placebo", "Topiramate" },
+                new List<string?[]>
+                {
+                    new[] { "-", "(N =101 )", "(N =98 )" },   // messy inner whitespace
+                    new[] { "Injury", "13", "14" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.AreEqual(101, results.First(r => r.TreatmentArm == "Placebo").ArmN);
+            Assert.AreEqual(98, results.First(r => r.TreatmentArm == "Topiramate").ArmN);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parenthesized N= enrichment row in an AE table with SOC dividers
+        /// (the exact combination in TextTableID 203). Verifies that
+        /// <see cref="AeWithSocTableParser"/> propagates ArmN to every
+        /// observation after the enrichment row is consumed.
+        /// </summary>
+        [TestMethod]
+        public void AeWithSocParser_ParenthesizedNEnrichmentRow_PropagatesArmN()
+        {
+            #region implementation
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Placebo", "Topiramate" },
+                new List<string?[]>
+                {
+                    new[] { "-", "(N =101 )", "(N =98 )" },
+                    new[] { "Fatigue", "5", "16" },
+                    new[] { "Injury", "13", "14" }
+                },
+                parentSectionCode: "34084-4");
+
+            table.HasSocDividers = true;
+            insertSocDivider(table, 1, "Body as a Whole - General Disorders");
+
+            var parser = new AeWithSocTableParser();
+            Assert.IsTrue(parser.CanParse(table));
+
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count); // 2 params × 2 arms
+            Assert.IsTrue(results.Where(r => r.TreatmentArm == "Placebo").All(r => r.ArmN == 101));
+            Assert.IsTrue(results.Where(r => r.TreatmentArm == "Topiramate").All(r => r.ArmN == 98));
+            Assert.IsTrue(results.All(r => r.ParameterCategory == "Body as a Whole - General Disorders"));
+
+            #endregion
+        }
+
         #endregion Body Row Enrichment Tests
+
+        #region Caption StudyContext Extraction Tests
+
+        // Concrete parser subclass used to exercise the protected-internal
+        // BaseTableParser.extractStudyContextFromCaption helper directly.
+        private sealed class CaptionStudyContextProbe : BaseTableParser
+        {
+            public override TableCategory SupportedCategory => TableCategory.ADVERSE_EVENT;
+            public override int Priority => 999;
+            public override bool CanParse(ReconstructedTable table) => false;
+            public override List<ParsedObservation> Parse(ReconstructedTable table) => new();
+            public static string? Extract(string? caption) => extractStudyContextFromCaption(caption);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// The Table 9 (TextTableID 203) caption should produce a non-null
+        /// StudyContext that preserves the full trial descriptor including
+        /// the "Placebo-Controlled," qualifier.
+        /// </summary>
+        [TestMethod]
+        public void BaseTableParser_ExtractStudyContextFromCaption_Table203Caption()
+        {
+            #region implementation
+
+            const string caption =
+                "Table 9: Incidence (%) of Treatment-Emergent Adverse Reactions in " +
+                "Placebo-Controlled, Add-On Epilepsy Trials in Pediatric Patients " +
+                "(Ages 2 -16 Years)<sup>*</sup>,<sup>+</sup>" +
+                "(Reactions That Occurred in at Least 1% of Topiramate Tablets-Treated " +
+                "Patients and Occurred More Frequently in Topiramate Tablets -Treated " +
+                "Than Placebo-Treated Patients)";
+
+            var result = CaptionStudyContextProbe.Extract(caption);
+
+            Assert.IsNotNull(result);
+            StringAssert.Contains(result!, "Add-On Epilepsy Trials");
+            StringAssert.Contains(result, "Pediatric Patients");
+            StringAssert.Contains(result, "Ages 2 -16 Years");
+            StringAssert.StartsWith(result, "Placebo-Controlled");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Trailing <sup>*</sup> / <sup>†</sup> HTML footnote markers must
+        /// be stripped from the extracted descriptor.
+        /// </summary>
+        [TestMethod]
+        public void BaseTableParser_ExtractStudyContextFromCaption_StripsSupFootnote()
+        {
+            #region implementation
+
+            const string caption =
+                "Table 3: Adverse Reactions Reported in Clinical Trials of " +
+                "Adult Patients With Hypertension<sup>*</sup>";
+
+            var result = CaptionStudyContextProbe.Extract(caption);
+
+            Assert.IsNotNull(result);
+            Assert.IsFalse(result!.Contains("<sup>"), "HTML residue should be stripped");
+            Assert.IsFalse(result.Contains('*'), "Bare footnote marker should be stripped");
+            StringAssert.Contains(result, "Clinical Trials of Adult Patients With Hypertension");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Captions without an AE measure phrase (e.g., PK summaries) must
+        /// return null — no guessing allowed.
+        /// </summary>
+        [TestMethod]
+        public void BaseTableParser_ExtractStudyContextFromCaption_MissingMeasurePhrase_ReturnsNull()
+        {
+            #region implementation
+
+            Assert.IsNull(CaptionStudyContextProbe.Extract(
+                "Table 5: Clinical Pharmacology Summary for Healthy Volunteers"));
+            Assert.IsNull(CaptionStudyContextProbe.Extract(
+                "Table 1: Demographics of Study Population"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Captions with a measure phrase but no trial-descriptor connector
+        /// (no "in"/"during"/"from"/etc.) must return null.
+        /// </summary>
+        [TestMethod]
+        public void BaseTableParser_ExtractStudyContextFromCaption_MissingConnector_ReturnsNull()
+        {
+            #region implementation
+
+            // Trailing punctuation only, no connector introducing a trial descriptor
+            Assert.IsNull(CaptionStudyContextProbe.Extract("Table 4: Adverse Reactions."));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Null / empty / whitespace captions short-circuit to null.
+        /// </summary>
+        [TestMethod]
+        public void BaseTableParser_ExtractStudyContextFromCaption_NullOrEmpty_ReturnsNull()
+        {
+            #region implementation
+
+            Assert.IsNull(CaptionStudyContextProbe.Extract(null));
+            Assert.IsNull(CaptionStudyContextProbe.Extract(""));
+            Assert.IsNull(CaptionStudyContextProbe.Extract("   "));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Real PK captions must return null — confirms the helper can be
+        /// called indiscriminately without polluting non-AE parser output.
+        /// </summary>
+        [TestMethod]
+        public void BaseTableParser_ExtractStudyContextFromCaption_PkCaption_ReturnsNull()
+        {
+            #region implementation
+
+            Assert.IsNull(CaptionStudyContextProbe.Extract(
+                "Table 2: Mean PK Parameters in Healthy Volunteers"));
+            Assert.IsNull(CaptionStudyContextProbe.Extract(
+                "Table 4: Pharmacokinetic Parameters Following Single-Dose " +
+                "Administration in Subjects with Renal Impairment"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Locks in the accepted connector list: each connector word must
+        /// successfully split the measure phrase from the trial descriptor.
+        /// </summary>
+        [TestMethod]
+        public void BaseTableParser_ExtractStudyContextFromCaption_AlternateConnectors()
+        {
+            #region implementation
+
+            Assert.AreEqual("the Double-Blind Phase of Study XYZ",
+                CaptionStudyContextProbe.Extract(
+                    "Table 5: Adverse Events During the Double-Blind Phase of Study XYZ"));
+
+            Assert.AreEqual("Pooled Phase 3 Trials",
+                CaptionStudyContextProbe.Extract(
+                    "Table 6: Adverse Reactions Reported in Pooled Phase 3 Trials"));
+
+            Assert.AreEqual("Patients with Renal Impairment",
+                CaptionStudyContextProbe.Extract(
+                    "Table 7: Adverse Events Observed in Patients with Renal Impairment"));
+
+            Assert.AreEqual("Study ABC-123",
+                CaptionStudyContextProbe.Extract(
+                    "Table 8: Treatment-Emergent Adverse Reactions from Study ABC-123"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Full AeWithSocTableParser flow: when the header offers no
+        /// StudyContext but the caption matches the AE grammar, every
+        /// observation should inherit the caption-derived descriptor.
+        /// </summary>
+        [TestMethod]
+        public void AeWithSocParser_CaptionStudyContextFallback_PopulatesObservations()
+        {
+            #region implementation
+
+            const string caption =
+                "Table 9: Incidence (%) of Treatment-Emergent Adverse Reactions in " +
+                "Placebo-Controlled, Add-On Epilepsy Trials in Pediatric Patients " +
+                "(Ages 2 -16 Years)";
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Placebo", "Topiramate" },
+                new List<string?[]>
+                {
+                    new[] { "-", "(N =101 )", "(N =98 )" },
+                    new[] { "Fatigue", "5", "16" }
+                },
+                caption: caption,
+                parentSectionCode: "34084-4");
+
+            table.HasSocDividers = true;
+            insertSocDivider(table, 1, "Body as a Whole - General Disorders");
+
+            var parser = new AeWithSocTableParser();
+            var results = parser.Parse(table);
+
+            Assert.IsTrue(results.Count > 0);
+            Assert.IsTrue(results.All(r => r.StudyContext != null));
+            Assert.IsTrue(results.All(r => r.StudyContext!.Contains("Add-On Epilepsy Trials")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Multilevel AE parser: when both a header-derived StudyContext
+        /// AND a caption-extractable context are available, the
+        /// header-derived value must win.
+        /// </summary>
+        [TestMethod]
+        public void MultilevelAeParser_HeaderStudyContextWinsOverCaption()
+        {
+            #region implementation
+
+            const string caption =
+                "Table 10: Adverse Reactions Reported in Pooled Phase 3 Trials";
+
+            var table = createMultilevelTable(
+                new[] { "Treatment", "Treatment", "Prevention", "Prevention" },
+                new[] { "EVISTA (N=2557) %", "Placebo (N=2576) %", "EVISTA (N=581) %", "Placebo (N=584) %" },
+                new List<string?[]>
+                {
+                    new[] { "Hot Flashes", "24.6", "18.3", "28.7", "21.2" }
+                },
+                caption: caption);
+
+            var parser = new MultilevelAeTableParser();
+            var results = parser.Parse(table);
+
+            // Header path carries "Treatment" / "Prevention" — caption fallback must NOT overwrite
+            Assert.IsTrue(results.All(r => r.StudyContext == "Treatment" || r.StudyContext == "Prevention"));
+            Assert.IsFalse(results.Any(r => r.StudyContext == "Pooled Phase 3 Trials"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// When the caption does not match the AE grammar, AeWithSocTableParser
+        /// must leave StudyContext as null rather than inject garbage.
+        /// </summary>
+        [TestMethod]
+        public void AeWithSocParser_NonAeCaption_LeavesStudyContextNull()
+        {
+            #region implementation
+
+            const string caption = "Table 12: Demographics of Study Population";
+
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Drug (N=100)", "Placebo (N=100)" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "10 (10.0)", "5 (5.0)" }
+                },
+                caption: caption,
+                parentSectionCode: "34084-4");
+
+            table.HasSocDividers = true;
+            insertSocDivider(table, 0, "Gastrointestinal");
+
+            var parser = new AeWithSocTableParser();
+            var results = parser.Parse(table);
+
+            Assert.IsTrue(results.Count > 0);
+            Assert.IsTrue(results.All(r => r.StudyContext == null));
+
+            #endregion
+        }
+
+        #endregion Caption StudyContext Extraction Tests
     }
 }
