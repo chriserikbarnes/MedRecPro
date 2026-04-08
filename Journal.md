@@ -1759,3 +1759,25 @@ Both tests use a mocked `ITableReconstructionService` + `ITableParserRouter` + `
 Files touched: `MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs`, `MedRecProConsole/Models/CommandLineArgs.cs`, `MedRecProConsole/Services/TableStandardizationService.cs`, `MedRecProConsole/Models/AppSettings.cs`, `MedRecProConsole/Helpers/HelpDocumentation.cs`, `MedRecProConsole/Program.cs`, `MedRecProConsole/Helpers/ConsoleHelper.cs`, `MedRecProTest/TableParsingOrchestratorStageTests.cs` (+2 tests, +1 helper).
 
 ---
+
+### 2026-04-08 3:52 PM EST — Claude correction: anomaly gate floor, JSON extractor, NULL preservation rule
+Fixed three defects in the Stage 3.5 Claude correction pipeline that were either bypassing the cost gate, crashing a chunk, or silently destroying good data.
+
+**1. ML anomaly gate bypass — configured threshold silently demoted to 0.0f.**
+`MlNetCorrectionService.InitializeAsync` and `FeedClaudeCorrectedBatchAsync` were propagating the persisted adaptive threshold (`MlTrainingStoreState.AdaptiveThreshold`, which defaults to `0.0f` and can only climb via the ratchet) straight into `ClaudeApiCorrectionSettings.MlAnomalyScoreThreshold`, overwriting a user-configured `0.75f` floor. With the in-memory value demoted to `0.0f`, the gate condition `_settings.MlAnomalyScoreThreshold > 0f` at `ClaudeApiCorrectionService.cs:199` evaluated false and **every** observation passed through unfiltered — exactly matching the reported symptom of score-`0.70` rows leaking to Claude.
+
+Fix: added a `private readonly float _configuredAnomalyFloor` captured at construction time from `claudeSettings?.MlAnomalyScoreThreshold`, and wrapped both propagation sites in `Math.Max(_configuredAnomalyFloor, persistedAdaptive)`. The configured value now acts as an immutable floor; the adaptive ratchet can only raise the effective threshold above it. `LogInformation` messages updated to show floor / persisted / effective values so operators can see what the gate is actually using.
+
+**2. `JsonReaderException: Additional text encountered after finished reading JSON content: '` ` '`.**
+`ClaudeApiCorrectionService.stripMarkdownFences` only handled the "fence-wrapped, nothing else" case via `StartsWith("` ``` `")` / `EndsWith("` ``` `")`. When Claude emitted trailing prose or a dangling backtick on its own line after the closing fence, the stray backtick survived into `deserializeCorrections` and Newtonsoft flagged trailing content at line 11 position 0. One TextTableID=84 chunk of 20 observations was lost per occurrence.
+
+Fix: rewrote `stripMarkdownFences` as a JSON-aware single-pass extractor. It locates the first `[`, then walks forward tracking string state, escape sequences (`\\`, `\"`), and bracket nesting to find the matching closing `]`, returning only that substring. Tolerates markdown fences, leading/trailing prose, stray backticks, and string values containing literal `[`/`]`. If the array is unbalanced (truncation), returns from the first `[` onward so `salvageTruncatedJson` still gets its shot. Method name kept to avoid call-site churn; XML doc block rewritten to describe the new behaviour.
+
+**3. NULL preservation skill rule — Claude was nulling perfectly good parsed values.**
+Some Claude corrections were setting `newValue=null` on valid, schema-conformant values (e.g. `ParameterName`, `TreatmentArm`) rather than leaving them alone or routing them, destroying information the downstream pipeline depended on. Added an explicit **NULL Preservation Rule** to `Skills/correction-system-prompt.md` (the runtime prompt Claude reads) and a mirrored **Section 0** to `TableStandards/normalization-rules.md` (the authoritative reference). The rule enumerates the only three permitted NULL cases — routing with a destination correction in the same batch, explicit header/caption echo, and schema-invalid-for-TableCategory — and forbids nulling for any other reason. Includes a worked PK sub-param routing example showing the paired corrections Claude must emit, and the closing directive: *"When in doubt, omit the correction. No correction is always safer than a NULL that deletes a perfectly good parsed value."* Enum columns (`PrimaryValueType`, `SecondaryValueType`, `BoundType`) are explicitly corrected to another enum member, never to NULL.
+
+**Build:** `dotnet build MedRecProImportClass.csproj` — 0 errors, 138 pre-existing warnings.
+
+Files touched: `MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs` (field + ctor capture + two `Math.Max` sites + log updates), `MedRecProImportClass/Service/TransformationServices/ClaudeApiCorrectionService.cs` (`stripMarkdownFences` rewrite), `MedRecProImportClass/Skills/correction-system-prompt.md` (NULL Preservation Rule section), `MedRecProImportClass/TableStandards/normalization-rules.md` (Section 0 governing rule).
+
+---

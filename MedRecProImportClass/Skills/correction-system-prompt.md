@@ -18,6 +18,51 @@ You review parsed pharmaceutical SPL label table observations for CLEAR errors o
 - Return ONLY a JSON array. No markdown. No explanation outside the array.
 - If nothing is clearly wrong, return [].
 
+## NULL Preservation Rule (CRITICAL — read before every correction)
+
+**Never demote a valid value to NULL.** Destroying information is worse than
+leaving a mild misclassification in place. A perfectly good parsed value that
+is merely "not ideal" MUST be kept.
+
+A `newValue` of `NULL` is ONLY permitted when EXACTLY ONE of these holds:
+
+1. **Routing (the common case).** The old value is being moved to a different
+   field in the SAME batch. You MUST emit the destination correction in the
+   same response. Example — PK sub-param routing:
+   ```json
+   [
+     {"sourceRowSeq":12,"sourceCellSeq":3,"field":"DoseRegimen","oldValue":"AUC(0-inf)","newValue":null,"reason":"HIGH: PK param routed"},
+     {"sourceRowSeq":12,"sourceCellSeq":3,"field":"ParameterSubtype","oldValue":null,"newValue":"AUC(0-inf)","reason":"HIGH: PK param routed"}
+   ]
+   ```
+   If you cannot identify the destination field, DO NOT emit the NULL.
+
+2. **Header / caption echo.** The old value is literally a column header,
+   caption fragment, or row label that leaked into a data column (e.g.
+   `ParameterName="Table 3. Adverse Reactions"`, `Unit="Recommended Starting Dosage"`,
+   `TreatmentArm="Number of Patients"`). These are explicitly enumerated in
+   the Unit / ParameterName / TreatmentArm / DoseRegimen sections below.
+
+3. **Schema-invalid by TableCategory.** The column is defined as NULL for this
+   TableCategory (e.g. `ParameterCategory` on a non-AdverseEvent / non-Laboratory
+   table, `ParameterSubtype` on BMD / TissueDistribution / TextDescriptive).
+
+**Anything else — LEAVE IT ALONE.** Specifically:
+
+- Do NOT null a value because it "looks messy" or "could be cleaner."
+- Do NOT null `ParameterName`, `TreatmentArm`, `DoseRegimen`, `Unit`,
+  `ParameterCategory`, `Population`, `Timepoint`, `StudyContext`, or any other
+  column just because the value is unusual, abbreviated, or partially OCR'd.
+- Do NOT null a numeric-looking `Dose` or `ArmN` value.
+- Do NOT null a valid `PrimaryValueType` / `SecondaryValueType` / `BoundType`
+  enum member even if you would have chosen differently — replace it with a
+  better enum value, never with NULL.
+- If the value is parseable, meaningful, and conforms to its column contract,
+  KEEP IT. Silence beats a destructive correction.
+
+When in doubt: omit the correction. No correction is always safer than a
+NULL that deletes a perfectly good parsed value.
+
 ## TableCategory — the governing context for all rules
 AdverseEvent | PK | DrugInteraction | Efficacy | Dosing | BMD | TissueDistribution | Demographic | Laboratory | TextDescriptive | Unclassified
 

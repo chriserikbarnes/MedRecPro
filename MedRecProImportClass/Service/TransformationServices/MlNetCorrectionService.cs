@@ -72,6 +72,19 @@ namespace MedRecProImportClass.Service.TransformationServices
         private readonly ClaudeApiCorrectionSettings? _claudeSettings;
 
         /**************************************************************/
+        /// <summary>
+        /// Configured floor for the Claude anomaly gate, captured at construction time.
+        /// The persisted adaptive threshold may raise the effective gate value above this floor,
+        /// but must never demote it below. Without this floor, a freshly persisted training store
+        /// (whose <c>AdaptiveThreshold</c> defaults to <c>0.0f</c>) would silently overwrite a
+        /// user-configured <c>MlAnomalyScoreThreshold</c> (e.g. <c>0.75f</c>) and disable the
+        /// cost gate for every observation — the exact scenario where score-0.70 rows were
+        /// observed leaking through to Claude despite a 0.75 configuration.
+        /// </summary>
+        /// <seealso cref="ClaudeApiCorrectionSettings.MlAnomalyScoreThreshold"/>
+        private readonly float _configuredAnomalyFloor;
+
+        /**************************************************************/
         /// <summary>Tracks accumulator size at last training to determine when to retrain.</summary>
         private int _accumulatorSizeAtLastTrain;
 
@@ -184,6 +197,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             _trainingStore = trainingStore;
             _claudeSettings = claudeSettings;
 
+            // Capture the configured floor BEFORE any adaptive-threshold propagation can
+            // mutate _claudeSettings.MlAnomalyScoreThreshold. This frozen value is used as
+            // a lower bound in every subsequent write to the live settings instance.
+            _configuredAnomalyFloor = claudeSettings?.MlAnomalyScoreThreshold ?? 0f;
+
             #endregion
         }
 
@@ -202,14 +220,22 @@ namespace MedRecProImportClass.Service.TransformationServices
                 await _trainingStore.LoadAsync(ct);
                 _trainingAccumulator = _trainingStore.GetRecords().ToList();
 
+                // Propagate the persisted adaptive threshold to the live Claude settings,
+                // but never below the configured floor captured at construction. The store's
+                // AdaptiveThreshold defaults to 0.0f on a fresh install — writing it raw
+                // would silently demote a user-configured 0.75 floor and disable the gate.
+                var persistedAdaptive = _trainingStore.GetAdaptiveThreshold();
+                var effectiveThreshold = Math.Max(_configuredAnomalyFloor, persistedAdaptive);
+
                 if (_claudeSettings != null)
                 {
-                    _claudeSettings.MlAnomalyScoreThreshold = _trainingStore.GetAdaptiveThreshold();
+                    _claudeSettings.MlAnomalyScoreThreshold = effectiveThreshold;
                 }
 
                 _logger.LogInformation(
-                    "Loaded {Count} training records from store. Adaptive threshold: {Threshold:F4}",
-                    _trainingAccumulator.Count, _trainingStore.GetAdaptiveThreshold());
+                    "Loaded {Count} training records from store. Effective anomaly threshold: {Effective:F4} " +
+                    "(floor={Floor:F4}, persisted adaptive={Persisted:F4})",
+                    _trainingAccumulator.Count, effectiveThreshold, _configuredAnomalyFloor, persistedAdaptive);
             }
 
             _initialized = true;
@@ -1044,10 +1070,15 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 if (newThreshold != null && _claudeSettings != null)
                 {
-                    _claudeSettings.MlAnomalyScoreThreshold = newThreshold.Value;
+                    // Honor the configured floor on the runtime ratchet. The store's raw
+                    // adaptive value may still be climbing from its 0.0f default and could
+                    // otherwise demote a user-configured floor (e.g. 0.75).
+                    var effectiveThreshold = Math.Max(_configuredAnomalyFloor, newThreshold.Value);
+                    _claudeSettings.MlAnomalyScoreThreshold = effectiveThreshold;
                     _logger.LogInformation(
-                        "Adaptive threshold raised to {Threshold:F4}",
-                        newThreshold.Value);
+                        "Adaptive threshold updated: effective={Effective:F4} " +
+                        "(floor={Floor:F4}, ratcheted={Ratcheted:F4})",
+                        effectiveThreshold, _configuredAnomalyFloor, newThreshold.Value);
                 }
             }
             else

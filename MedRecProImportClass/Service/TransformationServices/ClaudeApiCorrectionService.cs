@@ -688,31 +688,91 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Strips markdown code fences from API response text.
-        /// Claude sometimes wraps JSON in ```json ... ``` despite instructions.
+        /// Extracts the JSON correction array from Claude's response text, tolerating
+        /// arbitrary surrounding content — markdown code fences, explanatory prose, or
+        /// stray backticks left behind by a partial fence. Locates the first <c>[</c>
+        /// and walks forward (tracking string state, escape sequences, and bracket
+        /// nesting) until the matching <c>]</c> is found, returning only that substring.
         /// </summary>
-        /// <param name="text">Raw response text.</param>
-        /// <returns>Text with markdown fences removed.</returns>
+        /// <remarks>
+        /// Replaces an earlier prefix/suffix fence strip that broke whenever Claude
+        /// added trailing prose or a dangling backtick on its own line — producing
+        /// <c>Newtonsoft.Json.JsonReaderException: Additional text encountered after
+        /// finished reading JSON content</c> at deserialization time. String contents
+        /// may legitimately contain <c>[</c> or <c>]</c> (e.g. in a <c>reason</c> field),
+        /// and escaped quotes (<c>\"</c>) must not toggle the in-string flag — both are
+        /// handled by the single-pass state machine below. If the array is unbalanced
+        /// (truncated response), the substring from the first <c>[</c> onward is
+        /// returned so <see cref="salvageTruncatedJson"/> can recover complete entries.
+        /// </remarks>
+        /// <param name="text">Raw response text from Claude.</param>
+        /// <returns>The extracted JSON array substring, or the trimmed text if no array is found.</returns>
+        /// <seealso cref="deserializeCorrections"/>
+        /// <seealso cref="salvageTruncatedJson"/>
         private static string stripMarkdownFences(string text)
         {
             #region implementation
 
             var trimmed = text.Trim();
 
-            if (trimmed.StartsWith("```"))
+            // Locate the start of the JSON correction array.
+            var firstBracket = trimmed.IndexOf('[');
+            if (firstBracket < 0)
+                return trimmed;
+
+            // Walk forward from the opening bracket, tracking string state and nesting
+            // depth, to find the matching closing bracket. Everything outside the
+            // balanced array (leading prose, trailing fences/prose) is discarded.
+            var depth = 0;
+            var inString = false;
+            var escaped = false;
+
+            for (int i = firstBracket; i < trimmed.Length; i++)
             {
-                // Remove opening fence (with optional language tag)
-                var firstNewline = trimmed.IndexOf('\n');
-                if (firstNewline >= 0)
-                    trimmed = trimmed.Substring(firstNewline + 1);
+                var c = trimmed[i];
+
+                if (escaped)
+                {
+                    // Previous char was a backslash inside a string — consume this char literally.
+                    escaped = false;
+                    continue;
+                }
+
+                if (c == '\\' && inString)
+                {
+                    // Begin an escape sequence; the next char is skipped for state purposes.
+                    escaped = true;
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    // Toggle string state. Escaped quotes are handled by the escaped branch above.
+                    inString = !inString;
+                    continue;
+                }
+
+                // Brackets inside string literals must not affect depth.
+                if (inString) continue;
+
+                if (c == '[')
+                {
+                    depth++;
+                }
+                else if (c == ']')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        // Found the matching close of the outermost array.
+                        return trimmed.Substring(firstBracket, i - firstBracket + 1);
+                    }
+                }
             }
 
-            if (trimmed.EndsWith("```"))
-            {
-                trimmed = trimmed.Substring(0, trimmed.Length - 3);
-            }
-
-            return trimmed.Trim();
+            // Unbalanced — likely a truncated response. Return from the first bracket
+            // onward so salvageTruncatedJson can recover any complete objects.
+            return trimmed.Substring(firstBracket);
 
             #endregion
         }

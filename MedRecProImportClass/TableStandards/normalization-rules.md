@@ -6,6 +6,37 @@ guidance included for ambiguous cases.
 
 ---
 
+## 0. NULL Preservation Rule (governs every rule below)
+
+Every rule in this document that prescribes `<column> = NULL` is a **routing**
+or **header-echo** rule — not a license to erase data. Any actor applying
+these rules (deterministic parser, ML.NET Tier 2, or Claude Stage 3.5
+correction) must preserve valid values:
+
+- A value may be set to NULL **only** when one of these holds:
+  1. **Routed.** The content is being moved into another column in the same
+     operation (e.g. DoseRegimen → ParameterSubtype). The destination write
+     must happen atomically with the NULL.
+  2. **Header / caption echo.** The value is literally a column header, row
+     label, or caption fragment that leaked into a data column and matches
+     one of the explicit echo patterns below.
+  3. **Schema-invalid for TableCategory.** The column is defined as NULL for
+     this table type per `column-contracts.md`
+     (e.g. ParameterCategory outside AdverseEvent / Laboratory).
+
+- Any value that is parseable, meaningful, and conforms to its column
+  contract is **kept as-is**. A mildly suboptimal value is always preferable
+  to a NULL that deletes it. When in doubt, leave the value alone.
+
+- Enum columns (`PrimaryValueType`, `SecondaryValueType`, `BoundType`) are
+  corrected **to another enum member**, never to NULL.
+
+This rule exists because prior Claude corrections occasionally nulled
+perfectly good parsed values that were merely unusual or hard to classify —
+destroying information the downstream pipeline depended on.
+
+---
+
 ## 1. DoseRegimen Triage
 
 After Population and Timepoint are already split to their own columns,
